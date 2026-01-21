@@ -1,0 +1,27 @@
+{
+  model_name: "lob_st_default",
+  model_type: "lob_st",
+  feature_set: "orderbook_l5",
+  params: {
+    depth_levels: 10,
+    input_length: 5000,
+    rbf_num_bases: 16,
+    rbf_sigma: 0.5,
+    lstm_hidden_size: 256,
+    lstm_num_layers: 1
+  },
+  train: {
+    train_ratio: 0.7,
+    val_ratio: 0.15,
+    test_ratio: 0.15,
+    batch_size: 8,
+    num_epochs: 100,
+    lr: 0.001,
+    weight_decay: 0.0001,
+    grad_clip_norm: 1.0,
+    device: "cuda",
+    num_workers: 0
+  },
+  weights_path: "results/models/lob_st_default/model.pt",
+  score_output: "results/models/lob_st_default/scores.csv"
+}

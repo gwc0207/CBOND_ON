@@ -1,0 +1,14 @@
+{
+  start: "2026-01-01",
+  end: "2026-01-15",
+  refresh: true,
+  overwrite: true,
+  day_start_time: "09:35",
+  cutoff_time: "14:30",
+  prev_day_start_time: "15:00",
+  sample_count: 5000,
+  max_lookback_days: 20,
+  trade_phase_prefix: "T",
+  depth_levels: 10,
+  output_dir: "LOBDS"
+}

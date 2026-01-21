@@ -1,0 +1,15 @@
+{
+  start: "2026-01-01",
+  target: "today",
+  run_after: "14:30",
+  data_cutoff: "14:30",
+  top_n: 50,
+  filter_tradable: true,
+  min_amount: 0,
+  min_volume: 0,
+  equal_weight: true,
+  db_write: false,
+  db_table: "quant_factor_dev.researcher_gswzif.d_0001",
+  db_mode: "replace_date",
+  model_name: "placeholder"
+}

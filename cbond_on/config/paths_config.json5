@@ -1,0 +1,8 @@
+{
+  raw_data_root: "D:/cbond_on/raw_data",
+  clean_data_root: "D:/cbond_on/clean_data",
+  factor_data_root: "D:/cbond_on/factor_data",
+  ads_root: "D:/cbond_on/ads",
+  results_root: "D:/cbond_on/results",
+  logs_root: "D:/cbond_on/logs"
+}

@@ -1,0 +1,36 @@
+{
+  mode: "both",
+  data: {
+    snapshot_root: "D:/cbond_on/raw_data/snapshot/cbond/raw_data",
+    snapshot_interval_seconds: 3,
+    orderbook_levels: 5,
+    price_field: "last",
+    filter_trading_phase: true,
+    allowed_phases: ["T"],
+    drop_no_trade: true,
+    use_prev_snapshot: true
+  },
+  db: {
+    start: "2025-01-01",
+    end: "2026-01-31",
+    refresh: true,
+    overwrite: false,
+    sync_tables: [
+      "metadata.trading_calendar",
+      "market_cbond.daily_price",
+      "market_cbond.daily_twap",
+      "market_cbond.daily_vwap",
+      "market_cbond.daily_deriv",
+      "market_cbond.daily_base",
+      "market_cbond.daily_rating"
+    ]
+  },
+  ftp: {
+    start: "2025-01-01",
+    end: "2026-01-31",
+    refresh: false,
+    overwrite: false,
+    base_dir: "snapshot/cbond/raw_data",
+    ftp_config_path: null
+  }
+}
