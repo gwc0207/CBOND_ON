@@ -8,7 +8,7 @@ from typing import Iterable
 import pandas as pd
 
 from cbond_on.core.universe import filter_tradable
-from cbond_on.data.io import read_clean_daily, read_trading_calendar, iter_clean_dates
+from cbond_on.data.io import read_table_range, read_trading_calendar, iter_clean_dates
 from cbond_on.models.score_io import load_scores_by_date
 from .execution import apply_twap_bps
 
@@ -20,6 +20,15 @@ class BacktestResult:
     nav_curve: pd.DataFrame | None = None
     positions: pd.DataFrame | None = None
     diagnostics: pd.DataFrame | None = None
+    ic_series: pd.DataFrame | None = None
+    bin_stats: pd.DataFrame | None = None
+    bin_nav: pd.DataFrame | None = None
+
+
+def _rank_ic(x: pd.Series, y: pd.Series) -> float:
+    x_rank = x.rank(method="average")
+    y_rank = y.rank(method="average")
+    return float(x_rank.corr(y_rank, method="pearson"))
 
 
 def _load_trading_days(raw_data_root: str) -> list[date]:
@@ -41,6 +50,18 @@ def _infer_trading_days(clean_data_root: str) -> list[date]:
     return days
 
 
+def _read_twap_daily(raw_data_root: str, day: date) -> pd.DataFrame:
+    df = read_table_range(raw_data_root, "market_cbond.daily_twap", day, day)
+    if df.empty:
+        return df
+    if "instrument_code" in df.columns and "exchange_code" in df.columns:
+        df = df.copy()
+        df["code"] = (
+            df["instrument_code"].astype(str) + "." + df["exchange_code"].astype(str)
+        )
+    return df
+
+
 def run_backtest(
     *,
     raw_data_root: str,
@@ -58,6 +79,7 @@ def run_backtest(
     filter_tradable_flag: bool,
     min_amount: float,
     min_volume: float,
+    ic_bins: int,
 ) -> BacktestResult:
     result = BacktestResult()
     scores = load_scores_by_date(score_path)
@@ -74,6 +96,9 @@ def run_backtest(
     daily_records: list[dict] = []
     position_records: list[dict] = []
     diagnostics: list[dict] = []
+    ic_records: list[dict] = []
+    bin_records: list[dict] = []
+    bin_time_records: list[dict] = []
     cost_bps = float(twap_bps) + float(fee_bps)
 
     for i in range(len(day_list) - 1):
@@ -84,8 +109,8 @@ def run_backtest(
             diagnostics.append({"trade_date": day, "status": "skip", "reason": "missing_score"})
             continue
 
-        buy_df = read_clean_daily(clean_data_root, day)
-        sell_df = read_clean_daily(clean_data_root, next_day)
+        buy_df = _read_twap_daily(raw_data_root, day)
+        sell_df = _read_twap_daily(raw_data_root, next_day)
         if buy_df.empty or sell_df.empty:
             diagnostics.append({"trade_date": day, "status": "skip", "reason": "missing_clean"})
             continue
@@ -117,6 +142,48 @@ def run_backtest(
             diagnostics.append({"trade_date": day, "status": "skip", "reason": "no_tradable"})
             continue
 
+        buy_all = apply_twap_bps(merged[buy_twap_col], cost_bps, side="buy")
+        sell_all = apply_twap_bps(merged[sell_twap_col], cost_bps, side="sell")
+        returns_all = (sell_all - buy_all) / buy_all
+        benchmark_return = float(returns_all.mean()) if not returns_all.empty else 0.0
+        ic_val = merged["score"].corr(returns_all, method="pearson")
+        rank_ic_val = _rank_ic(merged["score"], returns_all)
+        ic_records.append(
+            {
+                "trade_date": day,
+                "ic": ic_val,
+                "rank_ic": rank_ic_val,
+                "count": int(len(merged)),
+            }
+        )
+
+        if ic_bins > 1:
+            try:
+                bins_cat = pd.qcut(merged["score"], ic_bins, labels=False, duplicates="drop")
+            except ValueError:
+                bins_cat = None
+            if bins_cat is not None:
+                bin_df = pd.DataFrame(
+                    {"bin": bins_cat, "score": merged["score"].values, "return": returns_all.values}
+                ).dropna()
+                grouped = bin_df.groupby("bin", dropna=True)
+                for bin_id, group in grouped:
+                    bin_records.append(
+                        {
+                            "bin": int(bin_id),
+                            "score_mean": float(group["score"].mean()),
+                            "return_mean": float(group["return"].mean()),
+                            "count": int(len(group)),
+                        }
+                    )
+                    bin_time_records.append(
+                        {
+                            "trade_date": day,
+                            "bin": int(bin_id),
+                            "return_mean": float(group["return"].mean()),
+                        }
+                    )
+
         picks = merged.sort_values("score", ascending=False).head(int(top_n))
         if len(picks) < min_count:
             diagnostics.append(
@@ -137,6 +204,7 @@ def run_backtest(
                 "count": int(len(picks)),
                 "avg_return": float(returns.mean()),
                 "day_return": day_return,
+                "benchmark_return": benchmark_return,
                 "total_weight": total_weight,
             }
         )
@@ -162,6 +230,19 @@ def run_backtest(
         result.daily_returns = daily_df
         result.nav_curve = nav_df
         result.positions = pd.DataFrame(position_records)
+    if ic_records:
+        ic_df = pd.DataFrame(ic_records).sort_values("trade_date")
+        result.ic_series = ic_df
+    if bin_records:
+        result.bin_stats = pd.DataFrame(bin_records)
+    if bin_time_records:
+        bin_time_df = pd.DataFrame(bin_time_records)
+        if not bin_time_df.empty:
+            pivot = bin_time_df.pivot_table(
+                index="trade_date", columns="bin", values="return_mean", aggfunc="mean"
+            ).sort_index()
+            nav_bins = (1.0 + pivot.fillna(0.0)).cumprod()
+            result.bin_nav = nav_bins.reset_index()
     if diagnostics:
         result.diagnostics = pd.DataFrame(diagnostics).sort_values("trade_date")
     return result
