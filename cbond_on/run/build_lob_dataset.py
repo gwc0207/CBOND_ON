@@ -21,11 +21,42 @@ def _snapshot_path(snapshot_root: str, day: pd.Timestamp) -> Path:
     return Path(snapshot_root) / month / filename
 
 
-def _load_snapshot_day(snapshot_root: str, day: pd.Timestamp) -> pd.DataFrame:
+def _load_snapshot_day(
+    snapshot_root: str,
+    day: pd.Timestamp,
+    columns: list[str] | None = None,
+) -> pd.DataFrame:
     path = _snapshot_path(snapshot_root, day)
     if not path.exists():
         return pd.DataFrame()
-    df = pd.read_parquet(path)
+    df = pd.read_parquet(path, columns=columns)
+    if "trade_time" in df.columns and not pd.api.types.is_datetime64_any_dtype(
+        df["trade_time"]
+    ):
+        df = df.copy()
+        df["trade_time"] = pd.to_datetime(df["trade_time"])
+    return df
+
+
+def _load_snapshot_codes(
+    snapshot_root: str,
+    day: pd.Timestamp,
+    columns: list[str],
+    codes: list[str],
+) -> pd.DataFrame:
+    path = _snapshot_path(snapshot_root, day)
+    if not path.exists() or not codes:
+        return pd.DataFrame()
+    try:
+        df = pd.read_parquet(
+            path,
+            columns=columns,
+            filters=[("code", "in", codes)],
+        )
+    except Exception:
+        df = pd.read_parquet(path, columns=columns)
+        if "code" in df.columns:
+            df = df[df["code"].isin(codes)]
     if "trade_time" in df.columns and not pd.api.types.is_datetime64_any_dtype(
         df["trade_time"]
     ):
@@ -82,42 +113,17 @@ def _build_one_day(
     prev_day_cutoff_t: time,
     sample_count: int,
     trade_phase_prefix: str | None,
+    code_batch_size: int,
     depth_levels: int,
     buy_twap_col: str,
     sell_twap_col: str,
     output_dir: Path,
     overwrite: bool,
 ) -> dict:
-    df_day = _load_snapshot_day(snapshot_root, day)
-    if df_day.empty:
-        return {"day": day.date(), "status": "skip", "reason": "missing_snapshot"}
-
-    df_day = df_day.copy()
-    df_day["trade_time"] = pd.to_datetime(df_day["trade_time"])
-    df_day = _filter_trade_window(df_day, day, day_start_t, cutoff_t)
-    if df_day.empty:
-        return {"day": day.date(), "status": "skip", "reason": "empty_window"}
-
-    if "trading_phase_code" in df_day.columns and trade_phase_prefix:
-        df_day = df_day[
-            df_day["trading_phase_code"]
-            .astype(str)
-            .str.startswith(trade_phase_prefix)
-        ]
-        if df_day.empty:
-            return {"day": day.date(), "status": "skip", "reason": "no_trading_phase"}
-
     price_cols, volume_cols = _lob_columns(depth_levels)
     required = ["code", "trade_time"] + price_cols + volume_cols
-    missing_cols = [c for c in required if c not in df_day.columns]
-    if missing_cols:
-        return {"day": day.date(), "status": "skip", "reason": "missing_cols"}
-
-    df_day = df_day[required].dropna()
-    if df_day.empty:
-        return {"day": day.date(), "status": "skip", "reason": "all_nan"}
-
-    df_day = df_day.sort_values(["code", "trade_time"])
+    if trade_phase_prefix:
+        required.append("trading_phase_code")
 
     twap_day = _load_twap_day(raw_root, day)
     twap_next = _load_twap_day(raw_root, next_day)
@@ -141,83 +147,106 @@ def _build_one_day(
         / merged_twap.set_index("code")[buy_twap_col]
         - 1.0
     )
-    tradable_codes = set(y_map.index)
-    df_day = df_day[df_day["code"].isin(tradable_codes)]
-    if df_day.empty:
-        return {"day": day.date(), "status": "skip", "reason": "no_tradable_snapshot"}
-
-    prev_frames = []
-    for prev_day in prev_days:
-        df_prev = _load_snapshot_day(snapshot_root, prev_day)
-        if df_prev.empty:
-            continue
-        df_prev = df_prev.copy()
-        df_prev["trade_time"] = pd.to_datetime(df_prev["trade_time"])
-        if "trading_phase_code" in df_prev.columns and trade_phase_prefix:
-            df_prev = df_prev[
-                df_prev["trading_phase_code"]
-                .astype(str)
-                .str.startswith(trade_phase_prefix)
-            ]
-        if df_prev.empty:
-            continue
-        missing_prev = [c for c in required if c not in df_prev.columns]
-        if missing_prev:
-            continue
-        df_prev = _filter_trade_window(
-            df_prev, prev_day, day_start_t, prev_day_cutoff_t
-        )
-        if df_prev.empty:
-            continue
-        df_prev = df_prev[required].dropna()
-        df_prev = df_prev[df_prev["code"].isin(tradable_codes)]
-        if df_prev.empty:
-            continue
-        df_prev = df_prev.sort_values(["code", "trade_time"])
-        prev_frames.append(df_prev)
-
     samples = []
     labels = []
     codes = []
     used_counts = []
     used_day_counts = []
     used_prev_counts = []
+    tradable_list = sorted(y_map.index)
+    if not tradable_list:
+        return {"day": day.date(), "status": "skip", "reason": "no_tradable_snapshot"}
 
-    day_groups = {code: g for code, g in df_day.groupby("code", sort=False)}
-    if prev_frames:
-        df_prev_all = pd.concat(prev_frames, axis=0).sort_values(["code", "trade_time"])
-    else:
-        df_prev_all = pd.DataFrame(columns=required)
-    prev_groups = {code: g for code, g in df_prev_all.groupby("code", sort=False)}
-
-    for code in sorted(tradable_codes):
-        day_group = day_groups.get(code)
-        prev_group = prev_groups.get(code)
-        if day_group is None and prev_group is None:
-            continue
-        parts = []
-        if prev_group is not None and not prev_group.empty:
-            parts.append(prev_group)
-        if day_group is not None and not day_group.empty:
-            parts.append(day_group)
-        if not parts:
+    batch_size = max(1, int(code_batch_size))
+    for start in range(0, len(tradable_list), batch_size):
+        batch_codes = tradable_list[start : start + batch_size]
+        df_day = _load_snapshot_codes(snapshot_root, day, required, batch_codes)
+        if df_day.empty:
             continue
 
-        combined = pd.concat(parts, axis=0).sort_values("trade_time")
-        if len(combined) < sample_count:
+        df_day = _filter_trade_window(df_day, day, day_start_t, cutoff_t)
+        if df_day.empty:
             continue
 
-        tail = combined.tail(sample_count)
-        price = tail[price_cols].to_numpy(dtype=np.float32)
-        volume = tail[volume_cols].to_numpy(dtype=np.float32)
-        x = np.stack([price, volume], axis=0)  # (2, T, L)
-        samples.append(x)
-        labels.append(float(y_map.loc[code]))
-        codes.append(code)
-        used_counts.append(int(len(tail)))
-        day_mask = tail["trade_time"].dt.date == day.date()
-        used_day_counts.append(int(day_mask.sum()))
-        used_prev_counts.append(int((~day_mask).sum()))
+        if "trading_phase_code" in df_day.columns and trade_phase_prefix:
+            df_day = df_day[
+                df_day["trading_phase_code"]
+                .astype(str)
+                .str.startswith(trade_phase_prefix)
+            ]
+            if df_day.empty:
+                continue
+
+        missing_cols = [c for c in required if c not in df_day.columns]
+        if missing_cols:
+            return {"day": day.date(), "status": "skip", "reason": "missing_cols"}
+
+        df_day = df_day[required].dropna()
+        if df_day.empty:
+            continue
+        df_day = df_day.sort_values(["code", "trade_time"])
+
+        prev_frames = []
+        for prev_day in prev_days:
+            df_prev = _load_snapshot_codes(snapshot_root, prev_day, required, batch_codes)
+            if df_prev.empty:
+                continue
+            if "trading_phase_code" in df_prev.columns and trade_phase_prefix:
+                df_prev = df_prev[
+                    df_prev["trading_phase_code"]
+                    .astype(str)
+                    .str.startswith(trade_phase_prefix)
+                ]
+            if df_prev.empty:
+                continue
+            df_prev = _filter_trade_window(
+                df_prev, prev_day, day_start_t, prev_day_cutoff_t
+            )
+            if df_prev.empty:
+                continue
+            df_prev = df_prev[required].dropna()
+            if df_prev.empty:
+                continue
+            df_prev = df_prev.sort_values(["code", "trade_time"])
+            prev_frames.append(df_prev)
+
+        day_groups = {code: g for code, g in df_day.groupby("code", sort=False)}
+        if prev_frames:
+            df_prev_all = pd.concat(prev_frames, axis=0).sort_values(["code", "trade_time"])
+        else:
+            df_prev_all = pd.DataFrame(columns=required)
+        prev_groups = {code: g for code, g in df_prev_all.groupby("code", sort=False)}
+
+        for code in batch_codes:
+            if code not in y_map.index:
+                continue
+            day_group = day_groups.get(code)
+            prev_group = prev_groups.get(code)
+            if day_group is None and prev_group is None:
+                continue
+            parts = []
+            if prev_group is not None and not prev_group.empty:
+                parts.append(prev_group)
+            if day_group is not None and not day_group.empty:
+                parts.append(day_group)
+            if not parts:
+                continue
+
+            combined = pd.concat(parts, axis=0).sort_values("trade_time")
+            if len(combined) < sample_count:
+                continue
+
+            tail = combined.tail(sample_count)
+            price = tail[price_cols].to_numpy(dtype=np.float32)
+            volume = tail[volume_cols].to_numpy(dtype=np.float32)
+            x = np.stack([price, volume], axis=0)  # (2, T, L)
+            samples.append(x)
+            labels.append(float(y_map.loc[code]))
+            codes.append(code)
+            used_counts.append(int(len(tail)))
+            day_mask = tail["trade_time"].dt.date == day.date()
+            used_day_counts.append(int(day_mask.sum()))
+            used_prev_counts.append(int((~day_mask).sum()))
 
     if not samples:
         return {"day": day.date(), "status": "skip", "reason": "no_samples"}
@@ -267,6 +296,7 @@ def main() -> None:
     sample_count = int(ds_cfg.get("sample_count", 10000))
     max_lookback_days = int(ds_cfg.get("max_lookback_days", 5))
     trade_phase_prefix = ds_cfg.get("trade_phase_prefix", "T")
+    code_batch_size = int(ds_cfg.get("code_batch_size", 200))
     depth_levels = int(ds_cfg.get("depth_levels", 10))
     output_dir = clean_root / str(ds_cfg.get("output_dir", "LOBDS"))
     refresh = bool(ds_cfg.get("refresh", False))
@@ -338,6 +368,7 @@ def main() -> None:
             prev_day_cutoff_t=prev_day_cutoff_t,
             sample_count=sample_count,
             trade_phase_prefix=trade_phase_prefix,
+            code_batch_size=code_batch_size,
             depth_levels=depth_levels,
             buy_twap_col=buy_twap_col,
             sell_twap_col=sell_twap_col,

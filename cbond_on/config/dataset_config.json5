@@ -8,6 +8,7 @@
   prev_day_start_time: "15:00",
   sample_count: 5000,
   max_lookback_days: 20,
+  code_batch_size: 200,
   trade_phase_prefix: "T",
   depth_levels: 10,
   output_dir: "LOBDS"
