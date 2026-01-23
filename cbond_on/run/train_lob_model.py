@@ -12,7 +12,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from cbond_on.core.config import load_config_file
+from cbond_on.core.config import load_config_file, parse_date
 from cbond_on.models.impl.lob_st import LOBSpatioTemporalModel
 
 try:
@@ -149,6 +149,25 @@ def main() -> None:
         raise RuntimeError("no dataset days found under output_dir")
 
     train_cfg = model_cfg.get("train", {})
+    train_start = train_cfg.get("train_start")
+    train_end = train_cfg.get("train_end")
+    if train_start or train_end:
+        start_date = parse_date(train_start) if train_start else None
+        end_date = parse_date(train_end) if train_end else None
+        filtered = []
+        for p in day_dirs:
+            try:
+                day = parse_date(p.name)
+            except Exception:
+                continue
+            if start_date and day < start_date:
+                continue
+            if end_date and day > end_date:
+                continue
+            filtered.append(p)
+        day_dirs = filtered
+        if not day_dirs:
+            raise RuntimeError("no dataset days left after train_start/train_end filter")
     train_ratio = float(train_cfg.get("train_ratio", 0.7))
     val_ratio = float(train_cfg.get("val_ratio", 0.15))
     test_ratio = float(train_cfg.get("test_ratio", 0.15))
