@@ -44,6 +44,8 @@ def build_scores(
     output_path: Path,
 ) -> pd.DataFrame:
     device = _device_from_config(score_cfg.device)
+    input_length = model_params.get("input_length")
+    input_length = int(input_length) if input_length else None
     model = LOBSpatioTemporalModel(
         depth_levels=int(model_params.get("depth_levels", 10)),
         rbf_num_bases=int(model_params.get("rbf_num_bases", 16)),
@@ -80,6 +82,8 @@ def build_scores(
         batch_size = max(1, int(score_cfg.batch_size))
         for i in range(0, len(codes), batch_size):
             batch = x[i : i + batch_size]
+            if input_length:
+                batch = batch[:, :, -input_length:, :] if batch.shape[2] > input_length else batch
             batch_t = torch.from_numpy(np.array(batch, dtype=np.float32)).to(device)
             with torch.no_grad():
                 preds = model(batch_t).detach().cpu().numpy().astype(float)

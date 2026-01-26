@@ -164,6 +164,7 @@ def _evaluate(
     device: torch.device,
     *,
     collect_outputs: bool = False,
+    input_length: int | None = None,
 ) -> tuple[dict[str, float], dict[str, float] | None]:
     model.eval()
     loss_fn = torch.nn.MSELoss()
@@ -173,6 +174,8 @@ def _evaluate(
     with torch.no_grad():
         for x, y in loader:
             x = x.to(device)
+            if input_length:
+                x = x[:, -input_length:, :] if x.shape[2] > input_length else x
             y = y.to(device)
             pred = model(x)
             loss = loss_fn(pred, y)
@@ -267,6 +270,8 @@ def main() -> None:
     )
 
     params = model_cfg.get("params", {})
+    input_length = params.get("input_length")
+    input_length = int(input_length) if input_length else None
     model = LOBSpatioTemporalModel(
         depth_levels=int(params.get("depth_levels", 10)),
         rbf_num_bases=int(params.get("rbf_num_bases", 16)),
@@ -298,6 +303,8 @@ def main() -> None:
         train_p_list: list[np.ndarray] = []
         for x, y in loop:
             x = x.to(device)
+            if input_length:
+                x = x[:, -input_length:, :] if x.shape[2] > input_length else x
             y = y.to(device)
             optimizer.zero_grad()
             pred = model(x)
@@ -311,7 +318,7 @@ def main() -> None:
 
         train_metrics = tracker.metrics()
         val_metrics, val_stats = (
-            _evaluate(model, val_loader, device, collect_outputs=True)
+            _evaluate(model, val_loader, device, collect_outputs=True, input_length=input_length)
             if len(val_ds)
             else ({"loss": float("nan"), "r2": float("nan"), "dir_acc": float("nan")}, None)
         )
@@ -361,7 +368,7 @@ def main() -> None:
             torch.load(weights_path, map_location=device, weights_only=True)
         )
     test_metrics, _ = (
-        _evaluate(model, test_loader, device, collect_outputs=False)
+        _evaluate(model, test_loader, device, collect_outputs=False, input_length=input_length)
         if len(test_ds)
         else ({"loss": float("nan"), "r2": float("nan"), "dir_acc": float("nan")}, None)
     )
