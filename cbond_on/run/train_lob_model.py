@@ -120,10 +120,56 @@ class MetricTracker:
         return {"loss": loss, "r2": r2, "dir_acc": dir_acc}
 
 
-def _evaluate(model: torch.nn.Module, loader: DataLoader, device: torch.device) -> dict[str, float]:
+def _epoch_stats(y_all: np.ndarray, p_all: np.ndarray) -> dict[str, float]:
+    if y_all.size == 0:
+        return {
+            "y_mean": float("nan"),
+            "y_std": float("nan"),
+            "y_min": float("nan"),
+            "y_max": float("nan"),
+            "baseline_mse": float("nan"),
+            "model_mse": float("nan"),
+            "p_pos": float("nan"),
+            "pred_pos": float("nan"),
+            "dir": float("nan"),
+            "corr": float("nan"),
+        }
+    y_mean = float(y_all.mean())
+    y_std = float(y_all.std())
+    y_min = float(y_all.min())
+    y_max = float(y_all.max())
+    baseline_mse = float(((y_all - y_mean) ** 2).mean())
+    model_mse = float(((y_all - p_all) ** 2).mean())
+    p_pos = float((y_all > 0).mean())
+    pred_pos = float((p_all > 0).mean())
+    dir_acc = float((np.sign(y_all) == np.sign(p_all)).mean())
+    corr = float(np.corrcoef(p_all, y_all)[0, 1]) if y_all.size > 1 else float("nan")
+    return {
+        "y_mean": y_mean,
+        "y_std": y_std,
+        "y_min": y_min,
+        "y_max": y_max,
+        "baseline_mse": baseline_mse,
+        "model_mse": model_mse,
+        "p_pos": p_pos,
+        "pred_pos": pred_pos,
+        "dir": dir_acc,
+        "corr": corr,
+    }
+
+
+def _evaluate(
+    model: torch.nn.Module,
+    loader: DataLoader,
+    device: torch.device,
+    *,
+    collect_outputs: bool = False,
+) -> tuple[dict[str, float], dict[str, float] | None]:
     model.eval()
     loss_fn = torch.nn.MSELoss()
     tracker = MetricTracker()
+    y_list: list[np.ndarray] = []
+    p_list: list[np.ndarray] = []
     with torch.no_grad():
         for x, y in loader:
             x = x.to(device)
@@ -131,7 +177,15 @@ def _evaluate(model: torch.nn.Module, loader: DataLoader, device: torch.device) 
             pred = model(x)
             loss = loss_fn(pred, y)
             tracker.update(loss, y, pred)
-    return tracker.metrics()
+            if collect_outputs:
+                y_list.append(y.detach().cpu().numpy())
+                p_list.append(pred.detach().cpu().numpy())
+    stats = None
+    if collect_outputs:
+        y_all = np.concatenate(y_list, axis=0) if y_list else np.array([])
+        p_all = np.concatenate(p_list, axis=0) if p_list else np.array([])
+        stats = _epoch_stats(y_all, p_all)
+    return tracker.metrics(), stats
 
 
 def main() -> None:
@@ -240,6 +294,8 @@ def main() -> None:
         loop = train_loader
         if tqdm is not None:
             loop = tqdm(train_loader, desc=f"epoch {epoch:03d}", unit="batch")
+        train_y_list: list[np.ndarray] = []
+        train_p_list: list[np.ndarray] = []
         for x, y in loop:
             x = x.to(device)
             y = y.to(device)
@@ -250,14 +306,39 @@ def main() -> None:
             torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip_norm)
             optimizer.step()
             tracker.update(loss, y, pred)
+            train_y_list.append(y.detach().cpu().numpy())
+            train_p_list.append(pred.detach().cpu().numpy())
 
         train_metrics = tracker.metrics()
-        val_metrics = _evaluate(model, val_loader, device) if len(val_ds) else {"loss": float("nan"), "r2": float("nan"), "dir_acc": float("nan")}
+        val_metrics, val_stats = (
+            _evaluate(model, val_loader, device, collect_outputs=True)
+            if len(val_ds)
+            else ({"loss": float("nan"), "r2": float("nan"), "dir_acc": float("nan")}, None)
+        )
+        train_stats = _epoch_stats(
+            np.concatenate(train_y_list, axis=0) if train_y_list else np.array([]),
+            np.concatenate(train_p_list, axis=0) if train_p_list else np.array([]),
+        )
         print(
             f"epoch {epoch:03d} "
             f"train_loss={train_metrics['loss']:.6f} train_r2={train_metrics['r2']:.4f} train_dir={train_metrics['dir_acc']:.4f} "
             f"val_loss={val_metrics['loss']:.6f} val_r2={val_metrics['r2']:.4f} val_dir={val_metrics['dir_acc']:.4f}"
         )
+        print(
+            f"[train stats] y_mean={train_stats['y_mean']:.6f} y_std={train_stats['y_std']:.6f} "
+            f"y_min={train_stats['y_min']:.6f} y_max={train_stats['y_max']:.6f} "
+            f"baseline_mse={train_stats['baseline_mse']:.6f} model_mse={train_stats['model_mse']:.6f} "
+            f"p_pos={train_stats['p_pos']:.4f} pred_pos={train_stats['pred_pos']:.4f} "
+            f"dir={train_stats['dir']:.4f} corr={train_stats['corr']:.4f}"
+        )
+        if val_stats is not None:
+            print(
+                f"[val stats] y_mean={val_stats['y_mean']:.6f} y_std={val_stats['y_std']:.6f} "
+                f"y_min={val_stats['y_min']:.6f} y_max={val_stats['y_max']:.6f} "
+                f"baseline_mse={val_stats['baseline_mse']:.6f} model_mse={val_stats['model_mse']:.6f} "
+                f"p_pos={val_stats['p_pos']:.4f} pred_pos={val_stats['pred_pos']:.4f} "
+                f"dir={val_stats['dir']:.4f} corr={val_stats['corr']:.4f}"
+            )
 
         history.append(
             {
@@ -277,7 +358,11 @@ def main() -> None:
 
     if weights_path.exists():
         model.load_state_dict(torch.load(weights_path, map_location=device))
-    test_metrics = _evaluate(model, test_loader, device) if len(test_ds) else {"loss": float("nan"), "r2": float("nan"), "dir_acc": float("nan")}
+    test_metrics, _ = (
+        _evaluate(model, test_loader, device, collect_outputs=False)
+        if len(test_ds)
+        else ({"loss": float("nan"), "r2": float("nan"), "dir_acc": float("nan")}, None)
+    )
     print(f"test_loss={test_metrics['loss']:.6f} test_r2={test_metrics['r2']:.4f} test_dir={test_metrics['dir_acc']:.4f}")
 
     metrics_path = weights_path.parent / "train_metrics.csv"
