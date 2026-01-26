@@ -158,6 +158,30 @@ def _epoch_stats(y_all: np.ndarray, p_all: np.ndarray) -> dict[str, float]:
     }
 
 
+def _normalize_x_batch(x: torch.Tensor, method: str) -> torch.Tensor:
+    if method == "zscore_sample":
+        mean = x.mean(dim=(2, 3), keepdim=True)
+        std = x.std(dim=(2, 3), keepdim=True)
+        std = torch.where(std > 0, std, torch.ones_like(std))
+        return (x - mean) / std
+    if method == "minmax_sample":
+        x_min = x.amin(dim=(2, 3), keepdim=True)
+        x_max = x.amax(dim=(2, 3), keepdim=True)
+        denom = torch.where((x_max - x_min) > 0, (x_max - x_min), torch.ones_like(x_max))
+        return (x - x_min) / denom
+    return x
+
+
+def _normalize_y_batch(y: torch.Tensor, method: str) -> torch.Tensor:
+    if method == "zscore_batch":
+        mean = y.mean()
+        std = y.std()
+        if std > 0:
+            return (y - mean) / std
+        return y - mean
+    return y
+
+
 def _evaluate(
     model: torch.nn.Module,
     loader: DataLoader,
@@ -165,6 +189,10 @@ def _evaluate(
     *,
     collect_outputs: bool = False,
     input_length: int | None = None,
+    normalize_x: bool = False,
+    normalize_y: bool = False,
+    x_norm_method: str = "zscore_sample",
+    y_norm_method: str = "zscore_batch",
 ) -> tuple[dict[str, float], dict[str, float] | None]:
     model.eval()
     loss_fn = torch.nn.MSELoss()
@@ -176,7 +204,11 @@ def _evaluate(
             x = x.to(device)
             if input_length:
                 x = x[:, :, -input_length:, :] if x.shape[2] > input_length else x
+            if normalize_x:
+                x = _normalize_x_batch(x, x_norm_method)
             y = y.to(device)
+            if normalize_y:
+                y = _normalize_y_batch(y, y_norm_method)
             pred = model(x)
             loss = loss_fn(pred, y)
             tracker.update(loss, y, pred)
@@ -285,6 +317,10 @@ def main() -> None:
     weight_decay = float(train_cfg.get("weight_decay", 1e-4))
     num_epochs = int(train_cfg.get("num_epochs", 10))
     grad_clip_norm = float(train_cfg.get("grad_clip_norm", 1.0))
+    normalize_x = bool(train_cfg.get("normalize_x", False))
+    normalize_y = bool(train_cfg.get("normalize_y", False))
+    x_norm_method = str(train_cfg.get("x_norm_method", "zscore_sample"))
+    y_norm_method = str(train_cfg.get("y_norm_method", "zscore_batch"))
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
     loss_fn = torch.nn.MSELoss()
@@ -307,10 +343,14 @@ def main() -> None:
             x = x.to(device)
             if input_length:
                 x = x[:, :, -input_length:, :] if x.shape[2] > input_length else x
+            if normalize_x:
+                x = _normalize_x_batch(x, x_norm_method)
             if not printed_shape:
                 print(f"[debug] train batch x shape: {tuple(x.shape)}")
                 printed_shape = True
             y = y.to(device)
+            if normalize_y:
+                y = _normalize_y_batch(y, y_norm_method)
             optimizer.zero_grad()
             pred = model(x)
             loss = loss_fn(pred, y)
@@ -323,7 +363,17 @@ def main() -> None:
 
         train_metrics = tracker.metrics()
         val_metrics, val_stats = (
-            _evaluate(model, val_loader, device, collect_outputs=True, input_length=input_length)
+            _evaluate(
+                model,
+                val_loader,
+                device,
+                collect_outputs=True,
+                input_length=input_length,
+                normalize_x=normalize_x,
+                normalize_y=normalize_y,
+                x_norm_method=x_norm_method,
+                y_norm_method=y_norm_method,
+            )
             if len(val_ds)
             else ({"loss": float("nan"), "r2": float("nan"), "dir_acc": float("nan")}, None)
         )
@@ -372,12 +422,30 @@ def main() -> None:
         model.load_state_dict(
             torch.load(weights_path, map_location=device, weights_only=True)
         )
-    test_metrics, _ = (
-        _evaluate(model, test_loader, device, collect_outputs=False, input_length=input_length)
+    test_metrics, test_stats = (
+        _evaluate(
+            model,
+            test_loader,
+            device,
+            collect_outputs=True,
+            input_length=input_length,
+            normalize_x=normalize_x,
+            normalize_y=normalize_y,
+            x_norm_method=x_norm_method,
+            y_norm_method=y_norm_method,
+        )
         if len(test_ds)
         else ({"loss": float("nan"), "r2": float("nan"), "dir_acc": float("nan")}, None)
     )
     print(f"test_loss={test_metrics['loss']:.6f} test_r2={test_metrics['r2']:.4f} test_dir={test_metrics['dir_acc']:.4f}")
+    if test_stats is not None:
+        print(
+            f"[test stats] y_mean={test_stats['y_mean']:.6f} y_std={test_stats['y_std']:.6f} "
+            f"y_min={test_stats['y_min']:.6f} y_max={test_stats['y_max']:.6f} "
+            f"baseline_mse={test_stats['baseline_mse']:.6f} model_mse={test_stats['model_mse']:.6f} "
+            f"p_pos={test_stats['p_pos']:.4f} pred_pos={test_stats['pred_pos']:.4f} "
+            f"dir={test_stats['dir']:.4f} corr={test_stats['corr']:.4f}"
+        )
 
     metrics_path = weights_path.parent / "train_metrics.csv"
     if history:
