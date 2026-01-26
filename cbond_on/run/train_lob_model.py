@@ -175,7 +175,7 @@ def _evaluate(
         for x, y in loader:
             x = x.to(device)
             if input_length:
-                x = x[:, -input_length:, :] if x.shape[2] > input_length else x
+                x = x[:, :, -input_length:, :] if x.shape[2] > input_length else x
             y = y.to(device)
             pred = model(x)
             loss = loss_fn(pred, y)
@@ -272,6 +272,7 @@ def main() -> None:
     params = model_cfg.get("params", {})
     input_length = params.get("input_length")
     input_length = int(input_length) if input_length else None
+    print(f"[debug] config input_length: {input_length}")
     model = LOBSpatioTemporalModel(
         depth_levels=int(params.get("depth_levels", 10)),
         rbf_num_bases=int(params.get("rbf_num_bases", 16)),
@@ -301,10 +302,14 @@ def main() -> None:
             loop = tqdm(train_loader, desc=f"epoch {epoch:03d}", unit="batch")
         train_y_list: list[np.ndarray] = []
         train_p_list: list[np.ndarray] = []
+        printed_shape = False
         for x, y in loop:
             x = x.to(device)
             if input_length:
-                x = x[:, -input_length:, :] if x.shape[2] > input_length else x
+                x = x[:, :, -input_length:, :] if x.shape[2] > input_length else x
+            if not printed_shape:
+                print(f"[debug] train batch x shape: {tuple(x.shape)}")
+                printed_shape = True
             y = y.to(device)
             optimizer.zero_grad()
             pred = model(x)
