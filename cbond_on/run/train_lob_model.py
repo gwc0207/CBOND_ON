@@ -133,6 +133,10 @@ def _epoch_stats(y_all: np.ndarray, p_all: np.ndarray) -> dict[str, float]:
             "pred_pos": float("nan"),
             "dir": float("nan"),
             "corr": float("nan"),
+            "pred_mean": float("nan"),
+            "pred_std": float("nan"),
+            "pred_min": float("nan"),
+            "pred_max": float("nan"),
         }
     y_mean = float(y_all.mean())
     y_std = float(y_all.std())
@@ -144,6 +148,10 @@ def _epoch_stats(y_all: np.ndarray, p_all: np.ndarray) -> dict[str, float]:
     pred_pos = float((p_all > 0).mean())
     dir_acc = float((np.sign(y_all) == np.sign(p_all)).mean())
     corr = float(np.corrcoef(p_all, y_all)[0, 1]) if y_all.size > 1 else float("nan")
+    pred_mean = float(p_all.mean())
+    pred_std = float(p_all.std())
+    pred_min = float(p_all.min())
+    pred_max = float(p_all.max())
     return {
         "y_mean": y_mean,
         "y_std": y_std,
@@ -155,6 +163,10 @@ def _epoch_stats(y_all: np.ndarray, p_all: np.ndarray) -> dict[str, float]:
         "pred_pos": pred_pos,
         "dir": dir_acc,
         "corr": corr,
+        "pred_mean": pred_mean,
+        "pred_std": pred_std,
+        "pred_min": pred_min,
+        "pred_max": pred_max,
     }
 
 
@@ -193,7 +205,7 @@ def _evaluate(
     normalize_y: bool = False,
     x_norm_method: str = "zscore_sample",
     y_norm_method: str = "zscore_batch",
-) -> tuple[dict[str, float], dict[str, float] | None]:
+) -> tuple[dict[str, float], dict[str, float] | None, tuple[np.ndarray, np.ndarray] | None]:
     model.eval()
     loss_fn = torch.nn.MSELoss()
     tracker = MetricTracker()
@@ -216,11 +228,13 @@ def _evaluate(
                 y_list.append(y.detach().cpu().numpy())
                 p_list.append(pred.detach().cpu().numpy())
     stats = None
+    outputs = None
     if collect_outputs:
         y_all = np.concatenate(y_list, axis=0) if y_list else np.array([])
         p_all = np.concatenate(p_list, axis=0) if p_list else np.array([])
         stats = _epoch_stats(y_all, p_all)
-    return tracker.metrics(), stats
+        outputs = (y_all, p_all)
+    return tracker.metrics(), stats, outputs
 
 
 def main() -> None:
@@ -362,7 +376,7 @@ def main() -> None:
             train_p_list.append(pred.detach().cpu().numpy())
 
         train_metrics = tracker.metrics()
-        val_metrics, val_stats = (
+        val_metrics, val_stats, val_outputs = (
             _evaluate(
                 model,
                 val_loader,
@@ -375,7 +389,7 @@ def main() -> None:
                 y_norm_method=y_norm_method,
             )
             if len(val_ds)
-            else ({"loss": float("nan"), "r2": float("nan"), "dir_acc": float("nan")}, None)
+            else ({"loss": float("nan"), "r2": float("nan"), "dir_acc": float("nan")}, None, None)
         )
         train_stats = _epoch_stats(
             np.concatenate(train_y_list, axis=0) if train_y_list else np.array([]),
@@ -391,7 +405,9 @@ def main() -> None:
             f"y_min={train_stats['y_min']:.6f} y_max={train_stats['y_max']:.6f} "
             f"baseline_mse={train_stats['baseline_mse']:.6f} model_mse={train_stats['model_mse']:.6f} "
             f"p_pos={train_stats['p_pos']:.4f} pred_pos={train_stats['pred_pos']:.4f} "
-            f"dir={train_stats['dir']:.4f} corr={train_stats['corr']:.4f}"
+            f"dir={train_stats['dir']:.4f} corr={train_stats['corr']:.4f} "
+            f"pred_mean={train_stats['pred_mean']:.6f} pred_std={train_stats['pred_std']:.6f} "
+            f"pred_min={train_stats['pred_min']:.6f} pred_max={train_stats['pred_max']:.6f}"
         )
         if val_stats is not None:
             print(
@@ -399,7 +415,9 @@ def main() -> None:
                 f"y_min={val_stats['y_min']:.6f} y_max={val_stats['y_max']:.6f} "
                 f"baseline_mse={val_stats['baseline_mse']:.6f} model_mse={val_stats['model_mse']:.6f} "
                 f"p_pos={val_stats['p_pos']:.4f} pred_pos={val_stats['pred_pos']:.4f} "
-                f"dir={val_stats['dir']:.4f} corr={val_stats['corr']:.4f}"
+                f"dir={val_stats['dir']:.4f} corr={val_stats['corr']:.4f} "
+                f"pred_mean={val_stats['pred_mean']:.6f} pred_std={val_stats['pred_std']:.6f} "
+                f"pred_min={val_stats['pred_min']:.6f} pred_max={val_stats['pred_max']:.6f}"
             )
 
         history.append(
@@ -422,7 +440,7 @@ def main() -> None:
         model.load_state_dict(
             torch.load(weights_path, map_location=device, weights_only=True)
         )
-    test_metrics, test_stats = (
+    test_metrics, test_stats, test_outputs = (
         _evaluate(
             model,
             test_loader,
@@ -435,7 +453,7 @@ def main() -> None:
             y_norm_method=y_norm_method,
         )
         if len(test_ds)
-        else ({"loss": float("nan"), "r2": float("nan"), "dir_acc": float("nan")}, None)
+        else ({"loss": float("nan"), "r2": float("nan"), "dir_acc": float("nan")}, None, None)
     )
     print(f"test_loss={test_metrics['loss']:.6f} test_r2={test_metrics['r2']:.4f} test_dir={test_metrics['dir_acc']:.4f}")
     if test_stats is not None:
@@ -444,8 +462,21 @@ def main() -> None:
             f"y_min={test_stats['y_min']:.6f} y_max={test_stats['y_max']:.6f} "
             f"baseline_mse={test_stats['baseline_mse']:.6f} model_mse={test_stats['model_mse']:.6f} "
             f"p_pos={test_stats['p_pos']:.4f} pred_pos={test_stats['pred_pos']:.4f} "
-            f"dir={test_stats['dir']:.4f} corr={test_stats['corr']:.4f}"
+            f"dir={test_stats['dir']:.4f} corr={test_stats['corr']:.4f} "
+            f"pred_mean={test_stats['pred_mean']:.6f} pred_std={test_stats['pred_std']:.6f} "
+            f"pred_min={test_stats['pred_min']:.6f} pred_max={test_stats['pred_max']:.6f}"
         )
+    if val_outputs is not None and test_outputs is not None:
+        val_y, val_p = val_outputs
+        test_y, test_p = test_outputs
+        if val_y.size > 0 and test_y.size > 0:
+            val_pos = float((val_y > 0).mean())
+            tau = float(np.quantile(val_p, 1.0 - val_pos))
+            test_dir_tau = float((np.sign(test_y) == np.sign(test_p - tau)).mean())
+            print(
+                f"[calibrated] tau={tau:.6f} "
+                f"val_pos={val_pos:.4f} test_dir_tau={test_dir_tau:.4f}"
+            )
 
     metrics_path = weights_path.parent / "train_metrics.csv"
     if history:
