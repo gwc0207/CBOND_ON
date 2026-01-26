@@ -339,7 +339,9 @@ def main() -> None:
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
     loss_fn = torch.nn.MSELoss()
 
-    best_val = float("inf")
+    best_score = float("-inf")
+    dir_weight = float(train_cfg.get("checkpoint_dir_weight", 1.0))
+    corr_weight = float(train_cfg.get("checkpoint_corr_weight", 0.3))
     weights_path = Path(model_cfg.get("weights_path", "results/models/lob_st_default/model.pt"))
     weights_path.parent.mkdir(parents=True, exist_ok=True)
     history = []
@@ -432,9 +434,11 @@ def main() -> None:
             }
         )
 
-        if val_metrics["loss"] < best_val:
-            best_val = val_metrics["loss"]
-            torch.save(model.state_dict(), weights_path)
+        if not np.isnan(val_metrics["dir_acc"]) and not np.isnan(val_stats["corr"] if val_stats else float("nan")):
+            score = dir_weight * val_metrics["dir_acc"] + corr_weight * (val_stats["corr"] if val_stats else 0.0)
+            if score > best_score:
+                best_score = score
+                torch.save(model.state_dict(), weights_path)
 
     if weights_path.exists():
         model.load_state_dict(
