@@ -24,6 +24,6 @@
     device: "cuda",
     num_workers: 0
   },
-  weights_path: "results/models/lob_st_default/model.pt",
-  score_output: "results/models/lob_st_default/scores.csv"
+  weights_path: "D:/cbond_on/results/models/lob_st_default/model.pt",
+  score_output: "D:/cbond_on/results/scores/lob_st_default/scores.csv"
 }

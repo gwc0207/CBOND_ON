@@ -53,7 +53,9 @@ def build_scores(
     ).to(device)
     if not weights_path.exists():
         raise FileNotFoundError(f"model weights not found: {weights_path}")
-    model.load_state_dict(torch.load(weights_path, map_location=device))
+    model.load_state_dict(
+        torch.load(weights_path, map_location=device, weights_only=True)
+    )
     model.eval()
 
     records: list[dict] = []

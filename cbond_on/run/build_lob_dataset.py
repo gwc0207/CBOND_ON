@@ -101,6 +101,32 @@ def _filter_trade_window(
     return df[(df["trade_time"] >= start_dt) & (df["trade_time"] <= end_dt)]
 
 
+def _normalize_x(x: np.ndarray, method: str) -> np.ndarray:
+    if method == "zscore_sample":
+        mean = x.mean(axis=(1, 2), keepdims=True)
+        std = x.std(axis=(1, 2), keepdims=True)
+        std = np.where(std > 0, std, 1.0)
+        return (x - mean) / std
+    if method == "minmax_sample":
+        x_min = x.min(axis=(1, 2), keepdims=True)
+        x_max = x.max(axis=(1, 2), keepdims=True)
+        denom = np.where((x_max - x_min) > 0, (x_max - x_min), 1.0)
+        return (x - x_min) / denom
+    return x
+
+
+def _normalize_y(y: np.ndarray, method: str) -> tuple[np.ndarray, float, float]:
+    if y.size == 0:
+        return y, float("nan"), float("nan")
+    if method == "zscore_day":
+        mean = float(y.mean())
+        std = float(y.std())
+        if std > 0:
+            return (y - mean) / std, mean, std
+        return y - mean, mean, std
+    return y, float("nan"), float("nan")
+
+
 def _build_one_day(
     *,
     prev_days: list[pd.Timestamp],
@@ -115,6 +141,10 @@ def _build_one_day(
     trade_phase_prefix: str | None,
     code_batch_size: int,
     depth_levels: int,
+    normalize_x: bool,
+    normalize_y: bool,
+    x_norm_method: str,
+    y_norm_method: str,
     buy_twap_col: str,
     sell_twap_col: str,
     output_dir: Path,
@@ -240,6 +270,8 @@ def _build_one_day(
             price = tail[price_cols].to_numpy(dtype=np.float32)
             volume = tail[volume_cols].to_numpy(dtype=np.float32)
             x = np.stack([price, volume], axis=0)  # (2, T, L)
+            if normalize_x:
+                x = _normalize_x(x, x_norm_method)
             samples.append(x)
             labels.append(float(y_map.loc[code]))
             codes.append(code)
@@ -253,6 +285,10 @@ def _build_one_day(
 
     X = np.stack(samples, axis=0)
     y = np.asarray(labels, dtype=np.float32)
+    y_mean = float("nan")
+    y_std = float("nan")
+    if normalize_y:
+        y, y_mean, y_std = _normalize_y(y, y_norm_method)
     meta = pd.DataFrame(
         {
             "trade_date": day.date(),
@@ -263,6 +299,10 @@ def _build_one_day(
             "label": labels,
         }
     )
+    if normalize_y:
+        meta["label_norm"] = y
+        meta["label_mean"] = y_mean
+        meta["label_std"] = y_std
 
     out_day_dir = output_dir / f"{day:%Y%m%d}"
     if out_day_dir.exists() and not overwrite:
@@ -298,6 +338,10 @@ def main() -> None:
     trade_phase_prefix = ds_cfg.get("trade_phase_prefix", "T")
     code_batch_size = int(ds_cfg.get("code_batch_size", 200))
     depth_levels = int(ds_cfg.get("depth_levels", 10))
+    normalize_x = bool(ds_cfg.get("normalize_x", False))
+    normalize_y = bool(ds_cfg.get("normalize_y", False))
+    x_norm_method = str(ds_cfg.get("x_norm_method", "zscore_sample"))
+    y_norm_method = str(ds_cfg.get("y_norm_method", "zscore_day"))
     output_dir = clean_root / str(ds_cfg.get("output_dir", "LOBDS"))
     refresh = bool(ds_cfg.get("refresh", False))
     overwrite = bool(ds_cfg.get("overwrite", False)) or refresh
@@ -370,6 +414,10 @@ def main() -> None:
             trade_phase_prefix=trade_phase_prefix,
             code_batch_size=code_batch_size,
             depth_levels=depth_levels,
+            normalize_x=normalize_x,
+            normalize_y=normalize_y,
+            x_norm_method=x_norm_method,
+            y_norm_method=y_norm_method,
             buy_twap_col=buy_twap_col,
             sell_twap_col=sell_twap_col,
             output_dir=output_dir,

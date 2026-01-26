@@ -357,7 +357,9 @@ def main() -> None:
             torch.save(model.state_dict(), weights_path)
 
     if weights_path.exists():
-        model.load_state_dict(torch.load(weights_path, map_location=device))
+        model.load_state_dict(
+            torch.load(weights_path, map_location=device, weights_only=True)
+        )
     test_metrics, _ = (
         _evaluate(model, test_loader, device, collect_outputs=False)
         if len(test_ds)

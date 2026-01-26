@@ -4,5 +4,7 @@
   factor_data_root: "D:/cbond_on/factor_data",
   ads_root: "D:/cbond_on/ads",
   results_root: "D:/cbond_on/results",
+  model_root: "D:/cbond_on/results/models",
+  score_root: "D:/cbond_on/results/scores",
   logs_root: "D:/cbond_on/logs"
 }

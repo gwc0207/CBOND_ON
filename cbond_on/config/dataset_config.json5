@@ -11,5 +11,9 @@
   code_batch_size: 200,
   trade_phase_prefix: "T",
   depth_levels: 10,
+  normalize_x: false,
+  normalize_y: false,
+  x_norm_method: "zscore_sample",
+  y_norm_method: "zscore_day",
   output_dir: "LOBDS"
 }
