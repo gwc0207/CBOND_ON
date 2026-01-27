@@ -25,6 +25,7 @@
     normalize_y: false,
     x_norm_method: "zscore_sample",
     y_norm_method: "zscore_batch",
+    shuffle_train: true,
     checkpoint_dir_weight: 1.0,
     checkpoint_corr_weight: 0.3,
     device: "cuda",

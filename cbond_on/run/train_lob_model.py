@@ -289,11 +289,12 @@ def main() -> None:
     num_workers = int(train_cfg.get("num_workers", 0))
     device_name = str(train_cfg.get("device", "cuda"))
     device = torch.device(device_name if torch.cuda.is_available() else "cpu")
+    shuffle_train = bool(train_cfg.get("shuffle_train", True))
 
     train_loader = DataLoader(
         train_ds,
         batch_size=batch_size,
-        shuffle=False,
+        shuffle=shuffle_train,
         drop_last=False,
         num_workers=num_workers,
         pin_memory=device.type == "cuda",
@@ -335,7 +336,6 @@ def main() -> None:
     normalize_y = bool(train_cfg.get("normalize_y", False))
     x_norm_method = str(train_cfg.get("x_norm_method", "zscore_sample"))
     y_norm_method = str(train_cfg.get("y_norm_method", "zscore_batch"))
-
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
     loss_fn = torch.nn.MSELoss()
 
@@ -424,6 +424,8 @@ def main() -> None:
             )
 
         val_corr = val_stats["corr"] if val_stats is not None else float("nan")
+        if not np.isfinite(val_corr):
+            val_corr = 0.0
         checkpoint_score = (
             dir_weight * val_metrics["dir_acc"] + corr_weight * val_corr
             if not np.isnan(val_metrics["dir_acc"]) and not np.isnan(val_corr)
