@@ -340,6 +340,7 @@ def main() -> None:
     loss_fn = torch.nn.MSELoss()
 
     best_score = float("-inf")
+    best_epoch = None
     dir_weight = float(train_cfg.get("checkpoint_dir_weight", 1.0))
     corr_weight = float(train_cfg.get("checkpoint_corr_weight", 0.3))
     weights_path = Path(model_cfg.get("weights_path", "results/models/lob_st_default/model.pt"))
@@ -422,6 +423,12 @@ def main() -> None:
                 f"pred_min={val_stats['pred_min']:.6f} pred_max={val_stats['pred_max']:.6f}"
             )
 
+        val_corr = val_stats["corr"] if val_stats is not None else float("nan")
+        checkpoint_score = (
+            dir_weight * val_metrics["dir_acc"] + corr_weight * val_corr
+            if not np.isnan(val_metrics["dir_acc"]) and not np.isnan(val_corr)
+            else float("nan")
+        )
         history.append(
             {
                 "epoch": epoch,
@@ -431,18 +438,25 @@ def main() -> None:
                 "val_loss": val_metrics["loss"],
                 "val_r2": val_metrics["r2"],
                 "val_dir_acc": val_metrics["dir_acc"],
+                "val_corr": val_corr,
+                "checkpoint_score": checkpoint_score,
             }
         )
 
-        if not np.isnan(val_metrics["dir_acc"]) and not np.isnan(val_stats["corr"] if val_stats else float("nan")):
-            score = dir_weight * val_metrics["dir_acc"] + corr_weight * (val_stats["corr"] if val_stats else 0.0)
-            if score > best_score:
-                best_score = score
+        if not np.isnan(checkpoint_score):
+            if checkpoint_score > best_score:
+                best_score = checkpoint_score
+                best_epoch = epoch
                 torch.save(model.state_dict(), weights_path)
 
     if weights_path.exists():
         model.load_state_dict(
             torch.load(weights_path, map_location=device, weights_only=True)
+        )
+    if best_epoch is not None:
+        print(
+            f"[checkpoint] epoch={best_epoch} score={best_score:.6f} "
+            f"(dir_weight={dir_weight:.3f} corr_weight={corr_weight:.3f})"
         )
     test_metrics, test_stats, test_outputs = (
         _evaluate(
