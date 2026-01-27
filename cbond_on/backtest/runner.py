@@ -23,6 +23,7 @@ class BacktestResult:
     ic_series: pd.DataFrame | None = None
     bin_stats: pd.DataFrame | None = None
     bin_nav: pd.DataFrame | None = None
+    bin_dir_acc: pd.DataFrame | None = None
 
 
 def _rank_ic(x: pd.Series, y: pd.Series) -> float:
@@ -99,6 +100,7 @@ def run_backtest(
     ic_records: list[dict] = []
     bin_records: list[dict] = []
     bin_time_records: list[dict] = []
+    bin_dir_records: list[dict] = []
     cost_bps = float(twap_bps) + float(fee_bps)
 
     for i in range(len(day_list) - 1):
@@ -168,11 +170,13 @@ def run_backtest(
                 ).dropna()
                 grouped = bin_df.groupby("bin", dropna=True)
                 for bin_id, group in grouped:
+                    dir_acc = float((group["return"] > 0).mean()) if len(group) else float("nan")
                     bin_records.append(
                         {
                             "bin": int(bin_id),
                             "score_mean": float(group["score"].mean()),
                             "return_mean": float(group["return"].mean()),
+                            "dir_acc": dir_acc,
                             "count": int(len(group)),
                         }
                     )
@@ -181,6 +185,13 @@ def run_backtest(
                             "trade_date": day,
                             "bin": int(bin_id),
                             "return_mean": float(group["return"].mean()),
+                        }
+                    )
+                    bin_dir_records.append(
+                        {
+                            "trade_date": day,
+                            "bin": int(bin_id),
+                            "dir_acc": dir_acc,
                         }
                     )
 
@@ -243,6 +254,10 @@ def run_backtest(
             ).sort_index()
             nav_bins = (1.0 + pivot.fillna(0.0)).cumprod()
             result.bin_nav = nav_bins.reset_index()
+    if bin_dir_records:
+        bin_dir_df = pd.DataFrame(bin_dir_records)
+        if not bin_dir_df.empty:
+            result.bin_dir_acc = bin_dir_df.sort_values(["trade_date", "bin"])
     if diagnostics:
         result.diagnostics = pd.DataFrame(diagnostics).sort_values("trade_date")
     return result

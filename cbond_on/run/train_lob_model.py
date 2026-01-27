@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import sys
 from bisect import bisect_left
-import json
 from pathlib import Path
 
 import numpy as np
@@ -342,8 +341,6 @@ def main() -> None:
 
     best_score = float("-inf")
     best_epoch = None
-    best_tau = None
-    best_val_pos = None
     dir_weight = float(train_cfg.get("checkpoint_dir_weight", 1.0))
     corr_weight = float(train_cfg.get("checkpoint_corr_weight", 0.3))
     weights_path = Path(model_cfg.get("weights_path", "results/models/lob_st_default/model.pt"))
@@ -429,18 +426,9 @@ def main() -> None:
         val_corr = val_stats["corr"] if val_stats is not None else float("nan")
         if not np.isfinite(val_corr):
             val_corr = 0.0
-        val_tau = float("nan")
-        val_dir_tau = float("nan")
-        val_pos = float("nan")
-        if val_outputs is not None:
-            val_y, val_p = val_outputs
-            if val_y.size > 0:
-                val_pos = float((val_y > 0).mean())
-                val_tau = float(np.quantile(val_p, 1.0 - val_pos))
-                val_dir_tau = float((np.sign(val_y) == np.sign(val_p - val_tau)).mean())
         checkpoint_score = (
-            dir_weight * val_dir_tau + corr_weight * val_corr
-            if not np.isnan(val_dir_tau) and not np.isnan(val_corr)
+            dir_weight * val_metrics["dir_acc"] + corr_weight * val_corr
+            if not np.isnan(val_metrics["dir_acc"]) and not np.isnan(val_corr)
             else float("nan")
         )
         history.append(
@@ -453,8 +441,6 @@ def main() -> None:
                 "val_r2": val_metrics["r2"],
                 "val_dir_acc": val_metrics["dir_acc"],
                 "val_corr": val_corr,
-                "val_dir_tau": val_dir_tau,
-                "val_tau": val_tau,
                 "checkpoint_score": checkpoint_score,
             }
         )
@@ -463,8 +449,6 @@ def main() -> None:
             if checkpoint_score > best_score:
                 best_score = checkpoint_score
                 best_epoch = epoch
-                best_tau = val_tau
-                best_val_pos = val_pos
                 torch.save(model.state_dict(), weights_path)
 
     if weights_path.exists():
@@ -476,18 +460,6 @@ def main() -> None:
             f"[checkpoint] epoch={best_epoch} score={best_score:.6f} "
             f"(dir_weight={dir_weight:.3f} corr_weight={corr_weight:.3f})"
         )
-    if best_tau is not None:
-        calib_path = weights_path.parent / "calibration.json"
-        calib_payload = {
-            "epoch": best_epoch,
-            "score": best_score,
-            "tau": best_tau,
-            "val_pos": best_val_pos,
-            "dir_weight": dir_weight,
-            "corr_weight": corr_weight,
-        }
-        calib_path.write_text(json.dumps(calib_payload, indent=2), encoding="utf-8")
-        print(f"[calibration] saved: {calib_path}")
     test_metrics, test_stats, test_outputs = (
         _evaluate(
             model,
@@ -514,17 +486,6 @@ def main() -> None:
             f"pred_mean={test_stats['pred_mean']:.6f} pred_std={test_stats['pred_std']:.6f} "
             f"pred_min={test_stats['pred_min']:.6f} pred_max={test_stats['pred_max']:.6f}"
         )
-    if val_outputs is not None and test_outputs is not None:
-        val_y, val_p = val_outputs
-        test_y, test_p = test_outputs
-        if val_y.size > 0 and test_y.size > 0:
-            val_pos = float((val_y > 0).mean())
-            tau = float(np.quantile(val_p, 1.0 - val_pos))
-            test_dir_tau = float((np.sign(test_y) == np.sign(test_p - tau)).mean())
-            print(
-                f"[calibrated] tau={tau:.6f} "
-                f"val_pos={val_pos:.4f} test_dir_tau={test_dir_tau:.4f}"
-            )
 
     metrics_path = weights_path.parent / "train_metrics.csv"
     if history:
