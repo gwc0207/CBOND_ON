@@ -7,6 +7,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import torch
+import json
 
 from cbond_on.models.impl.lob_st import LOBSpatioTemporalModel
 
@@ -44,6 +45,11 @@ def build_scores(
     output_path: Path,
 ) -> pd.DataFrame:
     device = _device_from_config(score_cfg.device)
+    calib_path = weights_path.parent / "calibration.json"
+    if not calib_path.exists():
+        raise FileNotFoundError(f"calibration not found: {calib_path}")
+    calib = json.loads(calib_path.read_text(encoding="utf-8"))
+    tau = float(calib.get("tau", 0.0))
     input_length = model_params.get("input_length")
     input_length = int(input_length) if input_length else None
     model = LOBSpatioTemporalModel(
@@ -86,7 +92,7 @@ def build_scores(
                 batch = batch[:, :, -input_length:, :] if batch.shape[2] > input_length else batch
             batch_t = torch.from_numpy(np.array(batch, dtype=np.float32)).to(device)
             with torch.no_grad():
-                preds = model(batch_t).detach().cpu().numpy().astype(float)
+                preds = model(batch_t).detach().cpu().numpy().astype(float) - tau
             for code, score in zip(codes[i : i + batch_size], preds, strict=False):
                 records.append({"trade_date": day, "code": code, "score": float(score)})
 

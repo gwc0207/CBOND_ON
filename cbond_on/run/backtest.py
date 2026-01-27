@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+import shutil
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
@@ -66,6 +67,9 @@ def main() -> None:
     results_root = Path(paths_cfg["results_root"])
     out_dir = results_root / "backtest" / f"{start:%Y-%m-%d}_{end:%Y-%m-%d}"
     out_dir.mkdir(parents=True, exist_ok=True)
+    calib_path = Path(model_cfg["weights_path"]).parent / "calibration.json"
+    if calib_path.exists():
+        shutil.copy2(calib_path, out_dir / "calibration.json")
     if result.daily_returns is not None:
         result.daily_returns.to_csv(out_dir / "daily_returns.csv", index=False)
     if result.nav_curve is not None:
