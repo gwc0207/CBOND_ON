@@ -5,6 +5,7 @@ from bisect import bisect_left
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import torch
 from torch.utils.data import DataLoader, Dataset
 
@@ -118,6 +119,42 @@ class MetricTracker:
         r2 = 1.0 - (self.sse / sst) if sst > 0 else float("nan")
         dir_acc = self.dir_hits / self.count
         return {"loss": loss, "r2": r2, "dir_acc": dir_acc}
+
+
+def _rank_ic(y_all: np.ndarray, p_all: np.ndarray) -> float:
+    if y_all.size < 2:
+        return float("nan")
+    y_rank = pd.Series(y_all).rank(method="average")
+    p_rank = pd.Series(p_all).rank(method="average")
+    return float(y_rank.corr(p_rank, method="pearson"))
+
+
+def _topn_dir_acc(y_all: np.ndarray, p_all: np.ndarray, top_n: int) -> float:
+    if y_all.size == 0 or top_n <= 0:
+        return float("nan")
+    top_n = min(int(top_n), int(y_all.size))
+    idx = np.argpartition(-p_all, top_n - 1)[:top_n]
+    return float((np.sign(y_all[idx]) == np.sign(p_all[idx])).mean())
+
+
+def _bin_dir_acc(y_all: np.ndarray, p_all: np.ndarray, bins: int) -> list[tuple[int, float, int]]:
+    if y_all.size == 0 or bins <= 1:
+        return []
+    try:
+        ranks = pd.Series(p_all).rank(method="first")
+        bins_cat = pd.qcut(ranks, bins, labels=False, duplicates="drop")
+    except ValueError:
+        return []
+    df = pd.DataFrame({"bin": bins_cat, "y": y_all, "p": p_all}).dropna()
+    if df.empty:
+        return []
+    grouped = df.groupby("bin", dropna=True)
+    results: list[tuple[int, float, int]] = []
+    for bin_id, group in grouped:
+        acc = float((np.sign(group["y"]) == np.sign(group["p"])).mean())
+        results.append((int(bin_id), acc, int(len(group))))
+    results.sort(key=lambda x: x[0])
+    return results
 
 
 def _epoch_stats(y_all: np.ndarray, p_all: np.ndarray) -> dict[str, float]:
@@ -319,7 +356,8 @@ def main() -> None:
     params = model_cfg.get("params", {})
     input_length = params.get("input_length")
     input_length = int(input_length) if input_length else None
-    print(f"[debug] config input_length: {input_length}")
+    if metrics_debug:
+        print(f"[debug] config input_length: {input_length}")
     model = LOBSpatioTemporalModel(
         depth_levels=int(params.get("depth_levels", 10)),
         rbf_num_bases=int(params.get("rbf_num_bases", 16)),
@@ -336,6 +374,9 @@ def main() -> None:
     normalize_y = bool(train_cfg.get("normalize_y", False))
     x_norm_method = str(train_cfg.get("x_norm_method", "zscore_sample"))
     y_norm_method = str(train_cfg.get("y_norm_method", "zscore_batch"))
+    metrics_top_n = int(train_cfg.get("metrics_top_n", 50))
+    metrics_bins = int(train_cfg.get("metrics_bins", 5))
+    metrics_debug = bool(train_cfg.get("metrics_debug", False))
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
     loss_fn = torch.nn.MSELoss()
 
@@ -362,7 +403,7 @@ def main() -> None:
                 x = x[:, :, -input_length:, :] if x.shape[2] > input_length else x
             if normalize_x:
                 x = _normalize_x_batch(x, x_norm_method)
-            if not printed_shape:
+            if metrics_debug and not printed_shape:
                 print(f"[debug] train batch x shape: {tuple(x.shape)}")
                 printed_shape = True
             y = y.to(device)
@@ -403,25 +444,45 @@ def main() -> None:
             f"train_loss={train_metrics['loss']:.6f} train_r2={train_metrics['r2']:.4f} train_dir={train_metrics['dir_acc']:.4f} "
             f"val_loss={val_metrics['loss']:.6f} val_r2={val_metrics['r2']:.4f} val_dir={val_metrics['dir_acc']:.4f}"
         )
-        print(
-            f"[train stats] y_mean={train_stats['y_mean']:.6f} y_std={train_stats['y_std']:.6f} "
-            f"y_min={train_stats['y_min']:.6f} y_max={train_stats['y_max']:.6f} "
-            f"baseline_mse={train_stats['baseline_mse']:.6f} model_mse={train_stats['model_mse']:.6f} "
-            f"p_pos={train_stats['p_pos']:.4f} pred_pos={train_stats['pred_pos']:.4f} "
-            f"dir={train_stats['dir']:.4f} corr={train_stats['corr']:.4f} "
-            f"pred_mean={train_stats['pred_mean']:.6f} pred_std={train_stats['pred_std']:.6f} "
-            f"pred_min={train_stats['pred_min']:.6f} pred_max={train_stats['pred_max']:.6f}"
-        )
-        if val_stats is not None:
+        if epoch == 1:
             print(
-                f"[val stats] y_mean={val_stats['y_mean']:.6f} y_std={val_stats['y_std']:.6f} "
-                f"y_min={val_stats['y_min']:.6f} y_max={val_stats['y_max']:.6f} "
-                f"baseline_mse={val_stats['baseline_mse']:.6f} model_mse={val_stats['model_mse']:.6f} "
-                f"p_pos={val_stats['p_pos']:.4f} pred_pos={val_stats['pred_pos']:.4f} "
-                f"dir={val_stats['dir']:.4f} corr={val_stats['corr']:.4f} "
-                f"pred_mean={val_stats['pred_mean']:.6f} pred_std={val_stats['pred_std']:.6f} "
-                f"pred_min={val_stats['pred_min']:.6f} pred_max={val_stats['pred_max']:.6f}"
+                f"[train y stats] y_mean={train_stats['y_mean']:.6f} y_std={train_stats['y_std']:.6f} "
+                f"y_min={train_stats['y_min']:.6f} y_max={train_stats['y_max']:.6f} "
+                f"baseline_mse={train_stats['baseline_mse']:.6f}"
             )
+            if val_stats is not None:
+                print(
+                    f"[val y stats] y_mean={val_stats['y_mean']:.6f} y_std={val_stats['y_std']:.6f} "
+                    f"y_min={val_stats['y_min']:.6f} y_max={val_stats['y_max']:.6f} "
+                    f"baseline_mse={val_stats['baseline_mse']:.6f}"
+                )
+        if metrics_debug:
+            print(
+                f"[train pred stats] pred_mean={train_stats['pred_mean']:.6f} pred_std={train_stats['pred_std']:.6f} "
+                f"pred_min={train_stats['pred_min']:.6f} pred_max={train_stats['pred_max']:.6f}"
+            )
+            if val_stats is not None:
+                print(
+                    f"[val pred stats] pred_mean={val_stats['pred_mean']:.6f} pred_std={val_stats['pred_std']:.6f} "
+                    f"pred_min={val_stats['pred_min']:.6f} pred_max={val_stats['pred_max']:.6f}"
+                )
+
+        train_y_all = np.concatenate(train_y_list, axis=0) if train_y_list else np.array([])
+        train_p_all = np.concatenate(train_p_list, axis=0) if train_p_list else np.array([])
+        train_rank_ic = _rank_ic(train_y_all, train_p_all)
+        val_rank_ic = _rank_ic(val_outputs[0], val_outputs[1]) if val_outputs is not None else float("nan")
+        train_top_dir = _topn_dir_acc(train_y_all, train_p_all, metrics_top_n)
+        val_top_dir = _topn_dir_acc(val_outputs[0], val_outputs[1], metrics_top_n) if val_outputs is not None else float("nan")
+        train_bins = _bin_dir_acc(train_y_all, train_p_all, metrics_bins)
+        val_bins = _bin_dir_acc(val_outputs[0], val_outputs[1], metrics_bins) if val_outputs is not None else []
+        train_bins_str = ",".join([f"{b}:{a:.3f}({n})" for b, a, n in train_bins]) if train_bins else "n/a"
+        val_bins_str = ",".join([f"{b}:{a:.3f}({n})" for b, a, n in val_bins]) if val_bins else "n/a"
+        print(
+            f"[train extra] rank_ic={train_rank_ic:.4f} top_dir@{metrics_top_n}={train_top_dir:.4f} bins={train_bins_str}"
+        )
+        print(
+            f"[val extra] rank_ic={val_rank_ic:.4f} top_dir@{metrics_top_n}={val_top_dir:.4f} bins={val_bins_str}"
+        )
 
         val_corr = val_stats["corr"] if val_stats is not None else float("nan")
         if not np.isfinite(val_corr):
