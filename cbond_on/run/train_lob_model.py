@@ -67,7 +67,8 @@ class LOBDataset(Dataset):
         self._load_day(day_idx)
         x = torch.from_numpy(self._cached_x[offset].copy()).float()
         y = torch.tensor(self._cached_y[offset], dtype=torch.float32)
-        return x, y
+        day = self._days[day_idx]["dir"].name
+        return x, y, day
 
 
 def _split_days(days: list[Path], train_ratio: float, val_ratio: float) -> tuple[list[Path], list[Path], list[Path]]:
@@ -129,12 +130,55 @@ def _rank_ic(y_all: np.ndarray, p_all: np.ndarray) -> float:
     return float(y_rank.corr(p_rank, method="pearson"))
 
 
+def _daily_rank_ic(y_all: np.ndarray, p_all: np.ndarray, d_all: np.ndarray) -> float:
+    if y_all.size < 2:
+        return float("nan")
+    df = pd.DataFrame({"y": y_all, "p": p_all, "day": d_all})
+    vals: list[float] = []
+    for _, group in df.groupby("day", sort=True):
+        if len(group) < 2:
+            continue
+        vals.append(_rank_ic(group["y"].to_numpy(), group["p"].to_numpy()))
+    return float(np.nanmean(vals)) if vals else float("nan")
+
+
+def _daily_rank_ic_ir(
+    y_all: np.ndarray, p_all: np.ndarray, d_all: np.ndarray
+) -> tuple[float, float]:
+    if y_all.size < 2:
+        return float("nan"), float("nan")
+    df = pd.DataFrame({"y": y_all, "p": p_all, "day": d_all})
+    vals: list[float] = []
+    for _, group in df.groupby("day", sort=True):
+        if len(group) < 2:
+            continue
+        vals.append(_rank_ic(group["y"].to_numpy(), group["p"].to_numpy()))
+    if not vals:
+        return float("nan"), float("nan")
+    mean = float(np.nanmean(vals))
+    std = float(np.nanstd(vals))
+    ir = float(mean / std) if std > 0 else float("nan")
+    return mean, ir
+
+
 def _topn_dir_acc(y_all: np.ndarray, p_all: np.ndarray, top_n: int) -> float:
     if y_all.size == 0 or top_n <= 0:
         return float("nan")
     top_n = min(int(top_n), int(y_all.size))
     idx = np.argpartition(-p_all, top_n - 1)[:top_n]
     return float((np.sign(y_all[idx]) == np.sign(p_all[idx])).mean())
+
+
+def _daily_topn_dir_acc(
+    y_all: np.ndarray, p_all: np.ndarray, d_all: np.ndarray, top_n: int
+) -> float:
+    if y_all.size == 0 or top_n <= 0:
+        return float("nan")
+    df = pd.DataFrame({"y": y_all, "p": p_all, "day": d_all})
+    vals: list[float] = []
+    for _, group in df.groupby("day", sort=True):
+        vals.append(_topn_dir_acc(group["y"].to_numpy(), group["p"].to_numpy(), top_n))
+    return float(np.nanmean(vals)) if vals else float("nan")
 
 
 def _bin_dir_acc(y_all: np.ndarray, p_all: np.ndarray, bins: int) -> list[tuple[int, float, int]]:
@@ -154,6 +198,29 @@ def _bin_dir_acc(y_all: np.ndarray, p_all: np.ndarray, bins: int) -> list[tuple[
         acc = float((np.sign(group["y"]) == np.sign(group["p"])).mean())
         results.append((int(bin_id), acc, int(len(group))))
     results.sort(key=lambda x: x[0])
+    return results
+
+
+def _daily_bin_dir_acc(
+    y_all: np.ndarray, p_all: np.ndarray, d_all: np.ndarray, bins: int
+) -> list[tuple[int, float, int]]:
+    if y_all.size == 0 or bins <= 1:
+        return []
+    df = pd.DataFrame({"y": y_all, "p": p_all, "day": d_all})
+    acc_sum: dict[int, float] = {}
+    count_sum: dict[int, int] = {}
+    for _, group in df.groupby("day", sort=True):
+        if group.empty:
+            continue
+        day_bins = _bin_dir_acc(group["y"].to_numpy(), group["p"].to_numpy(), bins)
+        for bin_id, acc, cnt in day_bins:
+            acc_sum[bin_id] = acc_sum.get(bin_id, 0.0) + acc * cnt
+            count_sum[bin_id] = count_sum.get(bin_id, 0) + cnt
+    results: list[tuple[int, float, int]] = []
+    for bin_id in sorted(count_sum.keys()):
+        total = count_sum[bin_id]
+        avg = acc_sum.get(bin_id, 0.0) / total if total > 0 else float("nan")
+        results.append((bin_id, float(avg), int(total)))
     return results
 
 
@@ -242,14 +309,19 @@ def _evaluate(
     normalize_y: bool = False,
     x_norm_method: str = "zscore_sample",
     y_norm_method: str = "zscore_batch",
-) -> tuple[dict[str, float], dict[str, float] | None, tuple[np.ndarray, np.ndarray] | None]:
+) -> tuple[
+    dict[str, float],
+    dict[str, float] | None,
+    tuple[np.ndarray, np.ndarray, np.ndarray] | None,
+]:
     model.eval()
     loss_fn = torch.nn.MSELoss()
     tracker = MetricTracker()
     y_list: list[np.ndarray] = []
     p_list: list[np.ndarray] = []
+    y_days: list[np.ndarray] = []
     with torch.no_grad():
-        for x, y in loader:
+        for x, y, day in loader:
             x = x.to(device)
             if input_length:
                 x = x[:, :, -input_length:, :] if x.shape[2] > input_length else x
@@ -264,13 +336,15 @@ def _evaluate(
             if collect_outputs:
                 y_list.append(y.detach().cpu().numpy())
                 p_list.append(pred.detach().cpu().numpy())
+                y_days.append(np.array(day))
     stats = None
     outputs = None
     if collect_outputs:
         y_all = np.concatenate(y_list, axis=0) if y_list else np.array([])
         p_all = np.concatenate(p_list, axis=0) if p_list else np.array([])
+        d_all = np.concatenate(y_days, axis=0) if y_days else np.array([])
         stats = _epoch_stats(y_all, p_all)
-        outputs = (y_all, p_all)
+        outputs = (y_all, p_all, d_all)
     return tracker.metrics(), stats, outputs
 
 
@@ -356,8 +430,6 @@ def main() -> None:
     params = model_cfg.get("params", {})
     input_length = params.get("input_length")
     input_length = int(input_length) if input_length else None
-    if metrics_debug:
-        print(f"[debug] config input_length: {input_length}")
     model = LOBSpatioTemporalModel(
         depth_levels=int(params.get("depth_levels", 10)),
         rbf_num_bases=int(params.get("rbf_num_bases", 16)),
@@ -377,6 +449,8 @@ def main() -> None:
     metrics_top_n = int(train_cfg.get("metrics_top_n", 50))
     metrics_bins = int(train_cfg.get("metrics_bins", 5))
     metrics_debug = bool(train_cfg.get("metrics_debug", False))
+    if metrics_debug:
+        print(f"[debug] config input_length: {input_length}")
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
     loss_fn = torch.nn.MSELoss()
 
@@ -396,8 +470,9 @@ def main() -> None:
             loop = tqdm(train_loader, desc=f"epoch {epoch:03d}", unit="batch")
         train_y_list: list[np.ndarray] = []
         train_p_list: list[np.ndarray] = []
+        train_day_list: list[np.ndarray] = []
         printed_shape = False
-        for x, y in loop:
+        for x, y, day in loop:
             x = x.to(device)
             if input_length:
                 x = x[:, :, -input_length:, :] if x.shape[2] > input_length else x
@@ -418,6 +493,7 @@ def main() -> None:
             tracker.update(loss, y, pred)
             train_y_list.append(y.detach().cpu().numpy())
             train_p_list.append(pred.detach().cpu().numpy())
+            train_day_list.append(np.array(day))
 
         train_metrics = tracker.metrics()
         val_metrics, val_stats, val_outputs = (
@@ -469,19 +545,28 @@ def main() -> None:
 
         train_y_all = np.concatenate(train_y_list, axis=0) if train_y_list else np.array([])
         train_p_all = np.concatenate(train_p_list, axis=0) if train_p_list else np.array([])
-        train_rank_ic = _rank_ic(train_y_all, train_p_all)
-        val_rank_ic = _rank_ic(val_outputs[0], val_outputs[1]) if val_outputs is not None else float("nan")
-        train_top_dir = _topn_dir_acc(train_y_all, train_p_all, metrics_top_n)
-        val_top_dir = _topn_dir_acc(val_outputs[0], val_outputs[1], metrics_top_n) if val_outputs is not None else float("nan")
-        train_bins = _bin_dir_acc(train_y_all, train_p_all, metrics_bins)
-        val_bins = _bin_dir_acc(val_outputs[0], val_outputs[1], metrics_bins) if val_outputs is not None else []
+        train_d_all = np.concatenate(train_day_list, axis=0) if train_day_list else np.array([])
+        train_rank_ic, train_rank_ic_ir = _daily_rank_ic_ir(train_y_all, train_p_all, train_d_all)
+        train_top_dir = _daily_topn_dir_acc(train_y_all, train_p_all, train_d_all, metrics_top_n)
+        train_bins = _daily_bin_dir_acc(train_y_all, train_p_all, train_d_all, metrics_bins)
+        if val_outputs is not None:
+            val_rank_ic, val_rank_ic_ir = _daily_rank_ic_ir(val_outputs[0], val_outputs[1], val_outputs[2])
+            val_top_dir = _daily_topn_dir_acc(val_outputs[0], val_outputs[1], val_outputs[2], metrics_top_n)
+            val_bins = _daily_bin_dir_acc(val_outputs[0], val_outputs[1], val_outputs[2], metrics_bins)
+        else:
+            val_rank_ic = float("nan")
+            val_rank_ic_ir = float("nan")
+            val_top_dir = float("nan")
+            val_bins = []
         train_bins_str = ",".join([f"{b}:{a:.3f}({n})" for b, a, n in train_bins]) if train_bins else "n/a"
         val_bins_str = ",".join([f"{b}:{a:.3f}({n})" for b, a, n in val_bins]) if val_bins else "n/a"
         print(
-            f"[train extra] rank_ic={train_rank_ic:.4f} top_dir@{metrics_top_n}={train_top_dir:.4f} bins={train_bins_str}"
+            f"[train extra] rank_ic={train_rank_ic:.4f} rank_ic_ir={train_rank_ic_ir:.4f} "
+            f"top_dir@{metrics_top_n}={train_top_dir:.4f} bins={train_bins_str}"
         )
         print(
-            f"[val extra] rank_ic={val_rank_ic:.4f} top_dir@{metrics_top_n}={val_top_dir:.4f} bins={val_bins_str}"
+            f"[val extra] rank_ic={val_rank_ic:.4f} rank_ic_ir={val_rank_ic_ir:.4f} "
+            f"top_dir@{metrics_top_n}={val_top_dir:.4f} bins={val_bins_str}"
         )
 
         val_corr = val_stats["corr"] if val_stats is not None else float("nan")
@@ -502,6 +587,10 @@ def main() -> None:
                 "val_r2": val_metrics["r2"],
                 "val_dir_acc": val_metrics["dir_acc"],
                 "val_corr": val_corr,
+                "train_rank_ic": train_rank_ic,
+                "train_rank_ic_ir": train_rank_ic_ir,
+                "val_rank_ic": val_rank_ic,
+                "val_rank_ic_ir": val_rank_ic_ir,
                 "checkpoint_score": checkpoint_score,
             }
         )
