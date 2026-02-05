@@ -234,6 +234,14 @@ def run_intraday_factor_backtest(
     for dt, group in data.groupby("dt", sort=True):
         g = group[[factor_col, "y", "code"]].dropna()
         if len(g) < min_count:
+            diagnostics.append(
+                {
+                    "trade_date": dt,
+                    "status": "skip",
+                    "reason": "min_count_not_met",
+                    "count": int(len(g)),
+                }
+            )
             daily_records.append({"dt": dt, "ret": pd.NA, "ic": pd.NA, "rank_ic": pd.NA, "count": len(g)})
             continue
 
@@ -249,10 +257,24 @@ def run_intraday_factor_backtest(
                 duplicates="drop",
             )
         except ValueError:
+            diagnostics.append(
+                {
+                    "trade_date": dt,
+                    "status": "skip",
+                    "reason": "binning_failed",
+                }
+            )
             daily_records.append({"dt": dt, "ret": pd.NA, "ic": ic, "rank_ic": rank_ic, "count": len(g)})
             continue
         available_bins = sorted(bins_cat.dropna().unique().tolist())
         if not available_bins:
+            diagnostics.append(
+                {
+                    "trade_date": dt,
+                    "status": "skip",
+                    "reason": "binning_failed",
+                }
+            )
             daily_records.append({"dt": dt, "ret": pd.NA, "ic": ic, "rank_ic": rank_ic, "count": len(g)})
             continue
         n_bins = len(available_bins)
@@ -265,14 +287,44 @@ def run_intraday_factor_backtest(
             if bin_top_k > 1:
                 effective_bins = sorted(available_bins, reverse=True)[:bin_top_k]
         if max(effective_bins) >= n_bins:
+            diagnostics.append(
+                {
+                    "trade_date": dt,
+                    "status": "skip",
+                    "reason": "bin_select_out_of_range",
+                    "bin_used": ",".join(str(x) for x in effective_bins),
+                    "bin_count_actual": int(n_bins),
+                }
+            )
             daily_records.append({"dt": dt, "ret": pd.NA, "ic": ic, "rank_ic": rank_ic, "count": len(g)})
             continue
         picks = g[bins_cat.isin(effective_bins)]
         if len(picks) < min_count:
+            diagnostics.append(
+                {
+                    "trade_date": dt,
+                    "status": "skip",
+                    "reason": "min_count_not_met",
+                    "picked": int(len(picks)),
+                    "bin_used": ",".join(str(x) for x in effective_bins),
+                    "bin_count_actual": int(n_bins),
+                }
+            )
             daily_records.append({"dt": dt, "ret": pd.NA, "ic": ic, "rank_ic": rank_ic, "count": len(g)})
             continue
         ret = picks["y"].mean()
 
+        diagnostics.append(
+            {
+                "trade_date": dt,
+                "status": "ok",
+                "reason": "",
+                "bin_used": ",".join(str(x) for x in effective_bins),
+                "bin_count_actual": int(n_bins),
+                "picked": int(len(picks)),
+                "count": int(len(g)),
+            }
+        )
         daily_records.append({"dt": dt, "ret": ret, "ic": ic, "rank_ic": rank_ic, "count": len(g)})
 
     daily = pd.DataFrame(daily_records).set_index("dt")
