@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import sys
 from pathlib import Path
@@ -9,7 +9,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from cbond_on.core.config import load_config_file, parse_date
 from cbond_on.factor_batch.runner import build_signal_specs, run_factor_batch
-from cbond_on.factors.defs import aacb, volen  # noqa: F401
+from cbond_on.factors import defs  # noqa: F401
 
 
 def main() -> None:

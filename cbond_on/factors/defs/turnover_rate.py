@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import pandas as pd
 
@@ -15,7 +15,7 @@ class TurnoverRateFactor(Factor):
         panel = ensure_trade_time(ctx.panel)
         window_minutes = int(ctx.params.get("window_minutes", 30))
         volume_col = str(ctx.params.get("volume_col", "volume"))
-        shares_col = str(ctx.params.get("shares_col", "float_share"))
+        shares_col = str(ctx.params.get("shares_col", "num_trades"))
         if volume_col not in panel.columns:
             raise KeyError(f"turnover_rate missing column: {volume_col}")
         if shares_col not in panel.columns:
