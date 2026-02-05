@@ -319,7 +319,7 @@ def main() -> None:
     paths_cfg = load_config_file("paths")
     sync_cfg = load_config_file("sync_data")
     data_cfg = sync_cfg.get("data", {})
-    ds_cfg = load_config_file("dataset")
+    ds_cfg = load_config_file("models/lob/dataset")
     bt_cfg = load_config_file("backtest")
 
     raw_root = paths_cfg["raw_data_root"]

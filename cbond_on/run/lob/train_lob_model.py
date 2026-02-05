@@ -14,7 +14,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from cbond_on.core.config import load_config_file, parse_date
-from cbond_on.models.impl.lob_st import LOBSpatioTemporalModel
+from cbond_on.models.impl.lob.lob_st import LOBSpatioTemporalModel
 
 try:
     from tqdm import tqdm
@@ -350,8 +350,8 @@ def _evaluate(
 
 def main() -> None:
     paths_cfg = load_config_file("paths")
-    ds_cfg = load_config_file("dataset")
-    model_cfg = load_config_file("models/model")
+    ds_cfg = load_config_file("models/lob/dataset")
+    model_cfg = load_config_file("models/lob/model")
 
     clean_root = Path(paths_cfg["clean_data_root"])
     output_dir = clean_root / str(ds_cfg.get("output_dir", "LOBDS"))
@@ -573,8 +573,8 @@ def main() -> None:
         if not np.isfinite(val_corr):
             val_corr = 0.0
         checkpoint_score = (
-            dir_weight * val_metrics["dir_acc"] + corr_weight * val_corr
-            if not np.isnan(val_metrics["dir_acc"]) and not np.isnan(val_corr)
+            dir_weight * val_top_dir + corr_weight * val_rank_ic
+            if not np.isnan(val_top_dir) and not np.isnan(val_rank_ic)
             else float("nan")
         )
         history.append(
@@ -608,7 +608,7 @@ def main() -> None:
     if best_epoch is not None:
         print(
             f"[checkpoint] epoch={best_epoch} score={best_score:.6f} "
-            f"(dir_weight={dir_weight:.3f} corr_weight={corr_weight:.3f})"
+            f"(top_weight={dir_weight:.3f} rank_weight={corr_weight:.3f})"
         )
     test_metrics, test_stats, test_outputs = (
         _evaluate(

@@ -8,14 +8,14 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from cbond_on.core.config import load_config_file, parse_date
-from cbond_on.models.score_builder import ScoreConfig, build_scores
+from cbond_on.models.impl.lob.score_builder import ScoreConfig, build_scores
 
 
 def main() -> None:
     paths_cfg = load_config_file("paths")
-    ds_cfg = load_config_file("dataset")
+    ds_cfg = load_config_file("models/lob/dataset")
     bt_cfg = load_config_file("backtest")
-    model_cfg = load_config_file("models/model")
+    model_cfg = load_config_file("models/lob/model")
 
     start = parse_date(bt_cfg["start"])
     end = parse_date(bt_cfg["end"])

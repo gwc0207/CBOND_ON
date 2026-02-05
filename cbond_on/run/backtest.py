@@ -9,7 +9,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from cbond_on.core.config import load_config_file, parse_date
 from cbond_on.backtest.runner import run_backtest
-from cbond_on.models.score_builder import ScoreConfig, build_scores
+from cbond_on.models.impl.lob.score_builder import ScoreConfig, build_scores
 from cbond_on.report.backtest_report import render_backtest_report
 
 
@@ -17,7 +17,7 @@ def main() -> None:
     paths_cfg = load_config_file("paths")
     backtest_cfg = load_config_file("backtest")
     live_cfg = load_config_file("live")
-    model_cfg = load_config_file("models/model")
+    model_cfg = load_config_file("models/lob/model")
 
     raw_root = paths_cfg["raw_data_root"]
     clean_root = paths_cfg["clean_data_root"]
@@ -27,7 +27,7 @@ def main() -> None:
     score_path = Path(model_cfg["score_output"])
     refresh_scores = bool(backtest_cfg.get("refresh_scores", False))
     if refresh_scores or not score_path.exists():
-        ds_cfg = load_config_file("dataset")
+        ds_cfg = load_config_file("models/lob/dataset")
         output_dir = Path(clean_root) / str(ds_cfg.get("output_dir", "LOBDS"))
         train_cfg = model_cfg.get("train", {})
         score_cfg = ScoreConfig(

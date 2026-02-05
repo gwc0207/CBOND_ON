@@ -96,7 +96,7 @@ def main() -> None:
     paths_cfg = load_config_file("paths")
     sync_cfg = load_config_file("sync_data")
     data_cfg = sync_cfg.get("data", {})
-    model_cfg = load_config_file("models/model")
+    model_cfg = load_config_file("models/lob/model")
     live_cfg = load_config_file("live")
     backtest_cfg = load_config_file("backtest")
 

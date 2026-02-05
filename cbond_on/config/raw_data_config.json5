@@ -1,0 +1,9 @@
+{
+  full_refresh: false,
+  start: "2026-01-14",
+  end: "2026-01-28",
+  sync_snapshot: true,
+  sync_kline: true,
+  overwrite: false,
+  full_if_empty: true,
+}

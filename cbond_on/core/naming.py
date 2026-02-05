@@ -11,3 +11,7 @@ def build_factor_col(name: str, params: dict | None) -> str:
 
 def _safe_part(value: str) -> str:
     return value.replace(" ", "").replace("/", "_").replace("\\", "_").replace(":", "_")
+
+
+def make_window_label(window_minutes: int) -> str:
+    return f"Win_{int(window_minutes)}M"

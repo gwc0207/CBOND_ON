@@ -1,0 +1,32 @@
+{
+  start: "2026-01-14",
+  end: "2026-01-28",
+  window_minutes: 15,
+  panel_name: "T1430",
+  overwrite: false,
+  full_refresh: true,
+  factors: [
+    {
+      name: "aacb_3_",
+      factor: "aacb",
+      params: { levels: 3 },
+    },
+    {
+      name: "volen_60_10_3_",
+      factor: "volen",
+      params: { fast: 60, slow: 10, levels: 3 },
+    },
+  ],
+  backtest: {
+    top_k: 40,
+    min_count: 10,
+    ic_bins: 20,
+    strategy: "turnover_topk",
+    turnover_ratio: 0.25,
+  },
+  tradable_filter: {
+    use_panel: true,
+    allowed_phases: ["T", "T0"],
+    record_codes: true,
+  },
+}

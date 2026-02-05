@@ -5,7 +5,7 @@ import torch
 
 from .base import BaseModel
 from .score_io import load_scores_by_date
-from .impl.lob_st import LOBSpatioTemporalModel
+from .impl.lob.lob_st import LOBSpatioTemporalModel
 
 
 class FileScoreModel(BaseModel):

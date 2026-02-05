@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import torch
 
-from cbond_on.models.impl.lob_st import LOBSpatioTemporalModel
+from cbond_on.models.impl.lob.lob_st import LOBSpatioTemporalModel
 
 
 @dataclass

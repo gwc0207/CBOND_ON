@@ -29,8 +29,8 @@
     metrics_top_n: 50,
     metrics_bins: 5,
     metrics_debug: false,
-    checkpoint_dir_weight: 1.0,
-    checkpoint_corr_weight: 0.3,
+    checkpoint_dir_weight: 1.0,  // top_dir weight
+    checkpoint_corr_weight: 0.3, // rank_ic weight
     device: "cuda",
     num_workers: 0
   },
