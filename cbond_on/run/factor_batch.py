@@ -30,6 +30,11 @@ def main() -> None:
     raw_data_root = paths_cfg["raw_data_root"]
 
     specs = build_signal_specs(cfg)
+    print(
+        f"[factor_batch] start={start} end={end} panel_name={panel_name} "
+        f"window_minutes={window_minutes} overwrite={overwrite} full_refresh={full_refresh} "
+        f"factor_time={cfg.get('factor_time')} label_time={cfg.get('label_time')} specs={len(specs)}"
+    )
     out_dir = run_factor_batch(
         cfg,
         panel_data_root=panel_data_root,

@@ -1,9 +1,10 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from typing import Iterable, Optional
 
 import pandas as pd
 from cbond_on.data.snapshot_loader import pick_twap_column
+
 
 def compute_mark_nav(targets: pd.DataFrame, panel) -> pd.Series:
     data = panel.data
@@ -75,7 +76,7 @@ def compress_lunch(index: Iterable[pd.Timestamp]) -> pd.Series:
     adj = adj.where(adj < lunch_end, adj - (lunch_end - lunch_start))
     trading_day_minutes = 120 + 105  # 9:30-11:30 + 13:00-14:45
 
-    # 只按有数据的交易日做连续映射，剔除周�?节假日空�?
+    # 只按有数据的交易日做连续映射，剔除周末/节假日空档
     trade_days = pd.Index(sorted(idx.normalize().unique()))
     day_map = {d: i for i, d in enumerate(trade_days)}
     day_offsets = idx.normalize().map(day_map).to_numpy(dtype=int) * trading_day_minutes
@@ -101,7 +102,7 @@ def plot_nav(
     ax=None,
     benchmark_series: Optional[pd.Series] = None,
     benchmark_color: str = "red",
-    title: str = "NAV 对比（执行前估�?vs 执行后净值）",
+    title: str = "NAV 对比（执行前估值 vs 执行后净值）",
 ):
     import matplotlib.pyplot as plt
 
@@ -119,14 +120,14 @@ def plot_nav(
     mark_x = compress_lunch(mark_series.index)
     last_x = compress_lunch(weighted_last.index)
 
-    ax.plot(nav_x, nav_series.values, label="执行后净�?)
-    ax.plot(mark_x, mark_series.values, label="执行前估�?, linestyle="--")
+    ax.plot(nav_x, nav_series.values, label="执行后净值")
+    ax.plot(mark_x, mark_series.values, label="执行前估值", linestyle="--")
     if benchmark_series is not None:
         bench_x = compress_lunch(benchmark_series.index)
         ax.plot(
             bench_x,
             benchmark_series.values,
-            label="基准净�?,
+            label="基准净值",
             linestyle=":",
             color=benchmark_color,
         )

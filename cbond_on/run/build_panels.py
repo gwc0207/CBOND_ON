@@ -38,7 +38,12 @@ def main() -> None:
     lead_minutes = int(panel_cfg.get("lead_minutes", 0))
     if str(panel_mode).lower() != "snapshot_sequence":
         raise ValueError("panel_mode must be 'snapshot_sequence'")
+    print(
+        f"[panel] start={start} end={end} windows={windows} "
+        f"panel_name={panel_name} overwrite={overwrite} full_refresh={full_refresh}"
+    )
     for w in windows:
+        print(f"[panel] building panels for window={w} ...")
         res = build_panels_with_labels(
             cleaned_data_root,
             panel_data_root,
@@ -58,7 +63,7 @@ def main() -> None:
             snapshot_columns=snapshot_columns,
             lead_minutes=lead_minutes,
         )
-        print(res)
+        print(f"[panel] done window={w} -> {res}")
 
 
 if __name__ == "__main__":

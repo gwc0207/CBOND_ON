@@ -27,7 +27,7 @@ def progress(iterable, **kwargs):
                 yield item
 
         return _fallback_iter()
-    kwargs.setdefault("disable", True)
+    kwargs.setdefault("disable", False)
     kwargs.setdefault("dynamic_ncols", True)
     kwargs.setdefault("mininterval", 1.0)
     kwargs.setdefault("miniters", 1)

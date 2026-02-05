@@ -22,7 +22,9 @@ def main() -> None:
     full_refresh = bool(cleaned_cfg.get("full_refresh", False))
     overwrite = bool(cleaned_cfg.get("overwrite", False)) or full_refresh
 
+    print(f"[clean] start={start} end={end} overwrite={overwrite}")
     snapshot_cfg = SnapshotConfig.from_dict(cleaned_cfg["snapshot"])
+    print("[clean] building snapshot ...")
     res1 = build_cleaned_snapshot(
         raw_data_root,
         cleaned_data_root,
@@ -31,6 +33,7 @@ def main() -> None:
         snapshot_cfg,
         overwrite=overwrite,
     )
+    print("[clean] building kline ...")
     res2 = build_cleaned_kline(
         raw_data_root,
         cleaned_data_root,
@@ -38,8 +41,8 @@ def main() -> None:
         end,
         overwrite=overwrite,
     )
-    print(res1)
-    print(res2)
+    print(f"[clean] done snapshot={res1.snapshot_written} skipped={res1.snapshot_skipped}")
+    print(f"[clean] done kline={res2.kline_written} skipped={res2.kline_skipped}")
 
 
 if __name__ == "__main__":

@@ -8,7 +8,8 @@ from typing import Iterable, Optional
 import pandas as pd
 
 from cbond_on.config import SnapshotConfig
-from cbond_on.core.trading_days import list_trading_days_from_raw
+from cbond_on.core.trading_days import list_trading_days_from_raw
+from cbond_on.core.utils import progress
 
 
 @dataclass
@@ -32,7 +33,11 @@ def build_cleaned_snapshot(
     raw_data_root = Path(raw_data_root)
     cleaned_data_root = Path(cleaned_data_root)
 
-    for day in list_trading_days_from_raw(raw_data_root, start, end, kind="snapshot"):
+    for day in progress(
+        list_trading_days_from_raw(raw_data_root, start, end, kind="snapshot"),
+        desc="clean_snapshot",
+        unit="day",
+    ):
         src = _raw_snapshot_path(raw_data_root, day)
         if not src.exists():
             continue
@@ -62,7 +67,11 @@ def build_cleaned_kline(
     raw_data_root = Path(raw_data_root)
     cleaned_data_root = Path(cleaned_data_root)
 
-    for day in list_trading_days_from_raw(raw_data_root, start, end, kind="kline"):
+    for day in progress(
+        list_trading_days_from_raw(raw_data_root, start, end, kind="kline"),
+        desc="clean_kline",
+        unit="day",
+    ):
         src = _raw_kline_path(raw_data_root, day)
         if not src.exists():
             continue

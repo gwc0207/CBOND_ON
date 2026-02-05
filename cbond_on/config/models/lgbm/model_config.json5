@@ -1,0 +1,34 @@
+
+{
+  model_name: "lgbm_factor_default",
+  start: "2025-12-01",
+  end: "2026-01-15",
+  panel_name: "T1430",
+  window_minutes: 15,
+  factor_time: "14:30",
+  label_time: "14:45",
+  factors: null,
+  zscore: true,
+  winsor: { lower: 0.01, upper: 0.99 },
+  min_count: 30,
+  bins: 5,
+  train: {
+    train_ratio: 0.7,
+    val_ratio: 0.15,
+    test_ratio: 0.15,
+  },
+  early_stopping_rounds: 50,
+  lgbm_params: {
+    objective: "regression",
+    n_estimators: 500,
+    learning_rate: 0.05,
+    num_leaves: 31,
+    max_depth: -1,
+    min_data_in_leaf: 50,
+    subsample: 0.8,
+    colsample_bytree: 0.8,
+    reg_alpha: 0.0,
+    reg_lambda: 0.0,
+    random_state: 42,
+  }
+}

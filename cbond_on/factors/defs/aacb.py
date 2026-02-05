@@ -1,9 +1,9 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import pandas as pd
 
-from cbond.core.registry import FactorRegistry
-from cbond.factors.base import Factor, FactorComputeContext, ensure_panel_index
+from cbond_on.core.registry import FactorRegistry
+from cbond_on.factors.base import Factor, FactorComputeContext, ensure_panel_index
 
 
 @FactorRegistry.register("aacb")
