@@ -97,6 +97,7 @@ def _apply_winsor_zscore(
 ) -> pd.DataFrame:
     def _process(group: pd.DataFrame) -> pd.DataFrame:
         g = group.copy()
+        g["dt"] = group.name
         for col in factor_cols:
             s = g[col]
             if s.isna().all():
@@ -114,7 +115,7 @@ def _apply_winsor_zscore(
             g[col] = s
         return g
 
-    return df.groupby("dt", group_keys=False).apply(_process)
+    return df.groupby("dt", group_keys=False).apply(_process, include_groups=False)
 
 
 def build_dataset(
@@ -182,7 +183,7 @@ def _ic_by_day(df: pd.DataFrame, factor_col: str) -> pd.Series:
         if len(g) < 2:
             return np.nan
         return g[factor_col].corr(g["y"], method="pearson")
-    return df.groupby("dt").apply(_calc)
+    return df.groupby("dt").apply(_calc, include_groups=False)
 
 
 def _rank_ic_by_day(df: pd.DataFrame, factor_col: str) -> pd.Series:
@@ -191,7 +192,7 @@ def _rank_ic_by_day(df: pd.DataFrame, factor_col: str) -> pd.Series:
         if len(g) < 2:
             return np.nan
         return g[factor_col].corr(g["y"], method="spearman")
-    return df.groupby("dt").apply(_calc)
+    return df.groupby("dt").apply(_calc, include_groups=False)
 
 
 def _dir_acc(y: np.ndarray, pred: np.ndarray) -> float:
@@ -293,13 +294,91 @@ def train_lgbm(
         raise RuntimeError("lightgbm is not installed")
     params = dict(lgbm_params)
     model = lgb.LGBMRegressor(**params)
+    history: list[dict] = []
+
+    def _eval_rank_ic(y_true, y_pred):
+        if y_true is None or y_pred is None:
+            return ("rank_ic", 0.0, True)
+        y_true = np.asarray(y_true)
+        y_pred = np.asarray(y_pred)
+        if y_true.shape[0] == train.y.shape[0]:
+            dt_series = train.dt.reset_index(drop=True)
+        else:
+            dt_series = val.dt.reset_index(drop=True)
+        df = pd.DataFrame({"dt": dt_series, "y": y_true, "pred": y_pred})
+        rank_ic = _rank_ic_by_day(df, "pred").dropna()
+        val_ic = float(rank_ic.mean()) if not rank_ic.empty else 0.0
+        return ("rank_ic", val_ic, True)
+
+    def _record_callback(env):
+        if env.model is None:
+            return
+        iteration = env.iteration + 1
+        train_scores = []
+        val_scores = []
+        train_r2 = float("nan")
+        val_r2 = float("nan")
+        for data_name, metric_name, value, _ in env.evaluation_result_list:
+            if metric_name != "rank_ic":
+                continue
+            if data_name == "training":
+                train_scores.append(value)
+            elif data_name in ("valid_0", "valid_1", "valid"):
+                val_scores.append(value)
+        train_rank = float(train_scores[-1]) if train_scores else float("nan")
+        val_rank = float(val_scores[-1]) if val_scores else float("nan")
+        try:
+            if env.model is not None:
+                if env.model.current_iteration() >= 0:
+                    train_pred = env.model.predict(train.x, num_iteration=env.model.current_iteration())
+                    val_pred = env.model.predict(val.x, num_iteration=env.model.current_iteration())
+                    from sklearn.metrics import r2_score
+                    train_r2 = float(r2_score(train.y, train_pred)) if len(train.y) else float("nan")
+                    val_r2 = float(r2_score(val.y, val_pred)) if len(val.y) else float("nan")
+        except Exception:
+            train_r2 = float("nan")
+            val_r2 = float("nan")
+        history.append(
+            {
+                "iteration": iteration,
+                "train_rank_ic": train_rank,
+                "val_rank_ic": val_rank,
+                "train_r2": train_r2,
+                "val_r2": val_r2,
+            }
+        )
+        print(
+            f"iter {iteration:03d} "
+            f"train_rank_ic={train_rank:.4f} val_rank_ic={val_rank:.4f} "
+            f"train_r2={train_r2:.4f} val_r2={val_r2:.4f}"
+        )
     fit_kwargs = {}
     if early_stopping_rounds is not None and val.x is not None and not val.x.empty:
         fit_kwargs = {
-            "eval_set": [(val.x, val.y)],
-            "eval_metric": "l2",
-            "early_stopping_rounds": int(early_stopping_rounds),
-            "verbose": False,
+            "eval_set": [(train.x, train.y), (val.x, val.y)],
+            "eval_metric": _eval_rank_ic,
         }
-    model.fit(train.x, train.y, **fit_kwargs)
-    return model, params
+        # lightgbm sklearn API changed early stopping signature
+        try:
+            model.fit(
+                train.x,
+                train.y,
+                **fit_kwargs,
+                early_stopping_rounds=int(early_stopping_rounds),
+                verbose=False,
+                callbacks=[_record_callback],
+            )
+            return model, params | {"history": history}
+        except TypeError:
+            callbacks = []
+            if hasattr(lgb, "early_stopping"):
+                callbacks.append(lgb.early_stopping(int(early_stopping_rounds), verbose=False))
+            if hasattr(lgb, "record_evaluation"):
+                eval_result: dict = {}
+                callbacks.append(lgb.record_evaluation(eval_result))
+            callbacks.append(lambda env: _record_callback(env))
+            model.fit(train.x, train.y, **fit_kwargs, callbacks=callbacks)
+            return model, params | {"history": history}
+    # no early stopping
+    model.fit(train.x, train.y)
+    return model, params | {"history": history}
