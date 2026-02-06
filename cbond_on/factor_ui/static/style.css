@@ -1,0 +1,162 @@
+body {
+  margin: 0;
+  font-family: "Microsoft YaHei", "PingFang SC", Arial, sans-serif;
+  background: #f7f7fb;
+  color: #1f2328;
+}
+
+.page {
+  padding: 16px 20px 40px;
+}
+
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #1f2a44;
+  color: #fff;
+  padding: 16px 20px;
+  border-radius: 10px;
+  margin-bottom: 20px;
+}
+
+.brand {
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.controls {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+label {
+  font-size: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: #1f2328;
+}
+
+.topbar label {
+  color: #fff;
+}
+
+input, select, button {
+  font-size: 12px;
+  padding: 6px 8px;
+  border: 1px solid #ccd3de;
+  border-radius: 6px;
+}
+
+button {
+  background: #1976d2;
+  border: none;
+  color: #fff;
+  cursor: pointer;
+}
+
+button:hover {
+  background: #115293;
+}
+
+.panel {
+  background: #fff;
+  padding: 16px 18px 24px;
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+  margin-bottom: 20px;
+}
+
+.panel-header, .panel-subheader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.panel-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.grid {
+  display: grid;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.two-col {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.three-col {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.card {
+  background: #f9fafc;
+  border-radius: 10px;
+  padding: 12px;
+  border: 1px solid #e1e5eb;
+}
+
+.chart {
+  width: 100%;
+  height: 320px;
+}
+
+.rank-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.rank-table th, .rank-table td {
+  border-bottom: 1px solid #e1e5eb;
+  padding: 6px 4px;
+  text-align: left;
+}
+
+.rank-table tbody tr:hover {
+  background: #eef3ff;
+  cursor: pointer;
+}
+
+.metric-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.metric-title {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.metric-value {
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.bin-selector {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.bin-selector label {
+  flex-direction: row;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: #1f2328;
+}
+
+.status {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #6b7280;
+}
