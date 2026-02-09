@@ -130,6 +130,7 @@ def build_dataset(
     zscore: bool,
     factor_time: str,
     label_time: str,
+    require_label: bool = True,
 ) -> SplitData:
     frames: list[pd.DataFrame] = []
     for day in days:
@@ -140,15 +141,22 @@ def build_dataset(
             fdf = fdf.reset_index().set_index(["dt", "code"])
         fdf = fdf.reset_index()
         label_df = _read_label_day(label_root, day, factor_time=factor_time, label_time=label_time)
-        if label_df.empty:
-            continue
-        if "dt" not in label_df.columns:
-            continue
+        if label_df.empty or "dt" not in label_df.columns:
+            if require_label:
+                continue
+            label_df = pd.DataFrame(columns=["dt", "code", "y"])
         label_df = label_df[["dt", "code", "y"]].dropna()
-        merged = fdf.merge(label_df, on=["dt", "code"], how="inner")
+        if label_df.empty and not require_label:
+            merged = fdf.copy()
+            merged["y"] = np.nan
+        else:
+            merged = fdf.merge(label_df, on=["dt", "code"], how="inner")
         if merged.empty:
             continue
-        merged = merged.dropna(subset=factor_cols + ["y"])
+        if require_label:
+            merged = merged.dropna(subset=factor_cols + ["y"])
+        else:
+            merged = merged.dropna(subset=factor_cols)
         if merged.empty:
             continue
         counts = merged.groupby("dt")["code"].transform("size")

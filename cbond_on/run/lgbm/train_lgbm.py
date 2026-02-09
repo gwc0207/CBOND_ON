@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 import sys
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import numpy as np
@@ -14,6 +14,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from cbond_on.core.config import load_config_file, parse_date
+from cbond_on.core.naming import make_window_label
 from cbond_on.factors.storage import FactorStore
 from cbond_on.models.impl.lgbm.trainer import (
     build_dataset,
@@ -38,12 +39,27 @@ def _format_bins(bin_dir: list[tuple[int, float, int]]) -> str:
     return ",".join([f"{b}:{acc:.3f}({n})" for b, acc, n in bin_dir])
 
 
-def main() -> None:
+def _append_scores(score_path: Path, new_scores: pd.DataFrame) -> None:
+    score_path.parent.mkdir(parents=True, exist_ok=True)
+    if new_scores.empty:
+        return
+    if score_path.exists():
+        new_scores.to_csv(score_path, mode="a", header=False, index=False)
+    else:
+        new_scores.to_csv(score_path, index=False)
+
+
+def main(*, start: str | None = None, end: str | None = None) -> None:
     paths_cfg = load_config_file("paths")
     cfg = load_config_file("models/lgbm/model")
 
-    start = parse_date(cfg.get("start"))
-    end = parse_date(cfg.get("end"))
+    cfg_start = parse_date(cfg.get("start"))
+    cfg_end = parse_date(cfg.get("end"))
+    desired_start = parse_date(start) if start else cfg_start
+    desired_end = parse_date(end) if end else cfg_end
+    limit_output = start is not None or end is not None
+    if desired_start > desired_end:
+        raise ValueError("start date must be <= end date")
 
     factor_root = Path(paths_cfg["factor_data_root"])
     label_root = Path(paths_cfg["label_data_root"])
@@ -53,24 +69,62 @@ def main() -> None:
     factor_time = str(cfg.get("factor_time", "14:30"))
     label_time = str(cfg.get("label_time", "14:45"))
 
-    days = list(_iter_existing_label_days(label_root, start, end))
+    scan_start = desired_start
+    rolling_cfg = cfg.get("rolling", {})
+    rolling_enabled = bool(rolling_cfg.get("enabled", False))
+    window_days = int(rolling_cfg.get("window_days", 301))
+    if rolling_enabled:
+        scan_start = desired_start - timedelta(days=window_days * 8)
+    days = list(_iter_existing_label_days(label_root, scan_start, desired_end))
     if not days:
         raise RuntimeError("no label days found for range")
+    days = sorted(set(days))
+
+    def _factor_exists(day: date) -> bool:
+        label = panel_name or make_window_label(window_minutes)
+        month = f"{day.year:04d}-{day.month:02d}"
+        filename = f"{day.strftime('%Y%m%d')}.parquet"
+        path = factor_root / "factors" / label / month / filename
+        return path.exists()
+
+    # allow scoring for target days without labels (e.g., latest day in live)
+    last_label_day = max(days) if days else None
+    if last_label_day and desired_end > last_label_day:
+        extra_days = []
+        cursor = last_label_day + pd.Timedelta(days=1)
+        while cursor <= desired_end:
+            if _factor_exists(cursor):
+                extra_days.append(cursor)
+            cursor = cursor + pd.Timedelta(days=1)
+        if extra_days:
+            days = sorted(set(days + extra_days))
 
     train_cfg = cfg.get("train", {})
     train_ratio = float(train_cfg.get("train_ratio", 0.7))
     val_ratio = float(train_cfg.get("val_ratio", 0.15))
     test_ratio = float(train_cfg.get("test_ratio", 0.15))
-    if abs((train_ratio + val_ratio + test_ratio) - 1.0) > 1e-6:
+
+    if window_days < 2:
+        raise ValueError("rolling.window_days must be >= 2")
+
+    if not rolling_enabled and abs((train_ratio + val_ratio + test_ratio) - 1.0) > 1e-6:
         raise ValueError("train/val/test ratios must sum to 1.0")
 
-    train_days, val_days, test_days = _split_days(days, train_ratio, val_ratio)
-    print(f"train days: {len(train_days)}, val days: {len(val_days)}, test days: {len(test_days)}")
+    train_days: list[date] = []
+    val_days: list[date] = []
+    test_days: list[date] = []
+    if not rolling_enabled:
+        days = [d for d in days if desired_start <= d <= desired_end]
+        if not days:
+            raise RuntimeError("no label days found for desired range")
+        train_days, val_days, test_days = _split_days(days, train_ratio, val_ratio)
+        print(f"train days: {len(train_days)}, val days: {len(val_days)}, test days: {len(test_days)}")
 
     store = FactorStore(factor_root, panel_name=panel_name, window_minutes=window_minutes)
     # pick factor columns from first available day
     sample = pd.DataFrame()
-    for day in train_days:
+    sample_days = days if rolling_enabled else train_days
+    for day in sample_days:
         sample = store.read_day(day)
         if not sample.empty:
             break
@@ -86,6 +140,179 @@ def main() -> None:
     zscore = bool(cfg.get("zscore", True))
     min_count = int(cfg.get("min_count", 30))
     bins = int(cfg.get("bins", 5))
+
+    lgbm_params = cfg.get("lgbm_params", {})
+    grid_cfg = cfg.get("grid_search", {})
+    early_rounds = cfg.get("early_stopping_rounds")
+
+    # results output dir
+    results_root = Path(paths_cfg["results_root"])
+    model_name = cfg.get("model_name", "lgbm_factor")
+    date_label = f"{desired_start.strftime('%Y-%m-%d')}_{desired_end.strftime('%Y-%m-%d')}"
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    out_dir = results_root / "models" / model_name / date_label / ts
+    out_dir.mkdir(parents=True, exist_ok=True)
+    score_output = Path(cfg.get("score_output", results_root / "scores" / model_name / "scores.csv"))
+    score_overwrite = bool(cfg.get("score_overwrite", False))
+    score_dedupe = bool(cfg.get("score_dedupe", True))
+
+    def _best_val_rank_ic(hist: list[dict]) -> float:
+        if not hist:
+            return float("nan")
+        vals = [h.get("val_rank_ic") for h in hist if h.get("val_rank_ic") is not None]
+        if not vals:
+            return float("nan")
+        return float(np.nanmax(vals))
+
+    def _best_iter_from_hist(hist: list[dict]) -> int | None:
+        best_val = float("-inf")
+        best_it = None
+        for h in hist:
+            v = h.get("val_rank_ic")
+            it = h.get("iteration")
+            if v is None or it is None or np.isnan(v):
+                continue
+            if float(v) > best_val:
+                best_val = float(v)
+                best_it = int(it)
+        return best_it
+
+    if rolling_enabled:
+        if len(days) < window_days:
+            raise ValueError(
+                f"rolling window_days={window_days} exceeds available days={len(days)}"
+            )
+        if score_overwrite and score_output.exists():
+            score_output.unlink()
+        rolling_rows: list[dict] = []
+        score_rows: list[pd.DataFrame] = []
+        desired_days = [d for d in days if desired_start <= d <= desired_end]
+        if not desired_days:
+            raise RuntimeError("no label days found for desired range")
+        first_target_idx = days.index(desired_days[0])
+        last_target_idx = days.index(desired_days[-1])
+        start_idx = max(window_days - 1, first_target_idx)
+        total_rolls = max(0, last_target_idx - start_idx + 1)
+        for idx in range(start_idx, last_target_idx + 1):
+            window = days[idx - window_days + 1: idx + 1]
+            train_pool = window[:-1]
+            test_day = window[-1]
+            roll_idx = idx - start_idx + 1
+            print(f"[rolling] {roll_idx}/{total_rolls} test_day={test_day}")
+            if len(train_pool) < 2:
+                continue
+            n_pool = len(train_pool)
+            n_train = max(1, int(n_pool * train_ratio))
+            n_val = n_pool - n_train
+            if n_val <= 0:
+                n_val = 1
+                n_train = max(1, n_pool - n_val)
+            train_days = list(train_pool[:n_train])
+            val_days = list(train_pool[n_train:n_train + n_val])
+            train_data = build_dataset(
+                factor_store=store,
+                label_root=label_root,
+                days=train_days,
+                factor_cols=factor_cols,
+                min_count=min_count,
+                winsor_lower=winsor_lower,
+                winsor_upper=winsor_upper,
+                zscore=zscore,
+                factor_time=factor_time,
+                label_time=label_time,
+            )
+            val_data = build_dataset(
+                factor_store=store,
+                label_root=label_root,
+                days=val_days,
+                factor_cols=factor_cols,
+                min_count=min_count,
+                winsor_lower=winsor_lower,
+                winsor_upper=winsor_upper,
+                zscore=zscore,
+                factor_time=factor_time,
+                label_time=label_time,
+            )
+            test_data = build_dataset(
+                factor_store=store,
+                label_root=label_root,
+                days=[test_day],
+                factor_cols=factor_cols,
+                min_count=min_count,
+                winsor_lower=winsor_lower,
+                winsor_upper=winsor_upper,
+                zscore=zscore,
+                factor_time=factor_time,
+                label_time=label_time,
+                require_label=False,
+            )
+            if test_data.x.empty or train_data.x.empty:
+                continue
+            model, params = train_lgbm(
+                train=train_data,
+                val=val_data,
+                lgbm_params=lgbm_params,
+                early_stopping_rounds=int(early_rounds) if early_rounds else None,
+            )
+            test_pred = model.predict(test_data.x)
+            if not (desired_start <= test_day <= desired_end):
+                continue
+            score_df = pd.DataFrame(
+                {"trade_date": test_day, "code": test_data.code, "score": test_pred}
+            )
+            score_rows.append(score_df)
+            if np.isfinite(test_data.y).any():
+                test_metrics = evaluate_metrics(
+                    test_data.x, test_data.y, test_data.dt, test_pred, bins=bins
+                )
+            else:
+                test_metrics = {
+                    "mse": float("nan"),
+                    "r2": float("nan"),
+                    "dir": float("nan"),
+                    "ic_mean": float("nan"),
+                    "ic_ir": float("nan"),
+                    "rank_ic_mean": float("nan"),
+                    "rank_ic_ir": float("nan"),
+                    "bins": [],
+                }
+            rolling_rows.append(
+                {
+                    "trade_date": test_day,
+                    "train_days": len(train_days),
+                    "val_days": len(val_days),
+                    "count": int(len(test_data.y)),
+                    "rank_ic": test_metrics["rank_ic_mean"],
+                    "ic": test_metrics["ic_mean"],
+                    "dir": test_metrics["dir"],
+                    "mse": test_metrics["mse"],
+                    "r2": test_metrics["r2"],
+                }
+            )
+            print(
+                f"rolling {test_day} train_days={len(train_days)} val_days={len(val_days)} "
+                f"count={len(test_data.y)} rank_ic={test_metrics['rank_ic_mean']:.4f}"
+            )
+
+        if score_rows:
+            all_scores = pd.concat(score_rows, ignore_index=True)
+            _append_scores(score_output, all_scores)
+            if score_dedupe and score_output.exists():
+                df = pd.read_csv(score_output, parse_dates=["trade_date"])
+                df["trade_date"] = pd.to_datetime(df["trade_date"]).dt.date
+                df = df.drop_duplicates(subset=["trade_date", "code"], keep="last")
+                if limit_output:
+                    df = df[(df["trade_date"] >= desired_start) & (df["trade_date"] <= desired_end)]
+                df.to_csv(score_output, index=False)
+        else:
+            raise RuntimeError("rolling produced no scores; check window_days and data range")
+        if rolling_rows:
+            pd.DataFrame(rolling_rows).to_csv(out_dir / "rolling_metrics.csv", index=False)
+        (out_dir / "config.json").write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+        (out_dir / "features.json").write_text(json.dumps(factor_cols, ensure_ascii=False, indent=2), encoding="utf-8")
+        print(f"saved rolling: {out_dir}")
+        print(f"saved scores: {score_output}")
+        return
 
     train_data = build_dataset(
         factor_store=store,
@@ -123,39 +350,6 @@ def main() -> None:
         factor_time=factor_time,
         label_time=label_time,
     )
-
-    lgbm_params = cfg.get("lgbm_params", {})
-    grid_cfg = cfg.get("grid_search", {})
-    early_rounds = cfg.get("early_stopping_rounds")
-
-    # results output dir
-    results_root = Path(paths_cfg["results_root"])
-    model_name = cfg.get("model_name", "lgbm_factor")
-    date_label = f"{start.strftime('%Y-%m-%d')}_{end.strftime('%Y-%m-%d')}"
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    out_dir = results_root / "models" / model_name / date_label / ts
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    def _best_val_rank_ic(hist: list[dict]) -> float:
-        if not hist:
-            return float("nan")
-        vals = [h.get("val_rank_ic") for h in hist if h.get("val_rank_ic") is not None]
-        if not vals:
-            return float("nan")
-        return float(np.nanmax(vals))
-
-    def _best_iter_from_hist(hist: list[dict]) -> int | None:
-        best_val = float("-inf")
-        best_it = None
-        for h in hist:
-            v = h.get("val_rank_ic")
-            it = h.get("iteration")
-            if v is None or it is None or np.isnan(v):
-                continue
-            if float(v) > best_val:
-                best_val = float(v)
-                best_it = int(it)
-        return best_it
 
     model = None
     params = {}

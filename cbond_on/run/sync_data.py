@@ -70,15 +70,33 @@ def _sync_ftp(raw_root: str, cfg: dict) -> None:
 
 def main() -> None:
     paths_cfg = load_config_file("paths")
-    sync_cfg = load_config_file("sync_data")
+    sync_cfg = load_config_file("raw_data")
 
     raw_root = paths_cfg["raw_data_root"]
     mode = str(sync_cfg.get("mode", "both")).lower()
 
     if mode in ("db", "both"):
-        _sync_db(raw_root, sync_cfg.get("db", {}))
+        db_cfg = dict(sync_cfg.get("db", {}))
+        if "start" not in db_cfg:
+            db_cfg["start"] = sync_cfg.get("start")
+        if "end" not in db_cfg:
+            db_cfg["end"] = sync_cfg.get("end")
+        if "refresh" not in db_cfg:
+            db_cfg["refresh"] = sync_cfg.get("refresh", False)
+        if "overwrite" not in db_cfg:
+            db_cfg["overwrite"] = sync_cfg.get("overwrite", False)
+        _sync_db(raw_root, db_cfg)
     if mode in ("ftp", "both"):
-        _sync_ftp(raw_root, sync_cfg.get("ftp", {}))
+        ftp_cfg = dict(sync_cfg.get("ftp", {}))
+        if "start" not in ftp_cfg:
+            ftp_cfg["start"] = sync_cfg.get("start")
+        if "end" not in ftp_cfg:
+            ftp_cfg["end"] = sync_cfg.get("end")
+        if "refresh" not in ftp_cfg:
+            ftp_cfg["refresh"] = sync_cfg.get("refresh", False)
+        if "overwrite" not in ftp_cfg:
+            ftp_cfg["overwrite"] = sync_cfg.get("overwrite", False)
+        _sync_ftp(raw_root, ftp_cfg)
 
 
 if __name__ == "__main__":

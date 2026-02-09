@@ -364,7 +364,14 @@ def build_panels_with_labels(
     label_data_root = Path(label_data_root)
 
     trading_days = list_trading_days_from_raw(raw_data_root, start, end, kind="snapshot")
-    for idx, day in enumerate(trading_days):
+    for idx, day in enumerate(
+        progress(
+            trading_days,
+            desc="build_panels_labels",
+            unit="day",
+            total=len(trading_days),
+        )
+    ):
         next_day = trading_days[idx + 1] if idx + 1 < len(trading_days) else None
         dst = _panel_path(panel_data_root, day, window_minutes, panel_name=panel_name)
         if dst.exists() and not overwrite:

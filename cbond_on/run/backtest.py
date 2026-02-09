@@ -9,15 +9,15 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from cbond_on.core.config import load_config_file, parse_date
 from cbond_on.backtest.runner import run_backtest
-from cbond_on.models.impl.lob.score_builder import ScoreConfig, build_scores
 from cbond_on.report.backtest_report import render_backtest_report
+from cbond_on.run import model_score
 
 
 def main() -> None:
     paths_cfg = load_config_file("paths")
     backtest_cfg = load_config_file("backtest")
     live_cfg = load_config_file("live")
-    model_cfg = load_config_file("models/lob/model")
+    model_cfg = load_config_file("models/lgbm/model")
 
     raw_root = paths_cfg["raw_data_root"]
     clean_root = paths_cfg["clean_data_root"]
@@ -27,22 +27,13 @@ def main() -> None:
     score_path = Path(model_cfg["score_output"])
     refresh_scores = bool(backtest_cfg.get("refresh_scores", False))
     if refresh_scores or not score_path.exists():
-        ds_cfg = load_config_file("models/lob/dataset")
-        output_dir = Path(clean_root) / str(ds_cfg.get("output_dir", "LOBDS"))
-        train_cfg = model_cfg.get("train", {})
-        score_cfg = ScoreConfig(
-            device=str(train_cfg.get("device", "cpu")),
-            batch_size=int(train_cfg.get("batch_size", 16)),
+        ms_cfg = backtest_cfg.get("model_score", {})
+        model_score.main(
+            model_type=str(ms_cfg.get("model_type", "linear")),
+            model_config=str(ms_cfg.get("model_config", "models/linear/model")),
         )
-        build_scores(
-            dataset_root=output_dir,
-            weights_path=Path(model_cfg["weights_path"]),
-            start=start,
-            end=end,
-            model_params=model_cfg.get("params", {}),
-            score_cfg=score_cfg,
-            output_path=score_path,
-        )
+    if not score_path.exists():
+        raise FileNotFoundError(f"score file not found: {score_path}")
 
     result = run_backtest(
         raw_data_root=raw_root,
@@ -54,7 +45,9 @@ def main() -> None:
         sell_twap_col=backtest_cfg["sell_twap_col"],
         twap_bps=float(backtest_cfg["twap_bps"]),
         fee_bps=float(backtest_cfg.get("fee_bps", 0.0)),
-        top_n=int(live_cfg.get("top_n", 50)),
+        bin_source=str(backtest_cfg.get("bin_source", "auto")),
+        bin_top_k=int(backtest_cfg.get("bin_top_k", 1)),
+        bin_lookback_days=int(backtest_cfg.get("bin_lookback_days", 60)),
         min_count=int(backtest_cfg["min_count"]),
         max_weight=float(backtest_cfg["max_weight"]),
         filter_tradable_flag=bool(live_cfg.get("filter_tradable", True)),

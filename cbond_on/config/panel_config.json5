@@ -1,7 +1,7 @@
 {
-  full_refresh: true,
-  start: "2025-01-01",
-  end: "2026-01-28",
+  full_refresh: false,
+  start: "2025 -01-01",
+  end: "2026-02-08",
   panel_mode: "snapshot_sequence",
   window_minutes: [15],
   lead_minutes: 0,
@@ -15,7 +15,7 @@
   },
   panel_name: "T1430",
   count_points: 5000,
-  max_lookback_days: 3,
+  max_lookback_days: 30,
   snapshot_columns: null,
   label: {
     close_window: { start: "14:45", end: "14:57" },

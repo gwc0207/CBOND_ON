@@ -161,26 +161,6 @@ def _daily_rank_ic_ir(
     return mean, ir
 
 
-def _topn_dir_acc(y_all: np.ndarray, p_all: np.ndarray, top_n: int) -> float:
-    if y_all.size == 0 or top_n <= 0:
-        return float("nan")
-    top_n = min(int(top_n), int(y_all.size))
-    idx = np.argpartition(-p_all, top_n - 1)[:top_n]
-    return float((np.sign(y_all[idx]) == np.sign(p_all[idx])).mean())
-
-
-def _daily_topn_dir_acc(
-    y_all: np.ndarray, p_all: np.ndarray, d_all: np.ndarray, top_n: int
-) -> float:
-    if y_all.size == 0 or top_n <= 0:
-        return float("nan")
-    df = pd.DataFrame({"y": y_all, "p": p_all, "day": d_all})
-    vals: list[float] = []
-    for _, group in df.groupby("day", sort=True):
-        vals.append(_topn_dir_acc(group["y"].to_numpy(), group["p"].to_numpy(), top_n))
-    return float(np.nanmean(vals)) if vals else float("nan")
-
-
 def _bin_dir_acc(y_all: np.ndarray, p_all: np.ndarray, bins: int) -> list[tuple[int, float, int]]:
     if y_all.size == 0 or bins <= 1:
         return []
@@ -446,7 +426,6 @@ def main() -> None:
     normalize_y = bool(train_cfg.get("normalize_y", False))
     x_norm_method = str(train_cfg.get("x_norm_method", "zscore_sample"))
     y_norm_method = str(train_cfg.get("y_norm_method", "zscore_batch"))
-    metrics_top_n = int(train_cfg.get("metrics_top_n", 50))
     metrics_bins = int(train_cfg.get("metrics_bins", 5))
     metrics_debug = bool(train_cfg.get("metrics_debug", False))
     if metrics_debug:
@@ -547,34 +526,31 @@ def main() -> None:
         train_p_all = np.concatenate(train_p_list, axis=0) if train_p_list else np.array([])
         train_d_all = np.concatenate(train_day_list, axis=0) if train_day_list else np.array([])
         train_rank_ic, train_rank_ic_ir = _daily_rank_ic_ir(train_y_all, train_p_all, train_d_all)
-        train_top_dir = _daily_topn_dir_acc(train_y_all, train_p_all, train_d_all, metrics_top_n)
         train_bins = _daily_bin_dir_acc(train_y_all, train_p_all, train_d_all, metrics_bins)
         if val_outputs is not None:
             val_rank_ic, val_rank_ic_ir = _daily_rank_ic_ir(val_outputs[0], val_outputs[1], val_outputs[2])
-            val_top_dir = _daily_topn_dir_acc(val_outputs[0], val_outputs[1], val_outputs[2], metrics_top_n)
             val_bins = _daily_bin_dir_acc(val_outputs[0], val_outputs[1], val_outputs[2], metrics_bins)
         else:
             val_rank_ic = float("nan")
             val_rank_ic_ir = float("nan")
-            val_top_dir = float("nan")
             val_bins = []
         train_bins_str = ",".join([f"{b}:{a:.3f}({n})" for b, a, n in train_bins]) if train_bins else "n/a"
         val_bins_str = ",".join([f"{b}:{a:.3f}({n})" for b, a, n in val_bins]) if val_bins else "n/a"
         print(
             f"[train extra] rank_ic={train_rank_ic:.4f} rank_ic_ir={train_rank_ic_ir:.4f} "
-            f"top_dir@{metrics_top_n}={train_top_dir:.4f} bins={train_bins_str}"
+            f"bins={train_bins_str}"
         )
         print(
             f"[val extra] rank_ic={val_rank_ic:.4f} rank_ic_ir={val_rank_ic_ir:.4f} "
-            f"top_dir@{metrics_top_n}={val_top_dir:.4f} bins={val_bins_str}"
+            f"bins={val_bins_str}"
         )
 
         val_corr = val_stats["corr"] if val_stats is not None else float("nan")
         if not np.isfinite(val_corr):
             val_corr = 0.0
         checkpoint_score = (
-            dir_weight * val_top_dir + corr_weight * val_rank_ic
-            if not np.isnan(val_top_dir) and not np.isnan(val_rank_ic)
+            dir_weight * val_metrics["dir_acc"] + corr_weight * val_rank_ic
+            if not np.isnan(val_metrics["dir_acc"]) and not np.isnan(val_rank_ic)
             else float("nan")
         )
         history.append(
@@ -608,7 +584,7 @@ def main() -> None:
     if best_epoch is not None:
         print(
             f"[checkpoint] epoch={best_epoch} score={best_score:.6f} "
-            f"(top_weight={dir_weight:.3f} rank_weight={corr_weight:.3f})"
+            f"(dir_weight={dir_weight:.3f} rank_weight={corr_weight:.3f})"
         )
     test_metrics, test_stats, test_outputs = (
         _evaluate(

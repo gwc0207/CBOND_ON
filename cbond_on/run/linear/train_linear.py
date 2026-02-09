@@ -36,12 +36,27 @@ def _format_bins(bin_dir: list[tuple[int, float, int]]) -> str:
     return ",".join([f"{b}:{acc:.3f}({n})" for b, acc, n in bin_dir])
 
 
-def main() -> None:
-    paths_cfg = load_config_file("paths")
-    cfg = load_config_file("models/linear/model")
+def _load_model_config(path: Path | None) -> dict:
+    if path is None:
+        return load_config_file("models/linear/model")
+    import json5
+    with path.open("r", encoding="utf-8") as handle:
+        return json5.load(handle) or {}
 
-    start = parse_date(cfg.get("start"))
-    end = parse_date(cfg.get("end"))
+
+def main(*, start: str | None = None, end: str | None = None) -> None:
+    paths_cfg = load_config_file("paths")
+    cfg_path = None
+    if len(sys.argv) > 1:
+        cfg_path = Path(sys.argv[1])
+    cfg = _load_model_config(cfg_path)
+
+    cfg_start = parse_date(cfg.get("start"))
+    cfg_end = parse_date(cfg.get("end"))
+    start = parse_date(start) if start else cfg_start
+    end = parse_date(end) if end else cfg_end
+    if start > end:
+        raise ValueError("start date must be <= end date")
 
     factor_root = Path(paths_cfg["factor_data_root"])
     label_root = Path(paths_cfg["label_data_root"])
@@ -112,28 +127,9 @@ def main() -> None:
     if result.scores.empty:
         raise RuntimeError("no scores generated")
 
-    # evaluate metrics on train/val/test by date split
+    # evaluate metrics on full sample (cbond_day style)
     scores_df = result.scores.copy()
     scores_df["trade_date"] = pd.to_datetime(scores_df["trade_date"]).dt.date
-    days = sorted(scores_df["trade_date"].unique().tolist())
-
-    train_cfg = cfg.get("train", {})
-    train_ratio = float(train_cfg.get("train_ratio", 0.7))
-    val_ratio = float(train_cfg.get("val_ratio", 0.15))
-    test_ratio = float(train_cfg.get("test_ratio", 0.15))
-    if abs((train_ratio + val_ratio + test_ratio) - 1.0) > 1e-6:
-        raise ValueError("train/val/test ratios must sum to 1.0")
-    n = len(days)
-    n_train = max(1, int(n * train_ratio))
-    n_val = max(1, int(n * val_ratio))
-    if n_train + n_val >= n:
-        n_val = max(1, n - n_train - 1)
-    train_days = set(days[:n_train])
-    val_days = set(days[n_train:n_train + n_val])
-    test_days = set(days[n_train + n_val:])
-
-    def _build_eval_df(subset: set[datetime.date]) -> pd.DataFrame:
-        return scores_df[scores_df["trade_date"].isin(subset)]
 
     def _merge_labels(df: pd.DataFrame) -> pd.DataFrame:
         rows = []
@@ -153,9 +149,7 @@ def main() -> None:
                 rows.append(merged)
         return pd.concat(rows, ignore_index=True) if rows else pd.DataFrame()
 
-    train_eval = _merge_labels(_build_eval_df(train_days))
-    val_eval = _merge_labels(_build_eval_df(val_days))
-    test_eval = _merge_labels(_build_eval_df(test_days))
+    full_eval = _merge_labels(scores_df)
 
     def _eval(df: pd.DataFrame) -> dict:
         if df.empty:
@@ -170,36 +164,21 @@ def main() -> None:
                 "bin_dir": [],
             }
         return evaluate_metrics(
-            x=pd.DataFrame(index=df.index),
+            x=df[["score"]],
             y=df["y"],
             dt=df["dt"],
             pred=df["score"].to_numpy(),
             bins=bins,
         )
 
-    train_metrics = _eval(train_eval)
-    val_metrics = _eval(val_eval)
-    test_metrics = _eval(test_eval)
+    full_metrics = _eval(full_eval)
 
     print(
-        f"train mse={train_metrics['mse']:.6f} r2={train_metrics['r2']:.4f} dir={train_metrics['dir']:.4f} "
-        f"ic={train_metrics['ic_mean']:.4f} ir={train_metrics['ic_ir']:.4f} "
-        f"rank_ic={train_metrics['rank_ic_mean']:.4f} rank_ir={train_metrics['rank_ic_ir']:.4f}"
+        f"all mse={full_metrics['mse']:.6f} r2={full_metrics['r2']:.4f} dir={full_metrics['dir']:.4f} "
+        f"ic={full_metrics['ic_mean']:.4f} ir={full_metrics['ic_ir']:.4f} "
+        f"rank_ic={full_metrics['rank_ic_mean']:.4f} rank_ir={full_metrics['rank_ic_ir']:.4f}"
     )
-    print(
-        f"val mse={val_metrics['mse']:.6f} r2={val_metrics['r2']:.4f} dir={val_metrics['dir']:.4f} "
-        f"ic={val_metrics['ic_mean']:.4f} ir={val_metrics['ic_ir']:.4f} "
-        f"rank_ic={val_metrics['rank_ic_mean']:.4f} rank_ir={val_metrics['rank_ic_ir']:.4f}"
-    )
-    print(
-        f"test mse={test_metrics['mse']:.6f} r2={test_metrics['r2']:.4f} dir={test_metrics['dir']:.4f} "
-        f"ic={test_metrics['ic_mean']:.4f} ir={test_metrics['ic_ir']:.4f} "
-        f"rank_ic={test_metrics['rank_ic_mean']:.4f} rank_ir={test_metrics['rank_ic_ir']:.4f}"
-    )
-
-    print(f"train bins: {_format_bins(train_metrics['bin_dir'])}")
-    print(f"val bins: {_format_bins(val_metrics['bin_dir'])}")
-    print(f"test bins: {_format_bins(test_metrics['bin_dir'])}")
+    print(f"all bins: {_format_bins(full_metrics['bin_dir'])}")
 
     results_root = Path(paths_cfg["results_root"])
     model_name = cfg.get("model_name", "linear_factor")
@@ -217,22 +196,28 @@ def main() -> None:
         overwrite=True,
     )
 
-    metrics_df = pd.DataFrame([
-        {"split": "train", **{k: v for k, v in train_metrics.items() if k != "bin_dir"}},
-        {"split": "val", **{k: v for k, v in val_metrics.items() if k != "bin_dir"}},
-        {"split": "test", **{k: v for k, v in test_metrics.items() if k != "bin_dir"}},
-    ])
+    # also write to configured score outputs (used by backtest/live)
+    score_output = cfg.get("score_output")
+    if score_output:
+        write_linear_outputs(
+            result=result,
+            score_path=Path(score_output),
+            weights_path=Path(cfg.get("weights_output")) if cfg.get("weights_output") else None,
+            meta_path=Path(cfg.get("meta_output")) if cfg.get("meta_output") else None,
+            meta_payload={"config": cfg},
+            overwrite=True,
+        )
+
+    metrics_df = pd.DataFrame(
+        [{"split": "all", **{k: v for k, v in full_metrics.items() if k != "bin_dir"}}]
+    )
     metrics_df.to_csv(out_dir / "metrics.csv", index=False)
 
     def _bin_df(split, metrics):
         return pd.DataFrame([
             {"split": split, "bin": b, "dir_acc": acc, "count": n} for b, acc, n in metrics["bin_dir"]
         ])
-    bin_df = pd.concat([
-        _bin_df("train", train_metrics),
-        _bin_df("val", val_metrics),
-        _bin_df("test", test_metrics),
-    ], ignore_index=True)
+    bin_df = _bin_df("all", full_metrics)
     bin_df.to_csv(out_dir / "bin_dir.csv", index=False)
 
     print(f"saved: {out_dir}")

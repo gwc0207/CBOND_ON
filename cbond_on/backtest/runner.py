@@ -8,6 +8,7 @@ from typing import Iterable
 import pandas as pd
 
 from cbond_on.core.universe import filter_tradable
+from cbond_on.core.utils import progress
 from cbond_on.data.io import read_table_range, read_trading_calendar, iter_clean_dates
 from cbond_on.models.score_io import load_scores_by_date
 from .execution import apply_twap_bps
@@ -74,7 +75,9 @@ def run_backtest(
     sell_twap_col: str,
     twap_bps: float,
     fee_bps: float,
-    top_n: int,
+    bin_source: str,
+    bin_top_k: int,
+    bin_lookback_days: int,
     min_count: int,
     max_weight: float,
     filter_tradable_flag: bool,
@@ -102,8 +105,12 @@ def run_backtest(
     bin_time_records: list[dict] = []
     bin_dir_records: list[dict] = []
     cost_bps = float(twap_bps) + float(fee_bps)
+    bin_source = str(bin_source or "auto").lower()
+    bin_top_k = max(1, int(bin_top_k))
+    bin_lookback_days = max(1, int(bin_lookback_days))
+    bin_history: list[dict[int, float]] = []
 
-    for i in range(len(day_list) - 1):
+    for i in progress(range(len(day_list) - 1), desc="backtest", unit="day", total=len(day_list) - 1):
         day = day_list[i]
         next_day = day_list[i + 1]
         score_df = scores.get(day, pd.DataFrame())
@@ -159,6 +166,7 @@ def run_backtest(
             }
         )
 
+        bins_cat = None
         if ic_bins > 1:
             try:
                 bins_cat = pd.qcut(merged["score"], ic_bins, labels=False, duplicates="drop")
@@ -194,8 +202,35 @@ def run_backtest(
                             "dir_acc": dir_acc,
                         }
                     )
+                if not bin_df.empty:
+                    bin_means = bin_df.groupby("bin")["return"].mean().to_dict()
+                    bin_history.append({int(k): float(v) for k, v in bin_means.items()})
 
-        picks = merged.sort_values("score", ascending=False).head(int(top_n))
+        if bins_cat is None:
+            diagnostics.append({"trade_date": day, "status": "skip", "reason": "binning_failed"})
+            continue
+        merged = merged.copy()
+        merged["bin"] = bins_cat.values
+        available_bins = sorted(merged["bin"].dropna().unique().tolist())
+        if not available_bins:
+            diagnostics.append({"trade_date": day, "status": "skip", "reason": "binning_failed"})
+            continue
+        if bin_source == "auto" and bin_history:
+            lookback = bin_history[-bin_lookback_days:] if len(bin_history) > bin_lookback_days else bin_history
+            agg: dict[int, list[float]] = {}
+            for rec in lookback:
+                for b, v in rec.items():
+                    agg.setdefault(b, []).append(v)
+            ranked = sorted(
+                [(b, float(pd.Series(v).mean())) for b, v in agg.items()],
+                key=lambda x: x[1],
+                reverse=True,
+            )
+            chosen_bins = [b for b, _ in ranked][:bin_top_k] if ranked else sorted(available_bins, reverse=True)[:bin_top_k]
+        else:
+            chosen_bins = sorted(available_bins, reverse=True)[:bin_top_k]
+
+        picks = merged[merged["bin"].isin(chosen_bins)]
         if len(picks) < min_count:
             diagnostics.append(
                 {"trade_date": day, "status": "skip", "reason": "min_count_not_met"}

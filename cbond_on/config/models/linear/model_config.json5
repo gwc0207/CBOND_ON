@@ -6,6 +6,9 @@
   window_minutes: 15,
   factor_time: "14:30",
   label_time: "14:45",
+  score_output: "D:/cbond_on/results/scores/linear_factor_default/scores.csv",
+  weights_output: "D:/cbond_on/results/scores/linear_factor_default/weights.csv",
+  meta_output: "D:/cbond_on/results/scores/linear_factor_default/meta.json",
   factors: [
     "ret_10m",
     "aacb_3_",

@@ -317,7 +317,7 @@ def _build_one_day(
 
 def main() -> None:
     paths_cfg = load_config_file("paths")
-    sync_cfg = load_config_file("sync_data")
+    sync_cfg = load_config_file("raw_data")
     data_cfg = sync_cfg.get("data", {})
     ds_cfg = load_config_file("models/lob/dataset")
     bt_cfg = load_config_file("backtest")
@@ -326,7 +326,7 @@ def main() -> None:
     clean_root = Path(paths_cfg["clean_data_root"])
     snapshot_root = data_cfg.get("snapshot_root")
     if not snapshot_root:
-        raise ValueError("sync_data_config.json5 missing data.snapshot_root")
+        raise ValueError("raw_data_config.json5 missing data.snapshot_root")
 
     start = parse_date(ds_cfg["start"])
     end = parse_date(ds_cfg["end"])

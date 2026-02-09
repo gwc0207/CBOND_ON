@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import argparse
 import sys
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 import pandas as pd
@@ -12,17 +13,164 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from cbond_on.core.config import load_config_file, parse_date, parse_time
 from cbond_on.core.universe import filter_tradable
+from cbond_on.core.trading_days import list_trading_days_from_raw
 from cbond_on.data.io import read_clean_daily
-from cbond_on.data.snapshot import SnapshotConfig, load_snapshot_up_to
-from cbond_on.models.loader import build_model
+from cbond_on.data.clean import build_cleaned_snapshot, build_cleaned_kline
+from cbond_on.models.score_io import load_scores_by_date
+from cbond_on.run import model_score
+from cbond_on.run import sync_data, build_cleaned_data, build_panels, factor_batch
+from cbond_on.factor_batch.runner import run_factor_batch, build_signal_specs
+from cbond_on.config import SnapshotConfig, ScheduleConfig
+from cbond_on.data.panel import build_panels_with_labels, write_panel_data, _build_day_snapshot_sequence
+from cbond_on.data.snapshot import read_snapshot_day, _snapshot_path
+from cbond_on.live.redis_snapshot import RedisConfig, SnapshotRedisClient
 
 
 def _parse_target(value: str | date) -> date:
     if isinstance(value, date):
         return value
-    if isinstance(value, str) and value.lower() == "today":
-        return pd.Timestamp.today().date()
     return parse_date(value)
+
+
+def _last_trading_day(raw_root: str, target: date) -> date:
+    days = list_trading_days_from_raw(raw_root, target - timedelta(days=10), target, kind="snapshot")
+    if not days:
+        return target
+    days = sorted(days)
+    return days[-1]
+
+
+def _recent_trading_days(raw_root: str, target: date, lookback_days: int) -> list[date]:
+    lookback_days = max(1, int(lookback_days))
+    scan_days = max(lookback_days * 8, 60)
+    scan_start = target - timedelta(days=scan_days)
+    days = list_trading_days_from_raw(raw_root, scan_start, target, kind="snapshot")
+    if not days:
+        return []
+    days.sort()
+    return days[-lookback_days:]
+
+
+def _normalize_trade_time(df: pd.DataFrame) -> pd.DataFrame:
+    if "trade_time" in df.columns:
+        col = "trade_time"
+    elif "timestamp" in df.columns:
+        col = "timestamp"
+    elif "ts" in df.columns:
+        col = "ts"
+    else:
+        raise KeyError("redis snapshot missing trade_time/timestamp/ts column")
+    out = df.copy()
+    if pd.api.types.is_numeric_dtype(out[col]):
+        # guess ms vs s
+        sample = float(out[col].dropna().iloc[0]) if out[col].dropna().any() else 0.0
+        unit = "ms" if sample > 1e12 else "s"
+        out["trade_time"] = pd.to_datetime(out[col], unit=unit, errors="coerce")
+    else:
+        out["trade_time"] = pd.to_datetime(out[col], errors="coerce")
+    return out
+
+
+def _build_panel_from_redis(
+    *,
+    target: date,
+    panel_data_root: str,
+    raw_root: str,
+    panel_cfg: dict,
+    cleaned_cfg: dict,
+    live_cfg: dict,
+) -> bool:
+    if not bool(live_cfg.get("redis_enabled", True)):
+        return False
+    cfg = RedisConfig(
+        host=str(live_cfg.get("redis_host", "")),
+        port=int(live_cfg.get("redis_port", 6379)),
+        db=int(live_cfg.get("redis_db", 0)),
+        password=live_cfg.get("redis_password"),
+        socket_timeout=live_cfg.get("redis_socket_timeout", 5),
+    )
+    client = SnapshotRedisClient(cfg)
+    asset_type = str(live_cfg.get("redis_asset_type", "cbond"))
+    source = str(live_cfg.get("redis_source", "combiner"))
+    stage = str(live_cfg.get("redis_stage", "raw"))
+    limit = int(live_cfg.get("redis_limit", panel_cfg.get("count_points", 3000)))
+    symbols = client.list_symbols(source=source, stage=stage, asset_type=asset_type)
+    if not symbols:
+        print("[live] redis symbols empty")
+        return False
+    df = client.read_latest_df(symbols, source, stage, asset_type=asset_type, limit=limit)
+    if df.empty:
+        print("[live] redis snapshot empty")
+        return False
+    if "code" not in df.columns:
+        raise KeyError("redis snapshot missing code column")
+    df = _normalize_trade_time(df)
+    df = df.dropna(subset=["trade_time"])
+    cutoff = parse_time(live_cfg.get("data_cutoff", "14:30"))
+    cutoff_dt = pd.Timestamp.combine(target, cutoff)
+    df = df[df["trade_time"] <= cutoff_dt]
+    if df.empty:
+        print("[live] redis snapshot empty after cutoff")
+        return False
+
+    snapshot_cfg = SnapshotConfig.from_dict(cleaned_cfg["snapshot"])
+    schedule = ScheduleConfig.from_dict(panel_cfg["schedule"]).to_schedule()
+    count_points = int(panel_cfg.get("count_points", 3000))
+    live_count_points = int(live_cfg.get("panel_count_points", 0))
+    if live_count_points > 0:
+        count_points = live_count_points
+    if limit <= 0:
+        limit = count_points
+    count_points = min(count_points, limit)
+    snapshot_columns = panel_cfg.get("snapshot_columns")
+    lead_minutes = int(panel_cfg.get("lead_minutes", 0))
+
+    panel_df = _build_day_snapshot_sequence(
+        df,
+        target,
+        schedule,
+        snapshot_cfg,
+        count_points=count_points,
+        snapshot_columns=snapshot_columns,
+        lead_minutes=lead_minutes,
+    )
+    if panel_df is None or panel_df.empty:
+        lookback = int(live_cfg.get("lookback_days", 5))
+        raw_days = list_trading_days_from_raw(raw_root)
+        raw_days = [d for d in raw_days if d < target][-lookback:]
+        extra_frames = []
+        for day in raw_days:
+            raw_path = _snapshot_path(raw_root, day)
+            if not raw_path.exists():
+                continue
+            extra_frames.append(read_snapshot_day(raw_path, snapshot_cfg))
+        if extra_frames:
+            raw_df = pd.concat(extra_frames + [df], ignore_index=True)
+            if "trade_time" in raw_df.columns:
+                raw_df = raw_df.dropna(subset=["trade_time"])
+            panel_df = _build_day_snapshot_sequence(
+                raw_df,
+                target,
+                schedule,
+                snapshot_cfg,
+                count_points=count_points,
+                snapshot_columns=snapshot_columns,
+                lead_minutes=lead_minutes,
+            )
+        if panel_df is None or panel_df.empty:
+            raise RuntimeError(
+                f"[live] redis panel empty with count_points={count_points}; "
+                f"raw history insufficient for {target}"
+            )
+    write_panel_data(
+        panel_data_root,
+        target,
+        window_minutes=int(panel_cfg.get("window_minutes", [15])[0]),
+        panel_name=panel_cfg.get("panel_name"),
+        df=panel_df,
+    )
+    print(f"[live] redis panel written for {target}")
+    return True
 
 
 def _write_trades(out_dir: Path, trades: pd.DataFrame, trade_day: date) -> None:
@@ -92,49 +240,160 @@ def _write_trades_to_db(
         conn.commit()
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(description="CBOND_ON live pipeline")
+    parser.add_argument(
+        "--target",
+        help="target date (YYYY-MM-DD) or 'today' to use current date",
+    )
+    args = parser.parse_args(argv)
     paths_cfg = load_config_file("paths")
-    sync_cfg = load_config_file("sync_data")
-    data_cfg = sync_cfg.get("data", {})
-    model_cfg = load_config_file("models/lob/model")
     live_cfg = load_config_file("live")
     backtest_cfg = load_config_file("backtest")
+    panel_cfg = load_config_file("panel")
+    cleaned_cfg = load_config_file("cleaned_data")
+    model_cfg = load_config_file("models/lgbm/model")
 
     raw_root = paths_cfg["raw_data_root"]
     clean_root = paths_cfg["clean_data_root"]
     results_root = Path(paths_cfg["results_root"])
-    snapshot_root = data_cfg.get("snapshot_root") or str(Path(raw_root) / "snapshot")
 
-    target = _parse_target(live_cfg.get("target", "today"))
-    cutoff = parse_time(live_cfg.get("data_cutoff", "14:30"))
+    target_override = args.target if args.target else live_cfg.get("target")
+    if not target_override:
+        raise ValueError("live config missing target date")
+    target = _parse_target(target_override)
+    live_start = parse_date(live_cfg.get("start", target))
+    trade_date = _last_trading_day(raw_root, target)
     run_after = parse_time(live_cfg.get("run_after", "14:30"))
     if pd.Timestamp.now().time() < run_after:
         print("warning: running before scheduled time")
 
-    snap_cfg = SnapshotConfig(
-        price_field=data_cfg.get("price_field", "last"),
-        filter_trading_phase=bool(data_cfg.get("filter_trading_phase", True)),
-        allowed_phases=data_cfg.get("allowed_phases") or ["T"],
-        drop_no_trade=bool(data_cfg.get("drop_no_trade", True)),
-        use_prev_snapshot=bool(data_cfg.get("use_prev_snapshot", True)),
-    )
-    snapshot = load_snapshot_up_to(snapshot_root, target, cutoff, snap_cfg)
-    if snapshot.empty:
-        raise ValueError("snapshot is empty for target date")
+    run_pipeline = bool(live_cfg.get("run_pipeline", True))
+    if run_pipeline:
+        lookback_days = int(live_cfg.get("lookback_days", 5))
+        recent_days = _recent_trading_days(raw_root, target, lookback_days)
+        history_start = recent_days[0] if recent_days else parse_date(live_cfg.get("start", target))
+        history_end = recent_days[-1] if recent_days else target
 
-    snapshot = snapshot.copy()
-    snapshot["trade_date"] = target
-    model = build_model(model_cfg)
-    scores = model.predict(snapshot)
-    if scores.empty:
-        raise ValueError("model produced empty scores")
-    snapshot["score"] = scores
+        if bool(live_cfg.get("sync_raw", True)):
+            print(f"[live] sync raw: {history_start} -> {history_end} ...")
+            sync_cfg = load_config_file("raw_data")
+            sync_cfg = dict(sync_cfg)
+            if "db" in sync_cfg:
+                sync_cfg["db"] = dict(sync_cfg["db"])
+                sync_cfg["db"]["start"] = str(history_start)
+                sync_cfg["db"]["end"] = str(history_end)
+            if "ftp" in sync_cfg:
+                sync_cfg["ftp"] = dict(sync_cfg["ftp"])
+                sync_cfg["ftp"]["start"] = str(history_start)
+                sync_cfg["ftp"]["end"] = str(history_end)
+            mode = str(sync_cfg.get("mode", "both")).lower()
+            if mode in ("db", "both"):
+                sync_data._sync_db(raw_root, sync_cfg.get("db", {}))
+            if mode in ("ftp", "both"):
+                sync_data._sync_ftp(raw_root, sync_cfg.get("ftp", {}))
+        if bool(live_cfg.get("build_clean", True)):
+            print(f"[live] build cleaned data: {history_start} -> {history_end} ...")
+            snapshot_cfg = SnapshotConfig.from_dict(cleaned_cfg["snapshot"])
+            overwrite = bool(cleaned_cfg.get("overwrite", False)) or bool(cleaned_cfg.get("full_refresh", False))
+            build_cleaned_snapshot(
+                raw_root,
+                clean_root,
+                history_start,
+                history_end,
+                snapshot_cfg,
+                overwrite=overwrite,
+            )
+            build_cleaned_kline(
+                raw_root,
+                clean_root,
+                history_start,
+                history_end,
+                overwrite=overwrite,
+            )
+        if bool(live_cfg.get("build_panel", True)):
+            print(f"[live] build panels: {history_start} -> {history_end} ...")
+            schedule = ScheduleConfig.from_dict(panel_cfg["schedule"]).to_schedule()
+            panel_name = panel_cfg.get("panel_name")
+            windows = panel_cfg.get("window_minutes", [15])
+            overwrite = bool(panel_cfg.get("overwrite", False)) or bool(panel_cfg.get("full_refresh", False))
+            for w in windows:
+                build_panels_with_labels(
+                    clean_root,
+                    paths_cfg["panel_data_root"],
+                    paths_cfg["label_data_root"],
+                    raw_root,
+                    history_start,
+                    history_end,
+                    schedule,
+                    SnapshotConfig.from_dict(cleaned_cfg["snapshot"]),
+                    panel_cfg.get("label", {}),
+                    window_minutes=int(w),
+                    panel_name=panel_name,
+                    overwrite=overwrite,
+                    panel_mode=str(panel_cfg.get("panel_mode", "snapshot_sequence")),
+                    count_points=int(panel_cfg.get("count_points", 3000)),
+                    max_lookback_days=int(panel_cfg.get("max_lookback_days", 3)),
+                    snapshot_columns=panel_cfg.get("snapshot_columns"),
+                    lead_minutes=int(panel_cfg.get("lead_minutes", 0)),
+                )
+            _build_panel_from_redis(
+                target=target,
+                panel_data_root=paths_cfg["panel_data_root"],
+                raw_root=paths_cfg["raw_data_root"],
+                panel_cfg=panel_cfg,
+                cleaned_cfg=cleaned_cfg,
+                live_cfg=live_cfg,
+            )
+        if bool(live_cfg.get("build_factors", True)):
+            print(f"[live] build factors: {history_start} -> {target} ...")
+            fb_cfg = load_config_file("factor_batch")
+            fb_cfg = dict(fb_cfg)
+            fb_cfg["backtest_enabled"] = False
+            specs = build_signal_specs(fb_cfg)
+            run_factor_batch(
+                fb_cfg,
+                panel_data_root=paths_cfg["panel_data_root"],
+                factor_data_root=paths_cfg["factor_data_root"],
+                label_data_root=paths_cfg["label_data_root"],
+                raw_data_root=raw_root,
+                results_root=paths_cfg["results_root"],
+                start=history_start,
+                end=target,
+                window_minutes=int(fb_cfg.get("window_minutes", 15)),
+                panel_name=fb_cfg.get("panel_name"),
+                overwrite=bool(fb_cfg.get("overwrite", False)),
+                full_refresh=bool(fb_cfg.get("full_refresh", False)),
+                specs=specs,
+            )
+        if bool(live_cfg.get("run_model_score", True)):
+            print("[live] build model scores ...")
+            model_score.main(
+                model_type=live_cfg.get("model_type"),
+                model_config=live_cfg.get("model_config"),
+                start=str(live_start),
+                end=str(target),
+            )
+
+    score_path = Path(model_cfg["score_output"])
+    refresh_scores = bool(live_cfg.get("refresh_scores", False))
+    if refresh_scores or not score_path.exists():
+        model_score.main(
+            model_type=live_cfg.get("model_type"),
+            model_config=live_cfg.get("model_config"),
+            start=str(live_start),
+            end=str(target),
+        )
+    scores_by_date = load_scores_by_date(score_path)
+    score_df = scores_by_date.get(target)
+    if score_df is None or score_df.empty:
+        raise ValueError(f"no scores for target date {target} in {score_path}")
 
     daily = read_clean_daily(clean_root, target)
     if daily.empty:
         raise ValueError("clean daily data is empty for target date")
 
-    merged = daily.merge(snapshot[["code", "score"]], on="code", how="left")
+    merged = daily.merge(score_df[["code", "score"]], on="code", how="left")
     merged = merged[merged["score"].notna()]
     if merged.empty:
         raise ValueError("no scores matched to daily data")
@@ -150,20 +409,39 @@ def main() -> None:
     if merged.empty:
         raise ValueError("no tradable symbols after filtering")
 
-    top_n = int(live_cfg.get("top_n", 50))
-    picks = merged.sort_values("score", ascending=False).head(top_n).copy()
+    bin_source = str(backtest_cfg.get("bin_source", "auto")).lower()
+    bin_top_k = max(1, int(backtest_cfg.get("bin_top_k", 1)))
+    bin_count = int(backtest_cfg.get("ic_bins", 20))
+    if bin_count <= 1:
+        bin_count = 2
+    try:
+        bins_cat = pd.qcut(merged["score"], bin_count, labels=False, duplicates="drop")
+    except Exception:
+        bins_cat = None
+    if bins_cat is None or bins_cat.dropna().empty:
+        raise ValueError("binning failed for live picks")
+    merged = merged.copy()
+    merged["bin"] = bins_cat.values
+    available_bins = sorted(merged["bin"].dropna().unique().tolist())
+    if not available_bins:
+        raise ValueError("no bins available for live picks")
+    if bin_source == "auto":
+        chosen_bins = sorted(available_bins, reverse=True)[:bin_top_k]
+    else:
+        chosen_bins = sorted(available_bins, reverse=True)[:bin_top_k]
+    picks = merged[merged["bin"].isin(chosen_bins)].sort_values("score", ascending=False).copy()
     picks["rank"] = range(1, len(picks) + 1)
     weight = min(1.0 / len(picks), float(backtest_cfg.get("max_weight", 1.0)))
     picks["weight"] = weight
 
     out_dir = results_root / "live" / f"{target:%Y-%m-%d}"
     out_dir.mkdir(parents=True, exist_ok=True)
-    _write_trades(out_dir, picks, target)
+    _write_trades(out_dir, picks, trade_date)
 
     if bool(live_cfg.get("db_write", False)):
         _write_trades_to_db(
             trades=picks,
-            trade_day=target,
+            trade_day=trade_date,
             table=live_cfg["db_table"],
             mode=live_cfg.get("db_mode", "replace_date"),
         )

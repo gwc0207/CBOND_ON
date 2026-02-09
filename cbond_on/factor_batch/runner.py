@@ -151,7 +151,8 @@ def run_intraday_factor_backtest(
     kept_records: list[dict] = []
     filtered_records: list[dict] = []
     diagnostics: list[dict] = []
-    for day in _iter_existing_label_days(label_root, start, end):
+    days = list(_iter_existing_label_days(label_root, start, end))
+    for day in progress(days, desc="factor_backtest", unit="day", total=len(days)):
         factor_df = factor_store.read_day(day)
         if factor_df.empty or factor_col not in factor_df.columns:
             diagnostics.append({"trade_date": day, "status": "skip", "reason": "missing_factor"})
@@ -476,8 +477,11 @@ def run_factor_batch(
     allowed_phases = tradable_cfg.get("allowed_phases")
     record_codes = bool(tradable_cfg.get("record_codes", True))
 
+    backtest_enabled = bool(cfg.get("backtest_enabled", True))
     for spec in progress(specs, desc="factor_batch", unit="signal"):
         factor_col = build_factor_col(spec)
+        if not backtest_enabled:
+            continue
         result = run_intraday_factor_backtest(
             factor_store,
             Path(label_data_root),
