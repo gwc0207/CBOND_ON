@@ -1,10 +1,17 @@
 from __future__ import annotations
 
+import os
 from datetime import date, datetime, timedelta
 from typing import Tuple
 
 
 def progress(iterable, **kwargs):
+    disable_env = str(os.getenv("TQDM_DISABLE", "")).strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
     try:
         from tqdm import tqdm
     except Exception:
@@ -27,7 +34,7 @@ def progress(iterable, **kwargs):
                 yield item
 
         return _fallback_iter()
-    kwargs.setdefault("disable", False)
+    kwargs.setdefault("disable", disable_env)
     kwargs.setdefault("dynamic_ncols", True)
     kwargs.setdefault("mininterval", 1.0)
     kwargs.setdefault("miniters", 1)

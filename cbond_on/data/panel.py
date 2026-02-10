@@ -357,6 +357,7 @@ def build_panels_with_labels(
     snapshot_columns: Optional[list[str]] = None,
     lead_minutes: int = 0,
     label_write_mode: str = "overwrite",
+    label_end: date | None = None,
 ) -> PanelBuildResult:
     result = PanelBuildResult()
     cleaned_data_root = Path(cleaned_data_root)
@@ -399,24 +400,26 @@ def build_panels_with_labels(
         result.written += 1
 
         # labels: same-day close window -> next trading day open window
-        day_df = snapshot_df.copy()
-        if "trade_time" in day_df.columns:
-            day_df = day_df[day_df["trade_time"].dt.date == day]
-        next_df = _read_snapshot_day(cleaned_data_root / "snapshot", next_day) if next_day else pd.DataFrame()
-        labels = _build_day_labels_twap(
-            day_df,
-            next_df,
-            day,
-            next_day,
-            snapshot_config,
-            label_cfg,
-        )
-        _write_labels_day(
-            label_data_root,
-            day,
-            labels,
-            mode=label_write_mode,
-        )
+        # Enforce causal cutoff when label_end is provided.
+        if label_end is None or day <= label_end:
+            day_df = snapshot_df.copy()
+            if "trade_time" in day_df.columns:
+                day_df = day_df[day_df["trade_time"].dt.date == day]
+            next_df = _read_snapshot_day(cleaned_data_root / "snapshot", next_day) if next_day else pd.DataFrame()
+            labels = _build_day_labels_twap(
+                day_df,
+                next_df,
+                day,
+                next_day,
+                snapshot_config,
+                label_cfg,
+            )
+            _write_labels_day(
+                label_data_root,
+                day,
+                labels,
+                mode=label_write_mode,
+            )
     return result
 
 

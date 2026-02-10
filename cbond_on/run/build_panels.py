@@ -23,6 +23,8 @@ def main() -> None:
     label_data_root = paths_cfg["label_data_root"]
     start = parse_date(panel_cfg.get("start"))
     end = parse_date(panel_cfg.get("end"))
+    label_end_cfg = panel_cfg.get("label_end")
+    label_end = parse_date(label_end_cfg) if label_end_cfg else None
 
     snapshot_cfg = SnapshotConfig.from_dict(cleaned_cfg["snapshot"])
     schedule = ScheduleConfig.from_dict(panel_cfg["schedule"]).to_schedule()
@@ -62,6 +64,7 @@ def main() -> None:
             max_lookback_days=max_lookback_days,
             snapshot_columns=snapshot_columns,
             lead_minutes=lead_minutes,
+            label_end=label_end,
         )
         print(f"[panel] done window={w} -> {res}")
 

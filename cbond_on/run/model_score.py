@@ -16,6 +16,7 @@ def main(
     model_config: str | None = None,
     start: str | None = None,
     end: str | None = None,
+    label_cutoff: str | None = None,
 ) -> None:
     cfg = {}
     try:
@@ -26,6 +27,7 @@ def main(
     model_config = str(model_config or cfg.get("model_config", "models/linear/model"))
     start = start or cfg.get("start")
     end = end or cfg.get("end")
+    label_cutoff = label_cutoff or cfg.get("label_cutoff")
 
     if model_type == "linear":
         from cbond_on.run.linear import train_linear
@@ -43,7 +45,7 @@ def main(
             sys.argv = [sys.argv[0], str(cfg_path)]
         else:
             sys.argv = [sys.argv[0]]
-        train_lgbm.main(start=start, end=end)
+        train_lgbm.main(start=start, end=end, label_cutoff=label_cutoff)
         return
 
     raise ValueError(f"unsupported model_type: {model_type}")

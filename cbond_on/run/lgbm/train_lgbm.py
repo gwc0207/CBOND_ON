@@ -49,7 +49,12 @@ def _append_scores(score_path: Path, new_scores: pd.DataFrame) -> None:
         new_scores.to_csv(score_path, index=False)
 
 
-def main(*, start: str | None = None, end: str | None = None) -> None:
+def main(
+    *,
+    start: str | None = None,
+    end: str | None = None,
+    label_cutoff: str | None = None,
+) -> None:
     paths_cfg = load_config_file("paths")
     cfg = load_config_file("models/lgbm/model")
 
@@ -57,6 +62,7 @@ def main(*, start: str | None = None, end: str | None = None) -> None:
     cfg_end = parse_date(cfg.get("end"))
     desired_start = parse_date(start) if start else cfg_start
     desired_end = parse_date(end) if end else cfg_end
+    cutoff_day = parse_date(label_cutoff) if label_cutoff else None
     limit_output = start is not None or end is not None
     if desired_start > desired_end:
         raise ValueError("start date must be <= end date")
@@ -79,6 +85,10 @@ def main(*, start: str | None = None, end: str | None = None) -> None:
     if not days:
         raise RuntimeError("no label days found for range")
     days = sorted(set(days))
+    if cutoff_day is not None:
+        days = [d for d in days if d <= cutoff_day]
+        if not days:
+            raise RuntimeError("no label days left after label_cutoff filter")
 
     def _factor_exists(day: date) -> bool:
         label = panel_name or make_window_label(window_minutes)
