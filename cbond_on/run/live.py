@@ -40,14 +40,19 @@ def _last_trading_day(raw_root: str, target: date) -> date:
     return days[-1]
 
 
-def _prev_trading_day(raw_root: str, target: date) -> date:
+def _prev_trading_day(raw_root: str, target: date, lag_days: int = 1) -> date:
+    lag_days = max(1, int(lag_days))
+    # Scan enough calendar span to safely collect lag trading days.
+    scan_days = max(20, lag_days * 8)
     days = list_trading_days_from_raw(
-        raw_root, target - timedelta(days=20), target - timedelta(days=1), kind="snapshot"
+        raw_root, target - timedelta(days=scan_days), target - timedelta(days=1), kind="snapshot"
     )
     if not days:
-        return target - timedelta(days=1)
+        return target - timedelta(days=lag_days)
     days = sorted(days)
-    return days[-1]
+    if len(days) >= lag_days:
+        return days[-lag_days]
+    return days[0]
 
 
 def _recent_trading_days(raw_root: str, target: date, lookback_days: int) -> list[date]:
@@ -298,7 +303,8 @@ def main(argv: list[str] | None = None) -> None:
     target = _parse_target(target_override)
     start_override = args.start if args.start else live_cfg.get("start", target)
     live_start = parse_date(start_override)
-    trade_date = _prev_trading_day(raw_root, target)
+    trade_date_lag_days = int(live_cfg.get("trade_date_lag_days", 2))
+    trade_date = _prev_trading_day(raw_root, target, lag_days=trade_date_lag_days)
     label_cutoff = trade_date
     run_after = parse_time(
         live_cfg.get("cutoff_time", live_cfg.get("run_after", live_cfg.get("data_cutoff", "14:30")))
