@@ -118,7 +118,7 @@ def _heartbeat_info(state: dict) -> dict:
 
 def _list_daemon_processes() -> list[dict]:
     items: list[dict] = []
-    marker = "cbond_on.run.schedule_live_daemon"
+    marker = "liveLaunch.scheduler"
     if psutil is not None:
         for proc in psutil.process_iter(["pid", "name", "cmdline", "create_time"]):
             try:
@@ -166,8 +166,8 @@ def create_app() -> Flask:
     state_path = sched_dir / "state.json"
     ui_log = sched_dir / "scheduler_ui.log"
 
-    template_dir = Path(__file__).resolve().parent / "scheduler_web" / "templates"
-    static_dir = Path(__file__).resolve().parent / "scheduler_web" / "static"
+    template_dir = Path(__file__).resolve().parent / "templates"
+    static_dir = Path(__file__).resolve().parent / "static"
     app = Flask(__name__, template_folder=str(template_dir), static_folder=str(static_dir))
 
     @app.route("/")
@@ -261,7 +261,7 @@ def create_app() -> Flask:
                 subprocess, "DETACHED_PROCESS", 0
             )
         proc = subprocess.Popen(
-            [sys.executable, "-m", "cbond_on.run.schedule_live_daemon"],
+            [sys.executable, "-m", "liveLaunch.scheduler"],
             cwd=str(PROJECT_ROOT),
             stdout=fp,
             stderr=subprocess.STDOUT,

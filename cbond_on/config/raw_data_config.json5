@@ -1,9 +1,8 @@
 {
-  start: "2026-01-01",
-  end: "2026-02-08",
-  full_refresh: false,
+  start: "2026-02-20",
+  end: "2026-02-24",
   refresh: false,
-  overwrite: false,
+  overwrite: true,
   sync_snapshot: true,
   sync_kline: true,
   full_if_empty: true,
@@ -29,8 +28,8 @@
       "market_cbond.daily_rating"
     ]
   },
-  ftp: {
-    base_dir: "snapshot/cbond/raw_data",
-    ftp_config_path: null
+  nfs: {
+    nfs_root: "\\\\nfs\\999.999@10.1.30.100\\data",
+    base_dir: "yinhe-data/snapshot/cbond/raw_data"
   }
 }

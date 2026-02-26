@@ -36,7 +36,6 @@ def run_factor_pipeline(
     window_minutes: int = 15,
     panel_name: str | None = None,
     overwrite: bool = False,
-    full_refresh: bool = False,
     specs: Sequence[FactorSpec],
 ) -> FactorPipelineResult:
     result = FactorPipelineResult()
@@ -55,10 +54,10 @@ def run_factor_pipeline(
             continue
 
         existing = pd.DataFrame()
-        if not overwrite and not full_refresh:
+        if not overwrite:
             existing = store.read_day(day)
 
-        if existing.empty or overwrite or full_refresh:
+        if existing.empty or overwrite:
             to_compute = specs
         else:
             existing_cols = set(existing.columns)
@@ -72,7 +71,7 @@ def run_factor_pipeline(
         if new_frame.empty:
             continue
 
-        if existing.empty or overwrite or full_refresh:
+        if existing.empty or overwrite:
             merged = new_frame
         else:
             merged = existing.join(new_frame, how="outer")

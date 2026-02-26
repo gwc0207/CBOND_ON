@@ -19,8 +19,7 @@ def main() -> None:
     cleaned_data_root = paths_cfg.get("cleaned_data_root") or paths_cfg.get("clean_data_root")
     start = parse_date(cleaned_cfg.get("start"))
     end = parse_date(cleaned_cfg.get("end"))
-    full_refresh = bool(cleaned_cfg.get("full_refresh", False))
-    overwrite = bool(cleaned_cfg.get("overwrite", False)) or full_refresh
+    overwrite = bool(cleaned_cfg.get("overwrite", False))
 
     print(f"[clean] start={start} end={end} overwrite={overwrite}")
     snapshot_cfg = SnapshotConfig.from_dict(cleaned_cfg["snapshot"])

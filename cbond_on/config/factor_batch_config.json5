@@ -6,7 +6,6 @@
   factor_time: "14:30",
   label_time: "14:45",
   overwrite: false,
-  full_refresh: false,
   factors: [
     { name: "aacb_3_", factor: "aacb", params: { levels: 3 } },
     { name: "volen_60_10_3_", factor: "volen", params: { fast: 60, slow: 10, levels: 3 } },

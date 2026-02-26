@@ -1,5 +1,4 @@
 {
-  full_refresh: false,
   start: "2026-01-01",
   end: "2026-02-08",
   snapshot: {

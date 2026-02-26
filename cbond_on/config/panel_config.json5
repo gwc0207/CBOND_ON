@@ -1,5 +1,4 @@
 {
-  full_refresh: false,
   start: "2025 -01-01",
   end: "2026-02-08",
   panel_mode: "snapshot_sequence",

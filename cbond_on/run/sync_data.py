@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import sys
+import shutil
+from datetime import date, datetime
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -68,6 +70,49 @@ def _sync_ftp(raw_root: str, cfg: dict) -> None:
     print(result)
 
 
+def _sync_nfs(raw_root: str, cfg: dict) -> None:
+    start = parse_date(cfg.get("start"))
+    end = parse_date(cfg.get("end"))
+    refresh = bool(cfg.get("refresh", False))
+    overwrite = bool(cfg.get("overwrite", False)) or refresh
+    # nfs_root can be local mount path (e.g. Z:/) or UNC path.
+    nfs_root = str(cfg.get("nfs_root", "")).strip()
+    if not nfs_root:
+        raise ValueError("nfs.nfs_root is required")
+    base_dir = str(cfg.get("base_dir", "snapshot/cbond/raw_data")).strip("/\\")
+
+    src_base = Path(nfs_root) / Path(base_dir)
+    dst_base = Path(raw_root) / "snapshot" / "cbond" / "raw_data"
+    downloaded = 0
+    skipped = 0
+
+    cursor = date(start.year, start.month, 1)
+    end_month = date(end.year, end.month, 1)
+    while cursor <= end_month:
+        month = f"{cursor.year:04d}-{cursor.month:02d}"
+        month_src = src_base / month
+        if month_src.exists():
+            for src in sorted(month_src.glob("*.parquet")):
+                stem = src.stem
+                if len(stem) != 8 or not stem.isdigit():
+                    continue
+                day = datetime.strptime(stem, "%Y%m%d").date()
+                if day < start or day > end:
+                    continue
+                dst = dst_base / month / src.name
+                if dst.exists() and not overwrite:
+                    skipped += 1
+                    continue
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(src, dst)
+                downloaded += 1
+        if cursor.month == 12:
+            cursor = date(cursor.year + 1, 1, 1)
+        else:
+            cursor = date(cursor.year, cursor.month + 1, 1)
+    print(f"NfsSyncResult(snapshot_downloaded={downloaded}, snapshot_skipped={skipped})")
+
+
 def main() -> None:
     paths_cfg = load_config_file("paths")
     sync_cfg = load_config_file("raw_data")
@@ -86,7 +131,18 @@ def main() -> None:
         if "overwrite" not in db_cfg:
             db_cfg["overwrite"] = sync_cfg.get("overwrite", False)
         _sync_db(raw_root, db_cfg)
-    if mode in ("ftp", "both"):
+    if mode in ("nfs", "both"):
+        nfs_cfg = dict(sync_cfg.get("nfs", {}))
+        if "start" not in nfs_cfg:
+            nfs_cfg["start"] = sync_cfg.get("start")
+        if "end" not in nfs_cfg:
+            nfs_cfg["end"] = sync_cfg.get("end")
+        if "refresh" not in nfs_cfg:
+            nfs_cfg["refresh"] = sync_cfg.get("refresh", False)
+        if "overwrite" not in nfs_cfg:
+            nfs_cfg["overwrite"] = sync_cfg.get("overwrite", False)
+        _sync_nfs(raw_root, nfs_cfg)
+    elif mode == "ftp":
         ftp_cfg = dict(sync_cfg.get("ftp", {}))
         if "start" not in ftp_cfg:
             ftp_cfg["start"] = sync_cfg.get("start")

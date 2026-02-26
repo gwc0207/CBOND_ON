@@ -29,8 +29,7 @@ def main() -> None:
     snapshot_cfg = SnapshotConfig.from_dict(cleaned_cfg["snapshot"])
     schedule = ScheduleConfig.from_dict(panel_cfg["schedule"]).to_schedule()
 
-    full_refresh = bool(panel_cfg.get("full_refresh", False))
-    overwrite = bool(panel_cfg.get("overwrite", False)) or full_refresh
+    overwrite = bool(panel_cfg.get("overwrite", False))
     windows = panel_cfg.get("window_minutes", [15])
     panel_name = panel_cfg.get("panel_name")
     panel_mode = panel_cfg.get("panel_mode", "snapshot_sequence")
@@ -42,7 +41,7 @@ def main() -> None:
         raise ValueError("panel_mode must be 'snapshot_sequence'")
     print(
         f"[panel] start={start} end={end} windows={windows} "
-        f"panel_name={panel_name} overwrite={overwrite} full_refresh={full_refresh}"
+        f"panel_name={panel_name} overwrite={overwrite}"
     )
     for w in windows:
         print(f"[panel] building panels for window={w} ...")

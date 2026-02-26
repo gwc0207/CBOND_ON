@@ -325,7 +325,14 @@ def main(argv: list[str] | None = None) -> None:
             sync_cfg["db"]["end"] = str(seg_end)
             sync_cfg["db"]["refresh"] = bool(force_refresh)
             sync_cfg["db"]["overwrite"] = bool(force_refresh)
-        if "ftp" in sync_cfg:
+        if "nfs" in sync_cfg:
+            sync_cfg["nfs"] = dict(sync_cfg["nfs"])
+            sync_cfg["nfs"]["start"] = str(seg_start)
+            sync_cfg["nfs"]["end"] = str(seg_end)
+            sync_cfg["nfs"]["refresh"] = bool(force_refresh)
+            sync_cfg["nfs"]["overwrite"] = bool(force_refresh)
+        elif "ftp" in sync_cfg:
+            # Backward compatibility
             sync_cfg["ftp"] = dict(sync_cfg["ftp"])
             sync_cfg["ftp"]["start"] = str(seg_start)
             sync_cfg["ftp"]["end"] = str(seg_end)
@@ -333,7 +340,9 @@ def main(argv: list[str] | None = None) -> None:
             sync_cfg["ftp"]["overwrite"] = bool(force_refresh)
         if mode in ("db", "both"):
             sync_data._sync_db(raw_root, sync_cfg.get("db", {}))
-        if mode in ("ftp", "both"):
+        if mode in ("nfs", "both"):
+            sync_data._sync_nfs(raw_root, sync_cfg.get("nfs", {}))
+        elif mode == "ftp":
             sync_data._sync_ftp(raw_root, sync_cfg.get("ftp", {}))
 
     def _clean_segment(seg_start: date, seg_end: date, *, overwrite: bool, tag: str) -> None:
@@ -406,7 +415,6 @@ def main(argv: list[str] | None = None) -> None:
             window_minutes=int(fb_cfg.get("window_minutes", 15)),
             panel_name=fb_cfg.get("panel_name"),
             overwrite=overwrite,
-            full_refresh=False,
             specs=specs,
         )
 
@@ -449,14 +457,14 @@ def main(argv: list[str] | None = None) -> None:
         _clean_segment(outer_start, outer_end, overwrite=False, tag="outer-incremental")
         _clean_segment(inner_start, target, overwrite=True, tag="inner-refresh")
     else:
-        overwrite = bool(cleaned_cfg.get("overwrite", False)) or bool(cleaned_cfg.get("full_refresh", False))
+        overwrite = bool(cleaned_cfg.get("overwrite", False))
         _clean_segment(history_start, history_end, overwrite=overwrite, tag="single")
 
     if hybrid_refresh:
         _panel_segment(outer_start, outer_end, overwrite=False, tag="outer-incremental")
         _panel_segment(inner_start, target, overwrite=True, tag="inner-refresh")
     else:
-        overwrite = bool(panel_cfg.get("overwrite", False)) or bool(panel_cfg.get("full_refresh", False))
+        overwrite = bool(panel_cfg.get("overwrite", False))
         _panel_segment(history_start, history_end, overwrite=overwrite, tag="single")
     _build_panel_from_redis(
         target=target,
@@ -472,7 +480,7 @@ def main(argv: list[str] | None = None) -> None:
         _factor_segment(inner_start, target, overwrite=True, tag="inner-refresh")
     else:
         fb_cfg = load_config_file("factor_batch")
-        overwrite = bool(fb_cfg.get("overwrite", False)) or bool(fb_cfg.get("full_refresh", False))
+        overwrite = bool(fb_cfg.get("overwrite", False))
         _factor_segment(history_start, target, overwrite=overwrite, tag="single")
 
     print("[live] build model scores ...")

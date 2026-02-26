@@ -440,7 +440,6 @@ def run_factor_batch(
     window_minutes: int,
     panel_name: str | None,
     overwrite: bool,
-    full_refresh: bool,
     specs: Sequence[FactorSpec],
 ) -> Path:
     run_factor_pipeline(
@@ -451,7 +450,6 @@ def run_factor_batch(
         window_minutes=window_minutes,
         panel_name=panel_name,
         overwrite=overwrite,
-        full_refresh=full_refresh,
         specs=specs,
     )
 

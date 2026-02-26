@@ -19,7 +19,6 @@ def main() -> None:
     start = parse_date(cfg["start"])
     end = parse_date(cfg["end"])
     overwrite = bool(cfg.get("overwrite", False))
-    full_refresh = bool(cfg.get("full_refresh", False))
     window_minutes = int(cfg.get("window_minutes", 15))
     panel_name = cfg.get("panel_name")
 
@@ -32,7 +31,7 @@ def main() -> None:
     specs = build_signal_specs(cfg)
     print(
         f"[factor_batch] start={start} end={end} panel_name={panel_name} "
-        f"window_minutes={window_minutes} overwrite={overwrite} full_refresh={full_refresh} "
+        f"window_minutes={window_minutes} overwrite={overwrite} "
         f"factor_time={cfg.get('factor_time')} label_time={cfg.get('label_time')} specs={len(specs)}"
     )
     out_dir = run_factor_batch(
@@ -47,7 +46,6 @@ def main() -> None:
         window_minutes=window_minutes,
         panel_name=panel_name,
         overwrite=overwrite,
-        full_refresh=full_refresh,
         specs=specs,
     )
     print(f"saved: {out_dir}")
