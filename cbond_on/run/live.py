@@ -14,7 +14,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from cbond_on.core.config import load_config_file, parse_date, parse_time
 from cbond_on.core.universe import filter_tradable
 from cbond_on.core.trading_days import list_trading_days_from_raw, _raw_path
-from cbond_on.data.io import read_clean_daily
+from cbond_on.data.io import read_clean_daily, read_table_range
 from cbond_on.data.clean import build_cleaned_snapshot, build_cleaned_kline
 from cbond_on.models.score_io import load_scores_by_date
 from cbond_on.run import model_score
@@ -24,6 +24,7 @@ from cbond_on.config import SnapshotConfig, ScheduleConfig
 from cbond_on.data.panel import build_panels_with_labels, write_panel_data, _build_day_snapshot_sequence
 from cbond_on.data.snapshot import read_snapshot_day
 from cbond_on.live.redis_snapshot import RedisConfig, SnapshotRedisClient
+from cbond_on.backtest.execution import apply_twap_bps
 
 
 def _parse_target(value: str | date) -> date:
@@ -64,6 +65,88 @@ def _recent_trading_days(raw_root: str, target: date, lookback_days: int) -> lis
         return []
     days.sort()
     return days[-lookback_days:]
+
+
+def _read_twap_daily(raw_data_root: str, day: date) -> pd.DataFrame:
+    df = read_table_range(raw_data_root, "market_cbond.daily_twap", day, day)
+    if df.empty:
+        return df
+    if "instrument_code" in df.columns and "exchange_code" in df.columns:
+        df = df.copy()
+        df["code"] = df["instrument_code"].astype(str) + "." + df["exchange_code"].astype(str)
+    return df
+
+
+def _build_live_bin_history(
+    *,
+    raw_data_root: str,
+    scores_by_date: dict[date, pd.DataFrame],
+    target: date,
+    bin_count: int,
+    lookback_days: int,
+    buy_twap_col: str,
+    sell_twap_col: str,
+    cost_bps: float,
+) -> list[dict[int, float]]:
+    lookback_days = max(1, int(lookback_days))
+    if bin_count <= 1:
+        return []
+    all_days = sorted(d for d in scores_by_date.keys() if d < target)
+    if not all_days:
+        return []
+    trading_days = list_trading_days_from_raw(
+        raw_data_root, all_days[0], target, kind="snapshot"
+    )
+    if len(trading_days) < 2:
+        return []
+    day_to_next = {trading_days[i]: trading_days[i + 1] for i in range(len(trading_days) - 1)}
+    history: list[dict[int, float]] = []
+    for day in all_days:
+        next_day = day_to_next.get(day)
+        if next_day is None:
+            continue
+        score_df = scores_by_date.get(day, pd.DataFrame())
+        if score_df.empty or "code" not in score_df.columns or "score" not in score_df.columns:
+            continue
+        buy_df = _read_twap_daily(raw_data_root, day)
+        sell_df = _read_twap_daily(raw_data_root, next_day)
+        if buy_df.empty or sell_df.empty:
+            continue
+        merged = buy_df.merge(
+            sell_df[["code", sell_twap_col]], on="code", how="left", suffixes=("", "_next")
+        )
+        merged = merged.merge(score_df[["code", "score"]], on="code", how="left")
+        required = [buy_twap_col, sell_twap_col]
+        if any(c not in merged.columns for c in required):
+            continue
+        merged = merged[
+            merged["score"].notna()
+            & merged[buy_twap_col].notna()
+            & merged[sell_twap_col].notna()
+            & (merged[buy_twap_col] > 0)
+            & (merged[sell_twap_col] > 0)
+        ]
+        if merged.empty:
+            continue
+        buy_all = apply_twap_bps(merged[buy_twap_col], cost_bps, side="buy")
+        sell_all = apply_twap_bps(merged[sell_twap_col], cost_bps, side="sell")
+        returns_all = (sell_all - buy_all) / buy_all
+        try:
+            bins_cat = pd.qcut(merged["score"], bin_count, labels=False, duplicates="drop")
+        except Exception:
+            bins_cat = None
+        if bins_cat is None or bins_cat.dropna().empty:
+            continue
+        bin_df = pd.DataFrame(
+            {"bin": bins_cat.values, "ret": returns_all.values}
+        ).dropna()
+        if bin_df.empty:
+            continue
+        means = bin_df.groupby("bin")["ret"].mean().to_dict()
+        history.append({int(k): float(v) for k, v in means.items()})
+    if len(history) > lookback_days:
+        history = history[-lookback_days:]
+    return history
 
 
 def _normalize_trade_time(df: pd.DataFrame) -> pd.DataFrame:
@@ -288,10 +371,11 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
     paths_cfg = load_config_file("paths")
     live_cfg = load_config_file("live")
-    backtest_cfg = load_config_file("backtest")
     panel_cfg = load_config_file("panel")
     cleaned_cfg = load_config_file("cleaned_data")
-    model_cfg = load_config_file("models/lgbm/model")
+    model_type = str(live_cfg.get("model_type", "linear"))
+    model_config = str(live_cfg.get("model_config", "models/linear/model"))
+    model_cfg = load_config_file(model_config)
 
     raw_root = paths_cfg["raw_data_root"]
     clean_root = paths_cfg["clean_data_root"]
@@ -305,7 +389,9 @@ def main(argv: list[str] | None = None) -> None:
     live_start = parse_date(start_override)
     trade_date_lag_days = int(live_cfg.get("trade_date_lag_days", 2))
     trade_date = _prev_trading_day(raw_root, target, lag_days=trade_date_lag_days)
-    label_cutoff = trade_date
+    # Label causality cutoff is independent from DB trade_date lag:
+    # for target T, training labels can use at most T-1 trading day.
+    label_cutoff = _prev_trading_day(raw_root, target, lag_days=1)
     run_after = parse_time(
         live_cfg.get("cutoff_time", live_cfg.get("run_after", live_cfg.get("data_cutoff", "14:30")))
     )
@@ -485,8 +571,8 @@ def main(argv: list[str] | None = None) -> None:
 
     print("[live] build model scores ...")
     model_score.main(
-        model_type=live_cfg.get("model_type"),
-        model_config=live_cfg.get("model_config"),
+        model_type=model_type,
+        model_config=model_config,
         start=str(live_start),
         end=str(target),
         label_cutoff=str(label_cutoff),
@@ -496,8 +582,8 @@ def main(argv: list[str] | None = None) -> None:
     refresh_scores = bool(live_cfg.get("refresh_scores", False))
     if refresh_scores or not score_path.exists():
         model_score.main(
-            model_type=live_cfg.get("model_type"),
-            model_config=live_cfg.get("model_config"),
+            model_type=model_type,
+            model_config=model_config,
             start=str(live_start),
             end=str(target),
             label_cutoff=str(label_cutoff),
@@ -521,12 +607,13 @@ def main(argv: list[str] | None = None) -> None:
         merged = score_df.copy()
 
     if daily is not None:
-        buy_col = backtest_cfg["buy_twap_col"]
+        buy_col = str(live_cfg.get("buy_twap_col", "twap_1442_1457"))
+        sell_col = str(live_cfg.get("sell_twap_col", "twap_0930_1000"))
         if buy_col in merged.columns:
             merged = filter_tradable(
                 merged,
                 buy_twap_col=buy_col,
-                sell_twap_col=backtest_cfg.get("sell_twap_col"),
+                sell_twap_col=sell_col,
                 min_amount=float(live_cfg.get("min_amount", 0)),
                 min_volume=float(live_cfg.get("min_volume", 0)),
             )
@@ -535,9 +622,13 @@ def main(argv: list[str] | None = None) -> None:
     if merged.empty:
         raise ValueError("no tradable symbols after filtering")
 
-    bin_source = str(backtest_cfg.get("bin_source", "auto")).lower()
-    bin_top_k = max(1, int(backtest_cfg.get("bin_top_k", 1)))
-    bin_count = int(backtest_cfg.get("ic_bins", 20))
+    bin_source = str(live_cfg.get("bin_source", "auto")).lower()
+    bin_top_k = max(1, int(live_cfg.get("bin_top_k", 1)))
+    bin_count = int(live_cfg.get("ic_bins", 20))
+    bin_lookback_days = max(1, int(live_cfg.get("bin_lookback_days", 60)))
+    buy_col = str(live_cfg.get("buy_twap_col", "twap_1442_1457"))
+    sell_col = str(live_cfg.get("sell_twap_col", "twap_0930_1000"))
+    cost_bps = float(live_cfg.get("twap_bps", 1.5)) + float(live_cfg.get("fee_bps", 0.7))
     if bin_count <= 1:
         bin_count = 2
     try:
@@ -552,12 +643,49 @@ def main(argv: list[str] | None = None) -> None:
     if not available_bins:
         raise ValueError("no bins available for live picks")
     if bin_source == "auto":
-        chosen_bins = sorted(available_bins, reverse=True)[:bin_top_k]
+        bin_history = _build_live_bin_history(
+            raw_data_root=raw_root,
+            scores_by_date=scores_by_date,
+            target=target,
+            bin_count=bin_count,
+            lookback_days=bin_lookback_days,
+            buy_twap_col=buy_col,
+            sell_twap_col=sell_col,
+            cost_bps=cost_bps,
+        )
+        if bin_history:
+            agg: dict[int, list[float]] = {}
+            for rec in bin_history:
+                for b, v in rec.items():
+                    agg.setdefault(int(b), []).append(float(v))
+            ranked = sorted(
+                [(b, float(pd.Series(v).mean())) for b, v in agg.items()],
+                key=lambda x: x[1],
+                reverse=True,
+            )
+            chosen_bins = [b for b, _ in ranked][:bin_top_k] if ranked else []
+            chosen_bins = [b for b in chosen_bins if b in set(available_bins)]
+            if not chosen_bins:
+                chosen_bins = sorted(available_bins, reverse=True)[:bin_top_k]
+        else:
+            chosen_bins = sorted(available_bins, reverse=True)[:bin_top_k]
     else:
-        chosen_bins = sorted(available_bins, reverse=True)[:bin_top_k]
+        manual_bins = live_cfg.get("bin_select")
+        if isinstance(manual_bins, list) and manual_bins:
+            chosen_bins = [int(x) for x in manual_bins if int(x) in set(available_bins)]
+            if not chosen_bins:
+                chosen_bins = sorted(available_bins, reverse=True)[:bin_top_k]
+        else:
+            chosen_bins = sorted(available_bins, reverse=True)[:bin_top_k]
+    print(
+        f"[live] bin_select mode={bin_source} bins_actual={len(available_bins)} "
+        f"chosen={chosen_bins} lookback_days={bin_lookback_days}"
+    )
     picks = merged[merged["bin"].isin(chosen_bins)].sort_values("score", ascending=False).copy()
+    if picks.empty:
+        raise ValueError("no picks after bin selection")
     picks["rank"] = range(1, len(picks) + 1)
-    weight = min(1.0 / len(picks), float(backtest_cfg.get("max_weight", 1.0)))
+    weight = min(1.0 / len(picks), float(live_cfg.get("max_weight", 0.05)))
     picks["weight"] = weight
 
     out_dir = results_root / "live" / f"{target:%Y-%m-%d}"

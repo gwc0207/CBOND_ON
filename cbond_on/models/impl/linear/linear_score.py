@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 
 from cbond_on.factors.storage import FactorStore
+from cbond_on.models.score_io import write_scores_by_date
 
 
 @dataclass
@@ -276,11 +277,12 @@ def write_linear_outputs(
     meta_payload: dict,
     overwrite: bool,
 ) -> None:
-    score_path.parent.mkdir(parents=True, exist_ok=True)
-    if overwrite and score_path.exists():
-        score_path.unlink()
-    if not result.scores.empty:
-        result.scores.to_csv(score_path, index=False)
+    write_scores_by_date(
+        score_path,
+        result.scores,
+        overwrite=overwrite,
+        dedupe=True,
+    )
 
     if weights_path is not None:
         weights_path.parent.mkdir(parents=True, exist_ok=True)

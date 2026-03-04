@@ -1,10 +1,10 @@
 {
-  start: "2025 -01-01",
-  end: "2026-02-08",
+  start: "2026-01-01",
+  end: "2026-03-03",
   panel_mode: "snapshot_sequence",
   window_minutes: [15],
   lead_minutes: 0,
-  overwrite: false,
+  overwrite: true,
   schedule: {
     mode: "custom_windows",
     windows: [

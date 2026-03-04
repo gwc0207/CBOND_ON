@@ -7,6 +7,21 @@ import numpy as np
 import pandas as pd
 
 
+def _set_trade_date_ticks(ax: plt.Axes, dates: pd.Series, max_ticks: int = 8) -> None:
+    if dates is None or len(dates) == 0:
+        return
+    n = len(dates)
+    if n <= 0:
+        return
+    step = max(1, n // max_ticks)
+    idx = list(range(0, n, step))
+    if idx[-1] != n - 1:
+        idx.append(n - 1)
+    labels = [pd.to_datetime(dates.iloc[i]).strftime("%Y-%m-%d") for i in idx]
+    ax.set_xticks(idx)
+    ax.set_xticklabels(labels, rotation=25, ha="right", fontsize=8)
+
+
 def _calc_turnover(positions: pd.DataFrame) -> float:
     if positions.empty:
         return 0.0
@@ -67,10 +82,12 @@ def render_backtest_report(out_dir: Path) -> None:
         ic_df = ic_df.sort_values("trade_date")
         ic_df["ic_cum"] = ic_df["ic"].cumsum()
         ic_df["rank_ic_cum"] = ic_df["rank_ic"].cumsum()
-        ax.plot(ic_df["trade_date"], ic_df["ic"], label="IC")
-        ax.plot(ic_df["trade_date"], ic_df["ic_cum"], label="IC cum")
-        ax.plot(ic_df["trade_date"], ic_df["rank_ic"], label="Rank IC")
-        ax.plot(ic_df["trade_date"], ic_df["rank_ic_cum"], label="Rank IC cum")
+        x = np.arange(len(ic_df))
+        ax.plot(x, ic_df["ic"], label="IC")
+        ax.plot(x, ic_df["ic_cum"], label="IC cum")
+        ax.plot(x, ic_df["rank_ic"], label="Rank IC")
+        ax.plot(x, ic_df["rank_ic_cum"], label="Rank IC cum")
+        _set_trade_date_ticks(ax, ic_df["trade_date"])
     ax.set_title("IC series")
     ax.legend(fontsize=8)
     ax.grid(True, alpha=0.3)
@@ -94,8 +111,10 @@ def render_backtest_report(out_dir: Path) -> None:
         bin_nav = bin_nav.sort_values("trade_date")
         bins = [c for c in bin_nav.columns if c != "trade_date"]
         colors = plt.cm.viridis(np.linspace(0, 1, len(bins))) if bins else []
+        x = np.arange(len(bin_nav))
         for color, col in zip(colors, bins):
-            ax.plot(bin_nav["trade_date"], bin_nav[col], color=color, label=f"bin {col}")
+            ax.plot(x, bin_nav[col], color=color, label=f"bin {col}")
+        _set_trade_date_ticks(ax, bin_nav["trade_date"])
         if bins:
             ax.legend(fontsize=7, ncol=2)
     ax.set_title("Bin NAV")
@@ -104,13 +123,28 @@ def render_backtest_report(out_dir: Path) -> None:
     ax = axes[1, 0]
     if not daily.empty and "benchmark_return" in daily.columns:
         daily = daily.sort_values("trade_date")
-        nav_factor = (1.0 + daily["day_return"].astype(float)).cumprod()
-        nav_bench = (1.0 + daily["benchmark_return"].astype(float)).cumprod()
-        ax.plot(daily["trade_date"], nav_factor, label="Factor")
-        ax.plot(daily["trade_date"], nav_bench, label="Benchmark")
+        x = np.arange(len(daily))
+        bt_ret = daily["day_return"].astype(float)
+        live_ret = (
+            daily["live_day_return"].astype(float)
+            if "live_day_return" in daily.columns
+            else (
+                daily["live_avg_return"].astype(float)
+                if "live_avg_return" in daily.columns
+                else (
+                    daily["avg_return"].astype(float)
+                    if "avg_return" in daily.columns
+                    else bt_ret
+                )
+            )
+        )
+        bar_w = 0.42
+        ax.bar(x - bar_w / 2, live_ret, width=bar_w, label="Live daily", color="#1F77B4", alpha=0.85)
+        ax.bar(x + bar_w / 2, bt_ret, width=bar_w, label="BT daily", color="#FF7F0E", alpha=0.75)
+        _set_trade_date_ticks(ax, daily["trade_date"])
         ax.legend(fontsize=8)
-    ax.set_title("NAV vs Benchmark")
-    ax.grid(True, alpha=0.3)
+    ax.set_title("Live vs BT daily returns")
+    ax.grid(True, axis="y", alpha=0.3)
 
     ax = axes[1, 1]
     metric_names = ["sharpe", "maxdd", "win_rate", "turnover"]
@@ -123,8 +157,32 @@ def render_backtest_report(out_dir: Path) -> None:
 
     ax = axes[1, 2]
     if not daily.empty:
-        ax.plot(daily["trade_date"], daily["day_return"].astype(float), color="#1F77B4")
-    ax.set_title("Daily returns")
+        daily = daily.sort_values("trade_date")
+        bt_ret = daily["day_return"].astype(float)
+        live_ret = (
+            daily["live_day_return"].astype(float)
+            if "live_day_return" in daily.columns
+            else (
+                daily["live_avg_return"].astype(float)
+                if "live_avg_return" in daily.columns
+                else (
+                    daily["avg_return"].astype(float)
+                    if "avg_return" in daily.columns
+                    else bt_ret
+                )
+            )
+        )
+        bt_nav = (1.0 + bt_ret).cumprod()
+        live_nav = (1.0 + live_ret).cumprod()
+        x = np.arange(len(daily))
+        ax.plot(x, bt_nav, color="#FF7F0E", label="BT NAV")
+        ax.plot(x, live_nav, color="#1F77B4", label="Live NAV")
+        if "benchmark_return" in daily.columns:
+            bench_nav = (1.0 + daily["benchmark_return"].astype(float)).cumprod()
+            ax.plot(x, bench_nav, color="#2CA02C", alpha=0.9, label="Benchmark NAV")
+        _set_trade_date_ticks(ax, daily["trade_date"])
+        ax.legend(fontsize=8)
+    ax.set_title("Live / BT / Benchmark NAV")
     ax.grid(True, alpha=0.3)
 
     fig.tight_layout()

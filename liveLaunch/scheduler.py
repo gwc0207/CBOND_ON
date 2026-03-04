@@ -16,8 +16,22 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from cbond_on.core.config import load_config_file, parse_time
 from cbond_on.data.io import read_trading_calendar
+from cbond_on.run import sync_data
 
 WIN_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+HEARTBEAT_LOG_INTERVAL_SECONDS = 300
+
+
+def _day_live_dir(live_root: Path, day: date) -> Path:
+    day_dir = live_root / f"{day:%Y-%m-%d}"
+    day_dir.mkdir(parents=True, exist_ok=True)
+    return day_dir
+
+
+def _day_logs_dir(live_root: Path, day: date) -> Path:
+    logs_dir = _day_live_dir(live_root, day) / "logs"
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    return logs_dir
 
 
 def _next_trading_day(raw_root: str, run_day: date) -> date:
@@ -81,15 +95,79 @@ def _is_pid_alive(pid: int) -> bool:
         return False
 
 
+def _append_heartbeat_log(live_root: Path, now: datetime, status: str, today: date, target: date) -> None:
+    log_path = _day_logs_dir(live_root, now.date()) / f"live_scheduler_{now:%Y-%m-%d}.log"
+    line = (
+        f"{now:%Y-%m-%d %H:%M:%S} [heartbeat] "
+        f"status={status} today={today} target={target}\n"
+    )
+    with log_path.open("a", encoding="utf-8") as fp:
+        fp.write(line)
+
+
+def _append_scheduler_log(live_root: Path, now: datetime, tag: str, message: str) -> None:
+    log_path = _day_logs_dir(live_root, now.date()) / f"live_scheduler_{now:%Y-%m-%d}.log"
+    line = f"{now:%Y-%m-%d %H:%M:%S} [{tag}] {message}\n"
+    with log_path.open("a", encoding="utf-8") as fp:
+        fp.write(line)
+
+
+def _run_db_backfill(
+    *,
+    raw_root: str,
+    live_root: Path,
+    now: datetime,
+    lookback_days: int,
+    reason: str,
+) -> bool:
+    lookback_days = max(1, int(lookback_days))
+    start = (now.date() - timedelta(days=lookback_days))
+    end = now.date()
+    try:
+        sync_cfg = load_config_file("raw_data")
+        db_cfg = dict(sync_cfg.get("db", {}))
+        if not db_cfg.get("sync_tables"):
+            db_cfg["sync_tables"] = [
+                "metadata.trading_calendar",
+                "market_cbond.daily_price",
+                "market_cbond.daily_twap",
+                "market_cbond.daily_vwap",
+                "market_cbond.daily_deriv",
+                "market_cbond.daily_base",
+                "market_cbond.daily_rating",
+            ]
+        db_cfg["start"] = str(start)
+        db_cfg["end"] = str(end)
+        db_cfg["refresh"] = False
+        db_cfg["overwrite"] = False
+        _append_scheduler_log(
+            live_root,
+            now,
+            "pre_sync",
+            f"{reason} db_sync start={start} end={end}",
+        )
+        sync_data._sync_db(raw_root, db_cfg)
+        _append_scheduler_log(live_root, now, "pre_sync", f"{reason} db_sync done")
+        return True
+    except Exception as exc:  # pragma: no cover
+        _append_scheduler_log(
+            live_root,
+            now,
+            "pre_sync",
+            f"{reason} db_sync failed: {type(exc).__name__}: {exc}",
+        )
+        return False
+
+
 def main() -> None:
     paths_cfg = load_config_file("paths")
     raw_root = str(paths_cfg["raw_data_root"])
     results_root = Path(paths_cfg["results_root"])
-    sched_dir = results_root / "live" / "scheduler"
-    logs_dir = sched_dir / "logs"
+    live_root = results_root / "live"
+    sched_dir = live_root / "scheduler"
     state_path = sched_dir / "state.json"
     pid_path = sched_dir / "pid.json"
-    logs_dir.mkdir(parents=True, exist_ok=True)
+    sched_dir.mkdir(parents=True, exist_ok=True)
 
     old_pid = int(_read_json(pid_path).get("pid", 0) or 0)
     if old_pid and old_pid != os.getpid() and _is_pid_alive(old_pid):
@@ -110,15 +188,43 @@ def main() -> None:
             "started_at": datetime.now().isoformat(timespec="seconds"),
         },
     )
+    hb_last_emit: dict[str, datetime] = {
+        "waiting_cutoff": datetime.min,
+        "idle_after_run": datetime.min,
+    }
 
     while True:
         live_cfg = load_config_file("live")
         cutoff = parse_time(str(live_cfg.get("cutoff_time", "14:30")))
+        morning_sync_enabled = bool(live_cfg.get("morning_sync_enabled", True))
+        pre_run_sync_enabled = bool(live_cfg.get("pre_run_sync_enabled", True))
+        morning_sync_time = parse_time(str(live_cfg.get("morning_sync_time", "09:30")))
+        pre_sync_lookback_days = int(live_cfg.get("pre_sync_lookback_days", 7))
         now = datetime.now()
         today = now.date()
         target = _next_trading_day(raw_root, today)
         st = _read_json(state_path)
         last_target_run = st.get("last_target_run")
+        last_morning_sync_day = st.get("last_morning_sync_day")
+
+        if (
+            morning_sync_enabled
+            and now.time() >= morning_sync_time
+            and last_morning_sync_day != str(today)
+        ):
+            ok = _run_db_backfill(
+                raw_root=raw_root,
+                live_root=live_root,
+                now=now,
+                lookback_days=pre_sync_lookback_days,
+                reason="morning",
+            )
+            st = _read_json(state_path)
+            st["last_morning_sync_day"] = str(today)
+            st["last_morning_sync_at"] = now.isoformat(timespec="seconds")
+            st["last_morning_sync_ok"] = bool(ok)
+            st["heartbeat"] = now.isoformat(timespec="seconds")
+            _write_json(state_path, st)
 
         if now.time() < cutoff:
             base = _drop_run_fields(st)
@@ -133,6 +239,11 @@ def main() -> None:
                     "heartbeat": now.isoformat(timespec="seconds"),
                 },
             )
+            if (
+                now - hb_last_emit["waiting_cutoff"]
+            ).total_seconds() >= HEARTBEAT_LOG_INTERVAL_SECONDS:
+                _append_heartbeat_log(live_root, now, "waiting_cutoff", today, target)
+                hb_last_emit["waiting_cutoff"] = now
             time.sleep(30)
             continue
 
@@ -148,10 +259,30 @@ def main() -> None:
                     "heartbeat": now.isoformat(timespec="seconds"),
                 },
             )
+            if (
+                now - hb_last_emit["idle_after_run"]
+            ).total_seconds() >= HEARTBEAT_LOG_INTERVAL_SECONDS:
+                _append_heartbeat_log(live_root, now, "idle_after_run", today, target)
+                hb_last_emit["idle_after_run"] = now
             time.sleep(30)
             continue
 
-        log_path = logs_dir / f"live_{target:%Y%m%d}_{datetime.now():%H%M%S}.log"
+        if pre_run_sync_enabled:
+            ok = _run_db_backfill(
+                raw_root=raw_root,
+                live_root=live_root,
+                now=now,
+                lookback_days=pre_sync_lookback_days,
+                reason="pre_run",
+            )
+            st = _read_json(state_path)
+            st["last_pre_run_sync_target"] = str(target)
+            st["last_pre_run_sync_at"] = now.isoformat(timespec="seconds")
+            st["last_pre_run_sync_ok"] = bool(ok)
+            st["heartbeat"] = now.isoformat(timespec="seconds")
+            _write_json(state_path, st)
+
+        log_path = _day_logs_dir(live_root, now.date()) / f"live_scheduler_{now:%Y-%m-%d}.log"
         cmd = [
             sys.executable,
             "-m",
@@ -178,7 +309,7 @@ def main() -> None:
             },
         )
 
-        with log_path.open("w", encoding="utf-8") as fp:
+        with log_path.open("a", encoding="utf-8") as fp:
             flags = WIN_NO_WINDOW if os.name == "nt" else 0
             proc = subprocess.Popen(
                 cmd,
@@ -188,9 +319,11 @@ def main() -> None:
                 stderr=subprocess.STDOUT,
                 creationflags=flags,
             )
+            last_hb_log = datetime.min
             while True:
                 rc = proc.poll()
                 st = _read_json(state_path)
+                now_run = datetime.now()
                 _write_json(
                     state_path,
                     {
@@ -202,12 +335,15 @@ def main() -> None:
                         "log_path": str(log_path),
                         "run_started_at": st.get(
                             "run_started_at",
-                            datetime.now().isoformat(timespec="seconds"),
+                            now_run.isoformat(timespec="seconds"),
                         ),
-                        "heartbeat": datetime.now().isoformat(timespec="seconds"),
+                        "heartbeat": now_run.isoformat(timespec="seconds"),
                         "worker_pid": int(proc.pid),
                     },
                 )
+                if (now_run - last_hb_log).total_seconds() >= HEARTBEAT_LOG_INTERVAL_SECONDS:
+                    _append_heartbeat_log(live_root, now_run, "running_live", today, target)
+                    last_hb_log = now_run
                 if rc is not None:
                     break
                 time.sleep(5)
@@ -226,6 +362,7 @@ def main() -> None:
         else:
             done["status"] = "failed"
         _write_json(state_path, done)
+        _append_heartbeat_log(live_root, datetime.now(), done["status"], today, target)
         time.sleep(10)
 
 

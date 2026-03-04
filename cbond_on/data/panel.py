@@ -42,11 +42,13 @@ def build_panel_windows(
         str(cleaned_data_root / "snapshot"), schedule, snapshot_config
     )
     trading_days = list_trading_days_from_raw(raw_data_root, start, end, kind="snapshot")
-    for day in progress(
-        trading_days,
-        desc="build_panels",
-        unit="day",
-        total=len(trading_days),
+    for idx, day in enumerate(
+        progress(
+            trading_days,
+            desc="build_panels",
+            unit="day",
+            total=len(trading_days),
+        )
     ):
         dst = _panel_path(panel_data_root, day, window_minutes, panel_name=panel_name)
         if dst.exists() and not overwrite:
@@ -224,10 +226,8 @@ def build_snapshot_sequence_panels(
         if dst.exists() and not overwrite:
             result.skipped += 1
             continue
-        window_start = day - pd.Timedelta(days=max_lookback_days - 1)
-        snapshot_df = _read_snapshot_range(
-            cleaned_data_root / "snapshot", window_start, day
-        )
+        lookback_days = trading_days[max(0, idx - max_lookback_days + 1): idx + 1]
+        snapshot_df = _read_snapshot_days(cleaned_data_root / "snapshot", lookback_days)
         if snapshot_df.empty:
             continue
         panel_df = _build_day_snapshot_sequence(
@@ -250,6 +250,22 @@ def build_snapshot_sequence_panels(
 def _read_snapshot_range(data_root: Path, start: date, end: date) -> pd.DataFrame:
     frames: list[pd.DataFrame] = []
     for day in _iter_dates(start, end):
+        month = f"{day.year:04d}-{day.month:02d}"
+        filename = f"{day.strftime('%Y%m%d')}.parquet"
+        path = data_root / month / filename
+        if not path.exists():
+            continue
+        df = pd.read_parquet(path)
+        if not df.empty:
+            frames.append(df)
+    if not frames:
+        return pd.DataFrame()
+    return pd.concat(frames, ignore_index=True)
+
+
+def _read_snapshot_days(data_root: Path, days: list[date]) -> pd.DataFrame:
+    frames: list[pd.DataFrame] = []
+    for day in days:
         month = f"{day.year:04d}-{day.month:02d}"
         filename = f"{day.strftime('%Y%m%d')}.parquet"
         path = data_root / month / filename
@@ -375,36 +391,38 @@ def build_panels_with_labels(
     ):
         next_day = trading_days[idx + 1] if idx + 1 < len(trading_days) else None
         dst = _panel_path(panel_data_root, day, window_minutes, panel_name=panel_name)
+        snapshot_df = pd.DataFrame()
         if dst.exists() and not overwrite:
             result.skipped += 1
-            continue
-        window_start = day - pd.Timedelta(days=max_lookback_days - 1)
-        snapshot_df = _read_snapshot_range(
-            cleaned_data_root / "snapshot", window_start, day
-        )
-        if snapshot_df.empty:
-            continue
-        panel_df = _build_day_snapshot_sequence(
-            snapshot_df,
-            day,
-            schedule,
-            snapshot_config,
-            count_points=count_points,
-            snapshot_columns=snapshot_columns,
-            lead_minutes=lead_minutes,
-        )
-        if panel_df is None or panel_df.empty:
-            continue
-        dst.parent.mkdir(parents=True, exist_ok=True)
-        panel_df.to_parquet(dst, index=True)
-        result.written += 1
+        else:
+            lookback_days = trading_days[max(0, idx - max_lookback_days + 1): idx + 1]
+            snapshot_df = _read_snapshot_days(cleaned_data_root / "snapshot", lookback_days)
+            if snapshot_df.empty:
+                continue
+            panel_df = _build_day_snapshot_sequence(
+                snapshot_df,
+                day,
+                schedule,
+                snapshot_config,
+                count_points=count_points,
+                snapshot_columns=snapshot_columns,
+                lead_minutes=lead_minutes,
+            )
+            if panel_df is None or panel_df.empty:
+                continue
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            panel_df.to_parquet(dst, index=True)
+            result.written += 1
 
         # labels: same-day close window -> next trading day open window
         # Enforce causal cutoff when label_end is provided.
         if label_end is None or day <= label_end:
-            day_df = snapshot_df.copy()
-            if "trade_time" in day_df.columns:
-                day_df = day_df[day_df["trade_time"].dt.date == day]
+            if snapshot_df.empty:
+                day_df = _read_snapshot_day(cleaned_data_root / "snapshot", day)
+            else:
+                day_df = snapshot_df.copy()
+                if "trade_time" in day_df.columns:
+                    day_df = day_df[day_df["trade_time"].dt.date == day]
             next_df = _read_snapshot_day(cleaned_data_root / "snapshot", next_day) if next_day else pd.DataFrame()
             labels = _build_day_labels_twap(
                 day_df,

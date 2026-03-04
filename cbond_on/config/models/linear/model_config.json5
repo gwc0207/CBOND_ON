@@ -1,12 +1,12 @@
 {
   model_name: "linear_factor_default",
-  start: "2025-01-01",
-  end: "2026-01-28",
+  start: "2026-01-01",
+  end: "2026-02-25",
   panel_name: "T1430",
   window_minutes: 15,
   factor_time: "14:30",
   label_time: "14:45",
-  score_output: "D:/cbond_on/results/scores/linear_factor_default/scores.csv",
+  score_output: "D:/cbond_on/results/scores/linear_factor_default",
   weights_output: "D:/cbond_on/results/scores/linear_factor_default/weights.csv",
   meta_output: "D:/cbond_on/results/scores/linear_factor_default/meta.json",
   factors: [

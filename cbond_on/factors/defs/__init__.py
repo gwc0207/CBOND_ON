@@ -14,6 +14,11 @@ from cbond_on.factors.defs.volatility import VolatilityFactor
 from cbond_on.factors.defs.volume_imbalance import VolumeImbalanceFactor
 from cbond_on.factors.defs.volume_sum import VolumeSumFactor
 from cbond_on.factors.defs.vwap import VwapFactor
+from cbond_on.factors.defs.amihud_illiq import AmihudIlliqFactor
+from cbond_on.factors.defs.microprice_bias import MicropriceBiasFactor
+from cbond_on.factors.defs.depth_slope import DepthSlopeFactor
+from cbond_on.factors.defs.return_skew import ReturnSkewFactor
+from cbond_on.factors.defs.vwap_gap import VwapGapFactor
 
 __all__ = [
     "AacbFactor",
@@ -32,4 +37,9 @@ __all__ = [
     "VolumeImbalanceFactor",
     "VolumeSumFactor",
     "VwapFactor",
+    "AmihudIlliqFactor",
+    "MicropriceBiasFactor",
+    "DepthSlopeFactor",
+    "ReturnSkewFactor",
+    "VwapGapFactor",
 ]

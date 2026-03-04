@@ -1,6 +1,6 @@
 {
   start: "2026-01-01",
-  end: "2026-02-08",
+  end: "2026-03-03",
   snapshot: {
     price_field: "last",
     filter_trading_phase: true,
@@ -9,5 +9,5 @@
     use_prev_snapshot: true,
     twap_method: "time",
   },
-  overwrite: false,
+  overwrite: true,
 }

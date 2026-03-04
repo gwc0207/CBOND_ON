@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+from datetime import datetime
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -10,30 +11,41 @@ if str(PROJECT_ROOT) not in sys.path:
 from cbond_on.core.config import load_config_file, parse_date
 from cbond_on.backtest.runner import run_backtest
 from cbond_on.report.backtest_report import render_backtest_report
-from cbond_on.run import model_score
+
+
+def _next_run_dir(base: Path) -> Path:
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return base / ts
 
 
 def main() -> None:
     paths_cfg = load_config_file("paths")
     backtest_cfg = load_config_file("backtest")
     live_cfg = load_config_file("live")
-    model_cfg = load_config_file("models/lgbm/model")
 
     raw_root = paths_cfg["raw_data_root"]
     clean_root = paths_cfg["clean_data_root"]
     start = parse_date(backtest_cfg["start"])
     end = parse_date(backtest_cfg["end"])
 
-    score_path = Path(model_cfg["score_output"])
-    refresh_scores = bool(backtest_cfg.get("refresh_scores", False))
-    if refresh_scores or not score_path.exists():
+    score_path_cfg = backtest_cfg.get("score_path")
+    if score_path_cfg:
+        score_path = Path(str(score_path_cfg))
+    else:
+        # Backward compatibility: if not configured in backtest, fallback to model config score_output.
         ms_cfg = backtest_cfg.get("model_score", {})
-        model_score.main(
-            model_type=str(ms_cfg.get("model_type", "linear")),
-            model_config=str(ms_cfg.get("model_config", "models/linear/model")),
-        )
+        model_config = str(ms_cfg.get("model_config", "models/linear/model"))
+        model_cfg = load_config_file(model_config)
+        score_path = Path(str(model_cfg["score_output"]))
     if not score_path.exists():
         raise FileNotFoundError(f"score file not found: {score_path}")
+
+    batch_id = str(backtest_cfg.get("batch_id", "Backtest"))
+    results_root = Path(paths_cfg["results_root"])
+    date_dir = f"{start:%Y-%m-%d}_{end:%Y-%m-%d}"
+    base_dir = results_root / date_dir / batch_id
+    out_dir = _next_run_dir(base_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
 
     result = run_backtest(
         raw_data_root=raw_root,
@@ -54,11 +66,12 @@ def main() -> None:
         min_amount=float(live_cfg.get("min_amount", 0)),
         min_volume=float(live_cfg.get("min_volume", 0)),
         ic_bins=int(backtest_cfg.get("ic_bins", 20)),
+        live_bin_source=str(live_cfg.get("bin_source", backtest_cfg.get("bin_source", "auto"))),
+        live_bin_top_k=int(live_cfg.get("bin_top_k", backtest_cfg.get("bin_top_k", 1))),
+        live_bin_lookback_days=int(
+            live_cfg.get("bin_lookback_days", backtest_cfg.get("bin_lookback_days", 60))
+        ),
     )
-
-    results_root = Path(paths_cfg["results_root"])
-    out_dir = results_root / "backtest" / f"{start:%Y-%m-%d}_{end:%Y-%m-%d}"
-    out_dir.mkdir(parents=True, exist_ok=True)
     if result.daily_returns is not None:
         result.daily_returns.to_csv(out_dir / "daily_returns.csv", index=False)
     if result.nav_curve is not None:

@@ -84,6 +84,9 @@ def run_backtest(
     min_amount: float,
     min_volume: float,
     ic_bins: int,
+    live_bin_source: str | None = None,
+    live_bin_top_k: int | None = None,
+    live_bin_lookback_days: int | None = None,
 ) -> BacktestResult:
     result = BacktestResult()
     scores = load_scores_by_date(score_path)
@@ -108,6 +111,11 @@ def run_backtest(
     bin_source = str(bin_source or "auto").lower()
     bin_top_k = max(1, int(bin_top_k))
     bin_lookback_days = max(1, int(bin_lookback_days))
+    live_bin_source = str(live_bin_source or bin_source).lower()
+    live_bin_top_k = max(1, int(live_bin_top_k if live_bin_top_k is not None else bin_top_k))
+    live_bin_lookback_days = max(
+        1, int(live_bin_lookback_days if live_bin_lookback_days is not None else bin_lookback_days)
+    )
     bin_history: list[dict[int, float]] = []
 
     for i in progress(range(len(day_list) - 1), desc="backtest", unit="day", total=len(day_list) - 1):
@@ -167,6 +175,7 @@ def run_backtest(
         )
 
         bins_cat = None
+        day_bin_means: dict[int, float] = {}
         if ic_bins > 1:
             try:
                 bins_cat = pd.qcut(merged["score"], ic_bins, labels=False, duplicates="drop")
@@ -204,7 +213,7 @@ def run_backtest(
                     )
                 if not bin_df.empty:
                     bin_means = bin_df.groupby("bin")["return"].mean().to_dict()
-                    bin_history.append({int(k): float(v) for k, v in bin_means.items()})
+                    day_bin_means = {int(k): float(v) for k, v in bin_means.items()}
 
         if bins_cat is None:
             diagnostics.append({"trade_date": day, "status": "skip", "reason": "binning_failed"})
@@ -215,6 +224,47 @@ def run_backtest(
         if not available_bins:
             diagnostics.append({"trade_date": day, "status": "skip", "reason": "binning_failed"})
             continue
+
+        # Live-style picks in backtest: use live config bin mode + lookback history.
+        if live_bin_source == "auto" and bin_history:
+            live_lookback = (
+                bin_history[-live_bin_lookback_days:]
+                if len(bin_history) > live_bin_lookback_days
+                else bin_history
+            )
+            live_agg: dict[int, list[float]] = {}
+            for rec in live_lookback:
+                for b, v in rec.items():
+                    live_agg.setdefault(int(b), []).append(float(v))
+            live_ranked = sorted(
+                [(b, float(pd.Series(v).mean())) for b, v in live_agg.items()],
+                key=lambda x: x[1],
+                reverse=True,
+            )
+            live_chosen_bins = (
+                [b for b, _ in live_ranked][:live_bin_top_k]
+                if live_ranked
+                else sorted(available_bins, reverse=True)[:live_bin_top_k]
+            )
+            live_chosen_bins = [b for b in live_chosen_bins if b in set(available_bins)]
+            if not live_chosen_bins:
+                live_chosen_bins = sorted(available_bins, reverse=True)[:live_bin_top_k]
+        else:
+            live_chosen_bins = sorted(available_bins, reverse=True)[:live_bin_top_k]
+        picks_live = merged[merged["bin"].isin(live_chosen_bins)].copy()
+        live_avg_return = float("nan")
+        live_day_return = float("nan")
+        live_total_weight = float("nan")
+        live_count = int(len(picks_live))
+        if live_count > 0:
+            buy_live = apply_twap_bps(picks_live[buy_twap_col], cost_bps, side="buy")
+            sell_live = apply_twap_bps(picks_live[sell_twap_col], cost_bps, side="sell")
+            returns_live = (sell_live - buy_live) / buy_live
+            live_avg_return = float(returns_live.mean()) if not returns_live.empty else float("nan")
+            w_live = min(1.0 / live_count, max_weight)
+            live_day_return = float((returns_live * w_live).sum())
+            live_total_weight = float(w_live * live_count)
+
         if bin_source == "auto" and bin_history:
             lookback = bin_history[-bin_lookback_days:] if len(bin_history) > bin_lookback_days else bin_history
             agg: dict[int, list[float]] = {}
@@ -230,10 +280,39 @@ def run_backtest(
         else:
             chosen_bins = sorted(available_bins, reverse=True)[:bin_top_k]
 
-        picks = merged[merged["bin"].isin(chosen_bins)]
+        # Align historical chosen bins with today's actually available bins.
+        effective_bins = [b for b in chosen_bins if b in set(available_bins)]
+        if not effective_bins:
+            effective_bins = sorted(available_bins, reverse=True)[:bin_top_k]
+
+        picks = merged[merged["bin"].isin(effective_bins)]
         if len(picks) < min_count:
+            if day_bin_means:
+                bin_history.append(day_bin_means)
+            daily_records.append(
+                {
+                    "trade_date": day,
+                    "count": int(len(picks)),
+                    "avg_return": float("nan"),
+                    "day_return": float("nan"),
+                    "benchmark_return": benchmark_return,
+                    "total_weight": float("nan"),
+                    "live_count": live_count,
+                    "live_avg_return": live_avg_return,
+                    "live_day_return": live_day_return,
+                    "live_total_weight": live_total_weight,
+                }
+            )
             diagnostics.append(
-                {"trade_date": day, "status": "skip", "reason": "min_count_not_met"}
+                {
+                    "trade_date": day,
+                    "status": "skip",
+                    "reason": "min_count_not_met",
+                    "bins_actual": int(len(available_bins)),
+                    "chosen_bins": ",".join(str(int(x)) for x in effective_bins),
+                    "picks_count": int(len(picks)),
+                    "min_count": int(min_count),
+                }
             )
             continue
 
@@ -252,6 +331,10 @@ def run_backtest(
                 "day_return": day_return,
                 "benchmark_return": benchmark_return,
                 "total_weight": total_weight,
+                "live_count": live_count,
+                "live_avg_return": live_avg_return,
+                "live_day_return": live_day_return,
+                "live_total_weight": live_total_weight,
             }
         )
         for idx, row in picks.iterrows():
@@ -267,12 +350,36 @@ def run_backtest(
                 }
             )
         result.days += 1
-        diagnostics.append({"trade_date": day, "status": "ok", "reason": ""})
+        diagnostics.append(
+            {
+                "trade_date": day,
+                "status": "ok",
+                "reason": "",
+                "bins_actual": int(len(available_bins)),
+                "chosen_bins": ",".join(str(int(x)) for x in effective_bins),
+                "picks_count": int(len(picks)),
+                "min_count": int(min_count),
+            }
+        )
+
+        if day_bin_means:
+            bin_history.append(day_bin_means)
 
     if daily_records:
         daily_df = pd.DataFrame(daily_records).sort_values("trade_date")
-        nav = (1.0 + daily_df["day_return"]).cumprod()
-        nav_df = pd.DataFrame({"trade_date": daily_df["trade_date"], "nav": nav})
+        bt_nav = (1.0 + daily_df["day_return"].fillna(0.0)).cumprod()
+        live_nav = (
+            (1.0 + daily_df["live_day_return"].fillna(0.0)).cumprod()
+            if "live_day_return" in daily_df.columns
+            else pd.Series([1.0] * len(daily_df), index=daily_df.index)
+        )
+        nav_df = pd.DataFrame(
+            {
+                "trade_date": daily_df["trade_date"],
+                "nav": bt_nav,
+                "live_nav": live_nav,
+            }
+        )
         result.daily_returns = daily_df
         result.nav_curve = nav_df
         result.positions = pd.DataFrame(position_records)

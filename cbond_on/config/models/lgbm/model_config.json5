@@ -1,8 +1,8 @@
 
 {
   model_name: "lgbm_factor_default",
-  start: "2025-05-01",
-  end: "2026-02-09",
+  start: "2025-06-01",
+  end: "2026-03-03",
   panel_name: "T1430",
   window_minutes: 15,
   factor_time: "14:30",
@@ -28,8 +28,8 @@
   winsor: { lower: 0.01, upper: 0.99 },
   min_count: 30,
   bins: 5,
-  score_output: "D:/cbond_on/results/scores/lgbm_factor_default/scores.csv",
-  score_overwrite: false,
+  score_output: "D:/cbond_on/results/scores/lgbm_factor_default",
+  score_overwrite: true,
   score_dedupe: true,
   rolling: {
     enabled: true,

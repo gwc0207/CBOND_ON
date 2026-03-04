@@ -16,6 +16,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from cbond_on.core.config import load_config_file, parse_date
 from cbond_on.core.naming import make_window_label
 from cbond_on.factors.storage import FactorStore
+from cbond_on.models.score_io import write_scores_by_date
 from cbond_on.models.impl.lgbm.trainer import (
     build_dataset,
     evaluate_metrics,
@@ -39,16 +40,6 @@ def _format_bins(bin_dir: list[tuple[int, float, int]]) -> str:
     return ",".join([f"{b}:{acc:.3f}({n})" for b, acc, n in bin_dir])
 
 
-def _append_scores(score_path: Path, new_scores: pd.DataFrame) -> None:
-    score_path.parent.mkdir(parents=True, exist_ok=True)
-    if new_scores.empty:
-        return
-    if score_path.exists():
-        new_scores.to_csv(score_path, mode="a", header=False, index=False)
-    else:
-        new_scores.to_csv(score_path, index=False)
-
-
 def main(
     *,
     start: str | None = None,
@@ -63,7 +54,6 @@ def main(
     desired_start = parse_date(start) if start else cfg_start
     desired_end = parse_date(end) if end else cfg_end
     cutoff_day = parse_date(label_cutoff) if label_cutoff else None
-    limit_output = start is not None or end is not None
     if desired_start > desired_end:
         raise ValueError("start date must be <= end date")
 
@@ -162,7 +152,7 @@ def main(
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     out_dir = results_root / "models" / model_name / date_label / ts
     out_dir.mkdir(parents=True, exist_ok=True)
-    score_output = Path(cfg.get("score_output", results_root / "scores" / model_name / "scores.csv"))
+    score_output = Path(cfg.get("score_output", results_root / "scores" / model_name))
     score_overwrite = bool(cfg.get("score_overwrite", False))
     score_dedupe = bool(cfg.get("score_dedupe", True))
 
@@ -192,8 +182,6 @@ def main(
             raise ValueError(
                 f"rolling window_days={window_days} exceeds available days={len(days)}"
             )
-        if score_overwrite and score_output.exists():
-            score_output.unlink()
         rolling_rows: list[dict] = []
         score_rows: list[pd.DataFrame] = []
         desired_days = [d for d in days if desired_start <= d <= desired_end]
@@ -306,14 +294,12 @@ def main(
 
         if score_rows:
             all_scores = pd.concat(score_rows, ignore_index=True)
-            _append_scores(score_output, all_scores)
-            if score_dedupe and score_output.exists():
-                df = pd.read_csv(score_output, parse_dates=["trade_date"])
-                df["trade_date"] = pd.to_datetime(df["trade_date"]).dt.date
-                df = df.drop_duplicates(subset=["trade_date", "code"], keep="last")
-                if limit_output:
-                    df = df[(df["trade_date"] >= desired_start) & (df["trade_date"] <= desired_end)]
-                df.to_csv(score_output, index=False)
+            write_scores_by_date(
+                score_output,
+                all_scores,
+                overwrite=score_overwrite,
+                dedupe=score_dedupe,
+            )
         else:
             raise RuntimeError("rolling produced no scores; check window_days and data range")
         if rolling_rows:

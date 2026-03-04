@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Iterable, List
 
 import pandas as pd
+from cbond_on.data.io import read_trading_calendar
 
 
 def list_trading_days_from_raw(
@@ -14,11 +15,20 @@ def list_trading_days_from_raw(
     *,
     kind: str = "snapshot",
 ) -> List[date]:
-    raw_data_root = Path(raw_data_root)
-    days: list[date] = []
-    for day in _iter_dates(start, end):
-        if _raw_path(raw_data_root, day, kind=kind).exists():
-            days.append(day)
+    _ = kind  # keep signature stable for callers
+    cal = read_trading_calendar(raw_data_root)
+    if cal.empty:
+        raise ValueError("trading_calendar is empty; sync raw metadata first")
+    if "calendar_date" not in cal.columns:
+        raise KeyError("trading_calendar missing calendar_date column")
+
+    work = cal.copy()
+    work["calendar_date"] = pd.to_datetime(work["calendar_date"], errors="coerce").dt.date
+    work = work[work["calendar_date"].notna()]
+    if "is_open" in work.columns:
+        work = work[work["is_open"].astype(bool)]
+
+    days = sorted(d for d in work["calendar_date"].tolist() if start <= d <= end)
     return days
 
 

@@ -1,6 +1,6 @@
 ﻿{
   start: "2026-01-01",
-  end: "2026-02-08",
+  end: "2026-03-03",
   window_minutes: 15,
   panel_name: "T1430",
   factor_time: "14:30",
@@ -27,6 +27,11 @@
     { name: "depth_imb_l3", factor: "depth_imbalance", params: { levels: 3 } },
     { name: "mid_move_30m", factor: "midprice_move", params: { window_minutes: 30, bid_col: "bid_price1", ask_col: "ask_price1" } },
     { name: "turnover_30m", factor: "turnover_rate", params: { window_minutes: 30, volume_col: "volume", shares_col: "num_trades" } },
+    { name: "amihud_30m", factor: "amihud_illiq", params: { window_minutes: 30, price_col: "last", amount_col: "amount" } },
+    { name: "microprice_bias_l1", factor: "microprice_bias", params: { bid_col: "bid_price1", ask_col: "ask_price1", bid_vol_col: "bid_volume1", ask_vol_col: "ask_volume1" } },
+    { name: "depth_slope_l5", factor: "depth_slope", params: { levels: 5 } },
+    { name: "ret_skew_30m", factor: "return_skew", params: { window_minutes: 30, price_col: "last", use_log_return: true } },
+    { name: "vwap_gap_30m", factor: "vwap_gap", params: { window_minutes: 30, price_col: "last", volume_col: "volume", amount_col: "amount" } },
   ],
   backtest: {
     min_count: 10,
