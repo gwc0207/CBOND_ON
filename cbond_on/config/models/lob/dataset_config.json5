@@ -1,8 +1,8 @@
 {
   start: "2026-01-01",
   end: "2026-02-25",
-  refresh: true,
-  overwrite: true,
+  refresh: false,
+  overwrite: false,
   day_start_time: "09:35",
   cutoff_time: "14:30",
   prev_day_start_time: "15:00",

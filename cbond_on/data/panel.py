@@ -19,6 +19,9 @@ from .snapshot_loader import SnapshotLoader, SnapshotPanel
 class PanelBuildResult:
     written: int = 0
     skipped: int = 0
+    diagnostics_rows: int = 0
+    missing_snapshot_days: int = 0
+    diagnostics_path: Optional[str] = None
 
 
 def build_panel_windows(
@@ -182,6 +185,50 @@ def _panel_path(
     return panel_data_root / "panels" / label / month / filename
 
 
+def _panel_diag_path(
+    panel_data_root: Path,
+    *,
+    panel_name: Optional[str],
+    window_minutes: int,
+    start: date,
+    end: date,
+    kind: str,
+) -> Path:
+    label = panel_name or make_window_label(window_minutes)
+    return (
+        panel_data_root
+        / "panels"
+        / label
+        / "_diagnostics"
+        / f"{kind}_{start:%Y%m%d}_{end:%Y%m%d}.csv"
+    )
+
+
+def _write_panel_diag_csv(
+    panel_data_root: Path,
+    *,
+    panel_name: Optional[str],
+    window_minutes: int,
+    start: date,
+    end: date,
+    kind: str,
+    rows: list[dict],
+) -> Optional[str]:
+    if not rows:
+        return None
+    path = _panel_diag_path(
+        panel_data_root,
+        panel_name=panel_name,
+        window_minutes=window_minutes,
+        start=start,
+        end=end,
+        kind=kind,
+    )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(rows).to_csv(path, index=False)
+    return str(path)
+
+
 def _iter_dates(start: date, end: date) -> Iterable[date]:
     current = start
     while current <= end:
@@ -209,6 +256,7 @@ def build_snapshot_sequence_panels(
     result = PanelBuildResult()
     cleaned_data_root = Path(cleaned_data_root)
     panel_data_root = Path(panel_data_root)
+    diag_rows: list[dict] = []
 
     if count_points <= 0:
         raise ValueError("count_points must be > 0")
@@ -216,19 +264,37 @@ def build_snapshot_sequence_panels(
         raise ValueError("max_lookback_days must be > 0")
 
     trading_days = list_trading_days_from_raw(raw_data_root, start, end, kind="snapshot")
-    for day in progress(
-        trading_days,
-        desc="build_panels",
-        unit="day",
-        total=len(trading_days),
+    for idx, day in enumerate(
+        progress(
+            trading_days,
+            desc="build_panels",
+            unit="day",
+            total=len(trading_days),
+        )
     ):
         dst = _panel_path(panel_data_root, day, window_minutes, panel_name=panel_name)
         if dst.exists() and not overwrite:
             result.skipped += 1
+            diag_rows.append(
+                {
+                    "trade_date": day,
+                    "status": "skip",
+                    "reason": "exists",
+                    "lookback_days": "",
+                }
+            )
             continue
         lookback_days = trading_days[max(0, idx - max_lookback_days + 1): idx + 1]
         snapshot_df = _read_snapshot_days(cleaned_data_root / "snapshot", lookback_days)
         if snapshot_df.empty:
+            diag_rows.append(
+                {
+                    "trade_date": day,
+                    "status": "skip",
+                    "reason": "missing_snapshot",
+                    "lookback_days": ",".join(str(d) for d in lookback_days),
+                }
+            )
             continue
         panel_df = _build_day_snapshot_sequence(
             snapshot_df,
@@ -240,10 +306,39 @@ def build_snapshot_sequence_panels(
             lead_minutes=lead_minutes,
         )
         if panel_df is None or panel_df.empty:
+            diag_rows.append(
+                {
+                    "trade_date": day,
+                    "status": "skip",
+                    "reason": "panel_empty",
+                    "lookback_days": ",".join(str(d) for d in lookback_days),
+                }
+            )
             continue
         dst.parent.mkdir(parents=True, exist_ok=True)
         panel_df.to_parquet(dst, index=True)
         result.written += 1
+        diag_rows.append(
+            {
+                "trade_date": day,
+                "status": "ok",
+                "reason": "",
+                "lookback_days": ",".join(str(d) for d in lookback_days),
+            }
+        )
+    result.diagnostics_rows = len(diag_rows)
+    result.missing_snapshot_days = int(
+        sum(1 for r in diag_rows if r.get("reason") == "missing_snapshot")
+    )
+    result.diagnostics_path = _write_panel_diag_csv(
+        panel_data_root,
+        panel_name=panel_name,
+        window_minutes=window_minutes,
+        start=start,
+        end=end,
+        kind="panel_build",
+        rows=diag_rows,
+    )
     return result
 
 
@@ -379,6 +474,7 @@ def build_panels_with_labels(
     cleaned_data_root = Path(cleaned_data_root)
     panel_data_root = Path(panel_data_root)
     label_data_root = Path(label_data_root)
+    diag_rows: list[dict] = []
 
     trading_days = list_trading_days_from_raw(raw_data_root, start, end, kind="snapshot")
     for idx, day in enumerate(
@@ -390,14 +486,28 @@ def build_panels_with_labels(
         )
     ):
         next_day = trading_days[idx + 1] if idx + 1 < len(trading_days) else None
+        row = {
+            "trade_date": day,
+            "next_trade_date": next_day,
+            "panel_status": "",
+            "panel_reason": "",
+            "label_status": "",
+            "label_reason": "",
+            "label_rows": "",
+        }
         dst = _panel_path(panel_data_root, day, window_minutes, panel_name=panel_name)
         snapshot_df = pd.DataFrame()
         if dst.exists() and not overwrite:
             result.skipped += 1
+            row["panel_status"] = "skip"
+            row["panel_reason"] = "exists"
         else:
             lookback_days = trading_days[max(0, idx - max_lookback_days + 1): idx + 1]
             snapshot_df = _read_snapshot_days(cleaned_data_root / "snapshot", lookback_days)
             if snapshot_df.empty:
+                row["panel_status"] = "skip"
+                row["panel_reason"] = "missing_snapshot"
+                diag_rows.append(row)
                 continue
             panel_df = _build_day_snapshot_sequence(
                 snapshot_df,
@@ -409,10 +519,14 @@ def build_panels_with_labels(
                 lead_minutes=lead_minutes,
             )
             if panel_df is None or panel_df.empty:
+                row["panel_status"] = "skip"
+                row["panel_reason"] = "panel_empty"
+                diag_rows.append(row)
                 continue
             dst.parent.mkdir(parents=True, exist_ok=True)
             panel_df.to_parquet(dst, index=True)
             result.written += 1
+            row["panel_status"] = "ok"
 
         # labels: same-day close window -> next trading day open window
         # Enforce causal cutoff when label_end is provided.
@@ -438,6 +552,30 @@ def build_panels_with_labels(
                 labels,
                 mode=label_write_mode,
             )
+            row["label_status"] = "ok"
+            row["label_rows"] = int(len(labels))
+            if labels.empty:
+                row["label_reason"] = "labels_empty"
+        else:
+            row["label_status"] = "skip"
+            row["label_reason"] = "after_label_end"
+        if not row["panel_status"]:
+            row["panel_status"] = "skip"
+            row["panel_reason"] = "unknown"
+        diag_rows.append(row)
+    result.diagnostics_rows = len(diag_rows)
+    result.missing_snapshot_days = int(
+        sum(1 for r in diag_rows if r.get("panel_reason") == "missing_snapshot")
+    )
+    result.diagnostics_path = _write_panel_diag_csv(
+        panel_data_root,
+        panel_name=panel_name,
+        window_minutes=window_minutes,
+        start=start,
+        end=end,
+        kind="panel_labels_build",
+        rows=diag_rows,
+    )
     return result
 
 

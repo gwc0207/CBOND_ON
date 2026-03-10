@@ -1,76 +1,98 @@
-﻿# 因子开发说明（CBOND_ON）
+﻿# CBOND_ON 因子开发说明（简明版）
 
-> 本文说明如何在 CBOND_ON 中开发新因子，包括开发规范、可用字段、注册方式、配置方法与示例。
+> 目标：让完全不了解项目的人，能按统一规范开发因子，并安全接入回测/实盘。
 
-## 1. 目录结构
+## 1. 因子开发流程
 
-- 因子定义目录：`cbond_on/factors/defs/`
-- 每个因子**必须**独立一个 `.py` 文件
-- 公共工具函数请放在 `_intraday_utils.py` 这类私有模块中
+### 1.1 总体链路
+- 数据链路：`raw -> clean -> panel -> factor -> score -> backtest/live`
+- 因子开发只处理 `panel -> factor`，但必须理解时间因果与标签对齐规则。
 
-## 2. 开发规范
+### 1.2 开发规范
+- 一因子一文件：`cbond_on/factors/defs/<factor_name>.py`
+- 因子类必须继承 `Factor`
+- 必须用 `@FactorRegistry.register("<factor_name>")` 注册
+- 返回值必须是 `pd.Series`，索引为 `("dt", "code")`
+- 输出名统一用 `self.output_name(self.name)`
+- 必须处理空值/异常：不可计算时返回 `0.0`（或统一约定值）
+- 禁止未来函数：只能使用当前 `dt` 可见信息
 
-- 一个文件 = 一个因子类
-- 因子类必须继承 `cbond_on.factors.base.Factor`
-- 必须使用 `FactorRegistry.register("因子名")` 注册
-- 输入 panel 必须是 MultiIndex：`("dt", "code", "seq")`
-- 返回 `pd.Series`，索引为 `("dt", "code")`
-- 计算失败或不可用时，**返回 0.0**
-- 输出列名必须通过 `self.output_name(self.name)` 设置
+### 1.3 可用数据（当前项目完整字段）
+- 以下字段来自你当前 `D:/cbond_on/panel_data` 全部 parquet 的并集扫描（共 278 个文件，扫描日期：2026-03-09）。
+- 因子开发可直接使用的核心字段如下（38 个）：
 
-## 3. 必要接口
-
-### Base Class
-
-```python
-from cbond_on.factors.base import Factor, FactorComputeContext
-
-class MyFactor(Factor):
-    name = "my_factor"
-
-    def compute(self, ctx: FactorComputeContext) -> pd.Series:
-        # ctx.panel: panel dataframe
-        # ctx.params: 配置参数
-        raise NotImplementedError
+```text
+amount
+ask_price1
+ask_price2
+ask_price3
+ask_price4
+ask_price5
+ask_volume1
+ask_volume2
+ask_volume3
+ask_volume4
+ask_volume5
+bid_price1
+bid_price2
+bid_price3
+bid_price4
+bid_price5
+bid_volume1
+bid_volume2
+bid_volume3
+bid_volume4
+bid_volume5
+close
+code
+dt
+high
+high_limited
+iopv
+last
+low
+low_limited
+num_trades
+open
+pre_close
+seq
+source
+trade_time
+trading_phase_code
+volume
 ```
 
-### Registry
+- 说明：
+  - 索引语义是 `("dt", "code", "seq")`，部分 parquet 里会看到 `__index_level_0__`，这是 parquet 索引落盘副产物，开发因子时忽略。
+  - 若你后续改了 panel 构建配置（如 `snapshot_columns`），字段集合会变化，需重新扫描并更新文档。
 
-```python
-from cbond_on.core.registry import FactorRegistry
+### 1.4 时间与因果（必须遵守）
+- `factor_time`：因子截面时点（如 14:30）
+- `label_time`：标签起点（如 14:45）
+- 因子必须由 `factor_time` 前可观测数据构成，不可引用 `label_time` 后数据。
 
-@FactorRegistry.register("my_factor")
-class MyFactor(Factor):
-    ...
+### 1.5 注册规范
+1. 新建因子文件到 `cbond_on/factors/defs/`
+2. 类上加 `@FactorRegistry.register("因子名")`
+3. 在 `cbond_on/factors/defs/__init__.py` 导入该类
+4. 在 `cbond_on/config/factor_batch_config.json5` 增加一行配置
+
+### 1.6 配置规范（factor_batch）
+- `name`：输出列名（建议含参数后缀）
+- `factor`：注册名，必须与 `register` 名一致
+- `params`：可调参数字典
+
+示例：
+
+```json5
+{ name: "ret_30m", factor: "ret_window", params: { window_minutes: 30, price_col: "last" } }
 ```
 
-## 4. panel 可用字段
+---
 
-具体字段取决于 panel 生成配置，但常见 snapshot 面板包含：
+## 2. 因子开发示例
 
-- `trade_time`
-- `last`, `open`, `high`, `low`, `close`, `pre_close`
-- `volume`, `amount`, `num_trades`
-- `ask_price1`..`ask_price5`
-- `bid_price1`..`bid_price5`
-- `ask_volume1`..`ask_volume5`
-- `bid_volume1`..`bid_volume5`
-- `trading_phase_code`
-
-**检查实际字段**：
-
-```python
-import pandas as pd
-from pathlib import Path
-
-sample = Path("<panel_root>").rglob("*.parquet").__next__()
-df = pd.read_parquet(sample)
-print(df.columns.tolist())
-```
-
-## 5. 因子示例
-
-### 示例 1：最近 N 分钟收益率
+### 2.1 示例 A：窗口收益率因子
 
 ```python
 from cbond_on.core.registry import FactorRegistry
@@ -83,26 +105,29 @@ class ReturnWindowFactor(Factor):
 
     def compute(self, ctx: FactorComputeContext):
         panel = ensure_trade_time(ctx.panel)
-        window_minutes = int(ctx.params.get("window_minutes", 30))
+        win = int(ctx.params.get("window_minutes", 30))
         price_col = str(ctx.params.get("price_col", "last"))
 
         def _calc(df):
             df = df.sort_values("trade_time")
-            df = slice_window(df, window_minutes)
-            first, last = first_last_price(df, price_col)
-            if first is None or first == 0:
+            df = slice_window(df, win)
+            p0, p1 = first_last_price(df, price_col)
+            if p0 is None or p0 == 0:
                 return 0.0
-            return (last - first) / first
+            return float((p1 - p0) / p0)
 
-        out = group_apply_scalar(panel, _calc)
-        out = out.fillna(0.0)
+        out = group_apply_scalar(panel, _calc).fillna(0.0)
         out.name = self.output_name(self.name)
         return out
 ```
 
-### 示例 2：盘口深度不平衡
+### 2.2 示例 B：盘口不平衡因子
 
 ```python
+from cbond_on.core.registry import FactorRegistry
+from cbond_on.factors.base import Factor, FactorComputeContext
+from cbond_on.factors.defs._intraday_utils import ensure_trade_time, group_apply_scalar
+
 @FactorRegistry.register("depth_imbalance")
 class DepthImbalanceFactor(Factor):
     name = "depth_imbalance"
@@ -114,52 +139,71 @@ class DepthImbalanceFactor(Factor):
         ask_cols = [f"ask_volume{i}" for i in range(1, levels + 1)]
 
         def _calc(df):
-            df = df.sort_values("trade_time")
-            bid = df[bid_cols].iloc[-1].sum()
-            ask = df[ask_cols].iloc[-1].sum()
-            denom = bid + ask
-            if denom <= 0:
-                return 0.0
-            return float((bid - ask) / denom)
+            x = df.sort_values("trade_time")
+            bid = x[bid_cols].iloc[-1].sum()
+            ask = x[ask_cols].iloc[-1].sum()
+            d = bid + ask
+            return 0.0 if d <= 0 else float((bid - ask) / d)
 
-        out = group_apply_scalar(panel, _calc)
-        out = out.fillna(0.0)
+        out = group_apply_scalar(panel, _calc).fillna(0.0)
         out.name = self.output_name(self.name)
         return out
 ```
 
-## 6. 注册检查清单
+---
 
-1. 新建文件：`cbond_on/factors/defs/<name>.py`
-2. 实现因子类，并用 `@FactorRegistry.register("name")`
-3. 在 `cbond_on/factors/defs/__init__.py` 里导入
-4. 在 `cbond_on/config/factor_batch_config.json5` 配置因子
+## 3. 回测与实盘使用规范
 
-## 7. 配置示例（JSON5）
+### 3.1 因子到回测
+- 因子写入后，由 `factor_batch` 统一产出单因子评估与报告。
+- 核心检查指标：`IC`, `RankIC`, `ICIR/RankICIR`, 分箱可分性、分箱收益曲线。
+- 若分箱不足（大量重复值/样本太少），应先查：
+  - 因子是否离散化过重
+  - 当日可交易样本是否不足
+  - `bin_count/min_count` 是否过严
 
-```json5
-{ name: "ret_30m", factor: "ret_window", params: { window_minutes: 30, price_col: "last" } }
-```
+### 3.2 因子到实盘
+- 实盘模型读取因子后生成 `score`，策略只消费 `score`。
+- 因子上线前至少满足：
+  - 无未来数据泄露
+  - 空值行为可解释
+  - 在回测区间统计稳定（非偶然单日驱动）
 
-## 8. 命名规则
+### 3.3 增量/覆盖约定
+- 日常：优先增量更新
+- 历史修复：按日期区间覆盖重算
+- 回测与实盘配置分离，避免互相污染
 
-- 因子注册名使用 lower_snake_case
-- 配置里的 `name` 是输出列名
-- 配置里的 `factor` 必须等于注册名
-
-## 9. 排查建议
-
-- 确保 `trade_time` 存在且是 `datetime64`
-- 确保索引是 `("dt", "code", "seq")`
-- 缺列时直接报 `KeyError`
-- 无法计算时统一返回 `0.0`
-
-## 10. 常见错误
-
-- `RegistryError`：因子未注册或重复注册
-- `KeyError`：panel 缺列
-- `ValueError`：panel 为空或参数非法
+### 3.4 变更流程（建议）
+1. 新因子开发并本地自检
+2. 加入 `factor_batch_config` 小范围试跑
+3. 看单因子报告（IC/分箱/NAV）
+4. 入模验证（线性/LGBM）
+5. 回测通过后再入实盘
 
 ---
 
-如需模板，可以复制 `cbond_on/factors/defs` 下的现有因子文件改写。
+## 4. 常见错误与排查
+
+- `RegistryError`：未注册或重复注册
+- `KeyError`：panel 缺列（先打印 `panel.columns`）
+- `ValueError`：空样本/参数非法
+- 分箱异常：检查重复值占比、样本量、`bin_count/min_count`
+
+---
+
+## 5. 上线前 Checklist
+
+- [ ] 因子文件独立、命名规范
+- [ ] 已注册并在 `__init__.py` 导入
+- [ ] `factor_batch_config` 已配置且参数清晰
+- [ ] 无未来数据泄露
+- [ ] 空值/异常处理明确
+- [ ] 单因子报告通过基本阈值
+- [ ] 回测通过后再接入实盘
+
+---
+
+如需快速复制模板，直接参考：
+- `cbond_on/factors/defs/ret_window.py`
+- `cbond_on/factors/defs/depth_imbalance.py`

@@ -6,6 +6,8 @@ const logFollow = document.getElementById("log-follow");
 const logDaySelect = document.getElementById("log-day");
 const processList = document.getElementById("process-list");
 const processCount = document.getElementById("process-count");
+const calendarAnchor = document.getElementById("calendar-anchor");
+const dataCalendar = document.getElementById("data-calendar");
 const perfLookbackInput = document.getElementById("perf-lookback");
 const perfMeta = document.getElementById("perf-meta");
 const perfMetricsCanvas = document.getElementById("perf-metrics-chart");
@@ -13,10 +15,53 @@ const perfNavCanvas = document.getElementById("perf-nav-chart");
 
 let perfMetricsChart = null;
 let perfNavChart = null;
+let calendarSelectedDay = "";
 
 let followLogs = true;
 function atBottom(el) {
   return el.scrollHeight - el.scrollTop - el.clientHeight < 10;
+}
+
+function escapeHtml(text) {
+  return String(text ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function normalizeDay(value) {
+  return String(value ?? "").replaceAll("-", "").trim();
+}
+
+function selectDayInDropdown(dayValue) {
+  if (!logDaySelect) return false;
+  const target = normalizeDay(dayValue);
+  if (!target) return false;
+  for (const opt of Array.from(logDaySelect.options)) {
+    if (normalizeDay(opt.value) === target) {
+      logDaySelect.value = opt.value;
+      calendarSelectedDay = target;
+      return true;
+    }
+  }
+  return false;
+}
+
+function ensureDayOption(dayValue, dayLabel) {
+  if (!logDaySelect) return;
+  const target = normalizeDay(dayValue);
+  if (!target) return;
+  for (const opt of Array.from(logDaySelect.options)) {
+    if (normalizeDay(opt.value) === target) {
+      return;
+    }
+  }
+  const option = document.createElement("option");
+  option.value = target;
+  option.textContent = dayLabel || target;
+  logDaySelect.insertBefore(option, logDaySelect.firstChild);
 }
 
 logBox.addEventListener("scroll", () => {
@@ -54,18 +99,63 @@ async function loadLogDays() {
   if (!logDaySelect) return;
   const prev = logDaySelect.value;
   const res = await axios.get("/api/log_days");
-  const days = res.data.days || [];
+  const days = [...(res.data.days || [])];
   const currentDay = res.data.current_day || "";
+  if (prev && !days.some((d) => normalizeDay(d) === normalizeDay(prev))) {
+    days.unshift(prev);
+  }
   logDaySelect.innerHTML = days
     .map((d) => `<option value="${d}">${d}</option>`)
     .join("");
-  if (days.includes(prev)) {
-    logDaySelect.value = prev;
-  } else if (days.includes(currentDay)) {
-    logDaySelect.value = currentDay;
-  } else if (days.length) {
-    logDaySelect.value = days[0];
+  if (selectDayInDropdown(prev)) {
+    return;
   }
+  if (selectDayInDropdown(currentDay)) {
+    return;
+  }
+  if (days.length) {
+    logDaySelect.value = days[0];
+    calendarSelectedDay = normalizeDay(days[0]);
+  }
+}
+
+async function applyCalendarDay(day) {
+  if (!day || !logDaySelect) return false;
+  const compactDay = normalizeDay(day);
+  if (!compactDay) return false;
+
+  if (!selectDayInDropdown(compactDay)) {
+    await loadLogDays();
+    if (!selectDayInDropdown(compactDay)) {
+      ensureDayOption(compactDay, day);
+      logDaySelect.value = compactDay;
+    }
+  }
+  return true;
+}
+
+async function refreshBySelectedDay() {
+  await refreshLogs();
+  await refreshHoldings();
+  await refreshPerformance();
+  await refreshDataCalendar();
+}
+
+async function onCalendarDayClick(day) {
+  calendarSelectedDay = normalizeDay(day);
+  const ok = await applyCalendarDay(day);
+  if (!ok) return;
+  await refreshBySelectedDay();
+}
+
+if (dataCalendar) {
+  dataCalendar.addEventListener("click", async (evt) => {
+    const target = evt.target;
+    if (!(target instanceof HTMLElement)) return;
+    const day = target.getAttribute("data-day");
+    if (!day) return;
+    await onCalendarDayClick(day);
+  });
 }
 
 async function refreshHoldings() {
@@ -257,6 +347,57 @@ async function refreshProcesses() {
     .join("");
 }
 
+async function refreshDataCalendar() {
+  if (!dataCalendar) return;
+  const selectedDay = calendarSelectedDay || (logDaySelect && logDaySelect.value ? normalizeDay(logDaySelect.value) : "");
+  const res = await axios.get("/api/data_calendar", {
+    params: { months: 6 },
+  });
+  const payload = res.data || {};
+  const months = (payload.months || [])
+    .slice()
+    .sort((a, b) => {
+      const ka = String((a && (a.month || a.title)) || "");
+      const kb = String((b && (b.month || b.title)) || "");
+      // Desc order so current/latest month shows first.
+      return kb.localeCompare(ka);
+    });
+  if (calendarAnchor) {
+    const label = payload.anchor_day ? `asof ${payload.anchor_day}` : "";
+    calendarAnchor.textContent = label;
+  }
+  if (!months.length) {
+    dataCalendar.innerHTML = "<div class='text-muted small'>No calendar data</div>";
+    return;
+  }
+  const weekday = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  dataCalendar.innerHTML = months
+    .map((m) => {
+      const weeks = m.weeks || [];
+      const cells = weeks
+        .map((week) =>
+          (week || [])
+            .map((cell) => {
+              if (!cell) return "<div class='cal-cell cal-empty'></div>";
+              const isSelected = normalizeDay(cell.day) === normalizeDay(selectedDay);
+              const cls = `cal-cell cal-${cell.status || "off"}${isSelected ? " cal-selected" : ""}`;
+              const title = escapeHtml(`${cell.day} | ${cell.detail || ""}`);
+              return `<button type="button" class="${cls}" data-day="${cell.day}" title="${title}">${cell.day_num}</button>`;
+            })
+            .join("")
+        )
+        .join("");
+      return `
+        <div class="cal-month">
+          <div class="cal-month-title">${escapeHtml(m.title || "")}</div>
+          <div class="cal-weekday">${weekday.map((w) => `<div>${w}</div>`).join("")}</div>
+          <div class="cal-grid">${cells}</div>
+        </div>
+      `;
+    })
+    .join("");
+}
+
 async function callAction(url) {
   const res = await axios.post(url);
   return res.data;
@@ -436,9 +577,11 @@ document.getElementById("btn-save-config").addEventListener("click", async () =>
 
 if (logDaySelect) {
   logDaySelect.addEventListener("change", async () => {
+    calendarSelectedDay = normalizeDay(logDaySelect.value);
     await refreshLogs();
     await refreshHoldings();
     await refreshPerformance();
+    await refreshDataCalendar();
   });
 }
 
@@ -462,9 +605,11 @@ async function tick() {
 loadLogDays().then(async () => {
   await tick();
   await refreshPerformance();
+  await refreshDataCalendar();
 });
 loadConfig();
 setInterval(tick, 3000);
 setInterval(loadLogDays, 30000);
 refreshProcesses();
 setInterval(refreshProcesses, 30000);
+setInterval(refreshDataCalendar, 60000);

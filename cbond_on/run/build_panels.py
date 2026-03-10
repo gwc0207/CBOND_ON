@@ -66,6 +66,12 @@ def main() -> None:
             label_end=label_end,
         )
         print(f"[panel] done window={w} -> {res}")
+        if getattr(res, "diagnostics_path", None):
+            print(
+                f"[panel] diagnostics rows={res.diagnostics_rows} "
+                f"missing_snapshot_days={res.missing_snapshot_days} "
+                f"path={res.diagnostics_path}"
+            )
 
 
 if __name__ == "__main__":

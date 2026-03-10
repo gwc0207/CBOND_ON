@@ -125,36 +125,68 @@ def _run_db_backfill(
     end = now.date()
     try:
         sync_cfg = load_config_file("raw_data")
-        db_cfg = dict(sync_cfg.get("db", {}))
-        if not db_cfg.get("sync_tables"):
-            db_cfg["sync_tables"] = [
-                "metadata.trading_calendar",
-                "market_cbond.daily_price",
-                "market_cbond.daily_twap",
-                "market_cbond.daily_vwap",
-                "market_cbond.daily_deriv",
-                "market_cbond.daily_base",
-                "market_cbond.daily_rating",
-            ]
-        db_cfg["start"] = str(start)
-        db_cfg["end"] = str(end)
-        db_cfg["refresh"] = False
-        db_cfg["overwrite"] = False
-        _append_scheduler_log(
-            live_root,
-            now,
-            "pre_sync",
-            f"{reason} db_sync start={start} end={end}",
-        )
-        sync_data._sync_db(raw_root, db_cfg)
-        _append_scheduler_log(live_root, now, "pre_sync", f"{reason} db_sync done")
+        mode = str(sync_cfg.get("mode", "both")).lower()
+
+        if mode in ("db", "both"):
+            db_cfg = dict(sync_cfg.get("db", {}))
+            if not db_cfg.get("sync_tables"):
+                db_cfg["sync_tables"] = [
+                    "metadata.trading_calendar",
+                    "market_cbond.daily_price",
+                    "market_cbond.daily_twap",
+                    "market_cbond.daily_vwap",
+                    "market_cbond.daily_deriv",
+                    "market_cbond.daily_base",
+                    "market_cbond.daily_rating",
+                ]
+            db_cfg["start"] = str(start)
+            db_cfg["end"] = str(end)
+            db_cfg["refresh"] = False
+            db_cfg["overwrite"] = False
+            _append_scheduler_log(
+                live_root,
+                now,
+                "pre_sync",
+                f"{reason} db_sync start={start} end={end}",
+            )
+            sync_data._sync_db(raw_root, db_cfg)
+            _append_scheduler_log(live_root, now, "pre_sync", f"{reason} db_sync done")
+
+        if mode in ("nfs", "both"):
+            nfs_cfg = dict(sync_cfg.get("nfs", {}))
+            nfs_cfg["start"] = str(start)
+            nfs_cfg["end"] = str(end)
+            nfs_cfg["refresh"] = False
+            nfs_cfg["overwrite"] = False
+            _append_scheduler_log(
+                live_root,
+                now,
+                "pre_sync",
+                f"{reason} nfs_sync start={start} end={end}",
+            )
+            sync_data._sync_nfs(raw_root, nfs_cfg)
+            _append_scheduler_log(live_root, now, "pre_sync", f"{reason} nfs_sync done")
+        elif mode == "ftp":
+            ftp_cfg = dict(sync_cfg.get("ftp", {}))
+            ftp_cfg["start"] = str(start)
+            ftp_cfg["end"] = str(end)
+            ftp_cfg["refresh"] = False
+            ftp_cfg["overwrite"] = False
+            _append_scheduler_log(
+                live_root,
+                now,
+                "pre_sync",
+                f"{reason} ftp_sync start={start} end={end}",
+            )
+            sync_data._sync_ftp(raw_root, ftp_cfg)
+            _append_scheduler_log(live_root, now, "pre_sync", f"{reason} ftp_sync done")
         return True
     except Exception as exc:  # pragma: no cover
         _append_scheduler_log(
             live_root,
             now,
             "pre_sync",
-            f"{reason} db_sync failed: {type(exc).__name__}: {exc}",
+            f"{reason} pre_sync failed: {type(exc).__name__}: {exc}",
         )
         return False
 

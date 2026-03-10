@@ -74,8 +74,9 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
-  min-height: 180px;
-  max-height: 320px;
+  min-height: 0;
+  max-height: none;
+  flex: 1.15 1 0;
   overflow-y: auto;
   overflow-x: hidden;
   padding-right: 6px;
@@ -119,25 +120,42 @@
 }
 
 .holdings-body {
-  display: grid;
-  grid-template-rows: auto minmax(120px, 320px) minmax(220px, 300px);
-  gap: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
   height: 100%;
   min-height: 0;
 }
 
 .holdings-card {
-  max-height: 700px;
+  height: 1012px;
+  min-height: 1012px;
+  max-height: 1012px;
   overflow: hidden;
 }
 
 .perf-panel {
-  margin-top: 0 !important;
+  margin-top: 8px !important;
   border-top: 1px solid #e6e6e6;
   padding-top: 10px;
   min-height: 0;
   display: flex;
   flex-direction: column;
+  flex: 0.85 1 0;
+}
+
+.perf-grid {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 3fr 7fr;
+  gap: 8px;
+}
+
+.perf-col {
+  display: flex;
+  min-width: 0;
+  width: 100%;
 }
 
 .perf-lookback-input {
@@ -146,20 +164,212 @@
 
 .perf-chart-wrap {
   position: relative;
-  height: 100%;
-  min-height: 165px;
+  width: 100%;
+  height: 270px;
+  min-height: 270px;
   border: 1px solid #e6e6e6;
   border-radius: 8px;
   background: #fff;
   padding: 8px;
 }
 
+.perf-chart-wrap canvas {
+  width: 100% !important;
+  height: 100% !important;
+}
+
 @media (max-width: 992px) {
   .holdings-body {
-    grid-template-rows: auto minmax(110px, 260px) minmax(200px, 260px);
+    gap: 8px;
   }
 
   .perf-chart-wrap {
-    min-height: 150px;
+    height: 240px;
+    min-height: 240px;
   }
+}
+
+.dashboard-main-row {
+  align-items: flex-start;
+}
+
+.center-col,
+.logs-col {
+  display: flex;
+  flex-direction: column;
+}
+
+@media (min-width: 768px) {
+  /* Right-side two columns follow 6.5:3.5 ratio within the remaining row width. */
+  .dashboard-main-row > .center-col {
+    flex: 0 0 48.75% !important;
+    max-width: 48.75% !important;
+  }
+
+  .dashboard-main-row > .logs-col {
+    flex: 0 0 26.25% !important;
+    max-width: 26.25% !important;
+  }
+}
+
+.logs-card {
+  height: 1012px;
+  min-height: 1012px;
+  max-height: 1012px;
+  overflow: hidden;
+}
+
+.logs-body {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.logs-body .log-box {
+  flex: 1 1 auto;
+  min-height: 240px;
+  height: auto;
+}
+
+.data-calendar {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 420px;
+  overflow-y: auto;
+  padding-right: 4px;
+  scrollbar-width: thin;
+  scrollbar-color: #b7bec8 #eef1f5;
+}
+
+.data-calendar::-webkit-scrollbar {
+  width: 8px;
+}
+
+.data-calendar::-webkit-scrollbar-track {
+  background: #eef1f5;
+  border-radius: 8px;
+}
+
+.data-calendar::-webkit-scrollbar-thumb {
+  background: #b7bec8;
+  border-radius: 8px;
+}
+
+.calendar-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  font-size: 12px;
+  color: #5b6674;
+}
+
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+}
+
+.dot-ok {
+  background: #21a366;
+}
+
+.dot-partial {
+  background: #f0ad4e;
+}
+
+.dot-missing {
+  background: #dc3545;
+}
+
+.dot-off {
+  background: #d6dde6;
+}
+
+.cal-month {
+  border: 1px solid #e6e6e6;
+  border-radius: 8px;
+  padding: 8px;
+  background: #fff;
+}
+
+.cal-month-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #3b4554;
+  margin-bottom: 6px;
+}
+
+.cal-weekday {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+  font-size: 11px;
+  color: #7a8492;
+  margin-bottom: 4px;
+}
+
+.cal-weekday > div {
+  text-align: center;
+}
+
+.cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+}
+
+.cal-cell {
+  border: 1px solid transparent;
+  border-radius: 6px;
+  height: 24px;
+  line-height: 22px;
+  font-size: 11px;
+  text-align: center;
+  background: #eef2f6;
+  color: #2e3847;
+  padding: 0;
+}
+
+button.cal-cell {
+  cursor: pointer;
+}
+
+.cal-cell.cal-ok {
+  background: #d9f2e7;
+  border-color: #8fd4b3;
+}
+
+.cal-cell.cal-partial {
+  background: #fbe9cf;
+  border-color: #f2cc8c;
+}
+
+.cal-cell.cal-missing {
+  background: #f8d7da;
+  border-color: #e49aa2;
+}
+
+.cal-cell.cal-off {
+  background: #edf1f5;
+  border-color: #dbe2ea;
+  color: #9aa6b5;
+}
+
+.cal-cell.cal-selected {
+  box-shadow: inset 0 0 0 2px #2b7fff;
+}
+
+.cal-cell.cal-empty {
+  background: transparent;
+  border-color: transparent;
 }

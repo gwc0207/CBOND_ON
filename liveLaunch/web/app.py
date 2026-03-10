@@ -1,5 +1,6 @@
 ﻿from __future__ import annotations
 
+import calendar
 import json
 import math
 import os
@@ -21,6 +22,7 @@ from flask import Flask, jsonify, render_template, request
 
 from cbond_on.backtest.execution import apply_twap_bps
 from cbond_on.core.config import load_config_file
+from cbond_on.core.naming import make_window_label
 from cbond_on.data.io import read_table_range, read_trading_calendar
 
 try:
@@ -31,6 +33,7 @@ except Exception:  # pragma: no cover
 WIN_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 _PROCESS_CACHE: dict = {"items": []}
 _PROCESS_CACHE_LOCK = threading.Lock()
+_SCORE_DAY_CACHE: dict = {"path": "", "mtime": None, "days": set()}
 
 
 def _process_cache_loop() -> None:
@@ -199,6 +202,183 @@ def _load_open_days(raw_data_root: str | Path) -> list[date]:
     days = pd.to_datetime(work["calendar_date"], errors="coerce").dt.date.dropna().unique().tolist()
     days.sort()
     return days
+
+
+def _month_back(base: date, offset: int) -> tuple[int, int]:
+    year = base.year
+    month = base.month - offset
+    while month <= 0:
+        month += 12
+        year -= 1
+    return year, month
+
+
+def _raw_snapshot_path(raw_data_root: Path, day: date) -> Path:
+    return (
+        raw_data_root
+        / "snapshot"
+        / "cbond"
+        / "raw_data"
+        / f"{day:%Y-%m}"
+        / f"{day:%Y%m%d}.parquet"
+    )
+
+
+def _clean_snapshot_path(clean_data_root: Path, day: date) -> Path:
+    return clean_data_root / "snapshot" / f"{day:%Y-%m}" / f"{day:%Y%m%d}.parquet"
+
+
+def _panel_path_for_day(panel_data_root: Path, label: str, day: date) -> Path:
+    return panel_data_root / "panels" / label / f"{day:%Y-%m}" / f"{day:%Y%m%d}.parquet"
+
+
+def _factor_path_for_day(factor_data_root: Path, label: str, day: date) -> Path:
+    return factor_data_root / "factors" / label / f"{day:%Y-%m}" / f"{day:%Y%m%d}.parquet"
+
+
+def _resolve_score_output_path(model_cfg: dict) -> Path:
+    raw = str(model_cfg.get("score_output", "")).strip()
+    path = Path(raw)
+    if not path.is_absolute():
+        path = PROJECT_ROOT / path
+    return path
+
+
+def _score_days_from_single_csv(path: Path) -> set[date]:
+    if not path.exists():
+        return set()
+    mtime = path.stat().st_mtime
+    cache_path = str(path)
+    if _SCORE_DAY_CACHE.get("path") == cache_path and _SCORE_DAY_CACHE.get("mtime") == mtime:
+        return set(_SCORE_DAY_CACHE.get("days", set()))
+    try:
+        df = pd.read_csv(path, usecols=["trade_date"])
+        days = set(pd.to_datetime(df["trade_date"], errors="coerce").dt.date.dropna().tolist())
+    except Exception:
+        days = set()
+    _SCORE_DAY_CACHE["path"] = cache_path
+    _SCORE_DAY_CACHE["mtime"] = mtime
+    _SCORE_DAY_CACHE["days"] = set(days)
+    return days
+
+
+def _collect_score_days(score_output: Path) -> set[date]:
+    if not score_output.exists():
+        return set()
+    if score_output.is_file():
+        return _score_days_from_single_csv(score_output)
+    days: set[date] = set()
+    fallback_scores_csv: Path | None = None
+    for p in score_output.rglob("*.csv"):
+        stem = p.stem
+        try:
+            if len(stem) == 10 and stem[4] == "-" and stem[7] == "-":
+                days.add(datetime.strptime(stem, "%Y-%m-%d").date())
+                continue
+            if len(stem) == 8 and stem.isdigit():
+                days.add(datetime.strptime(stem, "%Y%m%d").date())
+                continue
+            if stem == "scores":
+                fallback_scores_csv = p
+        except Exception:
+            continue
+    if not days and fallback_scores_csv is not None:
+        days = _score_days_from_single_csv(fallback_scores_csv)
+    return days
+
+
+def _resolve_data_health_label() -> str:
+    panel_cfg = load_config_file("panel")
+    fb_cfg = load_config_file("factor_batch")
+    panel_name = fb_cfg.get("panel_name") or panel_cfg.get("panel_name")
+    wm = fb_cfg.get("window_minutes", panel_cfg.get("window_minutes", [15]))
+    if isinstance(wm, list):
+        wm = wm[0] if wm else 15
+    return panel_name or make_window_label(int(wm))
+
+
+def _build_data_calendar(*, anchor_day: date, months: int = 2, selected_day: date | None = None) -> dict:
+    months = max(1, min(int(months), 6))
+    paths_cfg = load_config_file("paths")
+    live_cfg = _load_live_cfg()
+    model_type = str(live_cfg.get("model_type", "linear"))
+    model_cfg = load_config_file(str(live_cfg.get("model_config", f"models/{model_type}/model")))
+
+    raw_root = Path(paths_cfg["raw_data_root"])
+    clean_root = Path(paths_cfg.get("cleaned_data_root") or paths_cfg.get("clean_data_root"))
+    panel_root = Path(paths_cfg["panel_data_root"])
+    factor_root = Path(paths_cfg["factor_data_root"])
+    label = _resolve_data_health_label()
+    score_days = _collect_score_days(_resolve_score_output_path(model_cfg))
+    open_days = set(_load_open_days(raw_root))
+
+    month_blocks: list[dict] = []
+    # Keep the same UX as CBOND_WC: show current month first, then older months.
+    for offset in range(months):
+        year, month = _month_back(anchor_day, offset)
+        first_weekday, n_days = calendar.monthrange(year, month)  # Monday=0
+        cells: list[dict | None] = [None] * first_weekday
+        for d in range(1, n_days + 1):
+            day = date(year, month, d)
+            iso = f"{day:%Y-%m-%d}"
+            is_future = day > anchor_day
+            is_open = day in open_days
+            raw_ok = _raw_snapshot_path(raw_root, day).exists()
+            clean_ok = _clean_snapshot_path(clean_root, day).exists()
+            panel_ok = _panel_path_for_day(panel_root, label, day).exists()
+            factor_ok = _factor_path_for_day(factor_root, label, day).exists()
+            score_ok = day in score_days
+
+            if not is_open or is_future:
+                status = "off"
+            elif raw_ok and clean_ok and panel_ok and factor_ok and score_ok:
+                status = "ok"
+            elif raw_ok and clean_ok:
+                status = "partial"
+            else:
+                status = "missing"
+
+            detail = (
+                f"raw:{'Y' if raw_ok else 'N'} "
+                f"clean:{'Y' if clean_ok else 'N'} "
+                f"panel:{'Y' if panel_ok else 'N'} "
+                f"factor:{'Y' if factor_ok else 'N'} "
+                f"score:{'Y' if score_ok else 'N'}"
+            )
+            cells.append(
+                {
+                    "day": iso,
+                    "day_num": d,
+                    "is_open": bool(is_open),
+                    "is_future": bool(is_future),
+                    "status": status,
+                    "detail": detail,
+                    "selected": bool(selected_day is not None and day == selected_day),
+                }
+            )
+        while len(cells) % 7 != 0:
+            cells.append(None)
+        weeks = [cells[i : i + 7] for i in range(0, len(cells), 7)]
+        month_blocks.append(
+            {
+                "month": f"{year:04d}-{month:02d}",
+                "title": f"{year:04d}-{month:02d}",
+                "weeks": weeks,
+            }
+        )
+
+    return {
+        "anchor_day": f"{anchor_day:%Y-%m-%d}",
+        "selected_day": f"{selected_day:%Y-%m-%d}" if selected_day else None,
+        "label": label,
+        "months": month_blocks,
+        "legend": {
+            "ok": "数据齐全",
+            "partial": "部分齐全",
+            "missing": "关键缺失",
+            "off": "非交易/未来",
+        },
+    }
 
 
 def _calc_sharpe(ret: pd.Series) -> float:
@@ -641,6 +821,19 @@ def create_app() -> Flask:
             )
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
+        return jsonify(payload)
+
+    @app.get("/api/data_calendar")
+    def api_data_calendar():
+        months_raw = request.args.get("months", "").strip() or "6"
+        try:
+            months = int(months_raw)
+        except Exception:
+            return jsonify({"error": f"invalid months: {months_raw}"}), 400
+        # Keep calendar status anchored to "today" so selecting historical days
+        # will not gray-out all later trading days as "future".
+        anchor = datetime.now().date()
+        payload = _build_data_calendar(anchor_day=anchor, months=months, selected_day=None)
         return jsonify(payload)
 
     @app.get("/api/state")

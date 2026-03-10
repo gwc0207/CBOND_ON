@@ -4,7 +4,7 @@
   panel_mode: "snapshot_sequence",
   window_minutes: [15],
   lead_minutes: 0,
-  overwrite: true,
+  overwrite: false,
   schedule: {
     mode: "custom_windows",
     windows: [

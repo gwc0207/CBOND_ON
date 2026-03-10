@@ -29,7 +29,7 @@
   min_count: 30,
   bins: 5,
   score_output: "D:/cbond_on/results/scores/lgbm_factor_default",
-  score_overwrite: true,
+  score_overwrite: false,
   score_dedupe: true,
   rolling: {
     enabled: true,

@@ -33,6 +33,39 @@ def _parse_target(value: str | date) -> date:
     return parse_date(value)
 
 
+def _normalize_backend_name(value: str | None) -> str:
+    text = str(value or "").strip().lower()
+    if text in {"postgres", "postgresql", "pgsql", "pg"}:
+        return "postgres"
+    if text in {"mssql", "sqlserver", "sql_server", "sql-server"}:
+        return "mssql"
+    return text
+
+
+def _parse_db_write_backends(live_cfg: dict) -> list[str] | None:
+    raw = live_cfg.get("db_write_backends")
+    if raw is None and bool(live_cfg.get("db_write_dual", False)):
+        raw = ["postgres", "mssql"]
+    if raw is None and live_cfg.get("db_write_backend"):
+        raw = [live_cfg.get("db_write_backend")]
+    if raw is None:
+        return None
+    if isinstance(raw, str):
+        items = [x.strip() for x in raw.split(",") if x.strip()]
+    elif isinstance(raw, list):
+        items = [str(x).strip() for x in raw if str(x).strip()]
+    else:
+        return None
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in items:
+        backend = _normalize_backend_name(item)
+        if backend in {"postgres", "mssql"} and backend not in seen:
+            seen.add(backend)
+            out.append(backend)
+    return out or None
+
+
 def _last_trading_day(raw_root: str, target: date) -> date:
     days = list_trading_days_from_raw(raw_root, target - timedelta(days=10), target, kind="snapshot")
     if not days:
@@ -300,13 +333,20 @@ def _write_trades_to_db(
     trade_day: date,
     table: str,
     mode: str = "replace_date",
+    backends: list[str] | None = None,
 ) -> None:
     if trades is None or trades.empty:
         return
     if "code" not in trades.columns:
         raise ValueError("trade_list missing code column")
 
-    from cbond_on.data.extract import connect
+    from cbond_on.data.extract import (
+        connect_backend,
+        get_available_backends,
+        get_db_backend,
+        normalize_table_name_for_backend,
+        resolve_table_target_for_backend,
+    )
 
     work = trades.copy()
     # Be robust when trade_date comes from index instead of a normal column.
@@ -343,19 +383,75 @@ def _write_trades_to_db(
             work[col] = None
     payload = work[cols]
 
-    insert_sql = (
-        f"INSERT INTO {table} "
-        "(instrument_code, exchange_code, trade_date, factor_value, weight, rank) "
-        "VALUES (?, ?, ?, ?, ?, ?)"
-    )
+    available = {_normalize_backend_name(x) for x in get_available_backends()}
+    requested = backends or [get_db_backend()]
+    target_backends: list[str] = []
+    for item in requested:
+        backend = _normalize_backend_name(item)
+        if backend in available and backend not in target_backends:
+            target_backends.append(backend)
+    if not target_backends:
+        raise ValueError(
+            f"no available db backend for write; requested={requested}, available={sorted(available)}"
+        )
 
-    with connect() as conn:
-        cursor = conn.cursor()
+    payload_rows = payload.values.tolist()
+    committed_targets: list[tuple[str, str, str | None]] = []
+    try:
+        for backend in target_backends:
+            db_override, resolved_table = resolve_table_target_for_backend(table, backend)
+            table_name = normalize_table_name_for_backend(
+                resolved_table,
+                backend,
+                database=db_override,
+            )
+            marker = "%s" if backend == "postgres" else "?"
+
+            insert_sql = (
+                f"INSERT INTO {table_name} "
+                "(instrument_code, exchange_code, trade_date, factor_value, weight, rank) "
+                f"VALUES ({marker}, {marker}, {marker}, {marker}, {marker}, {marker})"
+            )
+
+            with connect_backend(backend, database=db_override) as conn:
+                cursor = conn.cursor()
+                if mode == "replace_date":
+                    cursor.execute(
+                        f"DELETE FROM {table_name} WHERE trade_date = {marker}",
+                        (trade_day,),
+                    )
+                if backend != "postgres":
+                    try:
+                        cursor.fast_executemany = True
+                    except Exception:
+                        pass
+                cursor.executemany(insert_sql, payload_rows)
+                conn.commit()
+            committed_targets.append((backend, table_name, db_override))
+            print(f"[live] wrote trades backend={backend} table={table_name} rows={len(payload)}")
+    except Exception as exc:
+        print(f"[live] db write failed, start compensation: {type(exc).__name__}: {exc}")
         if mode == "replace_date":
-            cursor.execute(f"DELETE FROM {table} WHERE trade_date = ?", trade_day)
-        cursor.fast_executemany = True
-        cursor.executemany(insert_sql, payload.values.tolist())
-        conn.commit()
+            for backend, table_name, db_override in committed_targets:
+                marker = "%s" if backend == "postgres" else "?"
+                try:
+                    with connect_backend(backend, database=db_override) as conn:
+                        cursor = conn.cursor()
+                        cursor.execute(
+                            f"DELETE FROM {table_name} WHERE trade_date = {marker}",
+                            (trade_day,),
+                        )
+                        conn.commit()
+                    print(
+                        f"[live] compensated backend={backend} table={table_name} "
+                        f"trade_date={trade_day}"
+                    )
+                except Exception as rollback_exc:
+                    print(
+                        f"[live] compensation failed backend={backend} table={table_name} "
+                        f"err={type(rollback_exc).__name__}: {rollback_exc}"
+                    )
+        raise
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -508,8 +604,12 @@ def main(argv: list[str] | None = None) -> None:
     recent_days = _recent_trading_days(raw_root, target, lookback_days)
     history_start = recent_days[0] if recent_days else parse_date(live_cfg.get("start", target))
     history_end = recent_days[-1] if recent_days else target
+    redis_enabled = bool(live_cfg.get("redis_enabled", True))
+    redis_for_target = redis_enabled and target >= date.today()
+    if redis_enabled and not redis_for_target:
+        print(f"[live] skip redis for historical target={target}; use local raw/nfs only")
 
-    if bool(live_cfg.get("redis_enabled", True)) and bool(live_cfg.get("redis_write_raw", True)):
+    if redis_for_target and bool(live_cfg.get("redis_write_raw", True)):
         raw_path = _raw_path(Path(paths_cfg["raw_data_root"]), target, kind="snapshot")
         redis_force = bool(live_cfg.get("redis_force", False))
         if raw_path.exists() and not redis_force:
@@ -552,14 +652,15 @@ def main(argv: list[str] | None = None) -> None:
     else:
         overwrite = bool(panel_cfg.get("overwrite", False))
         _panel_segment(history_start, history_end, overwrite=overwrite, tag="single")
-    _build_panel_from_redis(
-        target=target,
-        panel_data_root=paths_cfg["panel_data_root"],
-        raw_root=paths_cfg["raw_data_root"],
-        panel_cfg=panel_cfg,
-        cleaned_cfg=cleaned_cfg,
-        live_cfg=live_cfg,
-    )
+    if redis_for_target:
+        _build_panel_from_redis(
+            target=target,
+            panel_data_root=paths_cfg["panel_data_root"],
+            raw_root=paths_cfg["raw_data_root"],
+            panel_cfg=panel_cfg,
+            cleaned_cfg=cleaned_cfg,
+            live_cfg=live_cfg,
+        )
 
     if hybrid_refresh:
         _factor_segment(outer_start, outer_end, overwrite=False, tag="outer-incremental")
@@ -569,18 +670,20 @@ def main(argv: list[str] | None = None) -> None:
         overwrite = bool(fb_cfg.get("overwrite", False))
         _factor_segment(history_start, target, overwrite=overwrite, tag="single")
 
-    print("[live] build model scores ...")
-    model_score.main(
-        model_type=model_type,
-        model_config=model_config,
-        start=str(live_start),
-        end=str(target),
-        label_cutoff=str(label_cutoff),
-    )
-
     score_path = Path(model_cfg["score_output"])
     refresh_scores = bool(live_cfg.get("refresh_scores", False))
-    if refresh_scores or not score_path.exists():
+    scores_by_date: dict[date, pd.DataFrame] = {}
+    need_build_scores = refresh_scores
+    if not need_build_scores:
+        try:
+            scores_by_date = load_scores_by_date(score_path)
+            cached = scores_by_date.get(target)
+            need_build_scores = cached is None or cached.empty
+        except FileNotFoundError:
+            need_build_scores = True
+
+    if need_build_scores:
+        print("[live] build model scores ...")
         model_score.main(
             model_type=model_type,
             model_config=model_config,
@@ -588,7 +691,10 @@ def main(argv: list[str] | None = None) -> None:
             end=str(target),
             label_cutoff=str(label_cutoff),
         )
-    scores_by_date = load_scores_by_date(score_path)
+        scores_by_date = load_scores_by_date(score_path)
+    else:
+        print("[live] reuse existing model scores")
+
     score_df = scores_by_date.get(target)
     if score_df is None or score_df.empty:
         raise ValueError(f"no scores for target date {target} in {score_path}")
@@ -698,6 +804,7 @@ def main(argv: list[str] | None = None) -> None:
             trade_day=trade_date,
             table=live_cfg["db_table"],
             mode=live_cfg.get("db_mode", "replace_date"),
+            backends=_parse_db_write_backends(live_cfg),
         )
     print(f"saved: {out_dir}")
 
