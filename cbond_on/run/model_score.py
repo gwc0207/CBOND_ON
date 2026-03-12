@@ -47,6 +47,15 @@ def main(
             sys.argv = [sys.argv[0]]
         train_lgbm.main(start=start, end=end, label_cutoff=label_cutoff)
         return
+    if model_type == "lgbm_ranker":
+        from cbond_on.run.lgbm_ranker import train_lgbm_ranker
+        cfg_path = Path(model_config)
+        if model_config.endswith(".json5") and cfg_path.exists():
+            sys.argv = [sys.argv[0], str(cfg_path)]
+        else:
+            sys.argv = [sys.argv[0]]
+        train_lgbm_ranker.main(start=start, end=end, label_cutoff=label_cutoff)
+        return
 
     raise ValueError(f"unsupported model_type: {model_type}")
 

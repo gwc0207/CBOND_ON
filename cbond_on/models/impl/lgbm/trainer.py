@@ -140,6 +140,11 @@ def build_dataset(
         if not isinstance(fdf.index, pd.MultiIndex):
             fdf = fdf.reset_index().set_index(["dt", "code"])
         fdf = fdf.reset_index()
+        # Backward compatibility: old factor files may miss newly added columns.
+        # Skip these days instead of raising KeyError in dropna(subset=...).
+        missing_cols = [c for c in factor_cols if c not in fdf.columns]
+        if missing_cols:
+            continue
         label_df = _read_label_day(label_root, day, factor_time=factor_time, label_time=label_time)
         if label_df.empty or "dt" not in label_df.columns:
             if require_label:
@@ -201,6 +206,99 @@ def _rank_ic_by_day(df: pd.DataFrame, factor_col: str) -> pd.Series:
             return np.nan
         return g[factor_col].corr(g["y"], method="spearman")
     return df.groupby("dt").apply(_calc, include_groups=False)
+
+
+def _build_day_group_indices(dt: pd.Series) -> list[np.ndarray]:
+    if dt is None or len(dt) == 0:
+        return []
+    dt_arr = pd.to_datetime(dt, errors="coerce").to_numpy()
+    valid_mask = ~pd.isna(dt_arr)
+    if not valid_mask.any():
+        return []
+    valid_pos = np.where(valid_mask)[0]
+    dt_valid = dt_arr[valid_mask]
+    _, inv = np.unique(dt_valid, return_inverse=True)
+    groups: list[np.ndarray] = []
+    for g in range(int(inv.max()) + 1):
+        pos = valid_pos[inv == g]
+        if pos.size >= 2:
+            groups.append(pos.astype(np.int64, copy=False))
+    return groups
+
+
+def _mean_abs_ic_by_groups(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    groups: list[np.ndarray],
+    *,
+    eps: float = 1e-12,
+) -> float:
+    if not groups:
+        return float("nan")
+    vals: list[float] = []
+    for idx in groups:
+        y = y_true[idx]
+        p = y_pred[idx]
+        if y.size < 2:
+            continue
+        yc = y - np.mean(y)
+        pc = p - np.mean(p)
+        b = float(np.dot(yc, yc))
+        c = float(np.dot(pc, pc))
+        if b <= eps or c <= eps:
+            continue
+        a = float(np.dot(yc, pc))
+        r = a / np.sqrt(b * c + eps)
+        if np.isfinite(r):
+            vals.append(abs(float(r)))
+    if not vals:
+        return float("nan")
+    return float(np.mean(vals))
+
+
+def _make_abs_ic_objective(
+    dt: pd.Series,
+    *,
+    eps: float = 1e-12,
+) -> tuple[callable, list[np.ndarray]]:
+    groups = _build_day_group_indices(dt)
+
+    def _objective(y_true, y_pred):
+        y = np.asarray(y_true, dtype=float)
+        p = np.asarray(y_pred, dtype=float)
+        grad = np.zeros_like(p, dtype=float)
+        hess = np.ones_like(p, dtype=float)
+        if not groups:
+            return grad, hess
+
+        n_groups = float(len(groups))
+        for idx in groups:
+            yg = y[idx]
+            pg = p[idx]
+            if yg.size < 2:
+                continue
+            yc = yg - np.mean(yg)
+            pc = pg - np.mean(pg)
+            b = float(np.dot(yc, yc))
+            c = float(np.dot(pc, pc))
+            if b <= eps:
+                continue
+            if c <= eps:
+                # Correlation is undefined when pred variance is near zero.
+                # Use a fallback gradient to break the zero-gradient dead start.
+                r = 0.0
+                dr_dp = yc / np.sqrt(b + eps)
+            else:
+                a = float(np.dot(yc, pc))
+                denom = np.sqrt(b * c + eps)
+                r = a / denom
+                dr_dp = (yc / denom) - (r * pc / (c + eps))
+            # Subgradient of |r|; choose +1 at r == 0.
+            dabs_dr = 1.0 if r >= 0 else -1.0
+            grad[idx] += -(dabs_dr * dr_dp) / n_groups
+        return grad, hess
+
+    return _objective, groups
 
 
 def _dir_acc(y: np.ndarray, pred: np.ndarray) -> float:
@@ -297,10 +395,20 @@ def train_lgbm(
     val: SplitData,
     lgbm_params: dict,
     early_stopping_rounds: int | None = None,
+    loss_mode: str = "mse",
 ) -> tuple[object, dict]:
     if lgb is None:
         raise RuntimeError("lightgbm is not installed")
     params = dict(lgbm_params)
+    mode = str(loss_mode or "mse").lower()
+    eval_metric_name = "rank_ic"
+    train_groups: list[np.ndarray] = []
+    val_groups: list[np.ndarray] = []
+    if mode in {"ic_abs", "abs_ic", "icabs"}:
+        objective_fn, train_groups = _make_abs_ic_objective(train.dt)
+        params["objective"] = objective_fn
+        eval_metric_name = "abs_ic"
+        val_groups = _build_day_group_indices(val.dt)
     model = lgb.LGBMRegressor(**params)
     history: list[dict] = []
 
@@ -318,6 +426,20 @@ def train_lgbm(
         val_ic = float(rank_ic.mean()) if not rank_ic.empty else 0.0
         return ("rank_ic", val_ic, True)
 
+    def _eval_abs_ic(y_true, y_pred):
+        if y_true is None or y_pred is None:
+            return ("abs_ic", 0.0, True)
+        y_true = np.asarray(y_true, dtype=float)
+        y_pred = np.asarray(y_pred, dtype=float)
+        if y_true.shape[0] == train.y.shape[0]:
+            groups = train_groups if train_groups else _build_day_group_indices(train.dt)
+        else:
+            groups = val_groups if val_groups else _build_day_group_indices(val.dt)
+        val_abs_ic = _mean_abs_ic_by_groups(y_true, y_pred, groups)
+        if not np.isfinite(val_abs_ic):
+            val_abs_ic = 0.0
+        return ("abs_ic", float(val_abs_ic), True)
+
     def _record_callback(env):
         if env.model is None:
             return
@@ -327,14 +449,14 @@ def train_lgbm(
         train_r2 = float("nan")
         val_r2 = float("nan")
         for data_name, metric_name, value, _ in env.evaluation_result_list:
-            if metric_name != "rank_ic":
+            if metric_name != eval_metric_name:
                 continue
             if data_name == "training":
                 train_scores.append(value)
             elif data_name in ("valid_0", "valid_1", "valid"):
                 val_scores.append(value)
-        train_rank = float(train_scores[-1]) if train_scores else float("nan")
-        val_rank = float(val_scores[-1]) if val_scores else float("nan")
+        train_metric = float(train_scores[-1]) if train_scores else float("nan")
+        val_metric = float(val_scores[-1]) if val_scores else float("nan")
         try:
             if env.model is not None:
                 if env.model.current_iteration() >= 0:
@@ -349,22 +471,25 @@ def train_lgbm(
         history.append(
             {
                 "iteration": iteration,
-                "train_rank_ic": train_rank,
-                "val_rank_ic": val_rank,
+                "train_rank_ic": train_metric if eval_metric_name == "rank_ic" else float("nan"),
+                "val_rank_ic": val_metric if eval_metric_name == "rank_ic" else float("nan"),
+                "train_abs_ic": train_metric if eval_metric_name == "abs_ic" else float("nan"),
+                "val_abs_ic": val_metric if eval_metric_name == "abs_ic" else float("nan"),
                 "train_r2": train_r2,
                 "val_r2": val_r2,
             }
         )
+        metric_label = "rank_ic" if eval_metric_name == "rank_ic" else "abs_ic"
         print(
             f"iter {iteration:03d} "
-            f"train_rank_ic={train_rank:.4f} val_rank_ic={val_rank:.4f} "
+            f"train_{metric_label}={train_metric:.4f} val_{metric_label}={val_metric:.4f} "
             f"train_r2={train_r2:.4f} val_r2={val_r2:.4f}"
         )
     fit_kwargs = {}
     if early_stopping_rounds is not None and val.x is not None and not val.x.empty:
         fit_kwargs = {
             "eval_set": [(train.x, train.y), (val.x, val.y)],
-            "eval_metric": _eval_rank_ic,
+            "eval_metric": _eval_abs_ic if eval_metric_name == "abs_ic" else _eval_rank_ic,
         }
         # lightgbm sklearn API changed early stopping signature
         try:

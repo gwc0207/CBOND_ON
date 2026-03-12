@@ -156,19 +156,27 @@ def main(
     score_overwrite = bool(cfg.get("score_overwrite", False))
     score_dedupe = bool(cfg.get("score_dedupe", True))
 
-    def _best_val_rank_ic(hist: list[dict]) -> float:
+    def _metric_name_for_mode(mode: str) -> str:
+        text = str(mode or "mse").lower()
+        if text in {"ic_abs", "abs_ic", "icabs"}:
+            return "abs_ic"
+        return "rank_ic"
+
+    def _best_val_metric(hist: list[dict], metric_name: str) -> float:
         if not hist:
             return float("nan")
-        vals = [h.get("val_rank_ic") for h in hist if h.get("val_rank_ic") is not None]
+        key = f"val_{metric_name}"
+        vals = [h.get(key) for h in hist if h.get(key) is not None]
         if not vals:
             return float("nan")
         return float(np.nanmax(vals))
 
-    def _best_iter_from_hist(hist: list[dict]) -> int | None:
+    def _best_iter_from_hist(hist: list[dict], metric_name: str) -> int | None:
         best_val = float("-inf")
         best_it = None
+        key = f"val_{metric_name}"
         for h in hist:
-            v = h.get("val_rank_ic")
+            v = h.get(key)
             it = h.get("iteration")
             if v is None or it is None or np.isnan(v):
                 continue
@@ -176,6 +184,9 @@ def main(
                 best_val = float(v)
                 best_it = int(it)
         return best_it
+
+    loss_mode = str(cfg.get("loss_mode", "mse")).lower()
+    metric_name = _metric_name_for_mode(loss_mode)
 
     if rolling_enabled:
         if len(days) < window_days:
@@ -251,6 +262,7 @@ def main(
                 val=val_data,
                 lgbm_params=lgbm_params,
                 early_stopping_rounds=int(early_rounds) if early_rounds else None,
+                loss_mode=loss_mode,
             )
             test_pred = model.predict(test_data.x)
             if not (desired_start <= test_day <= desired_end):
@@ -385,17 +397,18 @@ def main(
                             val=val_data,
                             lgbm_params=trial_params,
                             early_stopping_rounds=int(early_rounds) if early_rounds else None,
+                            loss_mode=loss_mode,
                         )
                         trial_hist = trial_meta.get("history", [])
-                        trial_best = _best_val_rank_ic(trial_hist)
-                        trial_best_iter = _best_iter_from_hist(trial_hist)
+                        trial_best = _best_val_metric(trial_hist, metric_name)
+                        trial_best_iter = _best_iter_from_hist(trial_hist, metric_name)
                         grid_rows.append(
                             {
                                 "reg_alpha": float(alpha),
                                 "reg_lambda": float(lam),
                                 "num_leaves": int(leaves),
                                 "max_depth": int(depth),
-                                "best_val_rank_ic": trial_best,
+                                f"best_val_{metric_name}": trial_best,
                                 "best_iteration": trial_best_iter,
                             }
                         )
@@ -411,7 +424,7 @@ def main(
         (out_dir / "best_params.json").write_text(
             json.dumps(
                 {
-                    "best_val_rank_ic": best_score,
+                    f"best_val_{metric_name}": best_score,
                     "best_iteration": best_iter,
                     "params": best_params,
                 },
@@ -429,6 +442,7 @@ def main(
             val=val_data,
             lgbm_params=lgbm_params,
             early_stopping_rounds=int(early_rounds) if early_rounds else None,
+            loss_mode=loss_mode,
         )
         history = params.get("history", [])
 

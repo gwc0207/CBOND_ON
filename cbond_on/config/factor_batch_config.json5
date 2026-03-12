@@ -1,5 +1,5 @@
 ﻿{
-  start: "2026-01-01",
+  start: "2025-06-01",
   end: "2026-03-03",
   window_minutes: 15,
   panel_name: "T1430",

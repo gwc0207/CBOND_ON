@@ -1,0 +1,118 @@
+[package]
+name = "kuzu"
+version = "0.11.3"
+description = "An in-process property graph database management system built for query speed and scalability"
+keywords = ["database", "graph", "ffi"]
+readme = "kuzu-src/README.md"
+homepage = "https://kuzudb.com/"
+repository = "https://github.com/kuzudb/kuzu"
+license = "MIT"
+categories = ["database"]
+
+rust-version = "1.81"
+edition = "2021"
+
+# Only include files required to build to keep crate size small
+include = [
+    "build.rs",
+    "/src",
+    "/include",
+    # If more files are added to kuzu-src, they should also be added to the rerun-if-changed
+    # instructions in build.rs so that rebuilds are detected properly
+    "/kuzu-src/src",
+    "/kuzu-src/cmake",
+    "/kuzu-src/third_party",
+    "/kuzu-src/CMakeLists.txt",
+    "/kuzu-src/tools/CMakeLists.txt",
+    "/kuzu-src/extension/CMakeLists.txt",
+    "/kuzu-src/extension/extension_config.cmake",
+    "/kuzu-src/extension/algo",
+    "/kuzu-src/extension/vector",
+    "/kuzu-src/extension/fts",
+    "/kuzu-src/extension/json",
+    "/kuzu-src/extension/vector",
+    "/kuzu-src/extension/httpfs",
+    "/kuzu-src/extension/llm",
+    "/kuzu-src/extension/neo4j",
+    "!/kuzu-src/extension/algo/build",
+    "!/kuzu-src/extension/vector/build",
+    "!/kuzu-src/extension/fts/build",
+    "!/kuzu-src/extension/json/build",
+    "!/kuzu-src/extension/vector/build",
+    "!/kuzu-src/extension/httpfs/build",
+    "!/kuzu-src/extension/llm/build",
+    "!/kuzu-src/extension/neo4j/build",
+]
+
+[dependencies]
+arrow = { version = "55", optional = true, default-features = false, features = ["ffi"] }
+cxx = "=1.0.138" # latest version that builds on clang 15
+rust_decimal = { version = "1.37", default-features = false }
+time = "0.3"
+uuid = "1.6"
+
+[build-dependencies]
+cmake = "0.1"
+cxx-build = "1.0"
+rustversion = "1"
+
+[dev-dependencies]
+anyhow = "1"
+rust_decimal_macros = "1.37"
+tempfile = "3"
+time = { version = "0.3", features = ["macros"] }
+
+[features]
+default = ["algo", "fts", "json", "vector"]
+arrow = ["dep:arrow"]
+# Extensions. If enabled, they will be built into the library
+algo = []
+fts = []
+json = []
+vector = []
+httpfs = []
+llm = []
+neo4j = []
+# Duckdb and dependent extensions don't appear to be statically linkable due to linking some of the
+# same third_party symbols
+# duckdb = []
+# azure = []
+# delta = []
+# iceberg = []
+# postgres = []
+# sqlite = []
+# unity_catalog = []
+
+extension_tests = []
+
+[package.metadata.docs.rs]
+all-features = true
+
+[profile.relwithdebinfo]
+inherits = "release"
+debug = true
+
+[lints.clippy]
+cargo = { level = "warn", priority = -1 }
+correctness = { level = "warn", priority = -1 }
+perf = { level = "warn", priority = -1 }
+style = { level = "warn", priority = -1 }
+suspicious = { level = "warn", priority = -1 }
+
+complexity = { level = "warn", priority = -1 }
+too_many_arguments = "allow"
+type_complexity = "allow"
+
+pedantic = { level = "warn", priority = -1 }
+inline_always = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+module_name_repetitions = "allow"
+must_use_candidate = "allow"
+needless_pass_by_value = "allow"
+redundant_closure_for_method_calls = "allow"
+return_self_not_must_use = "allow"
+similar_names = "allow"
+struct_excessive_bools = "allow"
+too_many_lines = "allow"
+unreadable_literal = "allow"

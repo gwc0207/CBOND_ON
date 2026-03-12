@@ -1,0 +1,18 @@
+-DATASET CSV read-list-tests/large-list-sub-query-tests
+
+--
+
+-CASE LargeListSubQueryTest
+-SKIP_WASM
+
+-LOG KnowsVeryLargeAdjListSubQueryTest
+-STATEMENT MATCH (a:person) WHERE EXISTS { MATCH (a)-[:knows]->(b:person)-[:knows]->(c:person) } RETURN count(*)
+-PARALLELISM 1
+---- 1
+1
+
+-LOG KnowsVeryLargeAdjListVarLenWithSubQueryTest
+-STATEMENT MATCH (a:person) WHERE EXISTS { MATCH (a)-[:knows*2..2]->(b:person) } RETURN count(*)
+-PARALLELISM 1
+---- 1
+1

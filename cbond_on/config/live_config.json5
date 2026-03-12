@@ -34,7 +34,7 @@
   "db_write_backends": ["postgres"],
   "db_table": "quant_factor_dev.researcher_gswzif.o_0001",
   "db_mode": "replace_date",
-  "model_name": "placeholder",
-  "model_type": "lgbm",
-  "model_config": "models/lgbm/model"
+  "model_name": "lgbm_factor_ranker",
+  "model_type": "lgbm_ranker",
+  "model_config": "models/lgbm_ranker/model"
 }

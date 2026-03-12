@@ -1,6 +1,6 @@
 {
-  start: "2026-01-01",
-  end: "2026-02-25",
+  start: "2025-06-01",
+  end: "2026-03-03",
   min_count: 10,
   max_weight: 0.05,
   buy_twap_col: "twap_1442_1457",
@@ -9,7 +9,7 @@
   fee_bps: 0.7,
   ic_bins: 20,
   max_workers: 10,
-  score_path: "D:/cbond_on/results/scores/lgbm_factor_default",
+  score_path: "D:/cbond_on/results/scores/lgbm_factor_ranker",
   batch_id: "Backtest",
   bin_source: "auto",
   bin_top_k: 2,

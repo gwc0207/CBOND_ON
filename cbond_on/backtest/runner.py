@@ -121,6 +121,7 @@ def run_backtest(
     for i in progress(range(len(day_list) - 1), desc="backtest", unit="day", total=len(day_list) - 1):
         day = day_list[i]
         next_day = day_list[i + 1]
+        sell_next_col = f"{sell_twap_col}_next"
         score_df = scores.get(day, pd.DataFrame())
         if score_df.empty:
             diagnostics.append({"trade_date": day, "status": "skip", "reason": "missing_score"})
@@ -132,11 +133,36 @@ def run_backtest(
             diagnostics.append({"trade_date": day, "status": "skip", "reason": "missing_clean"})
             continue
 
+        # Benchmark universe must be independent of model score availability.
+        bench_df = buy_df.merge(
+            sell_df[["code", sell_twap_col]].rename(columns={sell_twap_col: sell_next_col}),
+            on="code",
+            how="inner",
+        )
+        if filter_tradable_flag:
+            bench_df = filter_tradable(
+                bench_df,
+                buy_twap_col=buy_twap_col,
+                sell_twap_col=sell_next_col,
+                min_amount=min_amount,
+                min_volume=min_volume,
+            )
+        else:
+            required = [buy_twap_col, sell_next_col]
+            missing_cols = [c for c in required if c not in bench_df.columns]
+            if missing_cols:
+                raise KeyError(f"missing twap columns: {missing_cols}")
+        if bench_df.empty:
+            benchmark_return = 0.0
+        else:
+            bench_buy = apply_twap_bps(bench_df[buy_twap_col], cost_bps, side="buy")
+            bench_sell = apply_twap_bps(bench_df[sell_next_col], cost_bps, side="sell")
+            benchmark_return = float(((bench_sell - bench_buy) / bench_buy).mean())
+
         merged = buy_df.merge(
-            sell_df[["code", sell_twap_col]],
+            sell_df[["code", sell_twap_col]].rename(columns={sell_twap_col: sell_next_col}),
             on="code",
             how="left",
-            suffixes=("", "_next"),
         )
         merged = merged.merge(score_df[["code", "score"]], on="code", how="left")
 
@@ -144,12 +170,12 @@ def run_backtest(
             merged = filter_tradable(
                 merged,
                 buy_twap_col=buy_twap_col,
-                sell_twap_col=sell_twap_col,
+                sell_twap_col=sell_next_col,
                 min_amount=min_amount,
                 min_volume=min_volume,
             )
         else:
-            required = [buy_twap_col, sell_twap_col]
+            required = [buy_twap_col, sell_next_col]
             missing_cols = [c for c in required if c not in merged.columns]
             if missing_cols:
                 raise KeyError(f"missing twap columns: {missing_cols}")
@@ -160,9 +186,8 @@ def run_backtest(
             continue
 
         buy_all = apply_twap_bps(merged[buy_twap_col], cost_bps, side="buy")
-        sell_all = apply_twap_bps(merged[sell_twap_col], cost_bps, side="sell")
+        sell_all = apply_twap_bps(merged[sell_next_col], cost_bps, side="sell")
         returns_all = (sell_all - buy_all) / buy_all
-        benchmark_return = float(returns_all.mean()) if not returns_all.empty else 0.0
         ic_val = merged["score"].corr(returns_all, method="pearson")
         rank_ic_val = _rank_ic(merged["score"], returns_all)
         ic_records.append(
@@ -258,7 +283,7 @@ def run_backtest(
         live_count = int(len(picks_live))
         if live_count > 0:
             buy_live = apply_twap_bps(picks_live[buy_twap_col], cost_bps, side="buy")
-            sell_live = apply_twap_bps(picks_live[sell_twap_col], cost_bps, side="sell")
+            sell_live = apply_twap_bps(picks_live[sell_next_col], cost_bps, side="sell")
             returns_live = (sell_live - buy_live) / buy_live
             live_avg_return = float(returns_live.mean()) if not returns_live.empty else float("nan")
             w_live = min(1.0 / live_count, max_weight)
@@ -317,7 +342,7 @@ def run_backtest(
             continue
 
         buy_px = apply_twap_bps(picks[buy_twap_col], cost_bps, side="buy")
-        sell_px = apply_twap_bps(picks[sell_twap_col], cost_bps, side="sell")
+        sell_px = apply_twap_bps(picks[sell_next_col], cost_bps, side="sell")
         returns = (sell_px - buy_px) / buy_px
         weight = min(1.0 / len(picks), max_weight)
         day_return = float((returns * weight).sum())
