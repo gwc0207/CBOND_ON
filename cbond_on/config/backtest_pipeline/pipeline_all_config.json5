@@ -1,6 +1,5 @@
 {
   model_score: {
-    model_type: "lgbm_ranker",
-    model_config: "models/lgbm_ranker/model",
+    model_id: "lgbm_factor_ranker",
   },
 }

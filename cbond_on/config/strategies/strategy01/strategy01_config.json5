@@ -1,0 +1,6 @@
+{
+  top_k: 20,
+  max_weight: 0.05,
+  turnover_ratio: 1.0
+}
+

@@ -8,7 +8,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
+PROJECT_ROOT = Path(__file__).resolve().parents[4]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
@@ -38,17 +38,24 @@ def _format_bins(bin_dir: list[tuple[int, float, int]]) -> str:
 
 def _load_model_config(path: Path | None) -> dict:
     if path is None:
-        return load_config_file("models/linear/model")
+        return load_config_file("models/linear/linear_factor_default")
     import json5
     with path.open("r", encoding="utf-8") as handle:
         return json5.load(handle) or {}
 
 
-def main(*, start: str | None = None, end: str | None = None) -> None:
+def main(
+    *,
+    config_path: str | Path | None = None,
+    start: str | None = None,
+    end: str | None = None,
+) -> None:
     paths_cfg = load_config_file("paths")
-    cfg_path = None
-    if len(sys.argv) > 1:
-        cfg_path = Path(sys.argv[1])
+    cfg_path = Path(config_path) if config_path else None
+    if cfg_path is None and len(sys.argv) > 1:
+        candidate = Path(sys.argv[1])
+        if candidate.exists():
+            cfg_path = candidate
     cfg = _load_model_config(cfg_path)
 
     cfg_start = parse_date(cfg.get("start"))

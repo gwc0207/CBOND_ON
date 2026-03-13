@@ -1,7 +1,7 @@
 <!-- gitnexus:start -->
 # GitNexus MCP
 
-This project is indexed by GitNexus as **CBOND_ON** (817 symbols, 2453 relationships, 63 execution flows).
+This project is indexed by GitNexus as **CBOND_ON** (823 symbols, 2447 relationships, 63 execution flows).
 
 ## Always Start Here
 

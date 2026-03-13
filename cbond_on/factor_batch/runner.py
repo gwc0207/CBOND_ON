@@ -9,11 +9,9 @@ import pandas as pd
 
 from cbond_on.core.utils import progress
 from cbond_on.data.panel import read_panel_data
-from cbond_on.core.trading_days import list_trading_days_from_raw
 from cbond_on.factors.pipeline import run_factor_pipeline
 from cbond_on.factors.spec import FactorSpec, build_factor_col
 from cbond_on.factors.storage import FactorStore
-from cbond_on.report.factor_report import save_single_factor_report
 
 
 @dataclass
@@ -501,13 +499,6 @@ def run_factor_batch(
         )
         signal_dir = out_root / spec.name
         signal_dir.mkdir(parents=True, exist_ok=True)
-        save_single_factor_report(
-            result,
-            signal_dir,
-            factor_name=spec.name,
-            factor_col=factor_col,
-            trading_days=set(list_trading_days_from_raw(raw_data_root, start, end, kind="snapshot")),
-        )
         if use_panel_filter and record_codes:
             kept = getattr(result, "kept_records", [])
             filtered = getattr(result, "filtered_records", [])

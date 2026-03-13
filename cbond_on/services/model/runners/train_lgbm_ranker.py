@@ -8,7 +8,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
+PROJECT_ROOT = Path(__file__).resolve().parents[4]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
@@ -24,6 +24,24 @@ from cbond_on.models.impl.lgbm_ranker.trainer import (
     evaluate_metrics,
     train_lgbm_ranker,
 )
+
+
+def _load_model_config(path: Path | None) -> dict:
+    if path is None:
+        return load_config_file("models/lgbm_ranker/lgbm_factor_ranker")
+    suffix = path.suffix.lower()
+    if suffix == ".json5":
+        import json5
+
+        with path.open("r", encoding="utf-8") as handle:
+            return json5.load(handle) or {}
+    if suffix in {".yaml", ".yml"}:
+        import yaml
+
+        with path.open("r", encoding="utf-8") as handle:
+            return yaml.safe_load(handle) or {}
+    with path.open("r", encoding="utf-8") as handle:
+        return json.load(handle) or {}
 
 
 def _select_factor_cols(sample: pd.DataFrame, cfg: dict) -> list[str]:
@@ -77,12 +95,18 @@ def _best_val_rank_ic(hist: list[dict]) -> float:
 
 def main(
     *,
+    config_path: str | Path | None = None,
     start: str | None = None,
     end: str | None = None,
     label_cutoff: str | None = None,
 ) -> None:
     paths_cfg = load_config_file("paths")
-    cfg = load_config_file("models/lgbm_ranker/model")
+    cfg_file = Path(config_path) if config_path else None
+    if cfg_file is None and len(sys.argv) > 1:
+        candidate = Path(sys.argv[1])
+        if candidate.exists():
+            cfg_file = candidate
+    cfg = _load_model_config(cfg_file)
 
     cfg_start = parse_date(cfg.get("start"))
     cfg_end = parse_date(cfg.get("end"))
@@ -443,4 +467,3 @@ def main(
 
 if __name__ == "__main__":
     main()
-

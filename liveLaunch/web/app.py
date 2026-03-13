@@ -33,7 +33,6 @@ except Exception:  # pragma: no cover
 WIN_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 _PROCESS_CACHE: dict = {"items": []}
 _PROCESS_CACHE_LOCK = threading.Lock()
-_SCORE_DAY_CACHE: dict = {"path": "", "mtime": None, "days": set()}
 
 
 def _process_cache_loop() -> None:
@@ -236,60 +235,35 @@ def _factor_path_for_day(factor_data_root: Path, label: str, day: date) -> Path:
     return factor_data_root / "factors" / label / f"{day:%Y-%m}" / f"{day:%Y%m%d}.parquet"
 
 
-def _resolve_score_output_path(model_cfg: dict) -> Path:
+def _resolve_score_output_path(model_cfg: dict, *, model_id: str, paths_cfg: dict | None = None) -> Path:
     raw = str(model_cfg.get("score_output", "")).strip()
-    path = Path(raw)
-    if not path.is_absolute():
-        path = PROJECT_ROOT / path
-    return path
-
-
-def _score_days_from_single_csv(path: Path) -> set[date]:
-    if not path.exists():
-        return set()
-    mtime = path.stat().st_mtime
-    cache_path = str(path)
-    if _SCORE_DAY_CACHE.get("path") == cache_path and _SCORE_DAY_CACHE.get("mtime") == mtime:
-        return set(_SCORE_DAY_CACHE.get("days", set()))
-    try:
-        df = pd.read_csv(path, usecols=["trade_date"])
-        days = set(pd.to_datetime(df["trade_date"], errors="coerce").dt.date.dropna().tolist())
-    except Exception:
-        days = set()
-    _SCORE_DAY_CACHE["path"] = cache_path
-    _SCORE_DAY_CACHE["mtime"] = mtime
-    _SCORE_DAY_CACHE["days"] = set(days)
-    return days
+    if raw:
+        path = Path(raw)
+        if not path.is_absolute():
+            path = PROJECT_ROOT / path
+        return path
+    if paths_cfg is None:
+        paths_cfg = load_config_file("paths")
+    return Path(paths_cfg["results_root"]) / "scores" / str(model_id)
 
 
 def _collect_score_days(score_output: Path) -> set[date]:
-    if not score_output.exists():
+    if not score_output.exists() or not score_output.is_dir():
         return set()
-    if score_output.is_file():
-        return _score_days_from_single_csv(score_output)
     days: set[date] = set()
-    fallback_scores_csv: Path | None = None
     for p in score_output.rglob("*.csv"):
         stem = p.stem
         try:
             if len(stem) == 10 and stem[4] == "-" and stem[7] == "-":
                 days.add(datetime.strptime(stem, "%Y-%m-%d").date())
-                continue
-            if len(stem) == 8 and stem.isdigit():
-                days.add(datetime.strptime(stem, "%Y%m%d").date())
-                continue
-            if stem == "scores":
-                fallback_scores_csv = p
         except Exception:
             continue
-    if not days and fallback_scores_csv is not None:
-        days = _score_days_from_single_csv(fallback_scores_csv)
     return days
 
 
 def _resolve_data_health_label() -> str:
     panel_cfg = load_config_file("panel")
-    fb_cfg = load_config_file("factor_batch")
+    fb_cfg = load_config_file("factor")
     panel_name = fb_cfg.get("panel_name") or panel_cfg.get("panel_name")
     wm = fb_cfg.get("window_minutes", panel_cfg.get("window_minutes", [15]))
     if isinstance(wm, list):
@@ -301,15 +275,27 @@ def _build_data_calendar(*, anchor_day: date, months: int = 2, selected_day: dat
     months = max(1, min(int(months), 6))
     paths_cfg = load_config_file("paths")
     live_cfg = _load_live_cfg()
-    model_type = str(live_cfg.get("model_type", "linear"))
-    model_cfg = load_config_file(str(live_cfg.get("model_config", f"models/{model_type}/model")))
+    score_cfg = load_config_file("model_score")
+    model_group = dict(live_cfg.get("model_score", {}))
+    model_id = str(model_group.get("model_id", "")).strip()
+    if not model_id:
+        raise ValueError("live_config.model_score.model_id is required")
+    model_entry = dict(score_cfg.get("models", {}).get(model_id, {}))
+    if not model_entry:
+        raise KeyError(f"model_id not found in model_score config: {model_id}")
+    model_config_key = str(model_entry.get("model_config", "")).strip()
+    if not model_config_key:
+        raise ValueError(f"model_score.models.{model_id}.model_config is required")
+    model_cfg = load_config_file(model_config_key)
 
     raw_root = Path(paths_cfg["raw_data_root"])
     clean_root = Path(paths_cfg.get("cleaned_data_root") or paths_cfg.get("clean_data_root"))
     panel_root = Path(paths_cfg["panel_data_root"])
     factor_root = Path(paths_cfg["factor_data_root"])
     label = _resolve_data_health_label()
-    score_days = _collect_score_days(_resolve_score_output_path(model_cfg))
+    score_days = _collect_score_days(
+        _resolve_score_output_path(model_cfg, model_id=model_id, paths_cfg=paths_cfg)
+    )
     open_days = set(_load_open_days(raw_root))
 
     month_blocks: list[dict] = []
@@ -410,12 +396,14 @@ def _normalize_weights(w: pd.Series) -> pd.Series:
 
 def _build_perf_summary(*, raw_data_root: str | Path, day: str | None, lookback: int | None) -> dict:
     live_cfg = _load_live_cfg()
-    buy_col = str(live_cfg.get("buy_twap_col", "twap_1442_1457"))
-    sell_col = str(live_cfg.get("sell_twap_col", "twap_0930_1000"))
-    cost_bps = float(live_cfg.get("twap_bps", 1.5)) + float(live_cfg.get("fee_bps", 0.7))
-    min_amount = float(live_cfg.get("min_amount", 0))
-    min_volume = float(live_cfg.get("min_volume", 0))
-    default_lb = int(live_cfg.get("perf_lookback_days", 20))
+    data_cfg = dict(live_cfg.get("data", {}))
+    output_cfg = dict(live_cfg.get("output", {}))
+    buy_col = str(output_cfg.get("buy_twap_col", "twap_1442_1457"))
+    sell_col = str(output_cfg.get("sell_twap_col", "twap_0930_1000"))
+    cost_bps = float(output_cfg.get("twap_bps", 1.5)) + float(output_cfg.get("fee_bps", 0.7))
+    min_amount = float(data_cfg.get("min_amount", 0))
+    min_volume = float(data_cfg.get("min_volume", 0))
+    default_lb = int(data_cfg.get("perf_lookback_days", 20))
     lookback = max(1, int(lookback if lookback is not None else default_lb))
 
     asof_day = _parse_day_to_date(day)
@@ -605,7 +593,7 @@ def _append_dashboard_log(action: str, message: str) -> None:
 
 
 def _live_cfg_path() -> Path:
-    return PROJECT_ROOT / "cbond_on" / "config" / "live_config.json5"
+    return PROJECT_ROOT / "cbond_on" / "config" / "live" / "live_config.json5"
 
 
 def _load_live_cfg() -> dict:

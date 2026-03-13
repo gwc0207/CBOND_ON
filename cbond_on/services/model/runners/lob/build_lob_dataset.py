@@ -7,7 +7,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+PROJECT_ROOT = Path(__file__).resolve().parents[5]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
@@ -326,7 +326,7 @@ def main() -> None:
     clean_root = Path(paths_cfg["clean_data_root"])
     snapshot_root = data_cfg.get("snapshot_root")
     if not snapshot_root:
-        raise ValueError("raw_data_config.json5 missing data.snapshot_root")
+        raise ValueError("data/raw_data_config.json5 missing data.snapshot_root")
 
     start = parse_date(ds_cfg["start"])
     end = parse_date(ds_cfg["end"])

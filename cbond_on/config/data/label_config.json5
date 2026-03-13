@@ -1,0 +1,19 @@
+{
+  start: "2025-06-01",
+  end: "2026-03-03",
+  refresh: false,
+  overwrite: false,
+  mode: "upsert",
+  max_lookahead_days: 7,
+  close_window: { start: "14:45", end: "14:57" },
+  next_open_window: { start: "09:30", end: "09:45" },
+  cost_method: "twap",
+  fallback_method: "mid",
+  buy_bps: 0.0,
+  sell_bps: 0.0,
+  fee_bps: 0.0,
+  price_col: "last",
+  bid_price_col: "bid_price1",
+  ask_price_col: "ask_price1"
+}
+

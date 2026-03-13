@@ -1,4 +1,21 @@
 {
-  model_type: "lgbm_ranker",
-  model_config: "models/lgbm_ranker/model",
+  default_model_id: "lgbm_factor_ranker",
+  model_id: "lgbm_factor_ranker",
+  start: "2025-06-01",
+  end: "2026-03-03",
+  label_cutoff: null,
+  models: {
+    linear_factor_default: {
+      model_type: "linear",
+      model_config: "models/linear/linear_factor_default"
+    },
+    lgbm_factor_MSE: {
+      model_type: "lgbm",
+      model_config: "models/lgbm/lgbm_factor_MSE"
+    },
+    lgbm_factor_ranker: {
+      model_type: "lgbm_ranker",
+      model_config: "models/lgbm_ranker/lgbm_factor_ranker"
+    }
+  }
 }

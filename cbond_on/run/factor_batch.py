@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import sys
 from pathlib import Path
@@ -8,47 +8,19 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from cbond_on.core.config import load_config_file, parse_date
-from cbond_on.factor_batch.runner import build_signal_specs, run_factor_batch
-from cbond_on.factors import defs  # noqa: F401
+from cbond_on.services.factor.factor_build_service import run as run_factor_build
 
 
 def main() -> None:
-    paths_cfg = load_config_file("paths")
-    cfg = load_config_file("factor_batch")
-
-    start = parse_date(cfg["start"])
-    end = parse_date(cfg["end"])
-    overwrite = bool(cfg.get("overwrite", False))
-    window_minutes = int(cfg.get("window_minutes", 15))
-    panel_name = cfg.get("panel_name")
-
-    panel_data_root = paths_cfg.get("panel_data_root")
-    factor_data_root = paths_cfg["factor_data_root"]
-    label_data_root = paths_cfg.get("label_data_root")
-    results_root = paths_cfg.get("results_root") or paths_cfg.get("results_root")
-    raw_data_root = paths_cfg["raw_data_root"]
-
-    specs = build_signal_specs(cfg)
-    print(
-        f"[factor_batch] start={start} end={end} panel_name={panel_name} "
-        f"window_minutes={window_minutes} overwrite={overwrite} "
-        f"factor_time={cfg.get('factor_time')} label_time={cfg.get('label_time')} specs={len(specs)}"
+    cfg = load_config_file("factor")
+    result = run_factor_build(
+        start=parse_date(cfg.get("start")),
+        end=parse_date(cfg.get("end")),
+        refresh=bool(cfg.get("refresh", False)),
+        overwrite=bool(cfg.get("overwrite", False)),
+        cfg=cfg,
     )
-    out_dir = run_factor_batch(
-        cfg,
-        panel_data_root=panel_data_root,
-        factor_data_root=factor_data_root,
-        label_data_root=label_data_root,
-        raw_data_root=raw_data_root,
-        results_root=results_root,
-        start=start,
-        end=end,
-        window_minutes=window_minutes,
-        panel_name=panel_name,
-        overwrite=overwrite,
-        specs=specs,
-    )
-    print(f"saved: {out_dir}")
+    print(result)
 
 
 if __name__ == "__main__":

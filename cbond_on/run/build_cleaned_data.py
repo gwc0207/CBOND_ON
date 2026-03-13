@@ -8,41 +8,21 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from cbond_on.core.config import load_config_file, parse_date
-from cbond_on.config import SnapshotConfig
-from cbond_on.data.clean import build_cleaned_snapshot, build_cleaned_kline
+from cbond_on.services.data.clean_service import run as run_clean
 
 
-def main() -> None:  
-    paths_cfg = load_config_file("paths")
-    cleaned_cfg = load_config_file("cleaned_data")
-    raw_data_root = paths_cfg["raw_data_root"]
-    cleaned_data_root = paths_cfg.get("cleaned_data_root") or paths_cfg.get("clean_data_root")
-    start = parse_date(cleaned_cfg.get("start"))
-    end = parse_date(cleaned_cfg.get("end"))
-    overwrite = bool(cleaned_cfg.get("overwrite", False))
-
-    print(f"[clean] start={start} end={end} overwrite={overwrite}")
-    snapshot_cfg = SnapshotConfig.from_dict(cleaned_cfg["snapshot"])
-    print("[clean] building snapshot ...")
-    res1 = build_cleaned_snapshot(
-        raw_data_root,
-        cleaned_data_root,
-        start,
-        end,
-        snapshot_cfg,
-        overwrite=overwrite,
+def main() -> None:
+    cfg = load_config_file("cleaned_data")
+    result = run_clean(
+        start=parse_date(cfg.get("start")),
+        end=parse_date(cfg.get("end")),
+        refresh=bool(cfg.get("refresh", False)),
+        overwrite=bool(cfg.get("overwrite", False)),
+        cfg=cfg,
     )
-    print("[clean] building kline ...")
-    res2 = build_cleaned_kline(
-        raw_data_root,
-        cleaned_data_root,
-        start,
-        end,
-        overwrite=overwrite,
-    )
-    print(f"[clean] done snapshot={res1.snapshot_written} skipped={res1.snapshot_skipped}")
-    print(f"[clean] done kline={res2.kline_written} skipped={res2.kline_skipped}")
+    print(result)
 
 
 if __name__ == "__main__":
     main()
+

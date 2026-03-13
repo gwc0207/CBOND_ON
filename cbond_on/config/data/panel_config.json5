@@ -4,28 +4,18 @@
   panel_mode: "snapshot_sequence",
   window_minutes: [15],
   lead_minutes: 0,
+  refresh: false,
   overwrite: false,
   schedule: {
     mode: "custom_windows",
     windows: [
-      { start: "14:30", end: "14:30" },
+      { start: "14:30", end: "14:30" }
     ],
-    signal_prev_start: "09:30",
+    signal_prev_start: "09:30"
   },
   panel_name: "T1430",
   count_points: 5000,
   max_lookback_days: 30,
-  snapshot_columns: null,
-  label: {
-    close_window: { start: "14:45", end: "14:57" },
-    next_open_window: { start: "09:30", end: "09:45" },
-    cost_method: "twap",
-    fallback_method: "mid",
-    buy_bps: 0.0,
-    sell_bps: 0.0,
-    fee_bps: 0.0,
-    price_col: "last",
-    bid_price_col: "bid_price1",
-    ask_price_col: "ask_price1",
-  },
+  snapshot_columns: null
 }
+
