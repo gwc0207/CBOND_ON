@@ -1,1 +1,37 @@
 .gitnexus
+
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Local runtime artifacts
+.runtime_logs/
+*.log
+
+# Local secrets / machine-specific configs
+.env
+.env.*
+.cbond_on/
+
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# IDE / OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

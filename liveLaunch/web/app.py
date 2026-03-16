@@ -53,8 +53,11 @@ def _read_json(path: Path) -> dict:
 
 
 def _write_json(path: Path, data: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception:
+        return
 
 
 def _is_pid_alive(pid: int) -> bool:
@@ -585,11 +588,15 @@ def _append_dashboard_log(action: str, message: str) -> None:
     now = datetime.now()
     day_tag = _to_iso_day_tag(now.strftime("%Y-%m-%d"))
     log_dir = _resolve_log_day_root(day_tag) / "logs"
-    log_dir.mkdir(parents=True, exist_ok=True)
-    log_path = log_dir / f"live_scheduler_{day_tag}.log"
     line = f"{now:%Y-%m-%d %H:%M:%S} [dashboard] {action} {message}\n"
-    with log_path.open("a", encoding="utf-8") as fp:
-        fp.write(line)
+    try:
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_path = log_dir / f"live_scheduler_{day_tag}.log"
+        with log_path.open("a", encoding="utf-8") as fp:
+            fp.write(line)
+    except Exception:
+        # Keep control APIs responsive even when log target is temporarily unwritable.
+        return
 
 
 def _live_cfg_path() -> Path:
@@ -903,7 +910,12 @@ def create_app() -> Flask:
             )
             return jsonify({"ok": True, "message": "already running", "pid": pid})
 
-        fp = ui_log.open("a", encoding="utf-8")
+        try:
+            fp = ui_log.open("a", encoding="utf-8")
+        except Exception:
+            fallback_log = PROJECT_ROOT / ".runtime_logs" / "scheduler_ui.log"
+            fallback_log.parent.mkdir(parents=True, exist_ok=True)
+            fp = fallback_log.open("a", encoding="utf-8")
         flags = 0
         if os.name == "nt":
             flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) | getattr(

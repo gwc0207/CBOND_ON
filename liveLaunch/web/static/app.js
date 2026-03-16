@@ -399,8 +399,26 @@ async function refreshDataCalendar() {
 }
 
 async function callAction(url) {
-  const res = await axios.post(url);
-  return res.data;
+  try {
+    const res = await axios.post(url);
+    return res.data;
+  } catch (err) {
+    let msg = "request failed";
+    if (err && err.response) {
+      const status = err.response.status;
+      const body = err.response.data;
+      if (typeof body === "string" && body.trim()) {
+        msg = `HTTP ${status}: ${body}`;
+      } else if (body && typeof body === "object" && body.error) {
+        msg = `HTTP ${status}: ${body.error}`;
+      } else {
+        msg = `HTTP ${status}`;
+      }
+    } else if (err && err.message) {
+      msg = err.message;
+    }
+    throw new Error(msg);
+  }
 }
 
 async function loadConfig() {
@@ -531,44 +549,64 @@ async function saveConfig() {
 }
 
 document.getElementById("btn-open").addEventListener("click", async () => {
-  await callAction("/api/start_open");
-  syncStatus.textContent = "Start Open triggered";
-  await refreshLogsSafe();
-  await refreshHoldings();
-  await refreshPerformance();
+  try {
+    await callAction("/api/start_open");
+    syncStatus.textContent = "Start Open triggered";
+    await refreshLogsSafe();
+    await refreshHoldings();
+    await refreshPerformance();
+  } catch (err) {
+    syncStatus.textContent = `Start Open failed: ${err.message || err}`;
+  }
 });
 
 document.getElementById("btn-restart").addEventListener("click", async () => {
-  await callAction("/api/restart_scheduler");
-  syncStatus.textContent = "Scheduler restarted";
-  await refreshLogsSafe();
-  await refreshProcesses();
+  try {
+    await callAction("/api/restart_scheduler");
+    syncStatus.textContent = "Scheduler restarted";
+    await refreshLogsSafe();
+    await refreshProcesses();
+  } catch (err) {
+    syncStatus.textContent = `Restart failed: ${err.message || err}`;
+  }
 });
 
 document.getElementById("btn-stop").addEventListener("click", async () => {
-  await callAction("/api/emergency_stop");
-  syncStatus.textContent = "Emergency Stop triggered";
-  await refreshLogsSafe();
-  await refreshProcesses();
+  try {
+    await callAction("/api/emergency_stop");
+    syncStatus.textContent = "Emergency Stop triggered";
+    await refreshLogsSafe();
+    await refreshProcesses();
+  } catch (err) {
+    syncStatus.textContent = `Emergency Stop failed: ${err.message || err}`;
+  }
 });
 
 document.getElementById("btn-sync").addEventListener("click", async () => {
-  const res = await callAction("/api/sync_holdings");
-  if (res.ok) {
-    syncStatus.textContent = `Synced holdings: ${res.count}`;
-  } else {
-    syncStatus.textContent = `Sync failed: ${res.error || ""}`;
+  try {
+    const res = await callAction("/api/sync_holdings");
+    if (res.ok) {
+      syncStatus.textContent = `Synced holdings: ${res.count}`;
+    } else {
+      syncStatus.textContent = `Sync failed: ${res.error || ""}`;
+    }
+    await refreshHoldings();
+    await refreshPerformance();
+    await refreshLogsSafe();
+  } catch (err) {
+    syncStatus.textContent = `Sync failed: ${err.message || err}`;
   }
-  await refreshHoldings();
-  await refreshPerformance();
-  await refreshLogsSafe();
 });
 
 document.getElementById("btn-shutdown").addEventListener("click", async () => {
-  await callAction("/api/shutdown");
-  setTimeout(() => {
-    window.close();
-  }, 300);
+  try {
+    await callAction("/api/shutdown");
+    setTimeout(() => {
+      window.close();
+    }, 300);
+  } catch (err) {
+    syncStatus.textContent = `Shutdown failed: ${err.message || err}`;
+  }
 });
 
 document.getElementById("btn-save-config").addEventListener("click", async () => {

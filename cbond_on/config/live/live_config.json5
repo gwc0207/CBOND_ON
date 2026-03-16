@@ -9,7 +9,23 @@
     overwrite: false,
     lookback_days: 5,
     min_amount: 0,
-    min_volume: 0
+    min_volume: 0,
+    snapshot_source: "redis",
+    raw_sync_mode_when_redis: "both",
+    redis_sync_day: "today",
+    redis_source: "combiner",
+    redis_stage: "raw",
+    redis_asset_type: "cbond",
+    redis_incremental: true,
+    redis_full_day: false
+  },
+  redis: {
+    host: "10.1.30.11",
+    port: 6379,
+    db: 0,
+    password: "@QjFs39@k^wA",
+    socket_timeout: 5,
+    watermark_path: ""
   },
   model_score: {
     model_id: "lgbm_factor_MSE",

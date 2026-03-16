@@ -11,8 +11,10 @@ import pandas as pd
 
 try:
     import lightgbm as lgb
+    _LIGHTGBM_IMPORT_ERROR = None
 except Exception as exc:  # pragma: no cover
     lgb = None
+    _LIGHTGBM_IMPORT_ERROR = exc
 
 from cbond_on.factors.storage import FactorStore
 
@@ -398,7 +400,10 @@ def train_lgbm(
     loss_mode: str = "mse",
 ) -> tuple[object, dict]:
     if lgb is None:
-        raise RuntimeError("lightgbm is not installed")
+        detail = ""
+        if _LIGHTGBM_IMPORT_ERROR is not None:
+            detail = f" ({type(_LIGHTGBM_IMPORT_ERROR).__name__}: {_LIGHTGBM_IMPORT_ERROR})"
+        raise RuntimeError(f"lightgbm is not installed{detail}")
     params = dict(lgbm_params)
     mode = str(loss_mode or "mse").lower()
     eval_metric_name = "rank_ic"
