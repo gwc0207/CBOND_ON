@@ -17,18 +17,12 @@ Private repo for overnight strategy management.
 - cbond_on/config/models/model_config.json5
 - cbond_on/config/backtest_config.json5
 - cbond_on/config/live_config.json5
-- cbond_on/config/sync_data_config.json5
 - cbond_on/config/dataset_config.json5
 
 ## Quick Start (Commands)
 Activate the environment first:
 ```bash
 source .venv/bin/activate
-```
-
-Optional: sync raw data (if needed):
-```bash
-python3 cbond_on/run/sync_data.py
 ```
 
 Build LOB dataset:
@@ -67,10 +61,7 @@ tar -xzf /tmp/cbond_config_backup.tgz -C .
 ```
 
 ## Panel & Factor Pipeline (WC-style)
-Build cleaned data:
-```bash
-python3 cbond_on/run/build_cleaned_data.py
-```
+Shared `raw/clean` is produced by DataHub. ON no longer provides local raw/clean build commands.
 
 Build panels + labels:
 ```bash
