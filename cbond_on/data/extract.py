@@ -8,7 +8,6 @@ import warnings
 import pandas as pd
 
 PG_CONFIG_PATH = Path.home() / ".cbond_on" / "pgsql.json"
-MSSQL_CONFIG_PATH = Path.home() / ".cbond_on" / "mssql.json"
 
 DATE_COLUMNS = {
     "market_cbond.daily_price": "trade_date",
@@ -28,8 +27,6 @@ def _normalize_backend_name(value: str | None) -> str:
     text = str(value or "").strip().lower()
     if text in {"postgres", "postgresql", "pgsql", "pg"}:
         return "postgres"
-    if text in {"mssql", "sqlserver", "sql_server", "sql-server"}:
-        return "mssql"
     return text
 
 
@@ -39,24 +36,22 @@ def _load_json(path: Path) -> dict:
 
 
 def _config_path_for_backend(backend: str) -> Path:
-    if backend == "postgres":
-        return PG_CONFIG_PATH
-    if backend == "mssql":
-        return MSSQL_CONFIG_PATH
-    raise ValueError(f"unsupported backend: {backend}")
+    if backend != "postgres":
+        raise ValueError(f"unsupported backend (postgres only): {backend}")
+    return PG_CONFIG_PATH
 
 
 def has_backend_config(backend: str) -> bool:
     backend = _normalize_backend_name(backend)
-    if backend not in {"postgres", "mssql"}:
+    if backend != "postgres":
         return False
     return _config_path_for_backend(backend).exists()
 
 
 def load_db_config_for_backend(backend: str) -> dict:
     backend = _normalize_backend_name(backend)
-    if backend not in {"postgres", "mssql"}:
-        raise ValueError(f"unsupported backend: {backend}")
+    if backend != "postgres":
+        raise ValueError(f"unsupported backend (postgres only): {backend}")
     path = _config_path_for_backend(backend)
     if not path.exists():
         raise FileNotFoundError(f"missing config: {path}")
@@ -70,22 +65,17 @@ def load_db_config_for_backend(backend: str) -> dict:
 
 
 def load_db_config() -> dict:
-    for backend in ("postgres", "mssql"):
-        if has_backend_config(backend):
-            return load_db_config_for_backend(backend)
-    raise FileNotFoundError(f"missing config: {PG_CONFIG_PATH} or {MSSQL_CONFIG_PATH}")
+    if has_backend_config("postgres"):
+        return load_db_config_for_backend("postgres")
+    raise FileNotFoundError(f"missing config: {PG_CONFIG_PATH}")
 
 
 def get_db_backend() -> str:
-    return str(load_db_config().get("_backend", "mssql"))
+    return str(load_db_config().get("_backend", "postgres"))
 
 
 def get_available_backends() -> list[str]:
-    out: list[str] = []
-    for backend in ("postgres", "mssql"):
-        if has_backend_config(backend):
-            out.append(backend)
-    return out
+    return ["postgres"] if has_backend_config("postgres") else []
 
 
 def _normalize_table_name(table: str, *, backend: str, database: str | None = None) -> str:
@@ -127,7 +117,7 @@ def _default_pg_database_for_schema(schema: str, cfg: dict) -> str | None:
 
 
 def _resolve_table_target(table: str, cfg: dict) -> tuple[str | None, str]:
-    backend = str(cfg.get("_backend", "mssql"))
+    backend = str(cfg.get("_backend", "postgres"))
     if backend != "postgres":
         return None, table
     if table.count(".") == 2:
@@ -147,22 +137,6 @@ def resolve_table_target(table: str) -> tuple[str | None, str]:
 def resolve_table_target_for_backend(table: str, backend: str) -> tuple[str | None, str]:
     cfg = load_db_config_for_backend(backend)
     return _resolve_table_target(table, cfg)
-
-
-def _build_mssql_conn_str(cfg: dict) -> str:
-    driver = cfg.get("driver", "ODBC Driver 18 for SQL Server")
-    database = cfg.get("database") or ""
-    db_part = f"DATABASE={database};" if database else ""
-    return (
-        f"DRIVER={{{driver}}};"
-        f"SERVER={cfg['server']};"
-        + db_part
-        + f"UID={cfg['username']};"
-        + f"PWD={cfg['password']};"
-        + "Encrypt=yes;"
-        + "TrustServerCertificate=yes;"
-    )
-
 
 def _parse_host_port(cfg: dict) -> tuple[str, int]:
     host = str(cfg.get("host") or "").strip()
@@ -197,36 +171,34 @@ def connect_backend(backend: str, *, database: str | None = None) -> Any:
 
 
 def connect_with_config(cfg: dict, *, database: str | None = None) -> Any:
-    backend = str(cfg.get("_backend", "mssql"))
-    if backend == "postgres":
-        import psycopg2
+    backend = _normalize_backend_name(cfg.get("_backend", "postgres"))
+    if backend != "postgres":
+        raise ValueError(f"unsupported backend (postgres only): {backend}")
 
-        host, port = _parse_host_port(cfg)
-        dbname = database or cfg.get("database") or cfg.get("dbname")
-        if not dbname:
-            raise KeyError("missing database/dbname in pgsql config")
-        user = cfg.get("username") or cfg.get("user")
-        if not user:
-            raise KeyError("missing username/user in pgsql config")
-        password = cfg.get("password")
-        if password is None:
-            raise KeyError("missing password in pgsql config")
-        kwargs = {
-            "host": host,
-            "port": int(port),
-            "dbname": str(dbname),
-            "user": str(user),
-            "password": str(password),
-            "connect_timeout": int(cfg.get("connect_timeout", 10)),
-        }
-        sslmode = cfg.get("sslmode")
-        if sslmode:
-            kwargs["sslmode"] = str(sslmode)
-        return psycopg2.connect(**kwargs)
+    import psycopg2
 
-    import pyodbc
-
-    return pyodbc.connect(_build_mssql_conn_str(cfg), timeout=10)
+    host, port = _parse_host_port(cfg)
+    dbname = database or cfg.get("database") or cfg.get("dbname")
+    if not dbname:
+        raise KeyError("missing database/dbname in pgsql config")
+    user = cfg.get("username") or cfg.get("user")
+    if not user:
+        raise KeyError("missing username/user in pgsql config")
+    password = cfg.get("password")
+    if password is None:
+        raise KeyError("missing password in pgsql config")
+    kwargs = {
+        "host": host,
+        "port": int(port),
+        "dbname": str(dbname),
+        "user": str(user),
+        "password": str(password),
+        "connect_timeout": int(cfg.get("connect_timeout", 10)),
+    }
+    sslmode = cfg.get("sslmode")
+    if sslmode:
+        kwargs["sslmode"] = str(sslmode)
+    return psycopg2.connect(**kwargs)
 
 
 def fetch_table(
@@ -236,14 +208,14 @@ def fetch_table(
     end: Optional[str] = None,
 ) -> pd.DataFrame:
     cfg = load_db_config()
-    backend = str(cfg.get("_backend", "mssql"))
+    backend = str(cfg.get("_backend", "postgres"))
     db_override, resolved_table = _resolve_table_target(table, cfg)
     table_name = _normalize_table_name(
         resolved_table,
         backend=backend,
         database=db_override or cfg.get("database") or cfg.get("dbname"),
     )
-    marker = "%s" if backend == "postgres" else "?"
+    marker = "%s"
     date_col = DATE_COLUMNS.get(table)
     if start and end and date_col:
         sql = f"SELECT * FROM {table_name} WHERE {date_col} >= {marker} AND {date_col} <= {marker}"

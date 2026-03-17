@@ -3,8 +3,8 @@ from __future__ import annotations
 from datetime import date
 
 from cbond_on.core.config import load_config_file, parse_date
-from cbond_on.data.extract import MSSQL_CONFIG_PATH, PG_CONFIG_PATH, get_available_backends
-from cbond_on.services.data.raw_sync_ops import sync_db, sync_ftp, sync_nfs
+from cbond_on.data.extract import PG_CONFIG_PATH, has_backend_config
+from cbond_on.services.data.raw_sync_ops import sync_db, sync_nfs
 
 
 def run(
@@ -18,28 +18,26 @@ def run(
     paths_cfg = load_config_file("paths")
     raw_cfg = dict(cfg or load_config_file("raw_data"))
     mode = str(raw_cfg.get("mode", "both")).lower()
+    valid_modes = {"db", "nfs", "both"}
+    if mode not in valid_modes:
+        raise ValueError(f"unsupported raw_data.mode: {mode}")
 
     start_day = parse_date(start or raw_cfg.get("start"))
     end_day = parse_date(end or raw_cfg.get("end"))
     refresh_val = bool(raw_cfg.get("refresh", False) if refresh is None else refresh)
     overwrite_val = bool(raw_cfg.get("overwrite", False) if overwrite is None else overwrite)
     result = {"mode": mode, "start": start_day, "end": end_day}
-    available_backends = []
-    try:
-        available_backends = get_available_backends()
-    except Exception:
-        available_backends = []
-    db_config_ready = bool(available_backends)
+    db_config_ready = bool(has_backend_config("postgres"))
 
     if mode in ("db", "both"):
         if not db_config_ready:
             if mode == "db":
                 raise FileNotFoundError(
-                    f"missing db config: {PG_CONFIG_PATH} or {MSSQL_CONFIG_PATH}"
+                    f"missing db config: {PG_CONFIG_PATH}"
                 )
             print(
                 "skip db sync (missing db config): "
-                f"{PG_CONFIG_PATH} or {MSSQL_CONFIG_PATH}"
+                f"{PG_CONFIG_PATH}"
             )
         else:
             db_cfg = dict(raw_cfg.get("db", {}))
@@ -55,13 +53,6 @@ def run(
         nfs_cfg["refresh"] = refresh_val
         nfs_cfg["overwrite"] = overwrite_val
         sync_nfs(paths_cfg["raw_data_root"], nfs_cfg)
-    elif mode == "ftp":
-        ftp_cfg = dict(raw_cfg.get("ftp", {}))
-        ftp_cfg["start"] = str(start_day)
-        ftp_cfg["end"] = str(end_day)
-        ftp_cfg["refresh"] = refresh_val
-        ftp_cfg["overwrite"] = overwrite_val
-        sync_ftp(paths_cfg["raw_data_root"], ftp_cfg)
 
     return result
 

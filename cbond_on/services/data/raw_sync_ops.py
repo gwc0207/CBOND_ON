@@ -8,8 +8,6 @@ import pandas as pd
 
 from cbond_on.core.config import parse_date
 from cbond_on.data.extract import DATE_COLUMNS, fetch_table
-from cbond_on.data.ftp_source import FtpParquetSource, load_ftp_config
-from cbond_on.data.ftp_sync import sync_snapshot_from_ftp
 from cbond_on.data.io import get_latest_table_date, table_has_data, write_table_by_date
 
 
@@ -44,26 +42,6 @@ def sync_db(raw_root: str, cfg: dict) -> None:
             overwrite=overwrite,
         )
         print(f"synced db {table}: {len(df)}")
-
-
-def sync_ftp(raw_root: str, cfg: dict) -> None:
-    start = parse_date(cfg.get("start"))
-    end = parse_date(cfg.get("end"))
-    refresh = bool(cfg.get("refresh", False))
-    overwrite = bool(cfg.get("overwrite", False)) or refresh
-    base_dir = str(cfg.get("base_dir", "snapshot/cbond/raw_data"))
-    cfg_path = cfg.get("ftp_config_path")
-
-    ftp = FtpParquetSource(load_ftp_config(cfg_path))
-    result = sync_snapshot_from_ftp(
-        ftp,
-        raw_root,
-        start,
-        end,
-        base_dir=base_dir,
-        overwrite=overwrite,
-    )
-    print(result)
 
 
 def sync_nfs(raw_root: str, cfg: dict) -> None:
