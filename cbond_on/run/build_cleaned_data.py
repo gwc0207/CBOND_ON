@@ -8,17 +8,17 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from cbond_on.core.config import load_config_file, parse_date
-from cbond_on.services.data.clean_service import run as run_clean
+from cbond_on.services.data_hub.gateway import build_clean
 
 
 def main() -> None:
     cfg = load_config_file("cleaned_data")
-    result = run_clean(
+    result = build_clean(
         start=parse_date(cfg.get("start")),
         end=parse_date(cfg.get("end")),
         refresh=bool(cfg.get("refresh", False)),
         overwrite=bool(cfg.get("overwrite", False)),
-        cfg=cfg,
+        cleaned_cfg=cfg,
     )
     print(result)
 

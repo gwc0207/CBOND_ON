@@ -1,7 +1,8 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
-from bisect import bisect_left, bisect_right
 import json
+import subprocess
+import sys
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -9,127 +10,15 @@ import pandas as pd
 
 from cbond_on.core.config import load_config_file, parse_date
 from cbond_on.core.universe import filter_tradable
-from cbond_on.data.io import read_clean_daily, read_trading_calendar
-from cbond_on.live.redis_snapshot import RedisConfig, SnapshotRedisClient
+from cbond_on.data.io import read_clean_daily
 from cbond_on.models.score_io import load_scores_by_date
-from cbond_on.services.data.clean_service import run as run_clean
+from cbond_on.services.common import load_json_like, resolve_config_path
 from cbond_on.services.data.label_service import run as run_label
 from cbond_on.services.data.panel_service import run as run_panel
-from cbond_on.services.data.raw_service import run as run_raw
-from cbond_on.services.model.model_score_service import run as run_model_score
 from cbond_on.services.factor.factor_build_service import run as run_factor_build
-from cbond_on.services.common import load_json_like, resolve_config_path
+from cbond_on.services.model.model_score_service import run as run_model_score
 from cbond_on.strategies import StrategyRegistry
 from cbond_on.strategies.base import StrategyContext
-
-
-def _raw_snapshot_path(raw_root: Path, day: date) -> Path:
-    month = f"{day:%Y-%m}"
-    filename = f"{day:%Y%m%d}.parquet"
-    return raw_root / "snapshot" / "cbond" / "raw_data" / month / filename
-
-
-def _load_watermark(path: Path) -> dict[str, float]:
-    if not path.exists():
-        return {}
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
-    out: dict[str, float] = {}
-    for k, v in dict(data).items():
-        try:
-            out[str(k)] = float(v)
-        except Exception:
-            continue
-    return out
-
-
-def _save_watermark(path: Path, data: dict[str, float]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    payload = {str(k): float(v) for k, v in data.items()}
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-
-
-def _normalize_trade_time(series: pd.Series) -> pd.Series:
-    num = pd.to_numeric(series, errors="coerce")
-    valid_num = num.dropna()
-    if not valid_num.empty:
-        sample = float(valid_num.abs().median())
-        if sample >= 1e12:
-            out = pd.to_datetime(num, unit="ms", utc=True, errors="coerce")
-            return out.dt.tz_convert("Asia/Shanghai").dt.tz_localize(None)
-        if sample >= 1e9:
-            out = pd.to_datetime(num, unit="s", utc=True, errors="coerce")
-            return out.dt.tz_convert("Asia/Shanghai").dt.tz_localize(None)
-
-    out = pd.to_datetime(series, errors="coerce")
-    tz = getattr(out.dt, "tz", None)
-    if tz is not None:
-        return out.dt.tz_convert("Asia/Shanghai").dt.tz_localize(None)
-    return out
-
-
-def _max_trade_time_ms(series: pd.Series) -> float | None:
-    num = pd.to_numeric(series, errors="coerce")
-    valid_num = num.dropna()
-    if not valid_num.empty:
-        sample = float(valid_num.abs().median())
-        scale = 1.0 if sample >= 1e12 else 1000.0
-        return float(valid_num.max() * scale)
-
-    dt = _normalize_trade_time(series).dropna()
-    if dt.empty:
-        return None
-    ts = pd.Timestamp(dt.max())
-    if ts.tzinfo is None:
-        ts = ts.tz_localize("Asia/Shanghai")
-    else:
-        ts = ts.tz_convert("Asia/Shanghai")
-    return float(ts.tz_convert("UTC").timestamp() * 1000.0)
-
-
-def _append_raw_snapshot(raw_root: Path, df: pd.DataFrame) -> int:
-    if df is None or df.empty:
-        return 0
-
-    work = df.copy()
-    if "trade_time" not in work.columns:
-        if "timestamp" in work.columns:
-            work["trade_time"] = work["timestamp"]
-        elif "ts" in work.columns:
-            work["trade_time"] = work["ts"]
-        else:
-            raise KeyError("redis snapshot missing trade_time/timestamp/ts")
-    work["trade_time"] = _normalize_trade_time(work["trade_time"])
-    work = work[work["trade_time"].notna()].copy()
-    if work.empty:
-        return 0
-
-    if "code" not in work.columns and "symbol" in work.columns:
-        work["code"] = work["symbol"]
-    if "symbol" not in work.columns and "code" in work.columns:
-        work["symbol"] = work["code"]
-    if "code" not in work.columns:
-        raise KeyError("redis snapshot missing code/symbol")
-
-    work["trade_date"] = work["trade_time"].dt.date
-    written = 0
-    for day, group in work.groupby("trade_date"):
-        path = _raw_snapshot_path(raw_root, day)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        merged = group.copy()
-        if path.exists():
-            existing = pd.read_parquet(path)
-            if existing is not None and not existing.empty:
-                merged = pd.concat([existing, group], ignore_index=True)
-        dedup_keys = [c for c in ("code", "trade_time") if c in merged.columns]
-        if len(dedup_keys) == 2:
-            merged = merged.sort_values("trade_time")
-            merged = merged.drop_duplicates(subset=dedup_keys, keep="last")
-        merged.to_parquet(path, index=False)
-        written += int(len(group))
-    return written
 
 
 def _parse_redis_symbols(value: object) -> list[str]:
@@ -148,9 +37,14 @@ def _parse_redis_symbols(value: object) -> list[str]:
     return sorted(set(out))
 
 
-def _redis_snapshot_enabled(data_cfg: dict) -> bool:
-    source = str(data_cfg.get("snapshot_source", "raw")).strip().lower()
-    return source == "redis"
+def _redis_snapshot_enabled(data_cfg: dict, live_cfg: dict | None = None) -> bool:
+    source_raw = data_cfg.get("snapshot_source")
+    if source_raw in (None, "") and live_cfg:
+        source_cfg = dict(live_cfg.get("source", {}))
+        intraday_cfg = dict(source_cfg.get("intraday", {}))
+        source_raw = intraday_cfg.get("type")
+    source = str(source_raw or "raw").strip().lower()
+    return source in {"redis", "redis_snapshot"}
 
 
 def _resolve_redis_sync_day(data_cfg: dict, target_day: date) -> date:
@@ -163,148 +57,276 @@ def _resolve_redis_sync_day(data_cfg: dict, target_day: date) -> date:
     return parse_date(mode_raw)
 
 
-def _load_open_trading_days(raw_root: Path) -> list[date]:
-    cal = read_trading_calendar(raw_root)
-    if cal is None or cal.empty or "calendar_date" not in cal.columns:
-        return []
-    work = cal.copy()
-    work["calendar_date"] = pd.to_datetime(work["calendar_date"], errors="coerce").dt.date
-    work = work[work["calendar_date"].notna()]
-    if "is_open" in work.columns:
-        work = work[work["is_open"].astype(bool)]
-    days = sorted(set(work["calendar_date"].tolist()))
-    return days
+def _data_hub_runtime(live_cfg: dict) -> dict:
+    cfg = dict(live_cfg.get("data_hub", {}))
+    return {
+        "python_exe": str(cfg.get("python_exe") or sys.executable),
+        "module": str(cfg.get("module") or "cbond_data_hub"),
+        "project_root": Path(str(cfg.get("project_root") or "C:/Users/BaiYang/CBOND_DATA_HUB")),
+        "pg_config_path": str(cfg.get("pg_config_path") or "").strip(),
+    }
 
 
-def _previous_trading_day(open_days: list[date], ref_day: date) -> date:
-    if not open_days:
-        return ref_day - timedelta(days=1)
-    idx = bisect_left(open_days, ref_day) - 1
-    if idx >= 0:
-        return open_days[idx]
-    return ref_day - timedelta(days=1)
+def _append_bool_flag(args: list[str], name: str, enabled: bool) -> None:
+    flag = f"--{name}" if bool(enabled) else f"--no-{name}"
+    args.append(flag)
 
 
-def _lookback_start_day(open_days: list[date], end_day: date, lookback_days: int) -> date:
-    lb = max(0, int(lookback_days))
-    if lb <= 0:
-        return end_day
-    if not open_days:
-        return end_day - timedelta(days=lb)
-    end_idx = bisect_right(open_days, end_day) - 1
-    if end_idx < 0:
-        return end_day - timedelta(days=lb)
-    start_idx = max(0, end_idx - lb)
-    return open_days[start_idx]
+def _parse_json_output(text: str) -> dict:
+    payload = str(text or "").strip()
+    if not payload:
+        return {}
+    try:
+        obj = json.loads(payload)
+        return dict(obj) if isinstance(obj, dict) else {"value": obj}
+    except Exception:
+        pass
+
+    start = payload.find("{")
+    end = payload.rfind("}")
+    if start >= 0 and end > start:
+        try:
+            obj = json.loads(payload[start : end + 1])
+            return dict(obj) if isinstance(obj, dict) else {"value": obj}
+        except Exception:
+            pass
+    raise ValueError(f"failed to parse Data Hub JSON output: {payload[:400]}")
 
 
-def _sync_snapshot_from_redis(
+def _run_data_hub(runtime: dict, args: list[str], *, expect_json: bool = True) -> dict:
+    if not Path(runtime["project_root"]).exists():
+        raise FileNotFoundError(
+            f"data hub project_root not found: {runtime['project_root']}"
+        )
+    cmd = [runtime["python_exe"], "-m", runtime["module"], *args]
+    proc = subprocess.run(
+        cmd,
+        cwd=str(runtime["project_root"]),
+        capture_output=True,
+        text=True,
+    )
+    stdout = (proc.stdout or "").strip()
+    stderr = (proc.stderr or "").strip()
+    if stdout:
+        print(stdout)
+    if stderr:
+        print(stderr)
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"data hub command failed rc={proc.returncode}: {' '.join(cmd)}"
+        )
+    if not expect_json:
+        return {}
+    return _parse_json_output(stdout)
+
+
+def _resolve_rebuild_window_via_hub(
     *,
-    raw_root: Path,
+    runtime: dict,
+    raw_root: str,
+    run_day: date,
+    lookback_days: int,
+) -> tuple[date, date]:
+    payload = _run_data_hub(
+        runtime,
+        [
+            "context",
+            "resolve",
+            "--raw-root",
+            str(raw_root),
+            "--today",
+            str(run_day),
+            "--now",
+            f"{run_day}T12:00:00",
+            "--lookback-days",
+            str(max(0, int(lookback_days))),
+            "--cutoff-time",
+            "00:00",
+            "--target-policy",
+            "today",
+        ],
+        expect_json=True,
+    )
+    lookback_start = parse_date(str(payload["lookback_start_day"]))
+    prev_trade_day = parse_date(str(payload["prev_trade_day"]))
+    return lookback_start, prev_trade_day
+
+
+def _run_history_sync_via_hub(
+    *,
+    runtime: dict,
+    raw_root: str,
+    start_day: date,
+    end_day: date,
+    mode: str,
+    refresh: bool,
+    overwrite: bool,
+    raw_cfg: dict,
+) -> dict:
+    args = [
+        "raw",
+        "sync-history",
+        "--raw-root",
+        str(raw_root),
+        "--start",
+        str(start_day),
+        "--end",
+        str(end_day),
+        "--mode",
+        str(mode).strip().lower(),
+    ]
+    if refresh:
+        args.append("--refresh")
+    if overwrite:
+        args.append("--overwrite")
+
+    db_tables = list(dict(raw_cfg.get("db", {})).get("sync_tables", []) or [])
+    if db_tables:
+        args.extend(["--sync-tables", ",".join(str(x) for x in db_tables)])
+
+    nfs_cfg = dict(raw_cfg.get("nfs", {}))
+    nfs_root = str(nfs_cfg.get("nfs_root", "")).strip()
+    nfs_base_dir = str(nfs_cfg.get("base_dir", "")).strip()
+    if nfs_root:
+        args.extend(["--nfs-root", nfs_root])
+    if nfs_base_dir:
+        args.extend(["--nfs-base-dir", nfs_base_dir])
+
+    if runtime["pg_config_path"]:
+        args.extend(["--pg-config-path", runtime["pg_config_path"]])
+
+    return _run_data_hub(runtime, args, expect_json=True)
+
+
+def _run_intraday_sync_via_hub(
+    *,
+    runtime: dict,
+    raw_root: str,
     target_day: date,
     live_cfg: dict,
     data_cfg: dict,
-    run_day_root: Path,
-) -> dict[str, int]:
+) -> dict:
+    source_cfg = dict(live_cfg.get("source", {}))
+    intraday_cfg = dict(source_cfg.get("intraday", {}))
     redis_cfg = dict(live_cfg.get("redis", {}))
+
     host = str(redis_cfg.get("host", live_cfg.get("redis_host", ""))).strip()
     if not host:
         raise ValueError("live_config.redis.host is required when data.snapshot_source=redis")
     port = int(redis_cfg.get("port", live_cfg.get("redis_port", 6379)))
     db = int(redis_cfg.get("db", live_cfg.get("redis_db", 0)))
     password = redis_cfg.get("password", live_cfg.get("redis_password"))
-    socket_timeout = redis_cfg.get("socket_timeout", live_cfg.get("redis_socket_timeout"))
-    timeout_val = None if socket_timeout in (None, "", 0, "0") else float(socket_timeout)
+    socket_timeout = redis_cfg.get("socket_timeout", live_cfg.get("redis_socket_timeout", 5))
 
-    source = str(data_cfg.get("redis_source", live_cfg.get("source", "combiner"))).strip() or "combiner"
-    stage = str(data_cfg.get("redis_stage", live_cfg.get("stage", "raw"))).strip() or "raw"
-    asset_type = str(data_cfg.get("redis_asset_type", live_cfg.get("asset_type", "cbond"))).strip() or "cbond"
+    source = str(
+        data_cfg.get("redis_source")
+        or intraday_cfg.get("source")
+        or live_cfg.get("source")
+        or "combiner"
+    ).strip() or "combiner"
+    stage = str(
+        data_cfg.get("redis_stage")
+        or intraday_cfg.get("stage")
+        or live_cfg.get("stage")
+        or "raw"
+    ).strip() or "raw"
+    asset = str(
+        data_cfg.get("redis_asset_type")
+        or intraday_cfg.get("asset")
+        or live_cfg.get("asset_type")
+        or "cbond"
+    ).strip() or "cbond"
 
-    client = SnapshotRedisClient(
-        RedisConfig(
-            host=host,
-            port=port,
-            db=db,
-            password=None if password in ("", None) else str(password),
-            socket_timeout=timeout_val,
-        )
+    incremental = bool(
+        data_cfg.get("redis_incremental", intraday_cfg.get("incremental", live_cfg.get("redis_incremental", True)))
+    )
+    full_day = bool(
+        data_cfg.get("redis_full_day", intraday_cfg.get("full_day", live_cfg.get("redis_full_today", False)))
     )
     symbols = _parse_redis_symbols(data_cfg.get("redis_symbols"))
-    if not symbols:
-        symbols = client.list_symbols(source=source, stage=stage, asset_type=asset_type)
-    if not symbols:
-        return {"symbols": 0, "pulled_rows": 0, "written_rows": 0, "watermark_updated": 0}
-
-    day_start = pd.Timestamp(f"{target_day:%Y-%m-%d} 00:00:00", tz="Asia/Shanghai")
-    day_end = day_start + pd.Timedelta(days=1)
-    day_start_ms = int(day_start.tz_convert("UTC").timestamp() * 1000)
-    day_end_ms = int(day_end.tz_convert("UTC").timestamp() * 1000) - 1
-    now_ms = int(pd.Timestamp.utcnow().timestamp() * 1000)
-    query_end_ms = min(day_end_ms, now_ms)
-
-    incremental = bool(data_cfg.get("redis_incremental", live_cfg.get("redis_incremental", True)))
-    full_day = bool(data_cfg.get("redis_full_day", live_cfg.get("redis_full_today", False)))
-
-    watermark_path_raw = (
+    watermark_path = str(
         data_cfg.get("redis_watermark_path")
         or redis_cfg.get("watermark_path")
+        or intraday_cfg.get("watermark_path")
         or live_cfg.get("redis_watermark_path")
         or ""
-    )
-    watermark_path = Path(str(watermark_path_raw)) if str(watermark_path_raw).strip() else (run_day_root / "redis_watermark.json")
-    watermark = _load_watermark(watermark_path) if incremental else {}
+    ).strip()
+
+    args = [
+        "raw",
+        "sync-intraday",
+        "--raw-root",
+        str(raw_root),
+        "--target-day",
+        str(target_day),
+        "--host",
+        host,
+        "--port",
+        str(port),
+        "--db",
+        str(db),
+        "--socket-timeout",
+        str(socket_timeout),
+        "--source",
+        source,
+        "--stage",
+        stage,
+        "--asset",
+        asset,
+    ]
+    if password not in (None, ""):
+        args.extend(["--password", str(password)])
+    if symbols:
+        args.extend(["--symbols", ",".join(symbols)])
+    _append_bool_flag(args, "incremental", incremental)
     if full_day:
-        watermark = {}
+        args.append("--full-day")
+    if watermark_path:
+        args.extend(["--watermark-path", watermark_path])
+    return _run_data_hub(runtime, args, expect_json=True)
 
-    frames: list[pd.DataFrame] = []
-    pulled_rows = 0
-    watermark_updated = False
-    for sym in symbols:
-        start_ms = day_start_ms
-        if incremental:
-            start_ms = int(max(day_start_ms, watermark.get(sym, day_start_ms))) + 1
-        records = client.read_range(
-            sym,
-            source=source,
-            stage=stage,
-            asset_type=asset_type,
-            start_time=start_ms,
-            end_time=query_end_ms,
-        )
-        if not records:
-            continue
-        df_sym = pd.DataFrame(records)
-        if df_sym.empty:
-            continue
-        frames.append(df_sym)
-        pulled_rows += int(len(df_sym))
-        if incremental and "trade_time" in df_sym.columns:
-            max_ms = _max_trade_time_ms(df_sym["trade_time"])
-            if max_ms is not None:
-                prev_ms = float(watermark.get(sym, day_start_ms))
-                if max_ms > prev_ms:
-                    watermark[sym] = max_ms
-                    watermark_updated = True
 
-    if not frames:
-        return {
-            "symbols": int(len(symbols)),
-            "pulled_rows": 0,
-            "written_rows": 0,
-            "watermark_updated": 0,
-        }
+def _run_clean_build_via_hub(
+    *,
+    runtime: dict,
+    raw_root: str,
+    clean_root: str,
+    start_day: date,
+    end_day: date,
+    refresh: bool,
+    overwrite: bool,
+    data_cfg: dict,
+    cleaned_cfg: dict,
+) -> dict:
+    snapshot_cfg = dict(cleaned_cfg.get("snapshot", {}))
+    kline_enabled = bool(data_cfg.get("kline_enabled", cleaned_cfg.get("kline_enabled", True)))
 
-    merged = pd.concat(frames, ignore_index=True)
-    written_rows = _append_raw_snapshot(raw_root, merged)
-    if incremental and watermark_updated:
-        _save_watermark(watermark_path, watermark)
+    args = [
+        "clean",
+        "build",
+        "--raw-root",
+        str(raw_root),
+        "--clean-root",
+        str(clean_root),
+        "--start",
+        str(start_day),
+        "--end",
+        str(end_day),
+        "--allowed-phases",
+        ",".join(str(x) for x in snapshot_cfg.get("allowed_phases", ["T", "T0"])),
+        "--price-field",
+        str(snapshot_cfg.get("price_field", "last")),
+    ]
+    if refresh:
+        args.append("--refresh")
+    if overwrite:
+        args.append("--overwrite")
 
-    return {
-        "symbols": int(len(symbols)),
-        "pulled_rows": int(pulled_rows),
-        "written_rows": int(written_rows),
-        "watermark_updated": int(watermark_updated),
-    }
+    _append_bool_flag(args, "kline-enabled", kline_enabled)
+    _append_bool_flag(args, "filter-trading-phase", bool(snapshot_cfg.get("filter_trading_phase", True)))
+    _append_bool_flag(args, "drop-no-trade", bool(snapshot_cfg.get("drop_no_trade", True)))
+    _append_bool_flag(args, "use-prev-snapshot", bool(snapshot_cfg.get("use_prev_snapshot", True)))
+    return _run_data_hub(runtime, args, expect_json=True)
 
 
 def _load_strategy_config(path_text: str | None) -> dict:
@@ -420,6 +442,8 @@ def run_once(
     _ = mode
     paths_cfg = load_config_file("paths")
     live_cfg = load_config_file("live")
+    raw_cfg = load_config_file("raw_data")
+    cleaned_cfg = load_config_file("cleaned_data")
 
     schedule_cfg = dict(live_cfg.get("schedule", {}))
     data_cfg = dict(live_cfg.get("data", {}))
@@ -432,31 +456,27 @@ def run_once(
 
     refresh_data = bool(data_cfg.get("refresh", False))
     overwrite_data = bool(data_cfg.get("overwrite", False))
-    use_redis_snapshot = _redis_snapshot_enabled(data_cfg)
     lookback_days = max(0, int(data_cfg.get("lookback_days", 0)))
-    raw_root = Path(paths_cfg["raw_data_root"])
-    run_day = _resolve_redis_sync_day(data_cfg, target_day) if use_redis_snapshot else start_day
-    open_days = _load_open_trading_days(raw_root)
-    prev_trade_day = _previous_trading_day(open_days, run_day)
-    rebuild_start_day = _lookback_start_day(open_days, run_day, lookback_days)
-    rebuild_end_day = run_day
+    use_redis_snapshot = _redis_snapshot_enabled(data_cfg, live_cfg)
 
-    raw_start_day = start_day
-    raw_end_day = target_day
-    raw_cfg_override = None
+    raw_root = str(paths_cfg["raw_data_root"])
+    clean_root = str(paths_cfg.get("cleaned_data_root") or paths_cfg.get("clean_data_root"))
+    data_hub = _data_hub_runtime(live_cfg)
+
+    run_day = _resolve_redis_sync_day(data_cfg, target_day) if use_redis_snapshot else start_day
+    rebuild_start_day, prev_trade_day = _resolve_rebuild_window_via_hub(
+        runtime=data_hub,
+        raw_root=raw_root,
+        run_day=run_day,
+        lookback_days=lookback_days,
+    )
+
     if use_redis_snapshot:
-        # NFS keeps historical lookback; today's increment comes from Redis snapshot.
         raw_start_day = rebuild_start_day
         raw_end_day = prev_trade_day
         if raw_end_day < raw_start_day:
             raw_end_day = raw_start_day
-        raw_cfg_override = dict(load_config_file("raw_data"))
-        raw_cfg_override["mode"] = (
-            str(data_cfg.get("raw_sync_mode_when_redis", raw_cfg_override.get("mode", "both")))
-            .strip()
-            .lower()
-            or "both"
-        )
+        raw_mode = str(data_cfg.get("raw_sync_mode_when_redis", raw_cfg.get("mode", "both")))
         print(
             "live run window:",
             f"run_day={run_day}",
@@ -465,41 +485,52 @@ def run_once(
             f"prev_trading_day={prev_trade_day}",
             f"raw_nfs_end={raw_end_day}",
         )
-    run_raw(
-        start=raw_start_day,
-        end=raw_end_day,
+    else:
+        raw_start_day = start_day
+        raw_end_day = target_day
+        raw_mode = str(raw_cfg.get("mode", "both"))
+
+    _run_history_sync_via_hub(
+        runtime=data_hub,
+        raw_root=raw_root,
+        start_day=raw_start_day,
+        end_day=raw_end_day,
+        mode=raw_mode,
         refresh=refresh_data,
         overwrite=overwrite_data,
-        cfg=raw_cfg_override,
+        raw_cfg=raw_cfg,
     )
+
     if use_redis_snapshot:
-        day_root = Path(paths_cfg["results_root"]) / "live" / f"{run_day:%Y-%m-%d}"
-        day_root.mkdir(parents=True, exist_ok=True)
-        redis_sync_day = run_day
-        sync_result = _sync_snapshot_from_redis(
+        sync_result = _run_intraday_sync_via_hub(
+            runtime=data_hub,
             raw_root=raw_root,
-            target_day=redis_sync_day,
+            target_day=run_day,
             live_cfg=live_cfg,
             data_cfg=data_cfg,
-            run_day_root=day_root,
         )
         print(
             "redis snapshot sync:",
-            f"day={redis_sync_day}",
-            f"symbols={sync_result['symbols']}",
-            f"pulled_rows={sync_result['pulled_rows']}",
-            f"written_rows={sync_result['written_rows']}",
+            f"day={run_day}",
+            f"symbols={sync_result.get('symbols', 0)}",
+            f"pulled_rows={sync_result.get('pulled_rows', 0)}",
+            f"written_rows={sync_result.get('written_rows', 0)}",
         )
-    if use_redis_snapshot:
-        run_clean(
-            start=rebuild_start_day,
-            end=rebuild_end_day,
+
+        _run_clean_build_via_hub(
+            runtime=data_hub,
+            raw_root=raw_root,
+            clean_root=clean_root,
+            start_day=rebuild_start_day,
+            end_day=run_day,
             refresh=refresh_data,
             overwrite=overwrite_data,
+            data_cfg=data_cfg,
+            cleaned_cfg=cleaned_cfg,
         )
         run_panel(
             start=rebuild_start_day,
-            end=rebuild_end_day,
+            end=run_day,
             refresh=refresh_data,
             overwrite=overwrite_data,
         )
@@ -512,13 +543,23 @@ def run_once(
             )
         run_factor_build(
             start=rebuild_start_day,
-            end=rebuild_end_day,
+            end=run_day,
             refresh=refresh_data,
             overwrite=overwrite_data,
         )
     else:
+        _run_clean_build_via_hub(
+            runtime=data_hub,
+            raw_root=raw_root,
+            clean_root=clean_root,
+            start_day=start_day,
+            end_day=target_day,
+            refresh=refresh_data,
+            overwrite=overwrite_data,
+            data_cfg=data_cfg,
+            cleaned_cfg=cleaned_cfg,
+        )
         label_end = target_day - timedelta(days=1)
-        run_clean(start=start_day, end=target_day, refresh=refresh_data, overwrite=overwrite_data)
         run_panel(start=start_day, end=target_day, refresh=refresh_data, overwrite=overwrite_data)
         run_label(start=start_day, end=label_end, refresh=refresh_data, overwrite=overwrite_data)
         run_factor_build(start=start_day, end=target_day, refresh=refresh_data, overwrite=overwrite_data)
@@ -526,12 +567,12 @@ def run_once(
     model_id = str(model_cfg.get("model_id", "")).strip()
     if not model_id:
         raise ValueError("live_config missing model_score.model_id")
+
     model_start = model_cfg.get("start", start_day)
     model_end = model_cfg.get("end", target_day)
     model_label_cutoff = model_cfg.get("label_cutoff")
     score_day = target_day
     if use_redis_snapshot:
-        # Score today's cross section only; labels are available up to previous trading day.
         model_start = run_day
         model_end = run_day
         model_label_cutoff = prev_trade_day
@@ -541,6 +582,7 @@ def run_once(
             f"score_day={score_day}",
             f"label_cutoff={model_label_cutoff}",
         )
+
     model_result = run_model_score(
         model_id=model_id,
         start=model_start,
@@ -551,7 +593,7 @@ def run_once(
     score_cache = load_scores_by_date(score_path)
     score_df = _resolve_score_df_for_target(score_cache, score_day, score_path)
 
-    clean_daily = read_clean_daily(paths_cfg["clean_data_root"], score_day)
+    clean_daily = read_clean_daily(clean_root, score_day)
     if clean_daily.empty:
         universe = score_df[["code", "score"]].copy()
     else:
@@ -613,4 +655,3 @@ def run(
     mode: str = "default",
 ) -> Path:
     return run_once(start=start, target=target, mode=mode)
-

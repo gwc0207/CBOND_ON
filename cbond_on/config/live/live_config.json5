@@ -2,12 +2,14 @@
   schedule: {
     start: "2026-03-03",
     target: "2026-03-03",
-    cutoff_time: "14:29"
+    cutoff_time: "14:29",
+    target_policy: "next_trading_day_after_cutoff"
   },
   data: {
     refresh: false,
     overwrite: false,
     lookback_days: 5,
+    kline_enabled: true,
     min_amount: 0,
     min_volume: 0,
     snapshot_source: "redis",
@@ -19,6 +21,21 @@
     redis_incremental: true,
     redis_full_day: false
   },
+  source: {
+    history: {
+      nfs_required: true,
+      db_optional: true
+    },
+    intraday: {
+      type: "redis_snapshot",
+      source: "combiner",
+      stage: "raw",
+      asset: "cbond",
+      incremental: true,
+      full_day: false,
+      watermark_path: ""
+    }
+  },
   redis: {
     host: "10.1.30.11",
     port: 6379,
@@ -26,6 +43,12 @@
     password: "@QjFs39@k^wA",
     socket_timeout: 5,
     watermark_path: ""
+  },
+  data_hub: {
+    project_root: "C:/Users/BaiYang/CBOND_DATA_HUB",
+    module: "cbond_data_hub",
+    python_exe: "",
+    pg_config_path: ""
   },
   model_score: {
     model_id: "lgbm_factor_MSE",

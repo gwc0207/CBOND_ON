@@ -9,10 +9,9 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from cbond_on.core.config import load_config_file, parse_date
 from cbond_on.services.backtest.backtest_service import run as run_backtest
-from cbond_on.services.data.clean_service import run as run_clean
 from cbond_on.services.data.label_service import run as run_label
 from cbond_on.services.data.panel_service import run as run_panel
-from cbond_on.services.data.raw_service import run as run_raw
+from cbond_on.services.data_hub.gateway import build_clean, sync_history
 from cbond_on.services.factor.factor_build_service import run as run_factor_build
 from cbond_on.services.model.model_score_service import run as run_model_score
 
@@ -26,19 +25,19 @@ def main() -> None:
     model_cfg = load_config_file("model_score")
     bt_cfg = load_config_file("backtest")
 
-    run_raw(
+    sync_history(
         start=parse_date(raw_cfg.get("start")),
         end=parse_date(raw_cfg.get("end")),
         refresh=bool(raw_cfg.get("refresh", False)),
         overwrite=bool(raw_cfg.get("overwrite", False)),
-        cfg=raw_cfg,
+        raw_cfg=raw_cfg,
     )
-    run_clean(
+    build_clean(
         start=parse_date(clean_cfg.get("start")),
         end=parse_date(clean_cfg.get("end")),
         refresh=bool(clean_cfg.get("refresh", False)),
         overwrite=bool(clean_cfg.get("overwrite", False)),
-        cfg=clean_cfg,
+        cleaned_cfg=clean_cfg,
     )
     run_panel(
         start=parse_date(panel_cfg.get("start")),
