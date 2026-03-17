@@ -48,7 +48,12 @@
     project_root: "C:/Users/BaiYang/CBOND_DATA_HUB",
     module: "cbond_data_hub",
     python_exe: "",
-    pg_config_path: ""
+    pg_config_path: "",
+    manifest_root: "D:/cbond_data_hub/manifests",
+    require_datasets: ["raw", "clean"],
+    allow_partial_manifest: false,
+    require_done_marker: true,
+    ready_gate_enabled: true
   },
   model_score: {
     model_id: "lgbm_factor_MSE",

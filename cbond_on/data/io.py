@@ -117,25 +117,21 @@ def write_clean_by_date(
 def read_clean_daily(root: str | Path, day: date) -> pd.DataFrame:
     month = f"{day.year:04d}-{day.month:02d}"
     filename = f"{day.strftime('%Y%m%d')}.parquet"
-    path = Path(root) / month / filename
-    if not path.exists():
-        return pd.DataFrame()
-    return pd.read_parquet(path)
+    base = Path(root)
+    candidates = [
+        base / "snapshot" / "cbond" / month / filename,
+        base / "snapshot" / month / filename,
+        base / month / filename,
+    ]
+    for path in candidates:
+        if path.exists():
+            return pd.read_parquet(path)
+    return pd.DataFrame()
 
 
 def get_latest_clean_date(root: str | Path) -> date | None:
-    base = Path(root)
-    if not base.exists():
-        return None
-    latest: date | None = None
-    for path in base.glob("**/*.parquet"):
-        try:
-            day = datetime.strptime(path.stem, "%Y%m%d").date()
-        except ValueError:
-            continue
-        if latest is None or day > latest:
-            latest = day
-    return latest
+    dates = iter_clean_dates(root)
+    return dates[-1] if dates else None
 
 
 def get_latest_factor_date(root: str | Path) -> date | None:
@@ -155,12 +151,29 @@ def get_latest_factor_date(root: str | Path) -> date | None:
 
 def iter_clean_dates(root: str | Path) -> list[date]:
     base = Path(root)
+    if not base.exists():
+        return []
     dates: list[date] = []
-    for path in base.glob("**/*.parquet"):
-        try:
-            day = datetime.strptime(path.stem, "%Y%m%d").date()
-        except ValueError:
+    seen: set[Path] = set()
+    roots = [
+        base / "snapshot" / "cbond",
+        base / "snapshot",
+        base,
+    ]
+    for sub_root in roots:
+        if not sub_root.exists():
             continue
-        dates.append(day)
-    dates.sort()
+        for path in sub_root.glob("**/*.parquet"):
+            if path in seen:
+                continue
+            seen.add(path)
+            # Ignore clean kline files (YYYY-MM-DD) when inferring trading dates.
+            if "-" in path.stem:
+                continue
+            try:
+                day = datetime.strptime(path.stem, "%Y%m%d").date()
+            except ValueError:
+                continue
+            dates.append(day)
+    dates = sorted(set(dates))
     return dates

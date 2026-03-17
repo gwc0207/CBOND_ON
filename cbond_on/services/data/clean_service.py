@@ -27,6 +27,7 @@ def run(
 
     snapshot_cfg = SnapshotConfig.from_dict(cleaned_cfg["snapshot"])
     clean_root = paths_cfg.get("cleaned_data_root") or paths_cfg.get("clean_data_root")
+    kline_enabled = bool(cleaned_cfg.get("kline_enabled", True))
 
     snapshot_result = build_cleaned_snapshot(
         paths_cfg["raw_data_root"],
@@ -36,13 +37,16 @@ def run(
         snapshot_cfg,
         overwrite=overwrite_val,
     )
-    kline_result = build_cleaned_kline(
-        paths_cfg["raw_data_root"],
-        clean_root,
-        start_day,
-        end_day,
-        overwrite=overwrite_val,
-    )
+    if kline_enabled:
+        kline_result = build_cleaned_kline(
+            paths_cfg["raw_data_root"],
+            clean_root,
+            start_day,
+            end_day,
+            overwrite=overwrite_val,
+        )
+    else:
+        kline_result = snapshot_result.__class__()
     return {
         "start": start_day,
         "end": end_day,

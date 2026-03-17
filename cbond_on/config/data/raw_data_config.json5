@@ -3,10 +3,22 @@
   end: "2026-03-03",
   refresh: false,
   overwrite: false,
+  assets: ["cbond"],
   sync_snapshot: true,
   sync_kline: true,
   full_if_empty: true,
   mode: "both",
+  source: {
+    history: {
+      nfs_required: true,
+      db_optional: true
+    },
+    intraday: {
+      type: "redis_snapshot",
+      asset: "cbond",
+      incremental: true
+    }
+  },
   data: {
     snapshot_root: "D:/cbond_on/raw_data/snapshot/cbond/raw_data",
     snapshot_interval_seconds: 3,

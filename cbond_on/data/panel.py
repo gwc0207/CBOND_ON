@@ -14,6 +14,8 @@ from cbond_on.core.trading_days import list_trading_days_from_raw
 from cbond_on.core.naming import make_window_label
 from .snapshot_loader import SnapshotLoader, SnapshotPanel
 
+DEFAULT_ASSET = "cbond"
+
 
 @dataclass
 class PanelBuildResult:
@@ -22,6 +24,29 @@ class PanelBuildResult:
     diagnostics_rows: int = 0
     missing_snapshot_days: int = 0
     diagnostics_path: Optional[str] = None
+
+
+def _snapshot_roots(cleaned_data_root: Path) -> list[Path]:
+    canonical = cleaned_data_root / "snapshot" / DEFAULT_ASSET
+    legacy = cleaned_data_root / "snapshot"
+    roots: list[Path] = []
+    if canonical.exists():
+        roots.append(canonical)
+    if legacy.exists():
+        roots.append(legacy)
+    if not roots:
+        roots = [canonical, legacy]
+    return roots
+
+
+def _primary_snapshot_root(cleaned_data_root: Path) -> Path:
+    canonical = cleaned_data_root / "snapshot" / DEFAULT_ASSET
+    legacy = cleaned_data_root / "snapshot"
+    if canonical.exists():
+        return canonical
+    if legacy.exists():
+        return legacy
+    return canonical
 
 
 def build_panel_windows(
@@ -42,7 +67,7 @@ def build_panel_windows(
     panel_data_root = Path(panel_data_root)
 
     loader = SnapshotLoader(
-        str(cleaned_data_root / "snapshot"), schedule, snapshot_config
+        str(_primary_snapshot_root(cleaned_data_root)), schedule, snapshot_config
     )
     trading_days = list_trading_days_from_raw(raw_data_root, start, end, kind="snapshot")
     for idx, day in enumerate(
@@ -285,7 +310,7 @@ def build_snapshot_sequence_panels(
             )
             continue
         lookback_days = trading_days[max(0, idx - max_lookback_days + 1): idx + 1]
-        snapshot_df = _read_snapshot_days(cleaned_data_root / "snapshot", lookback_days)
+        snapshot_df = _read_snapshot_days(cleaned_data_root, lookback_days)
         if snapshot_df.empty:
             diag_rows.append(
                 {
@@ -342,45 +367,39 @@ def build_snapshot_sequence_panels(
     return result
 
 
-def _read_snapshot_range(data_root: Path, start: date, end: date) -> pd.DataFrame:
-    frames: list[pd.DataFrame] = []
-    for day in _iter_dates(start, end):
-        month = f"{day.year:04d}-{day.month:02d}"
-        filename = f"{day.strftime('%Y%m%d')}.parquet"
-        path = data_root / month / filename
-        if not path.exists():
-            continue
-        df = pd.read_parquet(path)
-        if not df.empty:
-            frames.append(df)
-    if not frames:
-        return pd.DataFrame()
-    return pd.concat(frames, ignore_index=True)
-
-
-def _read_snapshot_days(data_root: Path, days: list[date]) -> pd.DataFrame:
-    frames: list[pd.DataFrame] = []
-    for day in days:
-        month = f"{day.year:04d}-{day.month:02d}"
-        filename = f"{day.strftime('%Y%m%d')}.parquet"
-        path = data_root / month / filename
-        if not path.exists():
-            continue
-        df = pd.read_parquet(path)
-        if not df.empty:
-            frames.append(df)
-    if not frames:
-        return pd.DataFrame()
-    return pd.concat(frames, ignore_index=True)
-
-
-def _read_snapshot_day(data_root: Path, day: date) -> pd.DataFrame:
+def _snapshot_day_paths(cleaned_data_root: Path, day: date) -> list[Path]:
     month = f"{day.year:04d}-{day.month:02d}"
     filename = f"{day.strftime('%Y%m%d')}.parquet"
-    path = data_root / month / filename
-    if not path.exists():
+    return [root / month / filename for root in _snapshot_roots(cleaned_data_root)]
+
+
+def _read_snapshot_range(cleaned_data_root: Path, start: date, end: date) -> pd.DataFrame:
+    frames: list[pd.DataFrame] = []
+    for day in _iter_dates(start, end):
+        df = _read_snapshot_day(cleaned_data_root, day)
+        if not df.empty:
+            frames.append(df)
+    if not frames:
         return pd.DataFrame()
-    return pd.read_parquet(path)
+    return pd.concat(frames, ignore_index=True)
+
+
+def _read_snapshot_days(cleaned_data_root: Path, days: list[date]) -> pd.DataFrame:
+    frames: list[pd.DataFrame] = []
+    for day in days:
+        df = _read_snapshot_day(cleaned_data_root, day)
+        if not df.empty:
+            frames.append(df)
+    if not frames:
+        return pd.DataFrame()
+    return pd.concat(frames, ignore_index=True)
+
+
+def _read_snapshot_day(cleaned_data_root: Path, day: date) -> pd.DataFrame:
+    for path in _snapshot_day_paths(cleaned_data_root, day):
+        if path.exists():
+            return pd.read_parquet(path)
+    return pd.DataFrame()
 
 
 
@@ -503,7 +522,7 @@ def build_panels_with_labels(
             row["panel_reason"] = "exists"
         else:
             lookback_days = trading_days[max(0, idx - max_lookback_days + 1): idx + 1]
-            snapshot_df = _read_snapshot_days(cleaned_data_root / "snapshot", lookback_days)
+            snapshot_df = _read_snapshot_days(cleaned_data_root, lookback_days)
             if snapshot_df.empty:
                 row["panel_status"] = "skip"
                 row["panel_reason"] = "missing_snapshot"
@@ -532,12 +551,12 @@ def build_panels_with_labels(
         # Enforce causal cutoff when label_end is provided.
         if label_end is None or day <= label_end:
             if snapshot_df.empty:
-                day_df = _read_snapshot_day(cleaned_data_root / "snapshot", day)
+                day_df = _read_snapshot_day(cleaned_data_root, day)
             else:
                 day_df = snapshot_df.copy()
                 if "trade_time" in day_df.columns:
                     day_df = day_df[day_df["trade_time"].dt.date == day]
-            next_df = _read_snapshot_day(cleaned_data_root / "snapshot", next_day) if next_day else pd.DataFrame()
+            next_df = _read_snapshot_day(cleaned_data_root, next_day) if next_day else pd.DataFrame()
             labels = _build_day_labels_twap(
                 day_df,
                 next_df,
@@ -592,11 +611,11 @@ def build_labels_for_day(
 ) -> bool:
     cleaned_data_root = Path(cleaned_data_root)
     label_data_root = Path(label_data_root)
-    snapshot_df = _read_snapshot_day(cleaned_data_root / "snapshot", day)
+    snapshot_df = _read_snapshot_day(cleaned_data_root, day)
     if snapshot_df.empty:
         return False
-    next_day = _find_next_snapshot_day(cleaned_data_root / "snapshot", day, max_lookahead_days=max_lookahead_days)
-    next_df = _read_snapshot_day(cleaned_data_root / "snapshot", next_day) if next_day else pd.DataFrame()
+    next_day = _find_next_snapshot_day(cleaned_data_root, day, max_lookahead_days=max_lookahead_days)
+    next_df = _read_snapshot_day(cleaned_data_root, next_day) if next_day else pd.DataFrame()
     labels = _build_day_labels_twap(
         snapshot_df,
         next_df,
@@ -732,13 +751,10 @@ def _parse_hhmm(value: str) -> time:
     return time(int(parts[0]), int(parts[1]))
 
 
-def _find_next_snapshot_day(data_root: Path, day: date, *, max_lookahead_days: int = 7) -> date | None:
+def _find_next_snapshot_day(cleaned_data_root: Path, day: date, *, max_lookahead_days: int = 7) -> date | None:
     for i in range(1, max(1, int(max_lookahead_days)) + 1):
         candidate = day + pd.Timedelta(days=i)
-        month = f"{candidate.year:04d}-{candidate.month:02d}"
-        filename = f"{candidate.strftime('%Y%m%d')}.parquet"
-        path = data_root / month / filename
-        if path.exists():
+        if any(path.exists() for path in _snapshot_day_paths(cleaned_data_root, candidate)):
             return candidate
     return None
 

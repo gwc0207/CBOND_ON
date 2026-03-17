@@ -1,7 +1,7 @@
 {
-  raw_data_root: "D:/cbond_on/raw_data",
-  clean_data_root: "D:/cbond_on/clean_data",
-  cleaned_data_root: "D:/cbond_on/clean_data",
+  raw_data_root: "D:/cbond_data_hub/raw_data",
+  clean_data_root: "D:/cbond_data_hub/clean_data",
+  cleaned_data_root: "D:/cbond_data_hub/clean_data",
   panel_data_root: "D:/cbond_on/panel_data",
   label_data_root: "D:/cbond_on/label_data",
   factor_data_root: "D:/cbond_on/factor_data",

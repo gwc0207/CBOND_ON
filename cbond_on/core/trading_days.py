@@ -15,12 +15,27 @@ def list_trading_days_from_raw(
     *,
     kind: str = "snapshot",
 ) -> List[date]:
-    _ = kind  # keep signature stable for callers
+    root = Path(raw_data_root)
+    cal_days = _list_trading_days_from_calendar(root, start, end)
+    if cal_days is not None:
+        return cal_days
+
+    # Fallback to file presence when calendar is missing/incomplete.
+    days: list[date] = []
+    for day in _iter_dates(start, end):
+        if _raw_path(root, day, kind=kind).exists():
+            days.append(day)
+    return days
+
+
+def _list_trading_days_from_calendar(
+    raw_data_root: Path,
+    start: date,
+    end: date,
+) -> list[date] | None:
     cal = read_trading_calendar(raw_data_root)
-    if cal.empty:
-        raise ValueError("trading_calendar is empty; sync raw metadata first")
-    if "calendar_date" not in cal.columns:
-        raise KeyError("trading_calendar missing calendar_date column")
+    if cal.empty or "calendar_date" not in cal.columns:
+        return None
 
     work = cal.copy()
     work["calendar_date"] = pd.to_datetime(work["calendar_date"], errors="coerce").dt.date
@@ -28,8 +43,8 @@ def list_trading_days_from_raw(
     if "is_open" in work.columns:
         work = work[work["is_open"].astype(bool)]
 
-    days = sorted(d for d in work["calendar_date"].tolist() if start <= d <= end)
-    return days
+    days = sorted(set(work["calendar_date"].tolist()))
+    return [d for d in days if start <= d <= end]
 
 
 def _iter_dates(start: date, end: date) -> Iterable[date]:

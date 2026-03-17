@@ -11,6 +11,8 @@ from cbond_on.config import SnapshotConfig
 from cbond_on.core.trading_days import list_trading_days_from_raw
 from cbond_on.core.utils import progress
 
+DEFAULT_ASSET = "cbond"
+
 
 @dataclass
 class CleanedBuildResult:
@@ -279,24 +281,44 @@ def _raw_kline_path(raw_data_root: Path, day: date) -> Path:
 def _cleaned_snapshot_path(cleaned_data_root: Path, day: date) -> Path:
     month = f"{day.year:04d}-{day.month:02d}"
     filename = f"{day.strftime('%Y%m%d')}.parquet"
-    return cleaned_data_root / "snapshot" / month / filename
+    return cleaned_data_root / "snapshot" / DEFAULT_ASSET / month / filename
 
 
 def _cleaned_kline_path(cleaned_data_root: Path, day: date) -> Path:
+    month = f"{day.year:04d}-{day.month:02d}"
+    filename = f"{day.strftime('%Y-%m-%d')}.parquet"
+    return cleaned_data_root / "kline" / DEFAULT_ASSET / month / filename
+
+
+def _legacy_cleaned_snapshot_path(cleaned_data_root: Path, day: date) -> Path:
+    month = f"{day.year:04d}-{day.month:02d}"
+    filename = f"{day.strftime('%Y%m%d')}.parquet"
+    return cleaned_data_root / "snapshot" / month / filename
+
+
+def _legacy_cleaned_kline_path(cleaned_data_root: Path, day: date) -> Path:
     month = f"{day.year:04d}-{day.month:02d}"
     filename = f"{day.strftime('%Y-%m-%d')}.parquet"
     return cleaned_data_root / "kline" / month / filename
 
 
 def read_cleaned_snapshot(cleaned_data_root: str | Path, day: date) -> pd.DataFrame:
-    path = _cleaned_snapshot_path(Path(cleaned_data_root), day)
-    if not path.exists():
-        return pd.DataFrame()
-    return pd.read_parquet(path)
+    root = Path(cleaned_data_root)
+    path = _cleaned_snapshot_path(root, day)
+    if path.exists():
+        return pd.read_parquet(path)
+    legacy = _legacy_cleaned_snapshot_path(root, day)
+    if legacy.exists():
+        return pd.read_parquet(legacy)
+    return pd.DataFrame()
 
 
 def read_cleaned_kline(cleaned_data_root: str | Path, day: date) -> pd.DataFrame:
-    path = _cleaned_kline_path(Path(cleaned_data_root), day)
-    if not path.exists():
-        return pd.DataFrame()
-    return pd.read_parquet(path)
+    root = Path(cleaned_data_root)
+    path = _cleaned_kline_path(root, day)
+    if path.exists():
+        return pd.read_parquet(path)
+    legacy = _legacy_cleaned_kline_path(root, day)
+    if legacy.exists():
+        return pd.read_parquet(legacy)
+    return pd.DataFrame()

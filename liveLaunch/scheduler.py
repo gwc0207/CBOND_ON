@@ -50,6 +50,18 @@ def _next_trading_day(raw_root: str, run_day: date) -> date:
     return days[0]
 
 
+def _resolve_target_day(raw_root: str, today: date, schedule_cfg: dict) -> date:
+    policy = str(schedule_cfg.get("target_policy", "next_trading_day_after_cutoff")).strip().lower()
+    if policy in ("today", "current", "run_day"):
+        return today
+    if policy in ("next_trading_day_after_cutoff", "next_trading_day", "next"):
+        return _next_trading_day(raw_root, today)
+    raise ValueError(
+        "unsupported schedule.target_policy="
+        f"{policy}, expected one of ['today', 'next_trading_day_after_cutoff']"
+    )
+
+
 def _read_json(path: Path) -> dict:
     if not path.exists():
         return {}
@@ -149,7 +161,7 @@ def main() -> None:
 
         now = datetime.now()
         today = now.date()
-        target = _next_trading_day(raw_root, today)
+        target = _resolve_target_day(raw_root, today, schedule_cfg)
         st = _read_json(state_path)
         last_target_run = st.get("last_target_run")
 

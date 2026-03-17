@@ -57,19 +57,33 @@ def _resolve_redis_sync_day(data_cfg: dict, target_day: date) -> date:
     return parse_date(mode_raw)
 
 
-def _data_hub_runtime(live_cfg: dict) -> dict:
+def _default_manifest_root(raw_root: str, clean_root: str) -> Path:
+    raw_parent = Path(raw_root).resolve().parent
+    clean_parent = Path(clean_root).resolve().parent
+    if clean_parent == raw_parent:
+        return raw_parent / "manifests"
+    return raw_parent / "manifests"
+
+
+def _data_hub_runtime(live_cfg: dict, *, raw_root: str, clean_root: str) -> dict:
     cfg = dict(live_cfg.get("data_hub", {}))
+    manifest_root = str(cfg.get("manifest_root", "")).strip()
+    if not manifest_root:
+        manifest_root = str(_default_manifest_root(raw_root, clean_root))
+    require_datasets = [str(x).strip().lower() for x in _parse_redis_symbols(cfg.get("require_datasets"))]
+    if not require_datasets:
+        require_datasets = ["raw", "clean"]
     return {
         "python_exe": str(cfg.get("python_exe") or sys.executable),
         "module": str(cfg.get("module") or "cbond_data_hub"),
         "project_root": Path(str(cfg.get("project_root") or "C:/Users/BaiYang/CBOND_DATA_HUB")),
         "pg_config_path": str(cfg.get("pg_config_path") or "").strip(),
+        "manifest_root": manifest_root,
+        "require_datasets": require_datasets,
+        "allow_partial_manifest": bool(cfg.get("allow_partial_manifest", False)),
+        "require_done_marker": bool(cfg.get("require_done_marker", True)),
+        "ready_gate_enabled": bool(cfg.get("ready_gate_enabled", True)),
     }
-
-
-def _append_bool_flag(args: list[str], name: str, enabled: bool) -> None:
-    flag = f"--{name}" if bool(enabled) else f"--no-{name}"
-    args.append(flag)
 
 
 def _parse_json_output(text: str) -> dict:
@@ -152,181 +166,57 @@ def _resolve_rebuild_window_via_hub(
     return lookback_start, prev_trade_day
 
 
-def _run_history_sync_via_hub(
+def _publish_ready(status: dict, *, require_done_marker: bool) -> bool:
+    manifests_ready = bool(status.get("manifests_ready", False))
+    if not manifests_ready:
+        return False
+    if require_done_marker:
+        return bool(status.get("done_exists", False))
+    return True
+
+
+def _run_publish_status_via_hub(
     *,
     runtime: dict,
-    raw_root: str,
-    start_day: date,
-    end_day: date,
-    mode: str,
-    refresh: bool,
-    overwrite: bool,
-    raw_cfg: dict,
+    trade_day: date,
 ) -> dict:
     args = [
-        "raw",
-        "sync-history",
-        "--raw-root",
-        str(raw_root),
-        "--start",
-        str(start_day),
-        "--end",
-        str(end_day),
-        "--mode",
-        str(mode).strip().lower(),
+        "publish",
+        "status",
+        "--manifest-root",
+        str(runtime["manifest_root"]),
+        "--trade-day",
+        str(trade_day),
+        "--require-datasets",
+        ",".join(str(x) for x in runtime["require_datasets"]),
     ]
-    if refresh:
-        args.append("--refresh")
-    if overwrite:
-        args.append("--overwrite")
-
-    db_tables = list(dict(raw_cfg.get("db", {})).get("sync_tables", []) or [])
-    if db_tables:
-        args.extend(["--sync-tables", ",".join(str(x) for x in db_tables)])
-
-    nfs_cfg = dict(raw_cfg.get("nfs", {}))
-    nfs_root = str(nfs_cfg.get("nfs_root", "")).strip()
-    nfs_base_dir = str(nfs_cfg.get("base_dir", "")).strip()
-    if nfs_root:
-        args.extend(["--nfs-root", nfs_root])
-    if nfs_base_dir:
-        args.extend(["--nfs-base-dir", nfs_base_dir])
-
-    if runtime["pg_config_path"]:
-        args.extend(["--pg-config-path", runtime["pg_config_path"]])
-
+    if bool(runtime.get("allow_partial_manifest", False)):
+        args.append("--allow-partial-manifest")
     return _run_data_hub(runtime, args, expect_json=True)
 
 
-def _run_intraday_sync_via_hub(
+def _ensure_publish_ready_via_hub(
     *,
     runtime: dict,
-    raw_root: str,
-    target_day: date,
-    live_cfg: dict,
-    data_cfg: dict,
+    trade_day: date,
 ) -> dict:
-    source_cfg = dict(live_cfg.get("source", {}))
-    intraday_cfg = dict(source_cfg.get("intraday", {}))
-    redis_cfg = dict(live_cfg.get("redis", {}))
-
-    host = str(redis_cfg.get("host", live_cfg.get("redis_host", ""))).strip()
-    if not host:
-        raise ValueError("live_config.redis.host is required when data.snapshot_source=redis")
-    port = int(redis_cfg.get("port", live_cfg.get("redis_port", 6379)))
-    db = int(redis_cfg.get("db", live_cfg.get("redis_db", 0)))
-    password = redis_cfg.get("password", live_cfg.get("redis_password"))
-    socket_timeout = redis_cfg.get("socket_timeout", live_cfg.get("redis_socket_timeout", 5))
-
-    source = str(
-        data_cfg.get("redis_source")
-        or intraday_cfg.get("source")
-        or live_cfg.get("source")
-        or "combiner"
-    ).strip() or "combiner"
-    stage = str(
-        data_cfg.get("redis_stage")
-        or intraday_cfg.get("stage")
-        or live_cfg.get("stage")
-        or "raw"
-    ).strip() or "raw"
-    asset = str(
-        data_cfg.get("redis_asset_type")
-        or intraday_cfg.get("asset")
-        or live_cfg.get("asset_type")
-        or "cbond"
-    ).strip() or "cbond"
-
-    incremental = bool(
-        data_cfg.get("redis_incremental", intraday_cfg.get("incremental", live_cfg.get("redis_incremental", True)))
+    status = _run_publish_status_via_hub(
+        runtime=runtime,
+        trade_day=trade_day,
     )
-    full_day = bool(
-        data_cfg.get("redis_full_day", intraday_cfg.get("full_day", live_cfg.get("redis_full_today", False)))
+    ready = _publish_ready(status, require_done_marker=bool(runtime["require_done_marker"]))
+    print(
+        "data hub publish status:",
+        f"trade_day={trade_day}",
+        f"ready={ready}",
+        f"reason={status.get('reason', '')}",
     )
-    symbols = _parse_redis_symbols(data_cfg.get("redis_symbols"))
-    watermark_path = str(
-        data_cfg.get("redis_watermark_path")
-        or redis_cfg.get("watermark_path")
-        or intraday_cfg.get("watermark_path")
-        or live_cfg.get("redis_watermark_path")
-        or ""
-    ).strip()
+    if ready:
+        return status
 
-    args = [
-        "raw",
-        "sync-intraday",
-        "--raw-root",
-        str(raw_root),
-        "--target-day",
-        str(target_day),
-        "--host",
-        host,
-        "--port",
-        str(port),
-        "--db",
-        str(db),
-        "--socket-timeout",
-        str(socket_timeout),
-        "--source",
-        source,
-        "--stage",
-        stage,
-        "--asset",
-        asset,
-    ]
-    if password not in (None, ""):
-        args.extend(["--password", str(password)])
-    if symbols:
-        args.extend(["--symbols", ",".join(symbols)])
-    _append_bool_flag(args, "incremental", incremental)
-    if full_day:
-        args.append("--full-day")
-    if watermark_path:
-        args.extend(["--watermark-path", watermark_path])
-    return _run_data_hub(runtime, args, expect_json=True)
-
-
-def _run_clean_build_via_hub(
-    *,
-    runtime: dict,
-    raw_root: str,
-    clean_root: str,
-    start_day: date,
-    end_day: date,
-    refresh: bool,
-    overwrite: bool,
-    data_cfg: dict,
-    cleaned_cfg: dict,
-) -> dict:
-    snapshot_cfg = dict(cleaned_cfg.get("snapshot", {}))
-    kline_enabled = bool(data_cfg.get("kline_enabled", cleaned_cfg.get("kline_enabled", True)))
-
-    args = [
-        "clean",
-        "build",
-        "--raw-root",
-        str(raw_root),
-        "--clean-root",
-        str(clean_root),
-        "--start",
-        str(start_day),
-        "--end",
-        str(end_day),
-        "--allowed-phases",
-        ",".join(str(x) for x in snapshot_cfg.get("allowed_phases", ["T", "T0"])),
-        "--price-field",
-        str(snapshot_cfg.get("price_field", "last")),
-    ]
-    if refresh:
-        args.append("--refresh")
-    if overwrite:
-        args.append("--overwrite")
-
-    _append_bool_flag(args, "kline-enabled", kline_enabled)
-    _append_bool_flag(args, "filter-trading-phase", bool(snapshot_cfg.get("filter_trading_phase", True)))
-    _append_bool_flag(args, "drop-no-trade", bool(snapshot_cfg.get("drop_no_trade", True)))
-    _append_bool_flag(args, "use-prev-snapshot", bool(snapshot_cfg.get("use_prev_snapshot", True)))
-    return _run_data_hub(runtime, args, expect_json=True)
+    raise RuntimeError(
+        f"data hub publish not ready for {trade_day}: {status.get('reason', 'unknown')}"
+    )
 
 
 def _load_strategy_config(path_text: str | None) -> dict:
@@ -442,8 +332,6 @@ def run_once(
     _ = mode
     paths_cfg = load_config_file("paths")
     live_cfg = load_config_file("live")
-    raw_cfg = load_config_file("raw_data")
-    cleaned_cfg = load_config_file("cleaned_data")
 
     schedule_cfg = dict(live_cfg.get("schedule", {}))
     data_cfg = dict(live_cfg.get("data", {}))
@@ -461,9 +349,13 @@ def run_once(
 
     raw_root = str(paths_cfg["raw_data_root"])
     clean_root = str(paths_cfg.get("cleaned_data_root") or paths_cfg.get("clean_data_root"))
-    data_hub = _data_hub_runtime(live_cfg)
+    data_hub = _data_hub_runtime(
+        live_cfg,
+        raw_root=raw_root,
+        clean_root=clean_root,
+    )
 
-    run_day = _resolve_redis_sync_day(data_cfg, target_day) if use_redis_snapshot else start_day
+    run_day = _resolve_redis_sync_day(data_cfg, target_day) if use_redis_snapshot else target_day
     rebuild_start_day, prev_trade_day = _resolve_rebuild_window_via_hub(
         runtime=data_hub,
         raw_root=raw_root,
@@ -472,62 +364,23 @@ def run_once(
     )
 
     if use_redis_snapshot:
-        raw_start_day = rebuild_start_day
-        raw_end_day = prev_trade_day
-        if raw_end_day < raw_start_day:
-            raw_end_day = raw_start_day
-        raw_mode = str(data_cfg.get("raw_sync_mode_when_redis", raw_cfg.get("mode", "both")))
         print(
             "live run window:",
             f"run_day={run_day}",
             f"target_day={target_day}",
             f"lookback_start={rebuild_start_day}",
             f"prev_trading_day={prev_trade_day}",
-            f"raw_nfs_end={raw_end_day}",
         )
-    else:
-        raw_start_day = start_day
-        raw_end_day = target_day
-        raw_mode = str(raw_cfg.get("mode", "both"))
 
-    _run_history_sync_via_hub(
+    gate_day = run_day if use_redis_snapshot else target_day
+    if not bool(data_hub.get("ready_gate_enabled", True)):
+        raise ValueError("live_config.data_hub.ready_gate_enabled must be true in consumer-only mode")
+    _ensure_publish_ready_via_hub(
         runtime=data_hub,
-        raw_root=raw_root,
-        start_day=raw_start_day,
-        end_day=raw_end_day,
-        mode=raw_mode,
-        refresh=refresh_data,
-        overwrite=overwrite_data,
-        raw_cfg=raw_cfg,
+        trade_day=gate_day,
     )
 
     if use_redis_snapshot:
-        sync_result = _run_intraday_sync_via_hub(
-            runtime=data_hub,
-            raw_root=raw_root,
-            target_day=run_day,
-            live_cfg=live_cfg,
-            data_cfg=data_cfg,
-        )
-        print(
-            "redis snapshot sync:",
-            f"day={run_day}",
-            f"symbols={sync_result.get('symbols', 0)}",
-            f"pulled_rows={sync_result.get('pulled_rows', 0)}",
-            f"written_rows={sync_result.get('written_rows', 0)}",
-        )
-
-        _run_clean_build_via_hub(
-            runtime=data_hub,
-            raw_root=raw_root,
-            clean_root=clean_root,
-            start_day=rebuild_start_day,
-            end_day=run_day,
-            refresh=refresh_data,
-            overwrite=overwrite_data,
-            data_cfg=data_cfg,
-            cleaned_cfg=cleaned_cfg,
-        )
         run_panel(
             start=rebuild_start_day,
             end=run_day,
@@ -548,17 +401,6 @@ def run_once(
             overwrite=overwrite_data,
         )
     else:
-        _run_clean_build_via_hub(
-            runtime=data_hub,
-            raw_root=raw_root,
-            clean_root=clean_root,
-            start_day=start_day,
-            end_day=target_day,
-            refresh=refresh_data,
-            overwrite=overwrite_data,
-            data_cfg=data_cfg,
-            cleaned_cfg=cleaned_cfg,
-        )
         label_end = target_day - timedelta(days=1)
         run_panel(start=start_day, end=target_day, refresh=refresh_data, overwrite=overwrite_data)
         run_label(start=start_day, end=label_end, refresh=refresh_data, overwrite=overwrite_data)
