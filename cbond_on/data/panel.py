@@ -28,24 +28,11 @@ class PanelBuildResult:
 
 def _snapshot_roots(cleaned_data_root: Path) -> list[Path]:
     canonical = cleaned_data_root / "snapshot" / DEFAULT_ASSET
-    legacy = cleaned_data_root / "snapshot"
-    roots: list[Path] = []
-    if canonical.exists():
-        roots.append(canonical)
-    if legacy.exists():
-        roots.append(legacy)
-    if not roots:
-        roots = [canonical, legacy]
-    return roots
+    return [canonical]
 
 
 def _primary_snapshot_root(cleaned_data_root: Path) -> Path:
     canonical = cleaned_data_root / "snapshot" / DEFAULT_ASSET
-    legacy = cleaned_data_root / "snapshot"
-    if canonical.exists():
-        return canonical
-    if legacy.exists():
-        return legacy
     return canonical
 
 

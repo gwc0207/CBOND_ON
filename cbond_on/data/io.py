@@ -118,14 +118,9 @@ def read_clean_daily(root: str | Path, day: date) -> pd.DataFrame:
     month = f"{day.year:04d}-{day.month:02d}"
     filename = f"{day.strftime('%Y%m%d')}.parquet"
     base = Path(root)
-    candidates = [
-        base / "snapshot" / "cbond" / month / filename,
-        base / "snapshot" / month / filename,
-        base / month / filename,
-    ]
-    for path in candidates:
-        if path.exists():
-            return pd.read_parquet(path)
+    path = base / "snapshot" / "cbond" / month / filename
+    if path.exists():
+        return pd.read_parquet(path)
     return pd.DataFrame()
 
 
@@ -154,26 +149,17 @@ def iter_clean_dates(root: str | Path) -> list[date]:
     if not base.exists():
         return []
     dates: list[date] = []
-    seen: set[Path] = set()
-    roots = [
-        base / "snapshot" / "cbond",
-        base / "snapshot",
-        base,
-    ]
-    for sub_root in roots:
-        if not sub_root.exists():
+    canonical_root = base / "snapshot" / "cbond"
+    if not canonical_root.exists():
+        return []
+    for path in canonical_root.glob("**/*.parquet"):
+        # Ignore clean kline files (YYYY-MM-DD) when inferring trading dates.
+        if "-" in path.stem:
             continue
-        for path in sub_root.glob("**/*.parquet"):
-            if path in seen:
-                continue
-            seen.add(path)
-            # Ignore clean kline files (YYYY-MM-DD) when inferring trading dates.
-            if "-" in path.stem:
-                continue
-            try:
-                day = datetime.strptime(path.stem, "%Y%m%d").date()
-            except ValueError:
-                continue
-            dates.append(day)
+        try:
+            day = datetime.strptime(path.stem, "%Y%m%d").date()
+        except ValueError:
+            continue
+        dates.append(day)
     dates = sorted(set(dates))
     return dates

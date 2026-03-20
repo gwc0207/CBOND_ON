@@ -227,7 +227,9 @@ def _raw_snapshot_path(raw_data_root: Path, day: date) -> Path:
 
 
 def _clean_snapshot_path(clean_data_root: Path, day: date) -> Path:
-    return clean_data_root / "snapshot" / f"{day:%Y-%m}" / f"{day:%Y%m%d}.parquet"
+    month = f"{day:%Y-%m}"
+    filename = f"{day:%Y%m%d}.parquet"
+    return clean_data_root / "snapshot" / "cbond" / month / filename
 
 
 def _panel_path_for_day(panel_data_root: Path, label: str, day: date) -> Path:
