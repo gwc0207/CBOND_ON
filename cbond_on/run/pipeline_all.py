@@ -10,6 +10,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from cbond_on.core.config import load_config_file, parse_date
+from cbond_on.core.utils import progress
 from cbond_on.services.backtest.backtest_service import run as run_backtest
 from cbond_on.services.data.label_service import run as run_label
 from cbond_on.services.data.panel_service import run as run_panel
@@ -84,40 +85,67 @@ def main(*, config_name: str = "pipeline_all") -> None:
     pipeline_cfg = dict(load_config_file(config_name))
     panel_cfg, label_cfg, factor_cfg, model_cfg, bt_cfg = _build_runtime_configs(pipeline_cfg)
 
-    run_panel(
-        start=parse_date(panel_cfg.get("start")),
-        end=parse_date(panel_cfg.get("end")),
-        refresh=bool(panel_cfg.get("refresh", False)),
-        overwrite=bool(panel_cfg.get("overwrite", False)),
-        cfg=panel_cfg,
-    )
-    run_label(
-        start=parse_date(label_cfg.get("start")),
-        end=parse_date(label_cfg.get("end")),
-        refresh=bool(label_cfg.get("refresh", False)),
-        overwrite=bool(label_cfg.get("overwrite", False)),
-        cfg=label_cfg,
-        panel_cfg=panel_cfg,
-    )
-    run_factor_build(
-        start=parse_date(factor_cfg.get("start")),
-        end=parse_date(factor_cfg.get("end")),
-        refresh=bool(factor_cfg.get("refresh", False)),
-        overwrite=bool(factor_cfg.get("overwrite", False)),
-        cfg=factor_cfg,
-    )
-    run_model_score(
-        model_id=model_cfg.get("model_id") or model_cfg.get("default_model_id"),
-        start=model_cfg.get("start"),
-        end=model_cfg.get("end"),
-        label_cutoff=model_cfg.get("label_cutoff"),
-        cfg=model_cfg,
-    )
-    run_backtest(
-        start=parse_date(bt_cfg.get("start")),
-        end=parse_date(bt_cfg.get("end")),
-        cfg=bt_cfg,
-    )
+    stages: list[tuple[str, callable]] = [
+        (
+            "panel",
+            lambda: run_panel(
+                start=parse_date(panel_cfg.get("start")),
+                end=parse_date(panel_cfg.get("end")),
+                refresh=bool(panel_cfg.get("refresh", False)),
+                overwrite=bool(panel_cfg.get("overwrite", False)),
+                cfg=panel_cfg,
+            ),
+        ),
+        (
+            "label",
+            lambda: run_label(
+                start=parse_date(label_cfg.get("start")),
+                end=parse_date(label_cfg.get("end")),
+                refresh=bool(label_cfg.get("refresh", False)),
+                overwrite=bool(label_cfg.get("overwrite", False)),
+                cfg=label_cfg,
+                panel_cfg=panel_cfg,
+            ),
+        ),
+        (
+            "factor",
+            lambda: run_factor_build(
+                start=parse_date(factor_cfg.get("start")),
+                end=parse_date(factor_cfg.get("end")),
+                refresh=bool(factor_cfg.get("refresh", False)),
+                overwrite=bool(factor_cfg.get("overwrite", False)),
+                cfg=factor_cfg,
+            ),
+        ),
+        (
+            "model_score",
+            lambda: run_model_score(
+                model_id=model_cfg.get("model_id") or model_cfg.get("default_model_id"),
+                start=model_cfg.get("start"),
+                end=model_cfg.get("end"),
+                label_cutoff=model_cfg.get("label_cutoff"),
+                cfg=model_cfg,
+            ),
+        ),
+        (
+            "backtest",
+            lambda: run_backtest(
+                start=parse_date(bt_cfg.get("start")),
+                end=parse_date(bt_cfg.get("end")),
+                cfg=bt_cfg,
+            ),
+        ),
+    ]
+
+    for stage_name, stage_runner in progress(
+        stages,
+        desc="pipeline_all",
+        unit="stage",
+        total=len(stages),
+    ):
+        print(f"[pipeline_all] start {stage_name}")
+        stage_runner()
+        print(f"[pipeline_all] done {stage_name}")
 
 
 if __name__ == "__main__":

@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from datetime import date
+from pathlib import Path
 
 from cbond_on.config import ScheduleConfig, SnapshotConfig
 from cbond_on.core.config import load_config_file, parse_date
 from cbond_on.core.trading_days import list_trading_days_from_raw
+from cbond_on.core.utils import progress
 from cbond_on.data.panel import build_labels_for_day
 
 
@@ -35,6 +37,7 @@ def run(
     overwrite_val = bool(label_cfg.get("overwrite", False) if overwrite is None else overwrite)
     if refresh_val:
         overwrite_val = True
+    skip_existing = bool(label_cfg.get("skip_existing_when_no_overwrite", True))
     mode = "overwrite" if overwrite_val else str(label_cfg.get("mode", "upsert"))
 
     schedule_raw = panel_runtime_cfg.get("schedule")
@@ -52,7 +55,18 @@ def run(
     written = 0
     skipped = 0
     clean_root = paths_cfg.get("cleaned_data_root") or paths_cfg.get("clean_data_root")
-    for day in trading_days:
+    for day in progress(
+        trading_days,
+        desc="build_labels",
+        unit="day",
+        total=len(trading_days),
+    ):
+        month = f"{day.year:04d}-{day.month:02d}"
+        filename = f"{day.strftime('%Y%m%d')}.parquet"
+        out_path = Path(paths_cfg["label_data_root"]) / month / filename
+        if (not overwrite_val) and skip_existing and out_path.exists():
+            skipped += 1
+            continue
         ok = build_labels_for_day(
             clean_root,
             paths_cfg["label_data_root"],

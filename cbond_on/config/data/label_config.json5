@@ -3,6 +3,7 @@
   end: "2026-03-03",
   refresh: false,
   overwrite: false,
+  skip_existing_when_no_overwrite: true,
   mode: "upsert",
   max_lookahead_days: 7,
   close_window: { start: "14:45", end: "14:57" },
