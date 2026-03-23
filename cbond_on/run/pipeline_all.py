@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
+from typing import Any
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
@@ -16,20 +17,72 @@ from cbond_on.services.factor.factor_build_service import run as run_factor_buil
 from cbond_on.services.model.model_score_service import run as run_model_score
 
 
-def _require_section(cfg: dict, key: str) -> dict:
-    section = cfg.get(key)
-    if not isinstance(section, dict):
-        raise KeyError(f"pipeline_all config missing section: {key}")
-    return dict(section)
+def _stage_switches(cfg: dict[str, Any], stage: str) -> dict[str, bool]:
+    raw = cfg.get(stage, {})
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict):
+        raise TypeError(f"pipeline_all.{stage} must be an object")
+    out: dict[str, bool] = {}
+    if "refresh" in raw:
+        out["refresh"] = bool(raw.get("refresh"))
+    if "overwrite" in raw:
+        out["overwrite"] = bool(raw.get("overwrite"))
+    return out
+
+
+def _apply_common_window(stage_cfg: dict[str, Any], *, start: Any, end: Any) -> None:
+    if start is not None:
+        stage_cfg["start"] = start
+    if end is not None:
+        stage_cfg["end"] = end
+
+
+def _build_runtime_configs(pipeline_cfg: dict[str, Any]) -> tuple[dict, dict, dict, dict, dict]:
+    panel_cfg = dict(load_config_file("panel"))
+    label_cfg = dict(load_config_file("label"))
+    factor_cfg = dict(load_config_file("factor"))
+    model_cfg = dict(load_config_file("model_score"))
+    bt_cfg = dict(load_config_file("backtest"))
+
+    common_start = pipeline_cfg.get("start")
+    common_end = pipeline_cfg.get("end")
+    if common_start is None or common_end is None:
+        raise KeyError("pipeline_all requires both top-level start and end")
+
+    for cfg in (panel_cfg, label_cfg, factor_cfg, model_cfg, bt_cfg):
+        _apply_common_window(cfg, start=common_start, end=common_end)
+
+    for stage_name, stage_cfg in (
+        ("panel", panel_cfg),
+        ("label", label_cfg),
+        ("factor", factor_cfg),
+        ("model_score", model_cfg),
+        ("backtest", bt_cfg),
+    ):
+        for key, value in _stage_switches(pipeline_cfg, stage_name).items():
+            stage_cfg[key] = value
+
+    model_id = pipeline_cfg.get("model_id")
+    if model_id:
+        model_cfg["model_id"] = str(model_id)
+        score_source = bt_cfg.get("score_source")
+        if not isinstance(score_source, dict):
+            score_source = {}
+        score_source = dict(score_source)
+        score_source["model_id"] = str(model_id)
+        bt_cfg["score_source"] = score_source
+
+    strategy_id = pipeline_cfg.get("strategy_id")
+    if strategy_id:
+        bt_cfg["strategy_id"] = str(strategy_id)
+
+    return panel_cfg, label_cfg, factor_cfg, model_cfg, bt_cfg
 
 
 def main(*, config_name: str = "pipeline_all") -> None:
-    pipeline_cfg = load_config_file(config_name)
-    panel_cfg = _require_section(pipeline_cfg, "panel")
-    label_cfg = _require_section(pipeline_cfg, "label")
-    factor_cfg = _require_section(pipeline_cfg, "factor")
-    model_cfg = _require_section(pipeline_cfg, "model_score")
-    bt_cfg = _require_section(pipeline_cfg, "backtest")
+    pipeline_cfg = dict(load_config_file(config_name))
+    panel_cfg, label_cfg, factor_cfg, model_cfg, bt_cfg = _build_runtime_configs(pipeline_cfg)
 
     run_panel(
         start=parse_date(panel_cfg.get("start")),

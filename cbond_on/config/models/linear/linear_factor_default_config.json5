@@ -46,6 +46,8 @@
     test_ratio: 0.15,
   },
   linear: {
+    device: "gpu",
+    gpu_fallback_to_cpu: true,
     weight_source: "regression",
     lookback_days: 60,
     refit_freq: 1,

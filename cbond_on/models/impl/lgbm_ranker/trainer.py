@@ -13,6 +13,9 @@ except Exception:  # pragma: no cover
 from cbond_on.models.impl.lgbm.trainer import (
     SplitData,
     _iter_existing_label_days,
+    _lgbm_cpu_params,
+    _lgbm_gpu_requested,
+    _looks_like_lgbm_gpu_error,
     _split_days,
     build_dataset,
     evaluate_metrics,
@@ -96,6 +99,7 @@ def train_lgbm_ranker(
     val: RankerSplitData,
     lgbm_ranker_params: dict,
     early_stopping_rounds: int | None = None,
+    init_model: object | str | None = None,
 ) -> tuple[object, dict]:
     if lgb is None:
         raise RuntimeError("lightgbm is not installed")
@@ -105,6 +109,7 @@ def train_lgbm_ranker(
     params = dict(lgbm_ranker_params)
     params.setdefault("objective", "lambdarank")
     params.setdefault("metric", "ndcg")
+    gpu_requested = _lgbm_gpu_requested(params)
     model = lgb.LGBMRanker(**params)
     history: list[dict] = []
 
@@ -170,39 +175,73 @@ def train_lgbm_ranker(
             f"train_ndcg={train_ndcg_mean:.4f} val_ndcg={val_ndcg_mean:.4f}"
         )
 
-    has_val = (not val.x.empty) and bool(val.group)
-    if has_val and early_stopping_rounds is not None:
-        fit_kwargs = {
-            "group": train.group,
-            "eval_set": [(train.x, train.relevance), (val.x, val.relevance)],
-            "eval_group": [train.group, val.group],
-            "eval_metric": _eval_rank_ic,
-        }
-        try:
-            model.fit(
-                train.x,
-                train.relevance,
-                **fit_kwargs,
-                early_stopping_rounds=int(early_stopping_rounds),
-                verbose=False,
-                callbacks=[_record_callback],
-            )
-            return model, params | {"history": history}
-        except TypeError:
-            callbacks = []
-            if hasattr(lgb, "early_stopping"):
-                callbacks.append(lgb.early_stopping(int(early_stopping_rounds), verbose=False))
-            callbacks.append(lambda env: _record_callback(env))
-            model.fit(train.x, train.relevance, **fit_kwargs, callbacks=callbacks)
-            return model, params | {"history": history}
+    def _fit_once(estimator) -> None:
+        base_fit_kwargs = {}
+        if init_model is not None:
+            base_fit_kwargs["init_model"] = init_model
+        has_val = (not val.x.empty) and bool(val.group)
+        if has_val and early_stopping_rounds is not None:
+            fit_kwargs = {
+                **base_fit_kwargs,
+                "group": train.group,
+                "eval_set": [(train.x, train.relevance), (val.x, val.relevance)],
+                "eval_group": [train.group, val.group],
+                "eval_metric": _eval_rank_ic,
+            }
+            try:
+                estimator.fit(
+                    train.x,
+                    train.relevance,
+                    **fit_kwargs,
+                    early_stopping_rounds=int(early_stopping_rounds),
+                    verbose=False,
+                    callbacks=[_record_callback],
+                )
+                return
+            except TypeError:
+                callbacks = []
+                if hasattr(lgb, "early_stopping"):
+                    callbacks.append(lgb.early_stopping(int(early_stopping_rounds), verbose=False))
+                callbacks.append(lambda env: _record_callback(env))
+                try:
+                    estimator.fit(train.x, train.relevance, **fit_kwargs, callbacks=callbacks)
+                except TypeError:
+                    # Older sklearn wrappers may not accept init_model.
+                    fit_kwargs.pop("init_model", None)
+                    estimator.fit(train.x, train.relevance, **fit_kwargs, callbacks=callbacks)
+                return
 
-    fit_kwargs = {"group": train.group}
-    if has_val:
-        fit_kwargs["eval_set"] = [(train.x, train.relevance), (val.x, val.relevance)]
-        fit_kwargs["eval_group"] = [train.group, val.group]
-        fit_kwargs["eval_metric"] = _eval_rank_ic
-        model.fit(train.x, train.relevance, **fit_kwargs, callbacks=[_record_callback])
-    else:
-        model.fit(train.x, train.relevance, **fit_kwargs)
+        fit_kwargs = {**base_fit_kwargs, "group": train.group}
+        if has_val:
+            fit_kwargs["eval_set"] = [(train.x, train.relevance), (val.x, val.relevance)]
+            fit_kwargs["eval_group"] = [train.group, val.group]
+            fit_kwargs["eval_metric"] = _eval_rank_ic
+            try:
+                estimator.fit(train.x, train.relevance, **fit_kwargs, callbacks=[_record_callback])
+            except TypeError:
+                fit_kwargs.pop("init_model", None)
+                estimator.fit(train.x, train.relevance, **fit_kwargs, callbacks=[_record_callback])
+        else:
+            try:
+                estimator.fit(train.x, train.relevance, **fit_kwargs)
+            except TypeError:
+                fit_kwargs.pop("init_model", None)
+                estimator.fit(train.x, train.relevance, **fit_kwargs)
+
+    try:
+        _fit_once(model)
+    except Exception as exc:
+        if not (gpu_requested and _looks_like_lgbm_gpu_error(exc)):
+            raise
+        cpu_params = _lgbm_cpu_params(params)
+        print(
+            "[LightGBM] GPU unavailable, fallback to CPU:",
+            f"{type(exc).__name__}: {exc}",
+        )
+        history.clear()
+        model = lgb.LGBMRanker(**cpu_params)
+        _fit_once(model)
+        params = cpu_params
+
     return model, params | {"history": history}
 

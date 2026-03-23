@@ -101,6 +101,8 @@ def main(
     fallback = str(linear_cfg.get("fallback", "manual"))
     max_weight = float(linear_cfg.get("max_weight", 3.0))
     normalize_weights = str(linear_cfg.get("normalize", "l1"))
+    device = str(linear_cfg.get("device", "cpu"))
+    gpu_fallback_to_cpu = bool(linear_cfg.get("gpu_fallback_to_cpu", True))
 
     manual_weights = []
     for f in factor_cols:
@@ -129,6 +131,8 @@ def main(
         max_weight=max_weight,
         normalize_weights=normalize_weights,
         manual_weights=manual_weights,
+        device=device,
+        gpu_fallback_to_cpu=gpu_fallback_to_cpu,
     )
 
     if result.scores.empty:

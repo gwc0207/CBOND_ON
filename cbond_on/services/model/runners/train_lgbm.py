@@ -16,7 +16,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from cbond_on.core.config import load_config_file, parse_date
 from cbond_on.core.naming import make_window_label
 from cbond_on.factors.storage import FactorStore
-from cbond_on.models.score_io import write_scores_by_date
+from cbond_on.models.score_io import load_scores_by_date, write_scores_by_date
 from cbond_on.models.impl.lgbm.trainer import (
     build_dataset,
     evaluate_metrics,
@@ -56,6 +56,43 @@ def _format_bins(bin_dir: list[tuple[int, float, int]]) -> str:
     if not bin_dir:
         return "n/a"
     return ",".join([f"{b}:{acc:.3f}({n})" for b, acc, n in bin_dir])
+
+
+def _load_existing_score_days(score_output: Path) -> set[date]:
+    try:
+        cache = load_scores_by_date(score_output)
+    except FileNotFoundError:
+        return set()
+    except Exception as exc:
+        print(f"[rolling] failed to read existing scores for incremental mode: {exc}")
+        return set()
+    return set(cache.keys())
+
+
+def _parse_checkpoint_day(stem: str) -> date | None:
+    try:
+        return datetime.strptime(stem, "%Y-%m-%d").date()
+    except Exception:
+        return None
+
+
+def _checkpoint_path(state_dir: Path, day: date) -> Path:
+    return state_dir / f"{day:%Y-%m-%d}.txt"
+
+
+def _find_previous_checkpoint(state_dir: Path, day: date) -> Path | None:
+    if not state_dir.exists():
+        return None
+    best_day: date | None = None
+    best_path: Path | None = None
+    for path in state_dir.glob("*.txt"):
+        ckpt_day = _parse_checkpoint_day(path.stem)
+        if ckpt_day is None or ckpt_day >= day:
+            continue
+        if best_day is None or ckpt_day > best_day:
+            best_day = ckpt_day
+            best_path = path
+    return best_path
 
 
 def main(
@@ -179,6 +216,15 @@ def main(
     score_output = Path(cfg.get("score_output", results_root / "scores" / model_name))
     score_overwrite = bool(cfg.get("score_overwrite", False))
     score_dedupe = bool(cfg.get("score_dedupe", True))
+    incremental_cfg = dict(cfg.get("incremental", {}))
+    incremental_enabled = bool(incremental_cfg.get("enabled", True))
+    incremental_skip_existing = bool(incremental_cfg.get("skip_existing_scores", True))
+    incremental_warm_start = bool(incremental_cfg.get("warm_start", True))
+    incremental_save_state = bool(incremental_cfg.get("save_state", True))
+    state_dir_raw = str(incremental_cfg.get("state_dir", "")).strip()
+    state_dir = Path(state_dir_raw) if state_dir_raw else (results_root / "model_state" / model_name)
+    if incremental_enabled and (incremental_warm_start or incremental_save_state):
+        state_dir.mkdir(parents=True, exist_ok=True)
 
     def _metric_name_for_mode(mode: str) -> str:
         text = str(mode or "mse").lower()
@@ -222,15 +268,40 @@ def main(
         desired_days = [d for d in days if desired_start <= d <= desired_end]
         if not desired_days:
             raise RuntimeError("no label days found for desired range")
-        first_target_idx = days.index(desired_days[0])
-        last_target_idx = days.index(desired_days[-1])
-        start_idx = max(window_days - 1, first_target_idx)
-        total_rolls = max(0, last_target_idx - start_idx + 1)
-        for idx in range(start_idx, last_target_idx + 1):
+        target_days = list(desired_days)
+        if incremental_enabled and incremental_skip_existing and not score_overwrite:
+            existing_days = _load_existing_score_days(score_output)
+            target_days = [d for d in desired_days if d not in existing_days]
+            skipped = len(desired_days) - len(target_days)
+            if skipped > 0:
+                print(
+                    f"[rolling] incremental skip_existing_scores=True, "
+                    f"skip={skipped}, pending={len(target_days)}"
+                )
+        if not target_days:
+            print("[rolling] incremental: no pending target days, skip training")
+            (out_dir / "config.json").write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+            (out_dir / "features.json").write_text(json.dumps(factor_cols, ensure_ascii=False, indent=2), encoding="utf-8")
+            print(f"saved rolling: {out_dir}")
+            print(f"saved scores: {score_output}")
+            return
+        day_to_idx = {d: i for i, d in enumerate(days)}
+        target_indices = [day_to_idx[d] for d in target_days if d in day_to_idx]
+        min_idx = window_days - 1
+        valid_indices = [i for i in target_indices if i >= min_idx]
+        dropped = len(target_indices) - len(valid_indices)
+        if dropped > 0:
+            print(
+                f"[rolling] skip {dropped} target day(s): insufficient history window "
+                f"(need window_days={window_days})"
+            )
+        if not valid_indices:
+            raise RuntimeError("rolling has no valid target day after incremental filtering")
+        total_rolls = len(valid_indices)
+        for roll_idx, idx in enumerate(valid_indices, start=1):
             window = days[idx - window_days + 1: idx + 1]
             train_pool = window[:-1]
             test_day = window[-1]
-            roll_idx = idx - start_idx + 1
             print(f"[rolling] {roll_idx}/{total_rolls} test_day={test_day}")
             if len(train_pool) < 2:
                 continue
@@ -281,14 +352,40 @@ def main(
             )
             if test_data.x.empty or train_data.x.empty:
                 continue
-            model, params = train_lgbm(
-                train=train_data,
-                val=val_data,
-                lgbm_params=lgbm_params,
-                early_stopping_rounds=int(early_rounds) if early_rounds else None,
-                loss_mode=loss_mode,
-            )
+            init_model = None
+            if incremental_enabled and incremental_warm_start:
+                prev_ckpt = _find_previous_checkpoint(state_dir, test_day)
+                if prev_ckpt is not None:
+                    init_model = str(prev_ckpt)
+                    print(f"[rolling] warm-start from checkpoint: {prev_ckpt.name}")
+            try:
+                model, params = train_lgbm(
+                    train=train_data,
+                    val=val_data,
+                    lgbm_params=lgbm_params,
+                    early_stopping_rounds=int(early_rounds) if early_rounds else None,
+                    loss_mode=loss_mode,
+                    init_model=init_model,
+                )
+            except Exception as exc:
+                if init_model is None:
+                    raise
+                print(f"[rolling] warm-start failed, fallback cold-start: {type(exc).__name__}: {exc}")
+                model, params = train_lgbm(
+                    train=train_data,
+                    val=val_data,
+                    lgbm_params=lgbm_params,
+                    early_stopping_rounds=int(early_rounds) if early_rounds else None,
+                    loss_mode=loss_mode,
+                    init_model=None,
+                )
             test_pred = model.predict(test_data.x)
+            if incremental_enabled and incremental_save_state:
+                ckpt_path = _checkpoint_path(state_dir, test_day)
+                try:
+                    model.booster_.save_model(str(ckpt_path))
+                except Exception as exc:
+                    print(f"[rolling] failed to save checkpoint {ckpt_path}: {exc}")
             if not (desired_start <= test_day <= desired_end):
                 continue
             score_df = pd.DataFrame(

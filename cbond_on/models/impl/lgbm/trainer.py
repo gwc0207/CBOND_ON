@@ -19,6 +19,38 @@ except Exception as exc:  # pragma: no cover
 from cbond_on.factors.storage import FactorStore
 
 
+_GPU_HINTS = (
+    "gpu",
+    "cuda",
+    "opencl",
+    "boost_compute",
+    "gpu tree learner",
+    "clgetplatformids",
+    "not enabled in this build",
+)
+
+
+def _lgbm_gpu_requested(params: dict) -> bool:
+    for key in ("device", "device_type"):
+        val = str(params.get(key, "")).strip().lower()
+        if val in {"gpu", "cuda", "opencl"}:
+            return True
+    return False
+
+
+def _lgbm_cpu_params(params: dict) -> dict:
+    out = dict(params)
+    for key in ("device", "device_type", "gpu_platform_id", "gpu_device_id"):
+        out.pop(key, None)
+    out["device"] = "cpu"
+    return out
+
+
+def _looks_like_lgbm_gpu_error(exc: Exception) -> bool:
+    text = f"{type(exc).__name__}: {exc}".lower()
+    return any(hint in text for hint in _GPU_HINTS)
+
+
 @dataclass
 class SplitData:
     x: pd.DataFrame
@@ -398,6 +430,7 @@ def train_lgbm(
     lgbm_params: dict,
     early_stopping_rounds: int | None = None,
     loss_mode: str = "mse",
+    init_model: object | str | Path | None = None,
 ) -> tuple[object, dict]:
     if lgb is None:
         detail = ""
@@ -414,6 +447,7 @@ def train_lgbm(
         params["objective"] = objective_fn
         eval_metric_name = "abs_ic"
         val_groups = _build_day_group_indices(val.dt)
+    gpu_requested = _lgbm_gpu_requested(params)
     model = lgb.LGBMRegressor(**params)
     history: list[dict] = []
 
@@ -490,33 +524,63 @@ def train_lgbm(
             f"train_{metric_label}={train_metric:.4f} val_{metric_label}={val_metric:.4f} "
             f"train_r2={train_r2:.4f} val_r2={val_r2:.4f}"
         )
-    fit_kwargs = {}
-    if early_stopping_rounds is not None and val.x is not None and not val.x.empty:
-        fit_kwargs = {
-            "eval_set": [(train.x, train.y), (val.x, val.y)],
-            "eval_metric": _eval_abs_ic if eval_metric_name == "abs_ic" else _eval_rank_ic,
-        }
-        # lightgbm sklearn API changed early stopping signature
+    def _fit_once(estimator) -> None:
+        base_fit_kwargs = {}
+        if init_model is not None:
+            base_fit_kwargs["init_model"] = init_model
+        fit_kwargs = dict(base_fit_kwargs)
+        if early_stopping_rounds is not None and val.x is not None and not val.x.empty:
+            fit_kwargs = {
+                **base_fit_kwargs,
+                "eval_set": [(train.x, train.y), (val.x, val.y)],
+                "eval_metric": _eval_abs_ic if eval_metric_name == "abs_ic" else _eval_rank_ic,
+            }
+            # lightgbm sklearn API changed early stopping signature
+            try:
+                estimator.fit(
+                    train.x,
+                    train.y,
+                    **fit_kwargs,
+                    early_stopping_rounds=int(early_stopping_rounds),
+                    verbose=False,
+                    callbacks=[_record_callback],
+                )
+                return
+            except TypeError:
+                callbacks = []
+                if hasattr(lgb, "early_stopping"):
+                    callbacks.append(lgb.early_stopping(int(early_stopping_rounds), verbose=False))
+                if hasattr(lgb, "record_evaluation"):
+                    eval_result: dict = {}
+                    callbacks.append(lgb.record_evaluation(eval_result))
+                callbacks.append(lambda env: _record_callback(env))
+                try:
+                    estimator.fit(train.x, train.y, **fit_kwargs, callbacks=callbacks)
+                except TypeError:
+                    # Older sklearn wrappers may not accept init_model.
+                    fit_kwargs.pop("init_model", None)
+                    estimator.fit(train.x, train.y, **fit_kwargs, callbacks=callbacks)
+                return
+        # no early stopping
         try:
-            model.fit(
-                train.x,
-                train.y,
-                **fit_kwargs,
-                early_stopping_rounds=int(early_stopping_rounds),
-                verbose=False,
-                callbacks=[_record_callback],
-            )
-            return model, params | {"history": history}
+            estimator.fit(train.x, train.y, **base_fit_kwargs)
         except TypeError:
-            callbacks = []
-            if hasattr(lgb, "early_stopping"):
-                callbacks.append(lgb.early_stopping(int(early_stopping_rounds), verbose=False))
-            if hasattr(lgb, "record_evaluation"):
-                eval_result: dict = {}
-                callbacks.append(lgb.record_evaluation(eval_result))
-            callbacks.append(lambda env: _record_callback(env))
-            model.fit(train.x, train.y, **fit_kwargs, callbacks=callbacks)
-            return model, params | {"history": history}
-    # no early stopping
-    model.fit(train.x, train.y)
+            base_fit_kwargs.pop("init_model", None)
+            estimator.fit(train.x, train.y)
+
+    try:
+        _fit_once(model)
+    except Exception as exc:
+        if not (gpu_requested and _looks_like_lgbm_gpu_error(exc)):
+            raise
+        cpu_params = _lgbm_cpu_params(params)
+        print(
+            "[LightGBM] GPU unavailable, fallback to CPU:",
+            f"{type(exc).__name__}: {exc}",
+        )
+        history.clear()
+        model = lgb.LGBMRegressor(**cpu_params)
+        _fit_once(model)
+        params = cpu_params
+
     return model, params | {"history": history}

@@ -4,6 +4,7 @@ import json
 from dataclasses import dataclass
 from datetime import date, datetime, time as dt_time
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -97,6 +98,9 @@ def _fit_weights(
     factor_cols: list[str],
     *,
     alpha: float,
+    device: str = "cpu",
+    gpu_fallback_to_cpu: bool = True,
+    gpu_state: dict[str, Any] | None = None,
 ) -> pd.Series | None:
     if train_df.empty:
         return None
@@ -104,6 +108,35 @@ def _fit_weights(
     y = train_df["y"]
     if X.empty or y.empty:
         return None
+
+    use_gpu = str(device or "cpu").strip().lower() in {"gpu", "cuda"}
+    if use_gpu:
+        try:
+            import cupy as cp
+            from cuml.linear_model import Ridge as CuRidge
+
+            model = CuRidge(alpha=float(alpha), fit_intercept=True)
+            x_gpu = cp.asarray(X.to_numpy(dtype=np.float32))
+            y_gpu = cp.asarray(y.to_numpy(dtype=np.float32))
+            model.fit(x_gpu, y_gpu)
+            coef = model.coef_
+            if hasattr(coef, "to_numpy"):
+                coef_np = coef.to_numpy()
+            elif hasattr(coef, "get"):
+                coef_np = coef.get()
+            else:
+                coef_np = np.asarray(coef)
+            return pd.Series(np.asarray(coef_np).reshape(-1), index=factor_cols, dtype=float)
+        except Exception as exc:
+            if not gpu_fallback_to_cpu:
+                return None
+            if gpu_state is not None and not bool(gpu_state.get("warned", False)):
+                print(
+                    "[linear] GPU requested but cuML is unavailable; fallback to CPU:",
+                    f"{type(exc).__name__}: {exc}",
+                )
+                gpu_state["warned"] = True
+
     try:
         from sklearn.linear_model import Ridge
     except Exception:
@@ -188,6 +221,8 @@ def run_linear_score(
     max_weight: float,
     normalize_weights: str,
     manual_weights: pd.Series,
+    device: str = "cpu",
+    gpu_fallback_to_cpu: bool = True,
 ) -> ScoreResult:
     days = _iter_existing_label_days(label_root, start, end)
     if not days:
@@ -197,6 +232,7 @@ def run_linear_score(
     last_refit_idx: int | None = None
     score_rows: list[dict] = []
     weight_rows: list[dict] = []
+    gpu_state: dict[str, Any] = {"warned": False}
 
     for idx, day in enumerate(days):
         day_df = _score_day(
@@ -235,7 +271,14 @@ def run_linear_score(
                     if not tdf.empty:
                         train_frames.append(tdf)
                 train_df = pd.concat(train_frames, ignore_index=True) if train_frames else pd.DataFrame()
-                fit = _fit_weights(train_df, factor_cols, alpha=regression_alpha)
+                fit = _fit_weights(
+                    train_df,
+                    factor_cols,
+                    alpha=regression_alpha,
+                    device=device,
+                    gpu_fallback_to_cpu=gpu_fallback_to_cpu,
+                    gpu_state=gpu_state,
+                )
                 if fit is None:
                     if fallback == "equal":
                         weights = pd.Series(1.0, index=factor_cols) / len(factor_cols)

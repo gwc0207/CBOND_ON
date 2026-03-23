@@ -1,127 +1,16 @@
 {
-  panel: {
-    start: "2025-06-01",
-    end: "2026-03-03",
-    panel_mode: "snapshot_sequence",
-    window_minutes: [15],
-    lead_minutes: 0,
-    refresh: false,
-    overwrite: false,
-    schedule: {
-      mode: "custom_windows",
-      windows: [
-        { start: "14:30", end: "14:30" }
-      ],
-      signal_prev_start: "09:30"
-    },
-    snapshot: {
-      price_field: "last",
-      filter_trading_phase: true,
-      allowed_phases: ["T", "T0"],
-      drop_no_trade: true,
-      use_prev_snapshot: true,
-      twap_method: "time",
-    },
-    panel_name: "T1430",
-    count_points: 5000,
-    max_lookback_days: 30,
-    snapshot_columns: null
-  },
-  label: {
-    start: "2025-06-01",
-    end: "2026-03-03",
-    refresh: false,
-    overwrite: false,
-    mode: "upsert",
-    max_lookahead_days: 7,
-    close_window: { start: "14:45", end: "14:57" },
-    next_open_window: { start: "09:30", end: "09:45" },
-    cost_method: "twap",
-    fallback_method: "mid",
-    buy_bps: 0.0,
-    sell_bps: 0.0,
-    fee_bps: 0.0,
-    price_col: "last",
-    bid_price_col: "bid_price1",
-    ask_price_col: "ask_price1"
-  },
-  factor: {
-    start: "2025-06-01",
-    end: "2026-03-03",
-    window_minutes: 15,
-    panel_name: "T1430",
-    factor_time: "14:30",
-    label_time: "14:45",
-    refresh: false,
-    overwrite: false,
-    factors: [
-      { name: "aacb_3_", factor: "aacb", params: { levels: 3 } },
-      { name: "volen_60_10_3_", factor: "volen", params: { fast: 60, slow: 10, levels: 3 } },
-      { name: "ret_5m", factor: "ret_window", params: { window_minutes: 5, price_col: "last" } },
-      { name: "ret_10m", factor: "ret_window", params: { window_minutes: 10, price_col: "last" } },
-      { name: "ret_30m", factor: "ret_window", params: { window_minutes: 30, price_col: "last" } },
-      { name: "ret_60m", factor: "ret_window", params: { window_minutes: 60, price_col: "last" } },
-      { name: "ret_open_0930_1430", factor: "ret_open_to_time", params: { start_time: "09:30", end_time: "14:30", price_col: "last" } },
-      { name: "mom_slope_30m", factor: "mom_slope", params: { window_minutes: 30, price_col: "last" } },
-      { name: "vol_30m", factor: "volatility", params: { window_minutes: 30, price_col: "last", use_log_return: true } },
-      { name: "vol_60m", factor: "volatility", params: { window_minutes: 60, price_col: "last", use_log_return: true } },
-      { name: "range_30m", factor: "range_ratio", params: { window_minutes: 30, price_col: "last" } },
-      { name: "pos_30m", factor: "price_position", params: { window_minutes: 30, price_col: "last" } },
-      { name: "volume_30m", factor: "volume_sum", params: { window_minutes: 30, volume_col: "volume" } },
-      { name: "amount_30m", factor: "amount_sum", params: { window_minutes: 30, amount_col: "amount" } },
-      { name: "vwap_30m", factor: "vwap", params: { window_minutes: 30, volume_col: "volume", amount_col: "amount" } },
-      { name: "volimb_30m_l3", factor: "volume_imbalance", params: { window_minutes: 30, levels: 3 } },
-      { name: "spread", factor: "spread", params: { bid_col: "bid_price1", ask_col: "ask_price1" } },
-      { name: "depth_imb_l3", factor: "depth_imbalance", params: { levels: 3 } },
-      { name: "mid_move_30m", factor: "midprice_move", params: { window_minutes: 30, bid_col: "bid_price1", ask_col: "ask_price1" } },
-      { name: "turnover_30m", factor: "turnover_rate", params: { window_minutes: 30, volume_col: "volume", shares_col: "num_trades" } },
-      { name: "amihud_30m", factor: "amihud_illiq", params: { window_minutes: 30, price_col: "last", amount_col: "amount" } },
-      { name: "microprice_bias_l1", factor: "microprice_bias", params: { bid_col: "bid_price1", ask_col: "ask_price1", bid_vol_col: "bid_volume1", ask_vol_col: "ask_volume1" } },
-      { name: "depth_slope_l5", factor: "depth_slope", params: { levels: 5 } },
-      { name: "ret_skew_30m", factor: "return_skew", params: { window_minutes: 30, price_col: "last", use_log_return: true } },
-      { name: "vwap_gap_30m", factor: "vwap_gap", params: { window_minutes: 30, price_col: "last", volume_col: "volume", amount_col: "amount" } },
-    ],
-  },
-  model_score: {
-    default_model_id: "lgbm_factor_ranker",
-    model_id: "lgbm_factor_ranker",
-    start: "2025-06-01",
-    end: "2026-03-20",
-    label_cutoff: null,
-    models: {
-      linear_factor_default: {
-        model_type: "linear",
-        model_config: "models/linear/linear_factor_default"
-      },
-      lgbm_factor_MSE: {
-        model_type: "lgbm",
-        model_config: "models/lgbm/lgbm_factor_MSE"
-      },
-      lgbm_factor_ranker: {
-        model_type: "lgbm_ranker",
-        model_config: "models/lgbm_ranker/lgbm_factor_ranker"
-      }
-    }
-  },
-  backtest: {
-    start: "2025-06-01",
-    end: "2026-03-03",
-    batch_id: "Backtest",
-    score_source: {
-      model_id: "lgbm_factor_ranker"
-    },
-    strategy_id: "strategy01_topk_turnover",
-    strategy_config: {
-      top_k: 20,
-      max_weight: 0.05,
-      turnover_ratio: 1.0
-    },
-    buy_twap_col: "twap_1442_1457",
-    sell_twap_col: "twap_0930_1000",
-    twap_bps: 1.5,
-    fee_bps: 0.7,
-    filter_tradable: true,
-    min_amount: 0,
-    min_volume: 0
-  }
+  // One shared time window for all stages.
+  start: "2025-12-01",
+  end: "2026-03-20",
+
+  // Choose model/strategy only. Detailed settings stay in model_score/backtest config.
+  model_id: "lgbm_factor_ranker",
+  strategy_id: "strategy01_topk_turnover",
+
+  // Per-stage overwrite/refresh switches.
+  panel: { refresh: false, overwrite: false },
+  label: { refresh: false, overwrite: false },
+  factor: { refresh: false, overwrite: false },
+  model_score: { refresh: false, overwrite: false },
+  backtest: { refresh: false, overwrite: false }
 }

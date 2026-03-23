@@ -41,6 +41,12 @@
   score_output: "D:/cbond_on/results/scores/lgbm_factor_MSE",
   score_overwrite: false,
   score_dedupe: true,
+  incremental: {
+    enabled: true,
+    skip_existing_scores: true,
+    warm_start: true,
+    save_state: true
+  },
   loss_mode: "mse",
   rolling: {
     enabled: true,
@@ -61,6 +67,7 @@
   },
   lgbm_params: {
     objective: "regression",
+    device: "gpu",
     n_estimators: 500,
     learning_rate: 0.0005,
     num_leaves: 63,
