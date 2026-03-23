@@ -15,11 +15,19 @@ def run(
     refresh: bool | None = None,
     overwrite: bool | None = None,
     cfg: dict | None = None,
+    panel_cfg: dict | None = None,
 ) -> dict:
     paths_cfg = load_config_file("paths")
     label_cfg = dict(cfg or load_config_file("label"))
-    panel_cfg = load_config_file("panel")
-    cleaned_cfg = load_config_file("cleaned_data")
+    panel_runtime_cfg: dict | None = None
+    if isinstance(panel_cfg, dict):
+        panel_runtime_cfg = dict(panel_cfg)
+    else:
+        panel_inline = label_cfg.get("panel")
+        if isinstance(panel_inline, dict):
+            panel_runtime_cfg = dict(panel_inline)
+    if panel_runtime_cfg is None:
+        panel_runtime_cfg = load_config_file("panel")
 
     start_day = parse_date(start or label_cfg.get("start"))
     end_day = parse_date(end or label_cfg.get("end"))
@@ -29,8 +37,11 @@ def run(
         overwrite_val = True
     mode = "overwrite" if overwrite_val else str(label_cfg.get("mode", "upsert"))
 
-    schedule = ScheduleConfig.from_dict(panel_cfg["schedule"]).to_schedule()
-    snapshot_cfg = SnapshotConfig.from_dict(cleaned_cfg["snapshot"])
+    schedule_raw = panel_runtime_cfg.get("schedule")
+    if not isinstance(schedule_raw, dict):
+        raise KeyError("label runtime requires panel.schedule config")
+    schedule = ScheduleConfig.from_dict(schedule_raw).to_schedule()
+    snapshot_cfg = SnapshotConfig.from_dict(dict(panel_runtime_cfg.get("snapshot", {})))
     trading_days = list_trading_days_from_raw(
         paths_cfg["raw_data_root"],
         start_day,

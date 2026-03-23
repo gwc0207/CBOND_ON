@@ -2,7 +2,7 @@
   default_model_id: "lgbm_factor_ranker",
   model_id: "lgbm_factor_ranker",
   start: "2025-06-01",
-  end: "2026-03-03",
+  end: "2026-03-20",
   label_cutoff: null,
   models: {
     linear_factor_default: {

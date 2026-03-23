@@ -56,7 +56,9 @@ def _resolve_score_path(cfg: dict, paths_cfg: dict) -> Path:
     raise ValueError("backtest_config.score_source requires score_root or model_id")
 
 
-def _load_strategy_config(path_text: str | None) -> dict:
+def _load_strategy_config(path_text: str | None, inline: dict | None = None) -> dict:
+    if isinstance(inline, dict):
+        return dict(inline)
     if not path_text:
         return {}
     path = resolve_config_path(path_text)
@@ -75,7 +77,10 @@ def run(
     start_day = parse_date(start or bt_cfg.get("start"))
     end_day = parse_date(end or bt_cfg.get("end"))
     strategy_id = str(bt_cfg.get("strategy_id", "strategy01_topk_turnover"))
-    strategy_cfg = _load_strategy_config(bt_cfg.get("strategy_config_path"))
+    strategy_cfg = _load_strategy_config(
+        bt_cfg.get("strategy_config_path"),
+        inline=bt_cfg.get("strategy_config"),
+    )
     score_path = _resolve_score_path(bt_cfg, paths_cfg)
     score_cache = load_scores_by_date(score_path)
 

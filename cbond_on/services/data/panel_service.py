@@ -17,7 +17,6 @@ def run(
 ) -> dict:
     paths_cfg = load_config_file("paths")
     panel_cfg = dict(cfg or load_config_file("panel"))
-    cleaned_cfg = load_config_file("cleaned_data")
 
     start_day = parse_date(start or panel_cfg.get("start"))
     end_day = parse_date(end or panel_cfg.get("end"))
@@ -27,7 +26,7 @@ def run(
         overwrite_val = True
 
     schedule = ScheduleConfig.from_dict(panel_cfg["schedule"]).to_schedule()
-    snapshot_cfg = SnapshotConfig.from_dict(cleaned_cfg["snapshot"])
+    snapshot_cfg = SnapshotConfig.from_dict(dict(panel_cfg.get("snapshot", {})))
     windows = panel_cfg.get("window_minutes", [15])
     panel_name = panel_cfg.get("panel_name")
     panel_mode = str(panel_cfg.get("panel_mode", "snapshot_sequence"))
