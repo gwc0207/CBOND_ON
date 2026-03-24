@@ -1,27 +1,56 @@
-﻿# CBOND_ON 因子开发说明（简明版）
+# CBOND_ON 因子开发说明（2026-03 版）
 
-> 目标：让完全不了解项目的人，能按统一规范开发因子，并安全接入回测/实盘。
+> 目标：让新 Agent 或新同学可以按统一规范开发因子，并安全接入回测与实盘。
 
-## 1. 因子开发流程
+## 1. 当前架构（先对齐口径）
 
-### 1.1 总体链路
-- 数据链路：`raw -> clean -> panel -> factor -> score -> backtest/live`
-- 因子开发只处理 `panel -> factor`，但必须理解时间因果与标签对齐规则。
+- ON 已是 DataHub 消费方：`raw/clean` 由 DataHub 维护，ON 不再自建原始数据。
+- ON 负责的衍生产物：`panel -> label -> factor -> score -> backtest/live`。
+- 典型路径（以当前本地配置为准）：
+  - `raw_data_root`: `D:/cbond_data_hub/raw_data`
+  - `clean_data_root`: `D:/cbond_data_hub/clean_data`
+  - `panel_data_root`: `D:/cbond_on/panel_data`
+  - `factor_data_root`: `D:/cbond_on/factor_data`
 
-### 1.2 开发规范
-- 一因子一文件：`cbond_on/factors/defs/<factor_name>.py`
-- 因子类必须继承 `Factor`
-- 必须用 `@FactorRegistry.register("<factor_name>")` 注册
-- 返回值必须是 `pd.Series`，索引为 `("dt", "code")`
-- 输出名统一用 `self.output_name(self.name)`
-- 必须处理空值/异常：不可计算时返回 `0.0`（或统一约定值）
-- 禁止未来函数：只能使用当前 `dt` 可见信息
+---
 
-### 1.3 可用数据（当前项目完整字段）
-- 以下字段来自你当前 `D:/cbond_on/panel_data` 全部 parquet 的并集扫描（共 278 个文件，扫描日期：2026-03-09）。
-- 因子开发可直接使用的核心字段如下（38 个）：
+## 2. 因子开发入口与配置
+
+### 2.1 代码入口
+
+- 因子实现目录：`cbond_on/factors/defs/`
+- 注册入口：`cbond_on/factors/defs/__init__.py`
+- 基类与上下文：`cbond_on/factors/base.py`
+
+### 2.2 配置入口（已更新）
+
+- 因子构建配置：`cbond_on/config/factor/factor_config.json5`
+- 运行命令：`python cbond_on/run/factor_batch.py`
+
+说明：
+- 旧文档里提到的 `cbond_on/config/factor_batch_config.json5` 不是当前主配置入口。
+- 新因子如果要入模，还需要把因子名加入模型配置中的 `factors`：
+  - `cbond_on/config/models/lgbm/lgbm_factor_MSE_config.json5`
+  - `cbond_on/config/models/lgbm_ranker/lgbm_factor_ranker_config.json5`
+  - `cbond_on/config/models/linear/linear_factor_default_config.json5`
+
+---
+
+## 3. 可用字段（重点）
+
+## 3.1 Panel 直接可用字段（因子 compute 可直接使用）
+
+扫描基准：
+- 样本文件：`D:/cbond_on/panel_data/panels/T1430/2026-03/20260324.parquet`
+- 扫描日期：2026-03-24
+
+索引字段（MultiIndex）：
+- `dt`, `code`, `seq`
+
+列字段（38）：
 
 ```text
+__index_level_0__
 amount
 ask_price1
 ask_price2
@@ -44,8 +73,6 @@ bid_volume3
 bid_volume4
 bid_volume5
 close
-code
-dt
 high
 high_limited
 iopv
@@ -55,155 +82,112 @@ low_limited
 num_trades
 open
 pre_close
-seq
 source
+symbol
+trade_date
 trade_time
 trading_phase_code
 volume
 ```
 
-- 说明：
-  - 索引语义是 `("dt", "code", "seq")`，部分 parquet 里会看到 `__index_level_0__`，这是 parquet 索引落盘副产物，开发因子时忽略。
-  - 若你后续改了 panel 构建配置（如 `snapshot_columns`），字段集合会变化，需重新扫描并更新文档。
+说明：
+- `__index_level_0__` 是 parquet 索引落盘副产物，通常忽略。
+- 因子开发时请以 `dt/code/seq` 为主索引语义，不要把 `symbol` 误当“正股代码”。
 
-### 1.4 时间与因果（必须遵守）
-- `factor_time`：因子截面时点（如 14:30）
-- `label_time`：标签起点（如 14:45）
-- 因子必须由 `factor_time` 前可观测数据构成，不可引用 `label_time` 后数据。
+## 3.2 正股相关字段（新增）
 
-### 1.5 注册规范
+当前可用正股字段主要不在 panel 默认列中，而在 DataHub 的日频原始表：
+
+数据集 A：`raw_data/market_cbond__daily_base`
+- 显式正股相关：`stock_code`, `stock_close_price`, `stock_volatility`
+- 额外常用（正股/转债联动）：`stk_prev_close_price`, `stk_act_prev_close_price`, `stk_close_price`, `stk_volume`, `stk_amount`, `stk_deal`, `conv_value`, `bond_prem_ratio`, `puredebt_prem_ratio`
+
+数据集 B：`raw_data/market_cbond__daily_deriv`
+- 显式正股相关：`stock_code`, `stock_close_price`, `stock_volatility`
+- 额外常用：`conv_value`, `bond_prem_ratio`, `puredebt_prem_ratio`
+
+数据集 C：`clean_data/snapshot/stock/YYYY-MM/YYYYMMDD.parquet`
+- 为正股快照（字段结构与 cbond snapshot 类似），可做盘中联动因子。
+
+关键事实：
+- ON 当前的 panel 构建默认只消费 `clean_data/snapshot/cbond/...`，不会自动并入上述正股字段。
+- 需要正股字段时，必须在因子流程中显式 merge（推荐）或扩展 panel 构建逻辑。
+
+## 3.3 正股字段可用性矩阵
+
+| 数据源 | 粒度 | 是否默认进 panel | 典型用途 |
+|---|---|---|---|
+| `clean_data/snapshot/cbond` | 盘中快照 | 是 | 转债盘口/成交/微观结构因子 |
+| `raw_data/market_cbond__daily_base` | 日频 | 否 | 正股映射、溢价率、正股波动率 |
+| `raw_data/market_cbond__daily_deriv` | 日频 | 否 | 正股映射、衍生估值字段 |
+| `clean_data/snapshot/stock` | 盘中快照 | 否 | 转债-正股盘中联动因子 |
+
+---
+
+## 4. 时间因果规则（含正股字段）
+
+- `factor_time`：因子可见时点（默认 14:30）
+- `label_time`：标签起点（默认 14:45）
+
+必须遵守：
+- 因子只能使用 `factor_time` 及之前可观测信息。
+- 同日 `*_close_price`（例如 `stock_close_price`, `stk_close_price`）是收盘口径，若在 14:30 因子里直接使用，属于未来函数。
+
+安全做法：
+1. 日频正股字段一律先做“上一交易日”对齐，再入因子。
+2. 若要做同日盘中联动，请使用 `snapshot/stock` 且截断到 `factor_time` 之前。
+3. 严禁使用 T+1 或标签窗后信息。
+
+---
+
+## 5. 开发规范
+
+- 一因子一文件：`cbond_on/factors/defs/<factor_name>.py`
+- 类必须继承 `Factor`
+- 必须 `@FactorRegistry.register("<factor_name>")`
+- `compute()` 返回 `pd.Series`，索引是 `(dt, code)`
+- 输出名统一 `self.output_name(self.name)`
+- 必须显式处理空值/异常（`fillna(0.0)` 或清晰约定）
+
+---
+
+## 6. 接入流程（从开发到实盘）
+
 1. 新建因子文件到 `cbond_on/factors/defs/`
-2. 类上加 `@FactorRegistry.register("因子名")`
+2. 在类上注册 `@FactorRegistry.register("xxx")`
 3. 在 `cbond_on/factors/defs/__init__.py` 导入该类
-4. 在 `cbond_on/config/factor_batch_config.json5` 增加一行配置
-
-### 1.6 配置规范（factor_batch）
-- `name`：输出列名（建议含参数后缀）
-- `factor`：注册名，必须与 `register` 名一致
-- `params`：可调参数字典
-
-示例：
+4. 在 `cbond_on/config/factor/factor_config.json5` 增加配置：
 
 ```json5
 { name: "ret_30m", factor: "ret_window", params: { window_minutes: 30, price_col: "last" } }
 ```
 
----
-
-## 2. 因子开发示例
-
-### 2.1 示例 A：窗口收益率因子
-
-```python
-from cbond_on.core.registry import FactorRegistry
-from cbond_on.factors.base import Factor, FactorComputeContext
-from cbond_on.factors.defs._intraday_utils import ensure_trade_time, group_apply_scalar, slice_window, first_last_price
-
-@FactorRegistry.register("ret_window")
-class ReturnWindowFactor(Factor):
-    name = "ret_window"
-
-    def compute(self, ctx: FactorComputeContext):
-        panel = ensure_trade_time(ctx.panel)
-        win = int(ctx.params.get("window_minutes", 30))
-        price_col = str(ctx.params.get("price_col", "last"))
-
-        def _calc(df):
-            df = df.sort_values("trade_time")
-            df = slice_window(df, win)
-            p0, p1 = first_last_price(df, price_col)
-            if p0 is None or p0 == 0:
-                return 0.0
-            return float((p1 - p0) / p0)
-
-        out = group_apply_scalar(panel, _calc).fillna(0.0)
-        out.name = self.output_name(self.name)
-        return out
-```
-
-### 2.2 示例 B：盘口不平衡因子
-
-```python
-from cbond_on.core.registry import FactorRegistry
-from cbond_on.factors.base import Factor, FactorComputeContext
-from cbond_on.factors.defs._intraday_utils import ensure_trade_time, group_apply_scalar
-
-@FactorRegistry.register("depth_imbalance")
-class DepthImbalanceFactor(Factor):
-    name = "depth_imbalance"
-
-    def compute(self, ctx: FactorComputeContext):
-        panel = ensure_trade_time(ctx.panel)
-        levels = int(ctx.params.get("levels", 3))
-        bid_cols = [f"bid_volume{i}" for i in range(1, levels + 1)]
-        ask_cols = [f"ask_volume{i}" for i in range(1, levels + 1)]
-
-        def _calc(df):
-            x = df.sort_values("trade_time")
-            bid = x[bid_cols].iloc[-1].sum()
-            ask = x[ask_cols].iloc[-1].sum()
-            d = bid + ask
-            return 0.0 if d <= 0 else float((bid - ask) / d)
-
-        out = group_apply_scalar(panel, _calc).fillna(0.0)
-        out.name = self.output_name(self.name)
-        return out
-```
+5. 运行因子构建：`python cbond_on/run/factor_batch.py`
+6. 需要入模时，把因子名加入目标模型配置 `factors` 列表后再跑 `model_score/pipeline_all`
 
 ---
 
-## 3. 回测与实盘使用规范
-
-### 3.1 因子到回测
-- 因子写入后，由 `factor_batch` 统一产出单因子评估与报告。
-- 核心检查指标：`IC`, `RankIC`, `ICIR/RankICIR`, 分箱可分性、分箱收益曲线。
-- 若分箱不足（大量重复值/样本太少），应先查：
-  - 因子是否离散化过重
-  - 当日可交易样本是否不足
-  - `bin_count/min_count` 是否过严
-
-### 3.2 因子到实盘
-- 实盘模型读取因子后生成 `score`，策略只消费 `score`。
-- 因子上线前至少满足：
-  - 无未来数据泄露
-  - 空值行为可解释
-  - 在回测区间统计稳定（非偶然单日驱动）
-
-### 3.3 增量/覆盖约定
-- 日常：优先增量更新
-- 历史修复：按日期区间覆盖重算
-- 回测与实盘配置分离，避免互相污染
-
-### 3.4 变更流程（建议）
-1. 新因子开发并本地自检
-2. 加入 `factor_batch_config` 小范围试跑
-3. 看单因子报告（IC/分箱/NAV）
-4. 入模验证（线性/LGBM）
-5. 回测通过后再入实盘
-
----
-
-## 4. 常见错误与排查
+## 7. 常见错误与排查
 
 - `RegistryError`：未注册或重复注册
-- `KeyError`：panel 缺列（先打印 `panel.columns`）
-- `ValueError`：空样本/参数非法
-- 分箱异常：检查重复值占比、样本量、`bin_count/min_count`
+- `KeyError: panel missing column`：panel 没有该列（先打印 `ctx.panel.columns`）
+- 因子全 0 或无分箱：样本不足/列离散化过重/窗口参数不合理
+- 用正股字段后 IC 异常飙高：优先排查是否误用了同日收盘字段导致泄露
 
 ---
 
-## 5. 上线前 Checklist
+## 8. 上线前 Checklist
 
 - [ ] 因子文件独立、命名规范
-- [ ] 已注册并在 `__init__.py` 导入
-- [ ] `factor_batch_config` 已配置且参数清晰
-- [ ] 无未来数据泄露
+- [ ] 已注册并在 `defs/__init__.py` 导入
+- [ ] `config/factor/factor_config.json5` 已配置
+- [ ] 无未来函数（尤其正股 `close` 类字段）
 - [ ] 空值/异常处理明确
-- [ ] 单因子报告通过基本阈值
-- [ ] 回测通过后再接入实盘
+- [ ] 单因子回测统计稳定
+- [ ] 入模验证通过后再接实盘
 
 ---
 
-如需快速复制模板，直接参考：
+参考模板：
 - `cbond_on/factors/defs/ret_window.py`
 - `cbond_on/factors/defs/depth_imbalance.py`

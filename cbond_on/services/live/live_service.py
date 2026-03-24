@@ -476,10 +476,13 @@ def run_once(
     if bool(output_cfg.get("db_write", False)):
         if not output_cfg.get("db_table"):
             raise ValueError("live_config.output.db_table is required when db_write=true")
+        db_trade_day = prev_trade_day
+        db_picks = picks.copy()
+        db_picks["trade_date"] = db_trade_day
         try:
             _write_trades_to_db(
-                trades=picks,
-                trade_day=target_day,
+                trades=db_picks,
+                trade_day=db_trade_day,
                 table=str(output_cfg["db_table"]),
                 mode=str(output_cfg.get("db_mode", "replace_date")),
                 backend=output_cfg.get("db_backend"),

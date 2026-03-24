@@ -29,6 +29,15 @@ def run(
     snapshot_cfg = SnapshotConfig.from_dict(dict(panel_cfg.get("snapshot", {})))
     windows = panel_cfg.get("window_minutes", [15])
     panel_name = panel_cfg.get("panel_name")
+    assets_raw = panel_cfg.get("assets", ["cbond"])
+    if isinstance(assets_raw, str):
+        assets = [a.strip().lower() for a in assets_raw.replace(";", ",").split(",") if a.strip()]
+    elif isinstance(assets_raw, (list, tuple)):
+        assets = [str(a).strip().lower() for a in assets_raw if str(a).strip()]
+    else:
+        assets = ["cbond"]
+    if not assets:
+        assets = ["cbond"]
     panel_mode = str(panel_cfg.get("panel_mode", "snapshot_sequence"))
     count_points = int(panel_cfg.get("count_points", 3000))
     max_lookback_days = int(panel_cfg.get("max_lookback_days", 3))
@@ -38,31 +47,56 @@ def run(
 
     wrote = 0
     skipped = 0
-    for window in windows:
-        result = build_panel_data(
-            clean_root,
-            paths_cfg["panel_data_root"],
-            paths_cfg["raw_data_root"],
-            start_day,
-            end_day,
-            schedule,
-            snapshot_cfg,
-            window_minutes=int(window),
-            panel_name=panel_name,
-            overwrite=overwrite_val,
-            panel_mode=panel_mode,
-            count_points=count_points,
-            max_lookback_days=max_lookback_days,
-            snapshot_columns=snapshot_columns,
-            lead_minutes=lead_minutes,
-        )
-        wrote += int(result.written)
-        skipped += int(result.skipped)
+    diagnostics_rows = 0
+    missing_snapshot_days = 0
+    by_asset: dict[str, dict[str, int]] = {}
+    for asset in assets:
+        asset_written = 0
+        asset_skipped = 0
+        asset_diag_rows = 0
+        asset_missing_days = 0
+        for window in windows:
+            result = build_panel_data(
+                clean_root,
+                paths_cfg["panel_data_root"],
+                paths_cfg["raw_data_root"],
+                start_day,
+                end_day,
+                schedule,
+                snapshot_cfg,
+                window_minutes=int(window),
+                panel_name=panel_name,
+                asset=asset,
+                overwrite=overwrite_val,
+                panel_mode=panel_mode,
+                count_points=count_points,
+                max_lookback_days=max_lookback_days,
+                snapshot_columns=snapshot_columns,
+                lead_minutes=lead_minutes,
+            )
+            wrote += int(result.written)
+            skipped += int(result.skipped)
+            diagnostics_rows += int(result.diagnostics_rows)
+            missing_snapshot_days += int(result.missing_snapshot_days)
+            asset_written += int(result.written)
+            asset_skipped += int(result.skipped)
+            asset_diag_rows += int(result.diagnostics_rows)
+            asset_missing_days += int(result.missing_snapshot_days)
+        by_asset[asset] = {
+            "written": asset_written,
+            "skipped": asset_skipped,
+            "diagnostics_rows": asset_diag_rows,
+            "missing_snapshot_days": asset_missing_days,
+        }
 
     return {
         "start": start_day,
         "end": end_day,
         "written": wrote,
         "skipped": skipped,
+        "diagnostics_rows": diagnostics_rows,
+        "missing_snapshot_days": missing_snapshot_days,
+        "assets": assets,
+        "by_asset": by_asset,
     }
 

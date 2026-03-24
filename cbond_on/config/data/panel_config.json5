@@ -2,6 +2,7 @@
   start: "2025-06-01",
   end: "2026-03-03",
   panel_mode: "snapshot_sequence",
+  assets: ["cbond", "stock"],
   window_minutes: [15],
   lead_minutes: 0,
   refresh: false,

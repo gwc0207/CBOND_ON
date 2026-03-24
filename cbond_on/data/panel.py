@@ -26,13 +26,18 @@ class PanelBuildResult:
     diagnostics_path: Optional[str] = None
 
 
-def _snapshot_roots(cleaned_data_root: Path) -> list[Path]:
-    canonical = cleaned_data_root / "snapshot" / DEFAULT_ASSET
+def _normalize_asset(asset: str | None) -> str:
+    text = str(asset or DEFAULT_ASSET).strip().lower()
+    return text or DEFAULT_ASSET
+
+
+def _snapshot_roots(cleaned_data_root: Path, *, asset: str = DEFAULT_ASSET) -> list[Path]:
+    canonical = cleaned_data_root / "snapshot" / _normalize_asset(asset)
     return [canonical]
 
 
-def _primary_snapshot_root(cleaned_data_root: Path) -> Path:
-    canonical = cleaned_data_root / "snapshot" / DEFAULT_ASSET
+def _primary_snapshot_root(cleaned_data_root: Path, *, asset: str = DEFAULT_ASSET) -> Path:
+    canonical = cleaned_data_root / "snapshot" / _normalize_asset(asset)
     return canonical
 
 
@@ -47,16 +52,18 @@ def build_panel_windows(
     *,
     window_minutes: int = 15,
     panel_name: Optional[str] = None,
+    asset: str = DEFAULT_ASSET,
     overwrite: bool = False,
 ) -> PanelBuildResult:
     result = PanelBuildResult()
     cleaned_data_root = Path(cleaned_data_root)
     panel_data_root = Path(panel_data_root)
+    asset_name = _normalize_asset(asset)
 
     loader = SnapshotLoader(
-        str(_primary_snapshot_root(cleaned_data_root)), schedule, snapshot_config
+        str(_primary_snapshot_root(cleaned_data_root, asset=asset_name)), schedule, snapshot_config
     )
-    trading_days = list_trading_days_from_raw(raw_data_root, start, end, kind="snapshot")
+    trading_days = list_trading_days_from_raw(raw_data_root, start, end, kind="snapshot", asset=asset_name)
     for idx, day in enumerate(
         progress(
             trading_days,
@@ -65,7 +72,13 @@ def build_panel_windows(
             total=len(trading_days),
         )
     ):
-        dst = _panel_path(panel_data_root, day, window_minutes, panel_name=panel_name)
+        dst = _panel_path(
+            panel_data_root,
+            day,
+            window_minutes,
+            panel_name=panel_name,
+            asset=asset_name,
+        )
         if dst.exists() and not overwrite:
             result.skipped += 1
             continue
@@ -85,10 +98,18 @@ def read_panel_window(
     *,
     window_minutes: int = 15,
     panel_name: Optional[str] = None,
+    asset: str = DEFAULT_ASSET,
     columns: Optional[list[str]] = None,
 ) -> SnapshotPanel:
-    path = _panel_path(Path(panel_data_root), day, window_minutes, panel_name=panel_name)
-    if not path.exists():
+    paths = _panel_candidate_paths(
+        Path(panel_data_root),
+        day,
+        window_minutes,
+        panel_name=panel_name,
+        asset=asset,
+    )
+    path = next((p for p in paths if p.exists()), None)
+    if path is None:
         return SnapshotPanel(pd.DataFrame())
     df = pd.read_parquet(path, columns=columns) if columns else pd.read_parquet(path)
     return SnapshotPanel(df)
@@ -100,10 +121,15 @@ def write_panel_window(
     *,
     window_minutes: int = 15,
     panel_name: Optional[str] = None,
+    asset: str = DEFAULT_ASSET,
     df: pd.DataFrame,
 ) -> None:
     path = _panel_path(
-        Path(panel_data_root), day, window_minutes, panel_name=panel_name
+        Path(panel_data_root),
+        day,
+        window_minutes,
+        panel_name=panel_name,
+        asset=asset,
     )
     path.parent.mkdir(parents=True, exist_ok=True)
     df.to_parquet(path, index=True)
@@ -122,6 +148,7 @@ def build_panel_data(
     *,
     window_minutes: int = 15,
     panel_name: Optional[str] = None,
+    asset: str = DEFAULT_ASSET,
     overwrite: bool = False,
     panel_mode: str = "snapshot_sequence",
     count_points: int = 3000,
@@ -142,6 +169,7 @@ def build_panel_data(
         snapshot_config,
         window_minutes=window_minutes,
         panel_name=panel_name,
+        asset=asset,
         overwrite=overwrite,
         count_points=int(count_points),
         max_lookback_days=int(max_lookback_days),
@@ -156,6 +184,7 @@ def read_panel_data(
     *,
     window_minutes: int = 15,
     panel_name: Optional[str] = None,
+    asset: str = DEFAULT_ASSET,
     columns: Optional[list[str]] = None,
 ) -> SnapshotPanel:
     return read_panel_window(
@@ -163,6 +192,7 @@ def read_panel_data(
         day,
         window_minutes=window_minutes,
         panel_name=panel_name,
+        asset=asset,
         columns=columns,
     )
 
@@ -173,6 +203,7 @@ def write_panel_data(
     *,
     window_minutes: int = 15,
     panel_name: Optional[str] = None,
+    asset: str = DEFAULT_ASSET,
     df: pd.DataFrame,
 ) -> None:
     write_panel_window(
@@ -180,11 +211,27 @@ def write_panel_data(
         day,
         window_minutes=window_minutes,
         panel_name=panel_name,
+        asset=asset,
         df=df,
     )
 
 
 def _panel_path(
+    panel_data_root: Path,
+    day: date,
+    window_minutes: int,
+    *,
+    panel_name: Optional[str],
+    asset: str = DEFAULT_ASSET,
+) -> Path:
+    label = panel_name or make_window_label(window_minutes)
+    month = f"{day.year:04d}-{day.month:02d}"
+    filename = f"{day.strftime('%Y%m%d')}.parquet"
+    asset_name = _normalize_asset(asset)
+    return panel_data_root / "panels" / asset_name / label / month / filename
+
+
+def _legacy_panel_path(
     panel_data_root: Path,
     day: date,
     window_minutes: int,
@@ -197,6 +244,33 @@ def _panel_path(
     return panel_data_root / "panels" / label / month / filename
 
 
+def _panel_candidate_paths(
+    panel_data_root: Path,
+    day: date,
+    window_minutes: int,
+    *,
+    panel_name: Optional[str],
+    asset: str = DEFAULT_ASSET,
+) -> list[Path]:
+    asset_name = _normalize_asset(asset)
+    current = _panel_path(
+        panel_data_root,
+        day,
+        window_minutes,
+        panel_name=panel_name,
+        asset=asset_name,
+    )
+    if asset_name == DEFAULT_ASSET:
+        legacy = _legacy_panel_path(
+            panel_data_root,
+            day,
+            window_minutes,
+            panel_name=panel_name,
+        )
+        return [current, legacy]
+    return [current]
+
+
 def _panel_diag_path(
     panel_data_root: Path,
     *,
@@ -205,11 +279,14 @@ def _panel_diag_path(
     start: date,
     end: date,
     kind: str,
+    asset: str = DEFAULT_ASSET,
 ) -> Path:
     label = panel_name or make_window_label(window_minutes)
+    asset_name = _normalize_asset(asset)
     return (
         panel_data_root
         / "panels"
+        / asset_name
         / label
         / "_diagnostics"
         / f"{kind}_{start:%Y%m%d}_{end:%Y%m%d}.csv"
@@ -225,6 +302,7 @@ def _write_panel_diag_csv(
     end: date,
     kind: str,
     rows: list[dict],
+    asset: str = DEFAULT_ASSET,
 ) -> Optional[str]:
     if not rows:
         return None
@@ -235,6 +313,7 @@ def _write_panel_diag_csv(
         start=start,
         end=end,
         kind=kind,
+        asset=asset,
     )
     path.parent.mkdir(parents=True, exist_ok=True)
     pd.DataFrame(rows).to_csv(path, index=False)
@@ -259,6 +338,7 @@ def build_snapshot_sequence_panels(
     *,
     window_minutes: int = 15,
     panel_name: Optional[str] = None,
+    asset: str = DEFAULT_ASSET,
     overwrite: bool = False,
     count_points: int = 3000,
     max_lookback_days: int = 3,
@@ -268,6 +348,7 @@ def build_snapshot_sequence_panels(
     result = PanelBuildResult()
     cleaned_data_root = Path(cleaned_data_root)
     panel_data_root = Path(panel_data_root)
+    asset_name = _normalize_asset(asset)
     diag_rows: list[dict] = []
 
     if count_points <= 0:
@@ -275,7 +356,13 @@ def build_snapshot_sequence_panels(
     if max_lookback_days <= 0:
         raise ValueError("max_lookback_days must be > 0")
 
-    trading_days = list_trading_days_from_raw(raw_data_root, start, end, kind="snapshot")
+    trading_days = list_trading_days_from_raw(
+        raw_data_root,
+        start,
+        end,
+        kind="snapshot",
+        asset=asset_name,
+    )
     for idx, day in enumerate(
         progress(
             trading_days,
@@ -284,7 +371,13 @@ def build_snapshot_sequence_panels(
             total=len(trading_days),
         )
     ):
-        dst = _panel_path(panel_data_root, day, window_minutes, panel_name=panel_name)
+        dst = _panel_path(
+            panel_data_root,
+            day,
+            window_minutes,
+            panel_name=panel_name,
+            asset=asset_name,
+        )
         if dst.exists() and not overwrite:
             result.skipped += 1
             diag_rows.append(
@@ -297,7 +390,7 @@ def build_snapshot_sequence_panels(
             )
             continue
         lookback_days = trading_days[max(0, idx - max_lookback_days + 1): idx + 1]
-        snapshot_df = _read_snapshot_days(cleaned_data_root, lookback_days)
+        snapshot_df = _read_snapshot_days(cleaned_data_root, lookback_days, asset=asset_name)
         if snapshot_df.empty:
             diag_rows.append(
                 {
@@ -305,6 +398,7 @@ def build_snapshot_sequence_panels(
                     "status": "skip",
                     "reason": "missing_snapshot",
                     "lookback_days": ",".join(str(d) for d in lookback_days),
+                    "asset": asset_name,
                 }
             )
             continue
@@ -324,6 +418,7 @@ def build_snapshot_sequence_panels(
                     "status": "skip",
                     "reason": "panel_empty",
                     "lookback_days": ",".join(str(d) for d in lookback_days),
+                    "asset": asset_name,
                 }
             )
             continue
@@ -336,6 +431,7 @@ def build_snapshot_sequence_panels(
                 "status": "ok",
                 "reason": "",
                 "lookback_days": ",".join(str(d) for d in lookback_days),
+                "asset": asset_name,
             }
         )
     result.diagnostics_rows = len(diag_rows)
@@ -350,20 +446,35 @@ def build_snapshot_sequence_panels(
         end=end,
         kind="panel_build",
         rows=diag_rows,
+        asset=asset_name,
     )
     return result
 
 
-def _snapshot_day_paths(cleaned_data_root: Path, day: date) -> list[Path]:
+def _snapshot_day_paths(
+    cleaned_data_root: Path,
+    day: date,
+    *,
+    asset: str = DEFAULT_ASSET,
+) -> list[Path]:
     month = f"{day.year:04d}-{day.month:02d}"
     filename = f"{day.strftime('%Y%m%d')}.parquet"
-    return [root / month / filename for root in _snapshot_roots(cleaned_data_root)]
+    return [
+        root / month / filename
+        for root in _snapshot_roots(cleaned_data_root, asset=_normalize_asset(asset))
+    ]
 
 
-def _read_snapshot_range(cleaned_data_root: Path, start: date, end: date) -> pd.DataFrame:
+def _read_snapshot_range(
+    cleaned_data_root: Path,
+    start: date,
+    end: date,
+    *,
+    asset: str = DEFAULT_ASSET,
+) -> pd.DataFrame:
     frames: list[pd.DataFrame] = []
     for day in _iter_dates(start, end):
-        df = _read_snapshot_day(cleaned_data_root, day)
+        df = _read_snapshot_day(cleaned_data_root, day, asset=asset)
         if not df.empty:
             frames.append(df)
     if not frames:
@@ -371,10 +482,15 @@ def _read_snapshot_range(cleaned_data_root: Path, start: date, end: date) -> pd.
     return pd.concat(frames, ignore_index=True)
 
 
-def _read_snapshot_days(cleaned_data_root: Path, days: list[date]) -> pd.DataFrame:
+def _read_snapshot_days(
+    cleaned_data_root: Path,
+    days: list[date],
+    *,
+    asset: str = DEFAULT_ASSET,
+) -> pd.DataFrame:
     frames: list[pd.DataFrame] = []
     for day in days:
-        df = _read_snapshot_day(cleaned_data_root, day)
+        df = _read_snapshot_day(cleaned_data_root, day, asset=asset)
         if not df.empty:
             frames.append(df)
     if not frames:
@@ -382,8 +498,13 @@ def _read_snapshot_days(cleaned_data_root: Path, days: list[date]) -> pd.DataFra
     return pd.concat(frames, ignore_index=True)
 
 
-def _read_snapshot_day(cleaned_data_root: Path, day: date) -> pd.DataFrame:
-    for path in _snapshot_day_paths(cleaned_data_root, day):
+def _read_snapshot_day(
+    cleaned_data_root: Path,
+    day: date,
+    *,
+    asset: str = DEFAULT_ASSET,
+) -> pd.DataFrame:
+    for path in _snapshot_day_paths(cleaned_data_root, day, asset=asset):
         if path.exists():
             return pd.read_parquet(path)
     return pd.DataFrame()
@@ -467,6 +588,7 @@ def build_panels_with_labels(
     *,
     window_minutes: int = 15,
     panel_name: Optional[str] = None,
+    asset: str = DEFAULT_ASSET,
     overwrite: bool = False,
     panel_mode: str = "snapshot_sequence",
     count_points: int = 3000,
@@ -480,9 +602,16 @@ def build_panels_with_labels(
     cleaned_data_root = Path(cleaned_data_root)
     panel_data_root = Path(panel_data_root)
     label_data_root = Path(label_data_root)
+    asset_name = _normalize_asset(asset)
     diag_rows: list[dict] = []
 
-    trading_days = list_trading_days_from_raw(raw_data_root, start, end, kind="snapshot")
+    trading_days = list_trading_days_from_raw(
+        raw_data_root,
+        start,
+        end,
+        kind="snapshot",
+        asset=asset_name,
+    )
     for idx, day in enumerate(
         progress(
             trading_days,
@@ -501,7 +630,13 @@ def build_panels_with_labels(
             "label_reason": "",
             "label_rows": "",
         }
-        dst = _panel_path(panel_data_root, day, window_minutes, panel_name=panel_name)
+        dst = _panel_path(
+            panel_data_root,
+            day,
+            window_minutes,
+            panel_name=panel_name,
+            asset=asset_name,
+        )
         snapshot_df = pd.DataFrame()
         if dst.exists() and not overwrite:
             result.skipped += 1
@@ -509,10 +644,11 @@ def build_panels_with_labels(
             row["panel_reason"] = "exists"
         else:
             lookback_days = trading_days[max(0, idx - max_lookback_days + 1): idx + 1]
-            snapshot_df = _read_snapshot_days(cleaned_data_root, lookback_days)
+            snapshot_df = _read_snapshot_days(cleaned_data_root, lookback_days, asset=asset_name)
             if snapshot_df.empty:
                 row["panel_status"] = "skip"
                 row["panel_reason"] = "missing_snapshot"
+                row["asset"] = asset_name
                 diag_rows.append(row)
                 continue
             panel_df = _build_day_snapshot_sequence(
@@ -527,6 +663,7 @@ def build_panels_with_labels(
             if panel_df is None or panel_df.empty:
                 row["panel_status"] = "skip"
                 row["panel_reason"] = "panel_empty"
+                row["asset"] = asset_name
                 diag_rows.append(row)
                 continue
             dst.parent.mkdir(parents=True, exist_ok=True)
@@ -538,12 +675,16 @@ def build_panels_with_labels(
         # Enforce causal cutoff when label_end is provided.
         if label_end is None or day <= label_end:
             if snapshot_df.empty:
-                day_df = _read_snapshot_day(cleaned_data_root, day)
+                day_df = _read_snapshot_day(cleaned_data_root, day, asset=asset_name)
             else:
                 day_df = snapshot_df.copy()
                 if "trade_time" in day_df.columns:
                     day_df = day_df[day_df["trade_time"].dt.date == day]
-            next_df = _read_snapshot_day(cleaned_data_root, next_day) if next_day else pd.DataFrame()
+            next_df = (
+                _read_snapshot_day(cleaned_data_root, next_day, asset=asset_name)
+                if next_day
+                else pd.DataFrame()
+            )
             labels = _build_day_labels_twap(
                 day_df,
                 next_df,
@@ -568,6 +709,7 @@ def build_panels_with_labels(
         if not row["panel_status"]:
             row["panel_status"] = "skip"
             row["panel_reason"] = "unknown"
+        row["asset"] = asset_name
         diag_rows.append(row)
     result.diagnostics_rows = len(diag_rows)
     result.missing_snapshot_days = int(
@@ -581,6 +723,7 @@ def build_panels_with_labels(
         end=end,
         kind="panel_labels_build",
         rows=diag_rows,
+        asset=asset_name,
     )
     return result
 
@@ -595,14 +738,25 @@ def build_labels_for_day(
     *,
     mode: str = "overwrite",
     max_lookahead_days: int = 7,
+    asset: str = DEFAULT_ASSET,
 ) -> bool:
     cleaned_data_root = Path(cleaned_data_root)
     label_data_root = Path(label_data_root)
-    snapshot_df = _read_snapshot_day(cleaned_data_root, day)
+    asset_name = _normalize_asset(asset)
+    snapshot_df = _read_snapshot_day(cleaned_data_root, day, asset=asset_name)
     if snapshot_df.empty:
         return False
-    next_day = _find_next_snapshot_day(cleaned_data_root, day, max_lookahead_days=max_lookahead_days)
-    next_df = _read_snapshot_day(cleaned_data_root, next_day) if next_day else pd.DataFrame()
+    next_day = _find_next_snapshot_day(
+        cleaned_data_root,
+        day,
+        max_lookahead_days=max_lookahead_days,
+        asset=asset_name,
+    )
+    next_df = (
+        _read_snapshot_day(cleaned_data_root, next_day, asset=asset_name)
+        if next_day
+        else pd.DataFrame()
+    )
     labels = _build_day_labels_twap(
         snapshot_df,
         next_df,
@@ -738,10 +892,19 @@ def _parse_hhmm(value: str) -> time:
     return time(int(parts[0]), int(parts[1]))
 
 
-def _find_next_snapshot_day(cleaned_data_root: Path, day: date, *, max_lookahead_days: int = 7) -> date | None:
+def _find_next_snapshot_day(
+    cleaned_data_root: Path,
+    day: date,
+    *,
+    max_lookahead_days: int = 7,
+    asset: str = DEFAULT_ASSET,
+) -> date | None:
     for i in range(1, max(1, int(max_lookahead_days)) + 1):
         candidate = day + pd.Timedelta(days=i)
-        if any(path.exists() for path in _snapshot_day_paths(cleaned_data_root, candidate)):
+        if any(
+            path.exists()
+            for path in _snapshot_day_paths(cleaned_data_root, candidate, asset=asset)
+        ):
             return candidate
     return None
 

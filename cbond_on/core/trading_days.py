@@ -14,6 +14,7 @@ def list_trading_days_from_raw(
     end: date,
     *,
     kind: str = "snapshot",
+    asset: str = "cbond",
 ) -> List[date]:
     root = Path(raw_data_root)
     cal_days = _list_trading_days_from_calendar(root, start, end)
@@ -23,7 +24,7 @@ def list_trading_days_from_raw(
     # Fallback to file presence when calendar is missing/incomplete.
     days: list[date] = []
     for day in _iter_dates(start, end):
-        if _raw_path(root, day, kind=kind).exists():
+        if _raw_path(root, day, kind=kind, asset=asset).exists():
             days.append(day)
     return days
 
@@ -54,12 +55,15 @@ def _iter_dates(start: date, end: date) -> Iterable[date]:
         current = current + pd.Timedelta(days=1)
 
 
-def _raw_path(raw_data_root: Path, day: date, *, kind: str) -> Path:
+def _raw_path(raw_data_root: Path, day: date, *, kind: str, asset: str = "cbond") -> Path:
     month = f"{day.year:04d}-{day.month:02d}"
+    asset_name = str(asset or "cbond").strip().lower()
+    if not asset_name:
+        asset_name = "cbond"
     if kind == "snapshot":
         filename = f"{day.strftime('%Y%m%d')}.parquet"
-        return raw_data_root / "snapshot" / "cbond" / "raw_data" / month / filename
+        return raw_data_root / "snapshot" / asset_name / "raw_data" / month / filename
     if kind == "kline":
         filename = f"{day.strftime('%Y-%m-%d')}.parquet"
-        return raw_data_root / "kline" / "cbond" / "from_snapshot" / month / filename
+        return raw_data_root / "kline" / asset_name / "from_snapshot" / month / filename
     raise ValueError(f"unknown raw kind: {kind}")
