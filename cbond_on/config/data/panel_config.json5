@@ -1,9 +1,9 @@
 {
   start: "2025-06-01",
-  end: "2026-03-03",
+  end: "2026-03-24",
   panel_mode: "snapshot_sequence",
   assets: ["cbond", "stock"],
-  window_minutes: [15],
+  workers: 6,
   lead_minutes: 0,
   refresh: false,
   overwrite: false,
@@ -16,15 +16,12 @@
   },
   snapshot: {
     price_field: "last",
-    filter_trading_phase: true,
-    allowed_phases: ["T", "T0"],
     drop_no_trade: true,
     use_prev_snapshot: true,
     twap_method: "time",
   },
   panel_name: "T1430",
   count_points: 5000,
-  max_lookback_days: 30,
+  max_lookback_days: 2,
   snapshot_columns: null
 }
-

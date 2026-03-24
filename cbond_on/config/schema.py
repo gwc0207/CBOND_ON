@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -12,8 +12,6 @@ import pandas as pd
 @dataclass
 class SnapshotConfig:
     price_field: str = "last"
-    filter_trading_phase: bool = True
-    allowed_phases: List[str] = field(default_factory=lambda: ["T"])
     drop_no_trade: bool = True
     use_prev_snapshot: bool = True
     twap_method: str = "time"
@@ -22,8 +20,6 @@ class SnapshotConfig:
     def from_dict(cls, data: Dict[str, Any]) -> "SnapshotConfig":
         return cls(
             price_field=data.get("price_field", "last"),
-            filter_trading_phase=data.get("filter_trading_phase", True),
-            allowed_phases=data.get("allowed_phases", ["T"]),
             drop_no_trade=data.get("drop_no_trade", True),
             use_prev_snapshot=data.get("use_prev_snapshot", True),
             twap_method=data.get("twap_method", "time"),

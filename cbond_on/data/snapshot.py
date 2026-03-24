@@ -11,8 +11,6 @@ import pandas as pd
 @dataclass
 class SnapshotConfig:
     price_field: str = "last"
-    filter_trading_phase: bool = True
-    allowed_phases: list[str] | None = None
     drop_no_trade: bool = True
     use_prev_snapshot: bool = True
 
@@ -41,11 +39,6 @@ def read_snapshot_day(
     ):
         df = df.copy()
         df["trade_time"] = pd.to_datetime(df["trade_time"])
-
-    if cfg.filter_trading_phase and "trading_phase_code" in df.columns:
-        allowed = set(cfg.allowed_phases or [])
-        if allowed:
-            df = df[df["trading_phase_code"].isin(allowed)]
 
     if "code" in df.columns and "trade_time" in df.columns:
         df = df.sort_values(["code", "trade_time"])

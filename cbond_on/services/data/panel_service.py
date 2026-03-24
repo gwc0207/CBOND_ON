@@ -41,6 +41,7 @@ def run(
     panel_mode = str(panel_cfg.get("panel_mode", "snapshot_sequence"))
     count_points = int(panel_cfg.get("count_points", 3000))
     max_lookback_days = int(panel_cfg.get("max_lookback_days", 3))
+    workers = int(panel_cfg.get("workers", 1))
     snapshot_columns = panel_cfg.get("snapshot_columns")
     lead_minutes = int(panel_cfg.get("lead_minutes", 0))
     clean_root = paths_cfg.get("cleaned_data_root") or paths_cfg.get("clean_data_root")
@@ -71,6 +72,7 @@ def run(
                 panel_mode=panel_mode,
                 count_points=count_points,
                 max_lookback_days=max_lookback_days,
+                workers=workers,
                 snapshot_columns=snapshot_columns,
                 lead_minutes=lead_minutes,
             )
@@ -97,6 +99,7 @@ def run(
         "diagnostics_rows": diagnostics_rows,
         "missing_snapshot_days": missing_snapshot_days,
         "assets": assets,
+        "workers": workers,
         "by_asset": by_asset,
     }
 

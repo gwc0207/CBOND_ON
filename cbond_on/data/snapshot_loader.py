@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, time
@@ -31,9 +31,9 @@ def pick_twap_column(df: pd.DataFrame) -> Optional[str]:
 
 class SnapshotLoader:
     """
-    ä½¿ç¨ snapshot æ°æ®çææ¥åæ¢ä»çªå£çé¢æ¿æ°æ®ï¼
+    盲陆驴莽聰篓 snapshot 忙聲掳忙聧庐莽聰聼忙聢聬忙聴楼氓聠聟忙聧垄盲禄聯莽陋聴氓聫拢莽職聞茅聺垄忙聺驴忙聲掳忙聧庐茂录職
     index = (dt, code)
-    columns åå« signal_* ä¸?window_* å­æ®µï¼ä»¥å?twapã?
+    columns 氓聦聟氓聬芦 signal_* 盲赂?window_* 氓颅聴忙庐碌茂录聦盲禄楼氓聫?twap茫聙?
     """
 
     def __init__(
@@ -94,13 +94,13 @@ class SnapshotLoader:
             if post is None or post.empty:
                 continue
 
-            # ä½¿ç¨ left joinï¼å³ä½¿çªå£åæ²¡ææäº¤ï¼æ  TWAPï¼ï¼ä¹ä¿ç?signal_* ç¨äºä¼°å¼ï¼
-            # é¿åå¨åä¼?ä½æµå¨æ§çªå£åºç°æä»è¢«âä¼°å¼ä¸º 0âçæ­å´å¼è·³åã?
+            # 盲陆驴莽聰篓 left join茂录職氓聧鲁盲陆驴莽陋聴氓聫拢氓聠聟忙虏隆忙聹聣忙聢聬盲潞陇茂录聢忙聴聽 TWAP茂录聣茂录聦盲鹿聼盲驴聺莽聲?signal_* 莽聰篓盲潞聨盲录掳氓聙录茂录聦
+            # 茅聛驴氓聟聧氓聹篓氓聧聢盲录?盲陆聨忙碌聛氓聤篓忙聙搂莽陋聴氓聫拢氓聡潞莽聨掳忙聦聛盲禄聯猫垄芦芒聙聹盲录掳氓聙录盲赂潞 0芒聙聺莽職聞忙聳颅氓麓聳氓录聫猫路鲁氓聫聵茫聙?
             merged = signal.join(twap, how="left").join(post, how="left")
             twap_col = twap.columns[0]
             if self.config.drop_no_trade:
-                # é»è®¤âåé¤æ æäº¤âè§£éä¸ºï¼æ æäº¤æ¶ä¸åè®¸ç¨äºéå¸/æäº¤ï¼ç½® twap ä¸?NAï¼ï¼
-                # ä½ä¿ç?signal_*ï¼ç¨äºæä»ä¼°å¼ä¸å ææ§æ£æ¥ã?
+                # 茅禄聵猫庐陇芒聙聹氓聣聰茅聶陇忙聴聽忙聢聬盲潞陇芒聙聺猫搂拢茅聡聤盲赂潞茂录職忙聴聽忙聢聬盲潞陇忙聴露盲赂聧氓聟聛猫庐赂莽聰篓盲潞聨茅聙聣氓聢赂/忙聢聬盲潞陇茂录聢莽陆庐 twap 盲赂?NA茂录聣茂录聦
+                # 盲陆聠盲驴聺莽聲?signal_*茂录聦莽聰篓盲潞聨忙聦聛盲禄聯盲录掳氓聙录盲赂聨氓聸聽忙聻聹忙聙搂忙拢聙忙聼楼茫聙?
                 volume_col = "window_volume"
                 amount_col = "window_amount"
                 if amount_col in merged.columns:
@@ -111,9 +111,9 @@ class SnapshotLoader:
             if merged.empty:
                 continue
 
-            # merged ç?index æ?codeï¼å° dt ä½ä¸ºå¦ä¸å±?indexï¼å¾å?(dt, code)
+            # merged 莽職?index 忙聵?code茂录聸氓掳聠 dt 盲陆聹盲赂潞氓聫娄盲赂聙氓卤?index茂录聦氓戮聴氓聢?(dt, code)
             merged = merged.copy()
-            # dt ä½¿ç¨èç¹æ¶é´ï¼çªå£å¼å§æ¶å»ï¼
+            # dt 盲陆驴莽聰篓猫聤聜莽聜鹿忙聴露茅聴麓茂录聢莽陋聴氓聫拢氓录聙氓搂聥忙聴露氓聢禄茂录聣
             merged["dt"] = pd.Timestamp(start_dt)
             merged = merged.set_index("dt", append=True)
             merged.index = merged.index.set_names(["code", "dt"])
@@ -140,12 +140,6 @@ class SnapshotLoader:
             df["trade_time"]
         ):
             df["trade_time"] = pd.to_datetime(df["trade_time"])
-
-        if self.config.filter_trading_phase and "trading_phase_code" in df.columns:
-            allowed = set(self.config.allowed_phases or [])
-            if allowed:
-                df = df[df["trading_phase_code"].isin(allowed)]
-
         df = df.sort_values(["code", "trade_time"])
         return df
 
@@ -194,7 +188,7 @@ class SnapshotLoader:
         window["delta_sec"] = window["delta_sec"].clip(lower=0.0)
 
         if self.config.twap_method != "time":
-            raise ValueError(f"æä¸æ¯æ twap_method={self.config.twap_method}")
+            raise ValueError(f"忙職聜盲赂聧忙聰炉忙聦聛 twap_method={self.config.twap_method}")
 
         weighted_sum = (
             (window[self.config.price_field] * window["delta_sec"])
@@ -204,7 +198,7 @@ class SnapshotLoader:
         weight = window["delta_sec"].groupby(window["code"], sort=False).sum()
         window_minutes = max(1, int(round(window_len / 60.0)))
         twap = (weighted_sum / weight).rename(f"twap_{window_minutes}")
-        # è¥çªå£åæ æææéï¼åè§ä¸ºæ å¯ç¨ TWAP
+        # 猫聥楼莽陋聴氓聫拢氓聠聟忙聴聽忙聹聣忙聲聢忙聺聝茅聡聧茂录聦氓聢聶猫搂聠盲赂潞忙聴聽氓聫炉莽聰篓 TWAP
         twap = twap.mask(weight <= 0)
 
         if self.twap_detail_enabled:
@@ -251,3 +245,4 @@ class SnapshotLoader:
                 last = last.rename(columns={col: new})
         keep_cols = ["code"] + [c for c in last.columns if c.startswith("post_")]
         return last[keep_cols].set_index("code")
+

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import date, datetime, time
 from pathlib import Path
@@ -24,6 +25,17 @@ class PanelBuildResult:
     diagnostics_rows: int = 0
     missing_snapshot_days: int = 0
     diagnostics_path: Optional[str] = None
+
+
+@dataclass
+class _PanelDayOutcome:
+    trade_date: date
+    status: str
+    reason: str
+    lookback_days: str
+    asset: str
+    wrote: int = 0
+    skipped: int = 0
 
 
 def _normalize_asset(asset: str | None) -> str:
@@ -155,6 +167,7 @@ def build_panel_data(
     max_lookback_days: int = 3,
     snapshot_columns: Optional[list[str]] = None,
     lead_minutes: int = 0,
+    workers: int = 1,
 ) -> PanelBuildResult:
     mode = str(panel_mode).lower()
     if mode != "snapshot_sequence":
@@ -175,6 +188,7 @@ def build_panel_data(
         max_lookback_days=int(max_lookback_days),
         snapshot_columns=snapshot_columns,
         lead_minutes=lead_minutes,
+        workers=int(workers),
     )
 
 
@@ -344,6 +358,7 @@ def build_snapshot_sequence_panels(
     max_lookback_days: int = 3,
     snapshot_columns: Optional[list[str]] = None,
     lead_minutes: int = 0,
+    workers: int = 1,
 ) -> PanelBuildResult:
     result = PanelBuildResult()
     cleaned_data_root = Path(cleaned_data_root)
@@ -363,77 +378,86 @@ def build_snapshot_sequence_panels(
         kind="snapshot",
         asset=asset_name,
     )
-    for idx, day in enumerate(
-        progress(
-            trading_days,
+    tasks: list[tuple[int, date, list[date]]] = []
+    for idx, day in enumerate(trading_days):
+        lookback_days = trading_days[max(0, idx - max_lookback_days + 1) : idx + 1]
+        tasks.append((idx, day, lookback_days))
+
+    worker_count = max(1, int(workers))
+    if worker_count <= 1 or len(tasks) <= 1:
+        for _, day, lookback_days in progress(
+            tasks,
             desc="build_panels",
             unit="day",
-            total=len(trading_days),
-        )
-    ):
-        dst = _panel_path(
-            panel_data_root,
-            day,
-            window_minutes,
-            panel_name=panel_name,
-            asset=asset_name,
-        )
-        if dst.exists() and not overwrite:
-            result.skipped += 1
+            total=len(tasks),
+        ):
+            outcome = _build_snapshot_sequence_day(
+                cleaned_data_root=cleaned_data_root,
+                panel_data_root=panel_data_root,
+                day=day,
+                lookback_days=lookback_days,
+                schedule=schedule,
+                snapshot_config=snapshot_config,
+                window_minutes=window_minutes,
+                panel_name=panel_name,
+                asset=asset_name,
+                overwrite=overwrite,
+                count_points=count_points,
+                snapshot_columns=snapshot_columns,
+                lead_minutes=lead_minutes,
+            )
+            result.written += int(outcome.wrote)
+            result.skipped += int(outcome.skipped)
             diag_rows.append(
                 {
-                    "trade_date": day,
-                    "status": "skip",
-                    "reason": "exists",
-                    "lookback_days": "",
+                    "trade_date": outcome.trade_date,
+                    "status": outcome.status,
+                    "reason": outcome.reason,
+                    "lookback_days": outcome.lookback_days,
+                    "asset": outcome.asset,
                 }
             )
-            continue
-        lookback_days = trading_days[max(0, idx - max_lookback_days + 1): idx + 1]
-        snapshot_df = _read_snapshot_days(cleaned_data_root, lookback_days, asset=asset_name)
-        if snapshot_df.empty:
-            diag_rows.append(
-                {
-                    "trade_date": day,
-                    "status": "skip",
-                    "reason": "missing_snapshot",
-                    "lookback_days": ",".join(str(d) for d in lookback_days),
-                    "asset": asset_name,
-                }
-            )
-            continue
-        panel_df = _build_day_snapshot_sequence(
-            snapshot_df,
-            day,
-            schedule,
-            snapshot_config,
-            count_points=count_points,
-            snapshot_columns=snapshot_columns,
-            lead_minutes=lead_minutes,
-        )
-        if panel_df is None or panel_df.empty:
-            diag_rows.append(
-                {
-                    "trade_date": day,
-                    "status": "skip",
-                    "reason": "panel_empty",
-                    "lookback_days": ",".join(str(d) for d in lookback_days),
-                    "asset": asset_name,
-                }
-            )
-            continue
-        dst.parent.mkdir(parents=True, exist_ok=True)
-        panel_df.to_parquet(dst, index=True)
-        result.written += 1
-        diag_rows.append(
-            {
-                "trade_date": day,
-                "status": "ok",
-                "reason": "",
-                "lookback_days": ",".join(str(d) for d in lookback_days),
-                "asset": asset_name,
+    else:
+        with ThreadPoolExecutor(max_workers=worker_count) as executor:
+            future_map = {
+                executor.submit(
+                    _build_snapshot_sequence_day,
+                    cleaned_data_root=cleaned_data_root,
+                    panel_data_root=panel_data_root,
+                    day=day,
+                    lookback_days=lookback_days,
+                    schedule=schedule,
+                    snapshot_config=snapshot_config,
+                    window_minutes=window_minutes,
+                    panel_name=panel_name,
+                    asset=asset_name,
+                    overwrite=overwrite,
+                    count_points=count_points,
+                    snapshot_columns=snapshot_columns,
+                    lead_minutes=lead_minutes,
+                ): (day, lookback_days)
+                for _, day, lookback_days in tasks
             }
-        )
+            for future in progress(
+                as_completed(future_map),
+                desc="build_panels",
+                unit="day",
+                total=len(future_map),
+            ):
+                outcome = future.result()
+                result.written += int(outcome.wrote)
+                result.skipped += int(outcome.skipped)
+                diag_rows.append(
+                    {
+                        "trade_date": outcome.trade_date,
+                        "status": outcome.status,
+                        "reason": outcome.reason,
+                        "lookback_days": outcome.lookback_days,
+                        "asset": outcome.asset,
+                    }
+                )
+
+    diag_rows.sort(key=lambda r: str(r.get("trade_date", "")))
     result.diagnostics_rows = len(diag_rows)
     result.missing_snapshot_days = int(
         sum(1 for r in diag_rows if r.get("reason") == "missing_snapshot")
@@ -449,6 +473,85 @@ def build_snapshot_sequence_panels(
         asset=asset_name,
     )
     return result
+
+
+def _build_snapshot_sequence_day(
+    *,
+    cleaned_data_root: Path,
+    panel_data_root: Path,
+    day: date,
+    lookback_days: list[date],
+    schedule: IntradaySchedule,
+    snapshot_config: SnapshotConfig,
+    window_minutes: int,
+    panel_name: Optional[str],
+    asset: str,
+    overwrite: bool,
+    count_points: int,
+    snapshot_columns: Optional[list[str]],
+    lead_minutes: int,
+) -> _PanelDayOutcome:
+    dst = _panel_path(
+        panel_data_root,
+        day,
+        window_minutes,
+        panel_name=panel_name,
+        asset=asset,
+    )
+    if dst.exists() and not overwrite:
+        return _PanelDayOutcome(
+            trade_date=day,
+            status="skip",
+            reason="exists",
+            lookback_days="",
+            asset=asset,
+            wrote=0,
+            skipped=1,
+        )
+
+    snapshot_df = _read_snapshot_days(cleaned_data_root, lookback_days, asset=asset)
+    if snapshot_df.empty:
+        return _PanelDayOutcome(
+            trade_date=day,
+            status="skip",
+            reason="missing_snapshot",
+            lookback_days=",".join(str(d) for d in lookback_days),
+            asset=asset,
+            wrote=0,
+            skipped=0,
+        )
+
+    panel_df = _build_day_snapshot_sequence(
+        snapshot_df,
+        day,
+        schedule,
+        snapshot_config,
+        count_points=count_points,
+        snapshot_columns=snapshot_columns,
+        lead_minutes=lead_minutes,
+    )
+    if panel_df is None or panel_df.empty:
+        return _PanelDayOutcome(
+            trade_date=day,
+            status="skip",
+            reason="panel_empty",
+            lookback_days=",".join(str(d) for d in lookback_days),
+            asset=asset,
+            wrote=0,
+            skipped=0,
+        )
+
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    panel_df.to_parquet(dst, index=True)
+    return _PanelDayOutcome(
+        trade_date=day,
+        status="ok",
+        reason="",
+        lookback_days=",".join(str(d) for d in lookback_days),
+        asset=asset,
+        wrote=1,
+        skipped=0,
+    )
 
 
 def _snapshot_day_paths(
@@ -529,10 +632,6 @@ def _build_day_snapshot_sequence(
         df = df.copy()
         df["trade_time"] = pd.to_datetime(df["trade_time"])
     df = _drop_lunch(df)
-    if snapshot_config.filter_trading_phase and "trading_phase_code" in df.columns:
-        allowed = set(snapshot_config.allowed_phases or [])
-        if allowed:
-            df = df[df["trading_phase_code"].isin(allowed)]
     if df.empty:
         return None
 
@@ -823,15 +922,6 @@ def _build_day_labels_twap(
 
     day_df = _drop_lunch(day_df)
     next_df = _drop_lunch(next_df)
-    if snapshot_cfg.filter_trading_phase and "trading_phase_code" in day_df.columns:
-        allowed = set(snapshot_cfg.allowed_phases or [])
-        if allowed:
-            day_df = day_df[day_df["trading_phase_code"].isin(allowed)]
-    if snapshot_cfg.filter_trading_phase and "trading_phase_code" in next_df.columns:
-        allowed = set(snapshot_cfg.allowed_phases or [])
-        if allowed:
-            next_df = next_df[next_df["trading_phase_code"].isin(allowed)]
-
     if day_df.empty or next_df.empty:
         return pd.DataFrame()
 

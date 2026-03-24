@@ -143,7 +143,6 @@ def run_intraday_factor_backtest(
     bin_top_k: int = 1,
     bin_lookback_days: int = 60,
     use_panel_filter: bool = False,
-    allowed_phases: Sequence[str] | None = None,
 ) -> FactorBacktestResult:
     rows = []
     kept_records: list[dict] = []
@@ -171,7 +170,6 @@ def run_intraday_factor_backtest(
                 day,
                 panel_name=factor_store.panel_name,
                 window_minutes=factor_store.window_minutes,
-                allowed_phases=allowed_phases,
             )
             if not tradable.empty:
                 universe = merged[["dt", "code"]].drop_duplicates()
@@ -392,7 +390,6 @@ def _build_tradable_flags(
     *,
     panel_name: str | None,
     window_minutes: int,
-    allowed_phases: Sequence[str] | None,
 ) -> pd.DataFrame:
     panel = read_panel_data(
         panel_root,
@@ -415,8 +412,6 @@ def _build_tradable_flags(
     panel = panel.sort_values(["dt", "code", "seq"])
     last_rows = panel.groupby(["dt", "code"], sort=False).tail(1)
     tradable = pd.Series(True, index=last_rows.index)
-    if "trading_phase_code" in last_rows.columns and allowed_phases:
-        tradable &= last_rows["trading_phase_code"].isin(set(allowed_phases))
     for col in ("last", "bid_price1", "ask_price1"):
         if col in last_rows.columns:
             tradable &= last_rows[col].notna() & (last_rows[col] > 0)
@@ -470,7 +465,6 @@ def run_factor_batch(
     bin_lookback_days = int(backtest_cfg.get("bin_lookback_days", 60))
     tradable_cfg = cfg.get("tradable_filter", {})
     use_panel_filter = bool(tradable_cfg.get("use_panel", False))
-    allowed_phases = tradable_cfg.get("allowed_phases")
     record_codes = bool(tradable_cfg.get("record_codes", True))
 
     backtest_enabled = bool(cfg.get("backtest_enabled", True))
@@ -495,7 +489,6 @@ def run_factor_batch(
             bin_top_k=bin_top_k,
             bin_lookback_days=bin_lookback_days,
             use_panel_filter=use_panel_filter,
-            allowed_phases=allowed_phases,
         )
         signal_dir = out_root / spec.name
         signal_dir.mkdir(parents=True, exist_ok=True)
