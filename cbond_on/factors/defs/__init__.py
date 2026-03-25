@@ -19,6 +19,16 @@ from cbond_on.factors.defs.microprice_bias import MicropriceBiasFactor
 from cbond_on.factors.defs.depth_slope import DepthSlopeFactor
 from cbond_on.factors.defs.return_skew import ReturnSkewFactor
 from cbond_on.factors.defs.vwap_gap import VwapGapFactor
+from cbond_on.factors.defs.order_flow_imbalance_v1 import OrderFlowImbalanceV1Factor
+from cbond_on.factors.defs.depth_weighted_imbalance_v1 import DepthWeightedImbalanceV1Factor
+from cbond_on.factors.defs.intraday_momentum_v1 import IntradayMomentumV1Factor
+from cbond_on.factors.defs.volatility_scaled_return_v1 import VolatilityScaledReturnV1Factor
+from cbond_on.factors.defs.volume_price_trend_v1 import VolumePriceTrendV1Factor
+from cbond_on.factors.defs.trade_intensity_v1 import TradeIntensityV1Factor
+from cbond_on.factors.defs.price_level_position_v1 import PriceLevelPositionV1Factor
+from cbond_on.factors.defs.bid_ask_spread_v1 import BidAskSpreadV1Factor
+from cbond_on.factors.defs.stock_bond_momentum_gap_v1 import StockBondMomentumGapV1Factor
+from cbond_on.factors.defs.premium_momentum_proxy_v1 import PremiumMomentumProxyV1Factor
 
 __all__ = [
     "AacbFactor",
@@ -42,4 +52,14 @@ __all__ = [
     "DepthSlopeFactor",
     "ReturnSkewFactor",
     "VwapGapFactor",
+    "OrderFlowImbalanceV1Factor",
+    "DepthWeightedImbalanceV1Factor",
+    "IntradayMomentumV1Factor",
+    "VolatilityScaledReturnV1Factor",
+    "VolumePriceTrendV1Factor",
+    "TradeIntensityV1Factor",
+    "PriceLevelPositionV1Factor",
+    "BidAskSpreadV1Factor",
+    "StockBondMomentumGapV1Factor",
+    "PremiumMomentumProxyV1Factor",
 ]

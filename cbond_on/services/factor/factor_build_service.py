@@ -25,20 +25,27 @@ def run(
     overwrite_val = bool(factor_cfg.get("overwrite", False) if overwrite is None else overwrite)
     if refresh_val:
         overwrite_val = True
+    panel_name = str(factor_cfg.get("panel_name", "")).strip()
+    if not panel_name:
+        raise ValueError("factor_config.panel_name is required; window_minutes fallback is disabled")
+    workers = int(factor_cfg.get("workers", 1))
 
     result = run_factor_pipeline(
         paths_cfg["panel_data_root"],
         paths_cfg["factor_data_root"],
         start_day,
         end_day,
-        window_minutes=int(factor_cfg.get("window_minutes", 15)),
-        panel_name=factor_cfg.get("panel_name"),
+        panel_name=panel_name,
         overwrite=overwrite_val,
+        workers=workers,
+        raw_data_root=paths_cfg.get("raw_data_root"),
+        context_cfg=factor_cfg.get("context"),
         specs=build_signal_specs(factor_cfg),
     )
     return {
         "start": start_day,
         "end": end_day,
+        "workers": workers,
         "written": int(result.written),
         "skipped": int(result.skipped),
     }

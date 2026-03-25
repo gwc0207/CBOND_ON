@@ -7,17 +7,15 @@ import sys
 import time
 import traceback
 from contextlib import redirect_stderr, redirect_stdout
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from pathlib import Path
-
-import pandas as pd
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from cbond_on.core.config import load_config_file, parse_time
-from cbond_on.data.io import read_trading_calendar
+from cbond_on.core.trading_days import next_trading_days_from_raw
 from cbond_on.services.live.live_service import run_once
 
 WIN_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
@@ -37,16 +35,15 @@ def _day_logs_dir(live_root: Path, day: date) -> Path:
 
 
 def _next_trading_day(raw_root: str, run_day: date) -> date:
-    cal = read_trading_calendar(raw_root)
-    if cal.empty or "calendar_date" not in cal.columns:
-        return run_day + timedelta(days=1)
-    work = cal.copy()
-    work["calendar_date"] = pd.to_datetime(work["calendar_date"], errors="coerce").dt.date
-    if "is_open" in work.columns:
-        work = work[work["is_open"].astype(bool)]
-    days = sorted(d for d in work["calendar_date"].dropna().unique().tolist() if d > run_day)
+    days = next_trading_days_from_raw(
+        raw_root,
+        run_day,
+        1,
+        kind="snapshot",
+        asset="cbond",
+    )
     if not days:
-        return run_day + timedelta(days=1)
+        raise ValueError(f"cannot resolve next trading day after {run_day}")
     return days[0]
 
 
@@ -254,6 +251,8 @@ def main() -> None:
         _write_json(state_path, done)
         _append_heartbeat_log(live_root, now_done, done["status"], today, target)
         hb_last_emit["running_live"] = now_done
+        if rc != 0:
+            raise SystemExit(1)
         time.sleep(10)
 
 

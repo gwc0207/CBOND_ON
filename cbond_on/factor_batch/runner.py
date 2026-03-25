@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+import shutil
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import date, datetime, time as dt_time
 from pathlib import Path
@@ -7,11 +10,12 @@ from typing import Iterable, Sequence
 
 import pandas as pd
 
+from cbond_on.core.trading_days import list_trading_days_from_raw
 from cbond_on.core.utils import progress
-from cbond_on.data.panel import read_panel_data
 from cbond_on.factors.pipeline import run_factor_pipeline
 from cbond_on.factors.spec import FactorSpec, build_factor_col
 from cbond_on.factors.storage import FactorStore
+from cbond_on.report.factor_report import save_single_factor_report
 
 
 @dataclass
@@ -22,6 +26,13 @@ class FactorBacktestResult:
     rank_ic: pd.Series
     bin_returns: pd.DataFrame
     daily_stats: pd.DataFrame
+
+
+@dataclass
+class _BacktestDayPrepared:
+    trade_day: date
+    reason: str
+    merged: pd.DataFrame | None = None
 
 
 def build_signal_specs(cfg: dict) -> list[FactorSpec]:
@@ -36,13 +47,6 @@ def build_signal_specs(cfg: dict) -> list[FactorSpec]:
             )
         )
     return specs
-
-
-def _iter_dates(start: date, end: date) -> Iterable[date]:
-    current = start
-    while current <= end:
-        yield current
-        current = current + pd.Timedelta(days=1)
 
 
 def _read_label_day(label_root: Path, day: date, *, factor_time: str, label_time: str) -> pd.DataFrame:
@@ -79,14 +83,44 @@ def _read_label_day(label_root: Path, day: date, *, factor_time: str, label_time
 
 
 def _iter_existing_label_days(label_root: Path, start: date, end: date) -> Iterable[date]:
-    current = start
-    while current <= end:
-        month = f"{current.year:04d}-{current.month:02d}"
-        filename = f"{current.strftime('%Y%m%d')}.parquet"
-        path = label_root / month / filename
-        if path.exists():
-            yield current
-        current = current + pd.Timedelta(days=1)
+    seen: set[date] = set()
+    for path in label_root.rglob("*.parquet"):
+        stem = path.stem
+        if len(stem) != 8 or not stem.isdigit():
+            continue
+        try:
+            day = datetime.strptime(stem, "%Y%m%d").date()
+        except Exception:
+            continue
+        if start <= day <= end:
+            seen.add(day)
+    for day in sorted(seen):
+        yield day
+
+
+def _prepare_backtest_day(
+    *,
+    day: date,
+    factor_store: FactorStore,
+    label_root: Path,
+    factor_col: str,
+    factor_time: str,
+    label_time: str,
+) -> _BacktestDayPrepared:
+    factor_df = factor_store.read_day(day)
+    if factor_df.empty or factor_col not in factor_df.columns:
+        return _BacktestDayPrepared(trade_day=day, reason="missing_factor")
+
+    label_df = _read_label_day(label_root, day, factor_time=factor_time, label_time=label_time)
+    if label_df.empty:
+        return _BacktestDayPrepared(trade_day=day, reason="missing_label")
+
+    factor_df = factor_df.reset_index()
+    merged = factor_df.merge(label_df, on=["dt", "code"], how="inner")
+    merged = merged[[factor_col, "y", "dt", "code"]].dropna()
+    if merged.empty:
+        return _BacktestDayPrepared(trade_day=day, reason="merged_empty")
+    return _BacktestDayPrepared(trade_day=day, reason="", merged=merged)
 
 
 def _select_bins_by_mean_return_intraday(
@@ -128,7 +162,6 @@ def _select_bins_by_mean_return_intraday(
 def run_intraday_factor_backtest(
     factor_store: FactorStore,
     label_root: Path,
-    panel_root: Path,
     start: date,
     end: date,
     *,
@@ -142,49 +175,61 @@ def run_intraday_factor_backtest(
     bin_source: str = "manual",
     bin_top_k: int = 1,
     bin_lookback_days: int = 60,
-    use_panel_filter: bool = False,
+    workers: int = 1,
 ) -> FactorBacktestResult:
     rows = []
-    kept_records: list[dict] = []
-    filtered_records: list[dict] = []
     diagnostics: list[dict] = []
     days = list(_iter_existing_label_days(label_root, start, end))
-    for day in progress(days, desc="factor_backtest", unit="day", total=len(days)):
-        factor_df = factor_store.read_day(day)
-        if factor_df.empty or factor_col not in factor_df.columns:
-            diagnostics.append({"trade_date": day, "status": "skip", "reason": "missing_factor"})
-            continue
-        label_df = _read_label_day(label_root, day, factor_time=factor_time, label_time=label_time)
-        if label_df.empty:
-            diagnostics.append({"trade_date": day, "status": "skip", "reason": "missing_label"})
-            continue
-        factor_df = factor_df.reset_index()
-        merged = factor_df.merge(label_df, on=["dt", "code"], how="inner")
-        merged = merged[[factor_col, "y", "dt", "code"]].dropna()
-        if merged.empty:
-            diagnostics.append({"trade_date": day, "status": "skip", "reason": "merged_empty"})
-            continue
-        if use_panel_filter:
-            tradable = _build_tradable_flags(
-                panel_root,
-                day,
-                panel_name=factor_store.panel_name,
-                window_minutes=factor_store.window_minutes,
+    workers = max(1, int(workers))
+    if workers <= 1:
+        for day in progress(days, desc="factor_backtest", unit="day", total=len(days)):
+            prepared = _prepare_backtest_day(
+                day=day,
+                factor_store=factor_store,
+                label_root=label_root,
+                factor_col=factor_col,
+                factor_time=factor_time,
+                label_time=label_time,
             )
-            if not tradable.empty:
-                universe = merged[["dt", "code"]].drop_duplicates()
-                merged = merged.merge(tradable, on=["dt", "code"], how="inner")
-                merged = merged[merged["tradable"]]
-                kept = merged[["dt", "code"]].drop_duplicates()
-                filtered = universe.merge(kept, on=["dt", "code"], how="left", indicator=True)
-                filtered = filtered[filtered["_merge"] == "left_only"][["dt", "code"]]
-                kept_records.extend(kept.to_dict("records"))
-                filtered_records.extend(filtered.to_dict("records"))
-                if merged.empty:
-                    diagnostics.append({"trade_date": day, "status": "skip", "reason": "no_tradable"})
+            if prepared.merged is None:
+                diagnostics.append({"trade_date": day, "status": "skip", "reason": prepared.reason})
+                continue
+            diagnostics.append({"trade_date": day, "status": "ok", "count": len(prepared.merged)})
+            rows.append(prepared.merged)
+    else:
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            future_to_day = {
+                executor.submit(
+                    _prepare_backtest_day,
+                    day=day,
+                    factor_store=factor_store,
+                    label_root=label_root,
+                    factor_col=factor_col,
+                    factor_time=factor_time,
+                    label_time=label_time,
+                ): day
+                for day in days
+            }
+            for future in progress(
+                as_completed(future_to_day),
+                desc="factor_backtest",
+                unit="day",
+                total=len(future_to_day),
+            ):
+                day = future_to_day[future]
+                try:
+                    prepared = future.result()
+                except Exception as exc:
+                    raise RuntimeError(f"factor_backtest failed on {day}") from exc
+                if prepared.merged is None:
+                    diagnostics.append(
+                        {"trade_date": prepared.trade_day, "status": "skip", "reason": prepared.reason}
+                    )
                     continue
-        diagnostics.append({"trade_date": day, "status": "ok", "count": len(merged)})
-        rows.append(merged)
+                diagnostics.append(
+                    {"trade_date": prepared.trade_day, "status": "ok", "count": len(prepared.merged)}
+                )
+                rows.append(prepared.merged)
     if not rows:
         empty = pd.Series(dtype=float)
         result = FactorBacktestResult(empty, empty, empty, empty, pd.DataFrame(), pd.DataFrame())
@@ -376,48 +421,128 @@ def run_intraday_factor_backtest(
         bin_returns=bin_returns,
         daily_stats=daily_stats,
     )
-    result.kept_records = kept_records  # type: ignore[attr-defined]
-    result.filtered_records = filtered_records  # type: ignore[attr-defined]
     result.diagnostics = pd.DataFrame(diagnostics)  # type: ignore[attr-defined]
     result.bin_ok = len(bin_rows)  # type: ignore[attr-defined]
     result.bin_fail = bin_fail  # type: ignore[attr-defined]
     return result
 
 
-def _build_tradable_flags(
-    panel_root: Path,
-    day: date,
+def _load_screening_config(cfg: dict) -> dict:
+    raw = cfg.get("screening", {})
+    if not isinstance(raw, dict):
+        raw = {}
+    return {
+        "enabled": bool(raw.get("enabled", False)),
+        "ic_metric": str(raw.get("ic_metric", "rank_ic_mean")),
+        "ir_metric": str(raw.get("ir_metric", "rank_ic_ir")),
+        "ic_abs_min": float(raw.get("ic_abs_min", 0.0)),
+        "ir_abs_min": float(raw.get("ir_abs_min", 0.0)),
+        "sharpe_min": float(raw.get("sharpe_min", 0.1)),
+        "copy_reports": bool(raw.get("copy_reports", True)),
+    }
+
+
+def _to_float(value: object) -> float:
+    try:
+        return float(value)
+    except Exception:
+        return float("nan")
+
+
+def _build_screening_row(
     *,
-    panel_name: str | None,
-    window_minutes: int,
-) -> pd.DataFrame:
-    panel = read_panel_data(
-        panel_root,
-        day,
-        window_minutes=window_minutes,
-        panel_name=panel_name,
-        columns=[
-            "trade_time",
-            "code",
-            "seq",
-            "last",
-            "bid_price1",
-            "ask_price1",
-            "trading_phase_code",
-        ],
-    ).data
-    if panel is None or panel.empty:
-        return pd.DataFrame()
-    panel = panel.reset_index()
-    panel = panel.sort_values(["dt", "code", "seq"])
-    last_rows = panel.groupby(["dt", "code"], sort=False).tail(1)
-    tradable = pd.Series(True, index=last_rows.index)
-    for col in ("last", "bid_price1", "ask_price1"):
-        if col in last_rows.columns:
-            tradable &= last_rows[col].notna() & (last_rows[col] > 0)
-    out = last_rows.loc[tradable, ["dt", "code"]].copy()
-    out["tradable"] = True
-    return out
+    factor_name: str,
+    factor_col: str,
+    summary: dict,
+    screening_cfg: dict,
+) -> dict:
+    ic_metric = screening_cfg["ic_metric"]
+    ir_metric = screening_cfg["ir_metric"]
+    ic_val = _to_float(summary.get(ic_metric))
+    ir_val = _to_float(summary.get(ir_metric))
+    sharpe = _to_float(summary.get("sharpe"))
+
+    pass_ic = pd.notna(ic_val) and abs(ic_val) >= float(screening_cfg["ic_abs_min"])
+    pass_ir = pd.notna(ir_val) and abs(ir_val) >= float(screening_cfg["ir_abs_min"])
+    pass_sharpe = pd.notna(sharpe) and sharpe >= float(screening_cfg["sharpe_min"])
+    passed = bool(pass_ic and pass_ir and pass_sharpe)
+
+    failed_rules: list[str] = []
+    if not pass_ic:
+        failed_rules.append("ic")
+    if not pass_ir:
+        failed_rules.append("ir")
+    if not pass_sharpe:
+        failed_rules.append("sharpe")
+
+    row = {
+        "factor_name": factor_name,
+        "factor_col": factor_col,
+        "ic_metric": ic_metric,
+        "ir_metric": ir_metric,
+        "ic_metric_value": ic_val,
+        "ir_metric_value": ir_val,
+        "sharpe": sharpe,
+        "ic_abs_min": float(screening_cfg["ic_abs_min"]),
+        "ir_abs_min": float(screening_cfg["ir_abs_min"]),
+        "sharpe_min": float(screening_cfg["sharpe_min"]),
+        "pass_ic": bool(pass_ic),
+        "pass_ir": bool(pass_ir),
+        "pass_sharpe": bool(pass_sharpe),
+        "passed": passed,
+        "failed_rules": ",".join(failed_rules),
+    }
+    for key, value in summary.items():
+        if key not in row:
+            row[key] = value
+    return row
+
+
+def _write_screening_outputs(out_root: Path, *, screening_cfg: dict, rows: list[dict]) -> None:
+    screened_root = out_root / "screened"
+    screened_root.mkdir(parents=True, exist_ok=True)
+    (screened_root / "screening_config.json").write_text(
+        json.dumps(screening_cfg, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+    all_df = pd.DataFrame(rows)
+    if all_df.empty:
+        columns = [
+            "factor_name",
+            "factor_col",
+            "ic_metric",
+            "ir_metric",
+            "ic_metric_value",
+            "ir_metric_value",
+            "sharpe",
+            "passed",
+            "failed_rules",
+        ]
+        all_df = pd.DataFrame(columns=columns)
+    else:
+        all_df["abs_ic_metric"] = pd.to_numeric(all_df["ic_metric_value"], errors="coerce").abs()
+        all_df["abs_ir_metric"] = pd.to_numeric(all_df["ir_metric_value"], errors="coerce").abs()
+        all_df["sharpe"] = pd.to_numeric(all_df["sharpe"], errors="coerce")
+        all_df["passed"] = all_df["passed"].astype(bool)
+        all_df = all_df.sort_values(
+            by=["passed", "sharpe", "abs_ic_metric", "abs_ir_metric"],
+            ascending=[False, False, False, False],
+            kind="mergesort",
+        )
+    all_df.to_csv(screened_root / "factor_screening_all.csv", index=False)
+
+    shortlist = all_df[all_df["passed"]].copy() if "passed" in all_df.columns else pd.DataFrame()
+    shortlist.to_csv(screened_root / "factor_shortlist.csv", index=False)
+
+    if bool(screening_cfg.get("copy_reports", True)) and not shortlist.empty:
+        selected_root = screened_root / "selected_reports"
+        selected_root.mkdir(parents=True, exist_ok=True)
+        for factor_name in shortlist["factor_name"].astype(str).tolist():
+            src = out_root / factor_name / "factor_report.png"
+            dst = selected_root / f"{factor_name}.png"
+            if src.exists():
+                shutil.copy2(src, dst)
 
 
 def run_factor_batch(
@@ -435,14 +560,21 @@ def run_factor_batch(
     overwrite: bool,
     specs: Sequence[FactorSpec],
 ) -> Path:
+    panel_name_text = str(panel_name or "").strip()
+    if not panel_name_text:
+        raise ValueError("factor_config.panel_name is required; window_minutes fallback is disabled")
+    workers = int(cfg.get("workers", 1))
     run_factor_pipeline(
         panel_data_root,
         factor_data_root,
         start,
         end,
         window_minutes=window_minutes,
-        panel_name=panel_name,
+        panel_name=panel_name_text,
         overwrite=overwrite,
+        workers=workers,
+        raw_data_root=raw_data_root,
+        context_cfg=cfg.get("context"),
         specs=specs,
     )
 
@@ -452,10 +584,10 @@ def run_factor_batch(
     out_root = results_root / date_label / "Single_Factor" / ts
     out_root.mkdir(parents=True, exist_ok=True)
 
-    factor_store = FactorStore(Path(factor_data_root), panel_name=panel_name, window_minutes=window_minutes)
+    factor_store = FactorStore(Path(factor_data_root), panel_name=panel_name_text, window_minutes=window_minutes)
     backtest_cfg = cfg.get("backtest", {})
     factor_time = str(cfg.get("factor_time", "14:30"))
-    label_time = str(cfg.get("label_time", "14:45"))
+    label_time = str(cfg.get("label_time", "14:42"))
     min_count = int(backtest_cfg.get("min_count", 30))
     ic_bins = int(backtest_cfg.get("ic_bins", 5))
     bin_count = backtest_cfg.get("bin_count")
@@ -463,9 +595,18 @@ def run_factor_batch(
     bin_source = backtest_cfg.get("bin_source", "manual")
     bin_top_k = int(backtest_cfg.get("bin_top_k", 1))
     bin_lookback_days = int(backtest_cfg.get("bin_lookback_days", 60))
-    tradable_cfg = cfg.get("tradable_filter", {})
-    use_panel_filter = bool(tradable_cfg.get("use_panel", False))
-    record_codes = bool(tradable_cfg.get("record_codes", True))
+    backtest_workers = int(backtest_cfg.get("workers", 1))
+    screening_cfg = _load_screening_config(cfg)
+    screening_rows: list[dict] = []
+    trading_days = set(
+        list_trading_days_from_raw(
+            raw_data_root,
+            start,
+            end,
+            kind="snapshot",
+            asset="cbond",
+        )
+    )
 
     backtest_enabled = bool(cfg.get("backtest_enabled", True))
     for spec in progress(specs, desc="factor_batch", unit="signal"):
@@ -475,7 +616,6 @@ def run_factor_batch(
         result = run_intraday_factor_backtest(
             factor_store,
             Path(label_data_root),
-            Path(panel_data_root),
             start,
             end,
             factor_col=factor_col,
@@ -488,15 +628,26 @@ def run_factor_batch(
             bin_source=bin_source,
             bin_top_k=bin_top_k,
             bin_lookback_days=bin_lookback_days,
-            use_panel_filter=use_panel_filter,
+            workers=backtest_workers,
         )
         signal_dir = out_root / spec.name
         signal_dir.mkdir(parents=True, exist_ok=True)
-        if use_panel_filter and record_codes:
-            kept = getattr(result, "kept_records", [])
-            filtered = getattr(result, "filtered_records", [])
-            if kept:
-                pd.DataFrame(kept).to_csv(signal_dir / "tradable_kept.csv", index=False)
-            if filtered:
-                pd.DataFrame(filtered).to_csv(signal_dir / "tradable_filtered.csv", index=False)
+        summary = save_single_factor_report(
+            result,
+            signal_dir,
+            factor_name=spec.name,
+            factor_col=factor_col,
+            trading_days=trading_days,
+        )
+        if bool(screening_cfg.get("enabled", False)):
+            screening_rows.append(
+                _build_screening_row(
+                    factor_name=spec.name,
+                    factor_col=factor_col,
+                    summary=summary,
+                    screening_cfg=screening_cfg,
+                )
+            )
+    if bool(screening_cfg.get("enabled", False)):
+        _write_screening_outputs(out_root, screening_cfg=screening_cfg, rows=screening_rows)
     return out_root

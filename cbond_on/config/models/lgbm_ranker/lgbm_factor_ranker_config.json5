@@ -5,10 +5,10 @@
   panel_name: "T1430",
   window_minutes: 15,
   factor_time: "14:30",
-  label_time: "14:45",
+  label_time: "14:42",
   factors: [
-    "aacb_3_",
-    "volen_60_10_3_",
+    "aacb_l3",
+    "volen_f60_s10_l3",
     "ret_5m",
     "ret_10m",
     "ret_30m",

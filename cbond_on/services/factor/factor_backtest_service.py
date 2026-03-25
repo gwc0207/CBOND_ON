@@ -3,8 +3,6 @@ from __future__ import annotations
 from datetime import date, datetime
 from pathlib import Path
 
-import pandas as pd
-
 from cbond_on.core.config import load_config_file, parse_date
 from cbond_on.core.trading_days import list_trading_days_from_raw
 from cbond_on.core.utils import progress
@@ -15,6 +13,7 @@ from cbond_on.factor_batch.runner import (
 from cbond_on.factors import defs  # noqa: F401
 from cbond_on.factors.spec import build_factor_col
 from cbond_on.factors.storage import FactorStore
+from cbond_on.report.factor_report import save_single_factor_report
 
 
 def run(
@@ -37,10 +36,13 @@ def run(
         overwrite_val = True
 
     specs = build_signal_specs(factor_cfg)
+    panel_name = str(factor_cfg.get("panel_name", "")).strip()
+    if not panel_name:
+        raise ValueError("factor_config.panel_name is required; window_minutes fallback is disabled")
     factor_store = FactorStore(
         Path(paths_cfg["factor_data_root"]),
-        panel_name=factor_cfg.get("panel_name"),
-        window_minutes=int(factor_cfg.get("window_minutes", 15)),
+        panel_name=panel_name,
+        window_minutes=15,
     )
 
     results_root = Path(paths_cfg["results_root"])
@@ -50,7 +52,7 @@ def run(
     out_root.mkdir(parents=True, exist_ok=True)
 
     factor_time = str(factor_cfg.get("factor_time", "14:30"))
-    label_time = str(factor_cfg.get("label_time", "14:45"))
+    label_time = str(factor_cfg.get("label_time", "14:42"))
     run_cfg = dict(backtest_cfg.get("backtest", {}))
     min_count = int(run_cfg.get("min_count", 30))
     ic_bins = int(run_cfg.get("ic_bins", 5))
@@ -59,6 +61,16 @@ def run(
     bin_source = str(run_cfg.get("bin_source", "manual"))
     bin_top_k = int(run_cfg.get("bin_top_k", 1))
     bin_lookback_days = int(run_cfg.get("bin_lookback_days", 60))
+    workers = int(run_cfg.get("workers", 1))
+    trading_days = set(
+        list_trading_days_from_raw(
+            paths_cfg["raw_data_root"],
+            start_day,
+            end_day,
+            kind="snapshot",
+            asset="cbond",
+        )
+    )
 
     for spec in progress(specs, desc="factor_backtest", unit="signal"):
         signal_dir = out_root / spec.name
@@ -69,7 +81,6 @@ def run(
         result = run_intraday_factor_backtest(
             factor_store,
             Path(paths_cfg["label_data_root"]),
-            Path(paths_cfg["panel_data_root"]),
             start_day,
             end_day,
             factor_col=factor_col,
@@ -82,9 +93,14 @@ def run(
             bin_source=bin_source,
             bin_top_k=bin_top_k,
             bin_lookback_days=bin_lookback_days,
+            workers=workers,
         )
-        diagnostics = getattr(result, "diagnostics", pd.DataFrame())
-        if isinstance(diagnostics, pd.DataFrame) and not diagnostics.empty:
-            diagnostics.to_csv(signal_dir / "diagnostics.csv", index=False)
+        save_single_factor_report(
+            result,
+            signal_dir,
+            factor_name=spec.name,
+            factor_col=factor_col,
+            trading_days=trading_days,
+        )
 
     return out_root

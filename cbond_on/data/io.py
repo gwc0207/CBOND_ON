@@ -51,11 +51,26 @@ def read_table_range(
     start: date,
     end: date,
 ) -> pd.DataFrame:
+    base = _table_dir(root, table)
+    if not base.exists():
+        return pd.DataFrame()
+    day_paths: dict[date, Path] = {}
+    for path in base.glob("*/*.parquet"):
+        if path.name == "all.parquet":
+            continue
+        stem = path.stem.strip()
+        if len(stem) != 8 or not stem.isdigit():
+            continue
+        try:
+            day = datetime.strptime(stem, "%Y%m%d").date()
+        except ValueError:
+            continue
+        if start <= day <= end:
+            day_paths[day] = path
+
     frames: list[pd.DataFrame] = []
-    for day in pd.date_range(start, end, freq="D"):
-        path = _day_path(root, table, day.date())
-        if path.exists():
-            frames.append(pd.read_parquet(path))
+    for day in sorted(day_paths):
+        frames.append(pd.read_parquet(day_paths[day]))
     if frames:
         return pd.concat(frames, ignore_index=True)
     return pd.DataFrame()

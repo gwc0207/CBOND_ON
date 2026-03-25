@@ -20,15 +20,20 @@ class ScoreResult:
 
 
 def _iter_existing_label_days(label_root: Path, start: date, end: date) -> list[date]:
-    current = start
     days: list[date] = []
-    while current <= end:
-        month = f"{current.year:04d}-{current.month:02d}"
-        filename = f"{current.strftime('%Y%m%d')}.parquet"
-        if (label_root / month / filename).exists():
-            days.append(current)
-        current = current + pd.Timedelta(days=1)
-    return days
+    if not label_root.exists():
+        return days
+    for path in label_root.glob("*/*.parquet"):
+        stem = path.stem.strip()
+        if len(stem) != 8 or not stem.isdigit():
+            continue
+        try:
+            day = datetime.strptime(stem, "%Y%m%d").date()
+        except Exception:
+            continue
+        if start <= day <= end:
+            days.append(day)
+    return sorted(set(days))
 
 
 def _read_label_day(label_root: Path, day: date, *, factor_time: str, label_time: str) -> pd.DataFrame:

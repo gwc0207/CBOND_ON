@@ -8,8 +8,9 @@ import pandas as pd
 
 from cbond_on.backtest.execution import apply_twap_bps
 from cbond_on.core.config import load_config_file, parse_date
+from cbond_on.core.trading_days import list_trading_days_from_raw, next_trading_days_from_raw
 from cbond_on.core.universe import filter_tradable
-from cbond_on.data.io import read_table_range, read_trading_calendar
+from cbond_on.data.io import read_table_range
 from cbond_on.models.score_io import load_scores_by_date
 from cbond_on.services.common import load_json_like, resolve_config_path
 from cbond_on.strategies.base import StrategyContext
@@ -23,16 +24,7 @@ class BacktestRunResult:
 
 
 def _iter_open_days(raw_root: str, start: date, end: date) -> list[date]:
-    cal = read_trading_calendar(raw_root)
-    if cal.empty or "calendar_date" not in cal.columns:
-        return []
-    work = cal.copy()
-    work["calendar_date"] = pd.to_datetime(work["calendar_date"], errors="coerce").dt.date
-    work = work[work["calendar_date"].notna()]
-    if "is_open" in work.columns:
-        work = work[work["is_open"].astype(bool)]
-    days = sorted(d for d in work["calendar_date"].tolist() if start <= d <= end)
-    return days
+    return list_trading_days_from_raw(raw_root, start, end, kind="snapshot", asset="cbond")
 
 
 def _read_twap_daily(raw_root: str, day: date) -> pd.DataFrame:
@@ -173,7 +165,11 @@ def run(
     min_volume = float(bt_cfg.get("min_volume", 0.0))
     filter_flag = bool(bt_cfg.get("filter_tradable", True))
 
-    days = _iter_open_days(paths_cfg["raw_data_root"], start_day, end_day + pd.Timedelta(days=5))
+    raw_root = paths_cfg["raw_data_root"]
+    days = _iter_open_days(raw_root, start_day, end_day)
+    tail_day = next_trading_days_from_raw(raw_root, end_day, 1, kind="snapshot", asset="cbond")
+    if tail_day:
+        days = sorted(set(days + tail_day))
     if len(days) < 2:
         raise ValueError("not enough trading days for backtest")
 

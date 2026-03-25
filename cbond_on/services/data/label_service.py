@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date
 from pathlib import Path
 
@@ -51,22 +52,23 @@ def run(
         end_day,
         kind="snapshot",
     )
+    workers = int(label_cfg.get("workers", panel_runtime_cfg.get("workers", 1)))
+    workers = max(1, workers)
 
     written = 0
     skipped = 0
     clean_root = paths_cfg.get("cleaned_data_root") or paths_cfg.get("clean_data_root")
-    for day in progress(
-        trading_days,
-        desc="build_labels",
-        unit="day",
-        total=len(trading_days),
-    ):
+    tasks = [
+        (day, trading_days[idx + 1] if idx + 1 < len(trading_days) else None)
+        for idx, day in enumerate(trading_days)
+    ]
+
+    def _run_one(day: date, next_day: date | None) -> str:
         month = f"{day.year:04d}-{day.month:02d}"
         filename = f"{day.strftime('%Y%m%d')}.parquet"
         out_path = Path(paths_cfg["label_data_root"]) / month / filename
         if (not overwrite_val) and skip_existing and out_path.exists():
-            skipped += 1
-            continue
+            return "skipped"
         ok = build_labels_for_day(
             clean_root,
             paths_cfg["label_data_root"],
@@ -75,16 +77,41 @@ def run(
             snapshot_cfg,
             label_cfg,
             mode=mode,
-            max_lookahead_days=int(label_cfg.get("max_lookahead_days", 7)),
+            next_day=next_day,
         )
-        if ok:
-            written += 1
-        else:
-            skipped += 1
+        return "written" if ok else "skipped"
+
+    if workers == 1:
+        for day, next_day in progress(
+            tasks,
+            desc="build_labels",
+            unit="day",
+            total=len(tasks),
+        ):
+            result = _run_one(day, next_day)
+            if result == "written":
+                written += 1
+            else:
+                skipped += 1
+    else:
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = [executor.submit(_run_one, day, next_day) for day, next_day in tasks]
+            for future in progress(
+                as_completed(futures),
+                desc="build_labels",
+                unit="day",
+                total=len(futures),
+            ):
+                result = future.result()
+                if result == "written":
+                    written += 1
+                else:
+                    skipped += 1
     return {
         "start": start_day,
         "end": end_day,
         "written": written,
         "skipped": skipped,
+        "workers": workers,
     }
 

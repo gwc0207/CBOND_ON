@@ -1,12 +1,12 @@
 {
-  start: "2025-06-01",
-  end: "2026-03-24",
+  start: "2025-01-01",
+  end: "2025-06-02",
   panel_mode: "snapshot_sequence",
   assets: ["cbond", "stock"],
   workers: 6,
-  lead_minutes: 0,
-  refresh: false,
-  overwrite: false,
+  lead_minutes: 1,
+  refresh: true,
+  overwrite: true,
   schedule: {
     mode: "custom_windows",
     windows: [

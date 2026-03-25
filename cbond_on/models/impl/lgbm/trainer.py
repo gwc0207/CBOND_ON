@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, time as dt_time
+from datetime import date, datetime, time as dt_time
 from pathlib import Path
 from typing import Iterable, Sequence
 
@@ -60,14 +60,21 @@ class SplitData:
 
 
 def _iter_existing_label_days(label_root: Path, start: date, end: date) -> Iterable[date]:
-    current = start
-    while current <= end:
-        month = f"{current.year:04d}-{current.month:02d}"
-        filename = f"{current.strftime('%Y%m%d')}.parquet"
-        path = label_root / month / filename
-        if path.exists():
-            yield current
-        current = current + pd.Timedelta(days=1)
+    if not label_root.exists():
+        return
+    days: set[date] = set()
+    for path in label_root.glob("*/*.parquet"):
+        stem = path.stem.strip()
+        if len(stem) != 8 or not stem.isdigit():
+            continue
+        try:
+            day = datetime.strptime(stem, "%Y%m%d").date()
+        except Exception:
+            continue
+        if start <= day <= end:
+            days.add(day)
+    for day in sorted(days):
+        yield day
 
 
 def _read_label_day(label_root: Path, day: date, *, factor_time: str, label_time: str) -> pd.DataFrame:

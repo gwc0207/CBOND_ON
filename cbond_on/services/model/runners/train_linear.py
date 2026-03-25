@@ -71,7 +71,7 @@ def main(
     panel_name = cfg.get("panel_name")
     window_minutes = int(cfg.get("window_minutes", 15))
     factor_time = str(cfg.get("factor_time", "14:30"))
-    label_time = str(cfg.get("label_time", "14:45"))
+    label_time = str(cfg.get("label_time", "14:42"))
 
     store = FactorStore(factor_root, panel_name=panel_name, window_minutes=window_minutes)
     # pick factor columns from first available label day with factors

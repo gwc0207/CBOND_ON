@@ -4,7 +4,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import date, datetime, time
 from pathlib import Path
-from typing import Iterable, Optional
+from typing import Optional
 
 import pandas as pd
 
@@ -334,13 +334,6 @@ def _write_panel_diag_csv(
     return str(path)
 
 
-def _iter_dates(start: date, end: date) -> Iterable[date]:
-    current = start
-    while current <= end:
-        yield current
-        current = current + pd.Timedelta(days=1)
-
-
 def build_snapshot_sequence_panels(
     cleaned_data_root: str | Path,
     panel_data_root: str | Path,
@@ -576,7 +569,7 @@ def _read_snapshot_range(
     asset: str = DEFAULT_ASSET,
 ) -> pd.DataFrame:
     frames: list[pd.DataFrame] = []
-    for day in _iter_dates(start, end):
+    for day in _iter_existing_snapshot_days(cleaned_data_root, start, end, asset=asset):
         df = _read_snapshot_day(cleaned_data_root, day, asset=asset)
         if not df.empty:
             frames.append(df)
@@ -611,6 +604,30 @@ def _read_snapshot_day(
         if path.exists():
             return pd.read_parquet(path)
     return pd.DataFrame()
+
+
+def _iter_existing_snapshot_days(
+    cleaned_data_root: Path,
+    start: date,
+    end: date,
+    *,
+    asset: str = DEFAULT_ASSET,
+) -> list[date]:
+    days: set[date] = set()
+    for root in _snapshot_roots(cleaned_data_root, asset=_normalize_asset(asset)):
+        if not root.exists():
+            continue
+        for path in root.glob("*/*.parquet"):
+            stem = path.stem.strip()
+            if len(stem) != 8 or not stem.isdigit():
+                continue
+            try:
+                day = datetime.strptime(stem, "%Y%m%d").date()
+            except Exception:
+                continue
+            if start <= day <= end:
+                days.add(day)
+    return sorted(days)
 
 
 
@@ -836,7 +853,7 @@ def build_labels_for_day(
     label_cfg: dict,
     *,
     mode: str = "overwrite",
-    max_lookahead_days: int = 7,
+    next_day: date | None = None,
     asset: str = DEFAULT_ASSET,
 ) -> bool:
     cleaned_data_root = Path(cleaned_data_root)
@@ -845,12 +862,8 @@ def build_labels_for_day(
     snapshot_df = _read_snapshot_day(cleaned_data_root, day, asset=asset_name)
     if snapshot_df.empty:
         return False
-    next_day = _find_next_snapshot_day(
-        cleaned_data_root,
-        day,
-        max_lookahead_days=max_lookahead_days,
-        asset=asset_name,
-    )
+    if next_day is None:
+        return False
     next_df = (
         _read_snapshot_day(cleaned_data_root, next_day, asset=asset_name)
         if next_day
@@ -930,7 +943,7 @@ def _build_day_labels_twap(
 
     close_window = label_cfg.get("close_window", {})
     next_open_window = label_cfg.get("next_open_window", {})
-    close_start = close_window.get("start", "14:45")
+    close_start = close_window.get("start", "14:42")
     close_end = close_window.get("end", "14:57")
     next_start = next_open_window.get("start", "09:30")
     next_end = next_open_window.get("end", "09:45")
@@ -980,23 +993,6 @@ def _parse_hhmm(value: str) -> time:
     if len(parts) < 2:
         raise ValueError(f"invalid time value: {value}")
     return time(int(parts[0]), int(parts[1]))
-
-
-def _find_next_snapshot_day(
-    cleaned_data_root: Path,
-    day: date,
-    *,
-    max_lookahead_days: int = 7,
-    asset: str = DEFAULT_ASSET,
-) -> date | None:
-    for i in range(1, max(1, int(max_lookahead_days)) + 1):
-        candidate = day + pd.Timedelta(days=i)
-        if any(
-            path.exists()
-            for path in _snapshot_day_paths(cleaned_data_root, candidate, asset=asset)
-        ):
-            return candidate
-    return None
 
 
 def _window_twap_cost(

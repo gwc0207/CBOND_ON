@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 import sys
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from pathlib import Path
 
 import numpy as np
@@ -15,6 +15,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from cbond_on.core.config import load_config_file, parse_date
 from cbond_on.core.naming import make_window_label
+from cbond_on.core.trading_days import list_trading_days_from_raw, prev_trading_days_from_raw
 from cbond_on.factors.storage import FactorStore
 from cbond_on.models.score_io import load_scores_by_date, write_scores_by_date
 from cbond_on.models.impl.lgbm.trainer import (
@@ -124,14 +125,23 @@ def main(
     panel_name = cfg.get("panel_name")
     window_minutes = int(cfg.get("window_minutes", 15))
     factor_time = str(cfg.get("factor_time", "14:30"))
-    label_time = str(cfg.get("label_time", "14:45"))
+    label_time = str(cfg.get("label_time", "14:42"))
+    raw_root = paths_cfg["raw_data_root"]
 
     scan_start = desired_start
     rolling_cfg = cfg.get("rolling", {})
     rolling_enabled = bool(rolling_cfg.get("enabled", False))
     window_days = int(rolling_cfg.get("window_days", 301))
     if rolling_enabled:
-        scan_start = desired_start - timedelta(days=window_days * 8)
+        lookback_days = prev_trading_days_from_raw(
+            raw_root,
+            desired_start,
+            window_days,
+            kind="snapshot",
+            asset="cbond",
+        )
+        if lookback_days:
+            scan_start = lookback_days[0]
     days = list(_iter_existing_label_days(label_root, scan_start, desired_end))
     if not days:
         raise RuntimeError("no label days found for range")
@@ -151,12 +161,14 @@ def main(
     # allow scoring for target days without labels (e.g., latest day in live)
     last_label_day = max(days) if days else None
     if last_label_day and desired_end > last_label_day:
-        extra_days = []
-        cursor = last_label_day + pd.Timedelta(days=1)
-        while cursor <= desired_end:
-            if _factor_exists(cursor):
-                extra_days.append(cursor)
-            cursor = cursor + pd.Timedelta(days=1)
+        trade_days = list_trading_days_from_raw(
+            raw_root,
+            last_label_day,
+            desired_end,
+            kind="snapshot",
+            asset="cbond",
+        )
+        extra_days = [d for d in trade_days if d > last_label_day and _factor_exists(d)]
         if extra_days:
             days = sorted(set(days + extra_days))
 

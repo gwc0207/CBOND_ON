@@ -3,7 +3,7 @@
 import json
 import subprocess
 import sys
-from datetime import date, timedelta
+from datetime import date
 from pathlib import Path
 
 import pandas as pd
@@ -19,6 +19,36 @@ from cbond_on.services.factor.factor_build_service import run as run_factor_buil
 from cbond_on.services.model.model_score_service import run as run_model_score
 from cbond_on.strategies import StrategyRegistry
 from cbond_on.strategies.base import StrategyContext
+
+
+def _today_shanghai() -> date:
+    return pd.Timestamp.now(tz="Asia/Shanghai").date()
+
+
+def _assert_no_date_fields_in_live_config(schedule_cfg: dict, model_cfg: dict) -> None:
+    schedule_forbidden = ["start", "target"]
+    model_forbidden = ["start", "end"]
+
+    bad_schedule = [
+        key for key in schedule_forbidden
+        if key in schedule_cfg and str(schedule_cfg.get(key)).strip() not in {"", "None", "none", "null"}
+    ]
+    bad_model = [
+        key for key in model_forbidden
+        if key in model_cfg and str(model_cfg.get(key)).strip() not in {"", "None", "none", "null"}
+    ]
+
+    if bad_schedule or bad_model:
+        parts: list[str] = []
+        if bad_schedule:
+            parts.append(f"schedule.{','.join(bad_schedule)}")
+        if bad_model:
+            parts.append(f"model_score.{','.join(bad_model)}")
+        raise ValueError(
+            "live_config date fields are not allowed; "
+            "live always resolves runtime day from current date. "
+            f"remove: {', '.join(parts)}"
+        )
 
 
 def _parse_redis_symbols(value: object) -> list[str]:
@@ -339,8 +369,11 @@ def run_once(
     strategy_cfg = dict(live_cfg.get("strategy", {}))
     output_cfg = dict(live_cfg.get("output", {}))
 
-    target_day = parse_date(target or schedule_cfg.get("target"))
-    start_day = parse_date(start or schedule_cfg.get("start") or target_day)
+    _assert_no_date_fields_in_live_config(schedule_cfg, model_cfg)
+
+    today = _today_shanghai()
+    target_day = parse_date(target) if target is not None else today
+    start_day = parse_date(start) if start is not None else target_day
 
     refresh_data = bool(data_cfg.get("refresh", False))
     overwrite_data = bool(data_cfg.get("overwrite", False))
@@ -401,17 +434,18 @@ def run_once(
             overwrite=overwrite_data,
         )
     else:
-        label_end = target_day - timedelta(days=1)
+        label_end = prev_trade_day
         run_panel(start=start_day, end=target_day, refresh=refresh_data, overwrite=overwrite_data)
-        run_label(start=start_day, end=label_end, refresh=refresh_data, overwrite=overwrite_data)
+        if label_end >= start_day:
+            run_label(start=start_day, end=label_end, refresh=refresh_data, overwrite=overwrite_data)
         run_factor_build(start=start_day, end=target_day, refresh=refresh_data, overwrite=overwrite_data)
 
     model_id = str(model_cfg.get("model_id", "")).strip()
     if not model_id:
         raise ValueError("live_config missing model_score.model_id")
 
-    model_start = model_cfg.get("start", start_day)
-    model_end = model_cfg.get("end", target_day)
+    model_start = start_day
+    model_end = target_day
     model_label_cutoff = model_cfg.get("label_cutoff")
     score_day = target_day
     if use_redis_snapshot:

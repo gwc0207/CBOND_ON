@@ -9,6 +9,8 @@ import pandas as pd
 @dataclass
 class FactorComputeContext:
     panel: pd.DataFrame
+    stock_panel: pd.DataFrame | None = None
+    bond_stock_map: pd.DataFrame | None = None
     params: Dict[str, Any] = field(default_factory=dict)
 
 

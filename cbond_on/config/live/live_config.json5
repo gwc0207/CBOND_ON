@@ -1,7 +1,5 @@
 {
   schedule: {
-    start: "2026-03-03",
-    target: "2026-03-03",
     cutoff_time: "14:29",
     target_policy: "next_trading_day_after_cutoff"
   },
@@ -57,8 +55,6 @@
   },
   model_score: {
     model_id: "lgbm_factor_MSE",
-    start: "2026-03-03",
-    end: "2026-03-03",
     label_cutoff: null
   },
   strategy: {
