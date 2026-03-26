@@ -256,6 +256,57 @@ def _load_strategy_config(path_text: str | None) -> dict:
     return load_json_like(path)
 
 
+def _load_live_factor_runtime(live_cfg: dict) -> tuple[str, dict]:
+    factor_group = dict(live_cfg.get("factor", {}))
+    factor_cfg_key = str(factor_group.get("config", "live/live_factors")).strip()
+    if not factor_cfg_key:
+        raise ValueError("live_config.factor.config must not be empty")
+    factor_cfg = dict(load_config_file(factor_cfg_key))
+
+    inline_factors = factor_cfg.get("factors")
+    factor_files = factor_cfg.get("factor_files")
+    has_inline = isinstance(inline_factors, list) and len(inline_factors) > 0
+    has_files = isinstance(factor_files, list) and len(factor_files) > 0
+    if has_files and len(factor_files) != 1:
+        raise ValueError("live_factors must contain exactly one factor_files entry")
+    if not has_inline and not has_files:
+        raise ValueError("live_factors must define non-empty factors or one factor_files entry")
+    return factor_cfg_key, factor_cfg
+
+
+def _load_live_model_runtime(live_cfg: dict) -> tuple[str, dict, str]:
+    model_group = dict(live_cfg.get("model_score", {}))
+    model_cfg_key = str(model_group.get("config", "live/live_models")).strip()
+    if not model_cfg_key:
+        raise ValueError("live_config.model_score.config must not be empty")
+    model_score_cfg = dict(load_config_file(model_cfg_key))
+
+    models_raw = model_score_cfg.get("models")
+    if not isinstance(models_raw, dict) or not models_raw:
+        raise ValueError("live_models.models must be a non-empty object")
+    models = {str(k).strip(): v for k, v in models_raw.items() if str(k).strip()}
+    if len(models) != 1:
+        raise ValueError("live_models must contain exactly one model entry")
+    only_model_id = next(iter(models.keys()))
+
+    requested_model_id = str(
+        model_group.get("model_id")
+        or model_score_cfg.get("model_id")
+        or model_score_cfg.get("default_model_id")
+        or ""
+    ).strip()
+    if requested_model_id and requested_model_id != only_model_id:
+        raise ValueError(
+            "live model mismatch: "
+            f"live_config.model_score.model_id={requested_model_id}, "
+            f"live_models only model={only_model_id}"
+        )
+
+    model_score_cfg["model_id"] = only_model_id
+    model_score_cfg["default_model_id"] = only_model_id
+    return model_cfg_key, model_score_cfg, only_model_id
+
+
 def _prev_holdings(results_root: Path, day: date) -> pd.DataFrame:
     if not results_root.exists():
         return pd.DataFrame(columns=["code", "weight"])
@@ -368,6 +419,8 @@ def run_once(
     model_cfg = dict(live_cfg.get("model_score", {}))
     strategy_cfg = dict(live_cfg.get("strategy", {}))
     output_cfg = dict(live_cfg.get("output", {}))
+    factor_cfg_key, live_factor_cfg = _load_live_factor_runtime(live_cfg)
+    model_cfg_key, live_model_score_cfg, model_id = _load_live_model_runtime(live_cfg)
 
     _assert_no_date_fields_in_live_config(schedule_cfg, model_cfg)
 
@@ -432,17 +485,20 @@ def run_once(
             end=run_day,
             refresh=refresh_data,
             overwrite=overwrite_data,
+            cfg=live_factor_cfg,
         )
     else:
         label_end = prev_trade_day
         run_panel(start=start_day, end=target_day, refresh=refresh_data, overwrite=overwrite_data)
         if label_end >= start_day:
             run_label(start=start_day, end=label_end, refresh=refresh_data, overwrite=overwrite_data)
-        run_factor_build(start=start_day, end=target_day, refresh=refresh_data, overwrite=overwrite_data)
-
-    model_id = str(model_cfg.get("model_id", "")).strip()
-    if not model_id:
-        raise ValueError("live_config missing model_score.model_id")
+        run_factor_build(
+            start=start_day,
+            end=target_day,
+            refresh=refresh_data,
+            overwrite=overwrite_data,
+            cfg=live_factor_cfg,
+        )
 
     model_start = start_day
     model_end = target_day
@@ -458,12 +514,19 @@ def run_once(
             f"score_day={score_day}",
             f"label_cutoff={model_label_cutoff}",
         )
+    print(
+        "live config profile:",
+        f"factors={factor_cfg_key}",
+        f"models={model_cfg_key}",
+        f"model_id={model_id}",
+    )
 
     model_result = run_model_score(
         model_id=model_id,
         start=model_start,
         end=model_end,
         label_cutoff=model_label_cutoff,
+        cfg=live_model_score_cfg,
     )
     score_path = Path(model_result.get("score_output") or (Path(paths_cfg["results_root"]) / "scores" / model_id))
     score_cache = load_scores_by_date(score_path)

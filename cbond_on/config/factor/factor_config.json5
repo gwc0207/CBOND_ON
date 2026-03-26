@@ -1,5 +1,5 @@
 ﻿{
-  start: "2025-01-03",
+  start: "2026-01-03",
   end: "2026-03-20",
   panel_name: "T1430",
   factor_time: "14:30",
@@ -8,7 +8,8 @@
   overwrite: true,
   workers: 6,
   factor_files: [
-    "factor/factors_20260325.json5"
+    "factor/factors_20260326.json5"
+    // "factor/factors_20260325.json5"
   ],
   backtest_enabled: true,
   factors: [],

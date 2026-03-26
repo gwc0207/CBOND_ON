@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Iterable
 
 import pandas as pd
@@ -56,19 +57,49 @@ def build_factor_frame(
     *,
     stock_panel: pd.DataFrame | None = None,
     bond_stock_map: pd.DataFrame | None = None,
+    workers: int = 1,
 ) -> pd.DataFrame:
+    spec_list = list(specs)
+    if not spec_list:
+        return pd.DataFrame()
+
+    workers = max(1, int(workers))
+    if workers <= 1 or len(spec_list) <= 1:
+        series_list: list[pd.Series] = []
+        for spec in spec_list:
+            series_list.append(
+                compute_factor_from_context(
+                    panel,
+                    spec,
+                    stock_panel=stock_panel,
+                    bond_stock_map=bond_stock_map,
+                )
+            )
+        out = pd.concat(series_list, axis=1)
+        return out
+
+    max_workers = min(workers, len(spec_list))
     series_list: list[pd.Series] = []
-    for spec in specs:
-        series_list.append(
-            compute_factor_from_context(
+    ordered: dict[int, pd.Series] = {}
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {
+            executor.submit(
+                compute_factor_from_context,
                 panel,
                 spec,
                 stock_panel=stock_panel,
                 bond_stock_map=bond_stock_map,
-            )
-        )
-    if not series_list:
-        return pd.DataFrame()
+            ): (idx, spec)
+            for idx, spec in enumerate(spec_list)
+        }
+        for fut in as_completed(futures):
+            idx, spec = futures[fut]
+            try:
+                ordered[idx] = fut.result()
+            except Exception as exc:
+                raise RuntimeError(f"factor compute failed: {spec.name}") from exc
+    for idx in range(len(spec_list)):
+        series_list.append(ordered[idx])
     out = pd.concat(series_list, axis=1)
     return out
 

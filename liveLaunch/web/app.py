@@ -268,7 +268,10 @@ def _collect_score_days(score_output: Path) -> set[date]:
 
 def _resolve_data_health_label() -> str:
     panel_cfg = load_config_file("panel")
-    fb_cfg = load_config_file("factor")
+    live_cfg = _load_live_cfg()
+    factor_group = dict(live_cfg.get("factor", {}))
+    factor_cfg_key = str(factor_group.get("config", "live/live_factors")).strip()
+    fb_cfg = load_config_file(factor_cfg_key)
     panel_name = fb_cfg.get("panel_name") or panel_cfg.get("panel_name")
     wm = fb_cfg.get("window_minutes", panel_cfg.get("window_minutes", [15]))
     if isinstance(wm, list):
@@ -276,22 +279,42 @@ def _resolve_data_health_label() -> str:
     return panel_name or make_window_label(int(wm))
 
 
+def _resolve_live_model_runtime() -> tuple[str, dict]:
+    live_cfg = _load_live_cfg()
+    model_group = dict(live_cfg.get("model_score", {}))
+    model_cfg_key = str(model_group.get("config", "live/live_models")).strip()
+    if not model_cfg_key:
+        raise ValueError("live_config.model_score.config must not be empty")
+    score_cfg = dict(load_config_file(model_cfg_key))
+    models = dict(score_cfg.get("models", {}))
+    if not models:
+        raise ValueError("live_models.models must be non-empty")
+
+    model_id = str(
+        model_group.get("model_id")
+        or score_cfg.get("model_id")
+        or score_cfg.get("default_model_id")
+        or ""
+    ).strip()
+    if not model_id and len(models) == 1:
+        model_id = str(next(iter(models.keys())))
+    if not model_id:
+        raise ValueError("cannot resolve live model_id")
+    model_entry = dict(models.get(model_id, {}))
+    if not model_entry:
+        raise KeyError(f"model_id not found in live_models config: {model_id}")
+
+    model_config_key = str(model_entry.get("model_config", "")).strip()
+    if not model_config_key:
+        raise ValueError(f"live_models.models.{model_id}.model_config is required")
+    model_cfg = load_config_file(model_config_key)
+    return model_id, model_cfg
+
+
 def _build_data_calendar(*, anchor_day: date, months: int = 2, selected_day: date | None = None) -> dict:
     months = max(1, min(int(months), 6))
     paths_cfg = load_config_file("paths")
-    live_cfg = _load_live_cfg()
-    score_cfg = load_config_file("model_score")
-    model_group = dict(live_cfg.get("model_score", {}))
-    model_id = str(model_group.get("model_id", "")).strip()
-    if not model_id:
-        raise ValueError("live_config.model_score.model_id is required")
-    model_entry = dict(score_cfg.get("models", {}).get(model_id, {}))
-    if not model_entry:
-        raise KeyError(f"model_id not found in model_score config: {model_id}")
-    model_config_key = str(model_entry.get("model_config", "")).strip()
-    if not model_config_key:
-        raise ValueError(f"model_score.models.{model_id}.model_config is required")
-    model_cfg = load_config_file(model_config_key)
+    model_id, model_cfg = _resolve_live_model_runtime()
 
     raw_root = Path(paths_cfg["raw_data_root"])
     clean_root = Path(paths_cfg.get("cleaned_data_root") or paths_cfg.get("clean_data_root"))

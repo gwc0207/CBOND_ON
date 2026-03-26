@@ -53,8 +53,12 @@
     require_done_marker: true,
     ready_gate_enabled: true
   },
+  factor: {
+    config: "live/live_factors"
+  },
   model_score: {
-    model_id: "lgbm_factor_MSE",
+    config: "live/live_models",
+    model_id: "lgbm_factor_MSE_live",
     label_cutoff: null
   },
   strategy: {
