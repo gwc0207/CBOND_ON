@@ -23,8 +23,6 @@ def run(
     end_day = parse_date(end or factor_cfg.get("end"))
     refresh_val = bool(factor_cfg.get("refresh", False) if refresh is None else refresh)
     overwrite_val = bool(factor_cfg.get("overwrite", False) if overwrite is None else overwrite)
-    if refresh_val:
-        overwrite_val = True
     panel_name = str(factor_cfg.get("panel_name", "")).strip()
     if not panel_name:
         raise ValueError("factor_config.panel_name is required; window_minutes fallback is disabled")
@@ -36,6 +34,7 @@ def run(
         start_day,
         end_day,
         panel_name=panel_name,
+        refresh=refresh_val,
         overwrite=overwrite_val,
         workers=workers,
         raw_data_root=paths_cfg.get("raw_data_root"),

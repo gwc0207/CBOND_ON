@@ -4,7 +4,7 @@ import pandas as pd
 
 from cbond_on.core.registry import FactorRegistry
 from cbond_on.factors.base import Factor, FactorComputeContext
-from cbond_on.factors.defs._intraday_utils import ensure_trade_time, group_apply_scalar
+from cbond_on.factors.defs._intraday_utils import ensure_trade_time, group_apply_scalar, open_like_series
 
 
 @FactorRegistry.register("volatility_scaled_return_v1")
@@ -13,15 +13,16 @@ class VolatilityScaledReturnV1Factor(Factor):
 
     def compute(self, ctx: FactorComputeContext) -> pd.Series:
         panel = ensure_trade_time(ctx.panel)
-        required = ["last", "open", "high", "low", "pre_close"]
+        required = ["last", "high", "low", "pre_close"]
         missing = [c for c in required if c not in panel.columns]
         if missing:
             raise KeyError(f"volatility_scaled_return_v1 missing columns: {missing}")
 
         def _calc(df: pd.DataFrame) -> float:
-            row = df.sort_values("trade_time").iloc[-1]
+            df = df.sort_values("trade_time")
+            row = df.iloc[-1]
             last = float(row["last"])
-            open_px = float(row["open"])
+            open_px = float(open_like_series(df).iloc[-1])
             high = float(row["high"])
             low = float(row["low"])
             pre_close = float(row["pre_close"])

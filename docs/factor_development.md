@@ -341,3 +341,53 @@ python cbond_on/run/factor_batch.py
 - `cbond_on/factors/defs/ret_window.py`
 - `cbond_on/factors/defs/depth_imbalance.py`
 - `cbond_on/factors/defs/vwap_gap.py`
+
+## Factor Formula Catalog
+- See: docs/factor_expression_catalog.md (active signal formulas, params, required fields).
+
+## 16. Factor Rebuild Switch Semantics
+- `refresh = true`: full rebuild in selected date range. The factor day file is rebuilt from current `specs` only.
+- `overwrite = true` and `refresh = false`: recompute selected factor columns and overwrite those columns only; keep all other existing columns unchanged.
+- `overwrite = false` and `refresh = false`: incremental append mode. Only missing factor columns are computed; existing columns are kept untouched.
+
+## 15. Snapshot Price Convention (2026-03-26)
+- Intraday `snapshot` data source currently has `close` mostly equal to `0` during continuous trading phases (`T/T0/T1`).
+- Effective rule for ON factor development: use `last` as the primary intraday price field.
+- `open/high/low/pre_close` can be used as auxiliary fields.
+- Do not use intraday `close` in factor formulas unless the factor explicitly targets close auction phases (`E/E0`) and documents this assumption.
+
+Updated factor implementations (switched intraday price dependency from `close` to `last`):
+- `alpha001_signed_power_v1`
+- `alpha002_corr_volume_return_v1`
+- `alpha005_vwap_gap_v1`
+- `alpha007_volume_breakout_v1`
+- `alpha008_open_return_momentum_v1`
+- `alpha009_close_change_filter_v1`
+- `alpha010_close_change_rank_v1`
+- `alpha011_vwap_close_volume_v1`
+- `alpha012_volume_close_reversal_v1`
+- `alpha013_cov_close_volume_v1`
+- `alpha014_return_open_volume_v1`
+- `alpha017_close_rank_volume_v1`
+- `alpha018_close_open_vol_v1`
+- `alpha019_close_momentum_sign_v1`
+- `alpha020_open_delay_range_v1`
+
+## 17. Intraday Open-like Convention (2026-03-26)
+- For intraday factor semantics, `open` is no longer used as the primary dynamic time-series field.
+- Unified rule: use `open_like = mid_price1`, where `mid_price1 = (ask_price1 + bid_price1) / 2`.
+- Fallback rule: if `ask_price1`/`bid_price1` is missing or invalid, fallback to `open`.
+- Rationale: in current DataHub snapshot/panel data, `open` is mostly day-static inside intraday sequences, which can cause zero-variance inputs and unstable IC/RankIC.
+- This rule is applied in shared helper and factor implementations. New factors with intraday "open-like" semantics must follow this convention by default.
+
+## 18. Mid-vs-Last Equality Note (2026-03-26)
+- `open_like` uses `mid_price1`, while close-like intraday semantics should use `last`.
+- It is normal that `mid_price1` and `last` are occasionally equal; this is not a data-quality bug by itself.
+- On `2026-03-24` cbond panel (`T1430`) check:
+  - Full-sample `mid_price1 == last` ratio: about `0.498%`.
+  - Per-bond last-row `mid_price1 == last` ratio: about `0.567%`.
+  - Per-bond last-10 rows, all-equal ratio: `0%`.
+- Practical rule:
+  - No special handling is needed when equality happens occasionally.
+  - Risk control should target **low cross-sectional variation** (e.g., near-constant factor values), not literal `mid == last` events.
+

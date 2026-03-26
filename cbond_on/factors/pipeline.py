@@ -187,6 +187,7 @@ def _build_factor_for_day(
     store: FactorStore,
     window_minutes: int,
     panel_name: str | None,
+    refresh: bool,
     overwrite: bool,
     specs: Sequence[FactorSpec],
     raw_data_root: Path | None,
@@ -203,10 +204,14 @@ def _build_factor_for_day(
         return _FactorDayOutcome()
 
     existing = pd.DataFrame()
-    if not overwrite:
+    if not refresh:
         existing = store.read_day(day)
 
-    if existing.empty or overwrite:
+    if refresh:
+        to_compute = specs
+    elif overwrite:
+        to_compute = specs
+    elif existing.empty:
         to_compute = specs
     else:
         existing_cols = set(existing.columns)
@@ -252,8 +257,14 @@ def _build_factor_for_day(
     if new_frame.empty:
         return _FactorDayOutcome()
 
-    if existing.empty or overwrite:
+    if refresh or existing.empty:
         merged = new_frame
+    elif overwrite:
+        merged = existing.copy()
+        overlap = [c for c in new_frame.columns if c in merged.columns]
+        if overlap:
+            merged = merged.drop(columns=overlap)
+        merged = merged.join(new_frame, how="outer")
     else:
         merged = existing.join(new_frame, how="outer")
     store.write_day(day, merged)
@@ -268,6 +279,7 @@ def run_factor_pipeline(
     *,
     window_minutes: int = 15,
     panel_name: str | None = None,
+    refresh: bool = False,
     overwrite: bool = False,
     workers: int = 1,
     raw_data_root: str | Path | None = None,
@@ -298,6 +310,7 @@ def run_factor_pipeline(
                 store=store,
                 window_minutes=window_minutes,
                 panel_name=panel_name,
+                refresh=refresh,
                 overwrite=overwrite,
                 specs=specs,
                 raw_data_root=raw_data_root_path,
@@ -317,6 +330,7 @@ def run_factor_pipeline(
                 store=store,
                 window_minutes=window_minutes,
                 panel_name=panel_name,
+                refresh=refresh,
                 overwrite=overwrite,
                 specs=specs,
                 raw_data_root=raw_data_root_path,

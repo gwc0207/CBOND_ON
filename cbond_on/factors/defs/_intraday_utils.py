@@ -48,3 +48,32 @@ def first_last_price(df: pd.DataFrame, price_col: str) -> tuple[float | None, fl
     if series.empty:
         return None, None
     return float(series.iloc[0]), float(series.iloc[-1])
+
+
+def open_like_series(
+    df: pd.DataFrame,
+    *,
+    open_col: str = "open",
+    ask_col: str = "ask_price1",
+    bid_col: str = "bid_price1",
+) -> pd.Series:
+    """Return open-like price series: prefer mid_price1, fallback to open."""
+    mid: pd.Series | None = None
+    if ask_col in df.columns and bid_col in df.columns:
+        ask = pd.to_numeric(df[ask_col], errors="coerce")
+        bid = pd.to_numeric(df[bid_col], errors="coerce")
+        mid = (ask + bid) / 2.0
+
+    open_px: pd.Series | None = None
+    if open_col in df.columns:
+        open_px = pd.to_numeric(df[open_col], errors="coerce")
+
+    if mid is not None and open_px is not None:
+        return mid.where(mid.notna(), open_px)
+    if mid is not None:
+        return mid
+    if open_px is not None:
+        return open_px
+    raise KeyError(
+        f"open-like requires [{open_col}] or [{ask_col}, {bid_col}] in panel columns"
+    )

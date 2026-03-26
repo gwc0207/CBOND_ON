@@ -20,9 +20,8 @@ def main() -> None:
     panel_name = str(cfg.get("panel_name", "")).strip()
     if not panel_name:
         raise ValueError("factor_config.panel_name is required; window_minutes fallback is disabled")
+    refresh = bool(cfg.get("refresh", False))
     overwrite = bool(cfg.get("overwrite", False))
-    if bool(cfg.get("refresh", False)):
-        overwrite = True
 
     out_root = run_factor_batch(
         cfg,
@@ -35,6 +34,7 @@ def main() -> None:
         end=end_day,
         window_minutes=15,
         panel_name=panel_name,
+        refresh=refresh,
         overwrite=overwrite,
         specs=build_signal_specs(cfg),
     )

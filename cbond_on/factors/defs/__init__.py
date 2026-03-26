@@ -29,6 +29,28 @@ from cbond_on.factors.defs.price_level_position_v1 import PriceLevelPositionV1Fa
 from cbond_on.factors.defs.bid_ask_spread_v1 import BidAskSpreadV1Factor
 from cbond_on.factors.defs.stock_bond_momentum_gap_v1 import StockBondMomentumGapV1Factor
 from cbond_on.factors.defs.premium_momentum_proxy_v1 import PremiumMomentumProxyV1Factor
+from cbond_on.factors.defs.alpha101_top20_v2 import (
+    Alpha001SignedPowerV1Factor,
+    Alpha002CorrVolumeReturnV1Factor,
+    Alpha003CorrOpenVolumeV1Factor,
+    Alpha004TsRankLowV1Factor,
+    Alpha005VwapGapV1Factor,
+    Alpha006CorrOpenVolumeNegV1Factor,
+    Alpha007VolumeBreakoutV1Factor,
+    Alpha008OpenReturnMomentumV1Factor,
+    Alpha009CloseChangeFilterV1Factor,
+    Alpha010CloseChangeRankV1Factor,
+    Alpha011VwapCloseVolumeV1Factor,
+    Alpha012VolumeCloseReversalV1Factor,
+    Alpha013CovCloseVolumeV1Factor,
+    Alpha014ReturnOpenVolumeV1Factor,
+    Alpha015HighVolumeCorrV1Factor,
+    Alpha016CovHighVolumeV1Factor,
+    Alpha017CloseRankVolumeV1Factor,
+    Alpha018CloseOpenVolV1Factor,
+    Alpha019CloseMomentumSignV1Factor,
+    Alpha020OpenDelayRangeV1Factor,
+)
 
 __all__ = [
     "AacbFactor",
@@ -62,4 +84,24 @@ __all__ = [
     "BidAskSpreadV1Factor",
     "StockBondMomentumGapV1Factor",
     "PremiumMomentumProxyV1Factor",
+    "Alpha001SignedPowerV1Factor",
+    "Alpha002CorrVolumeReturnV1Factor",
+    "Alpha003CorrOpenVolumeV1Factor",
+    "Alpha004TsRankLowV1Factor",
+    "Alpha005VwapGapV1Factor",
+    "Alpha006CorrOpenVolumeNegV1Factor",
+    "Alpha007VolumeBreakoutV1Factor",
+    "Alpha008OpenReturnMomentumV1Factor",
+    "Alpha009CloseChangeFilterV1Factor",
+    "Alpha010CloseChangeRankV1Factor",
+    "Alpha011VwapCloseVolumeV1Factor",
+    "Alpha012VolumeCloseReversalV1Factor",
+    "Alpha013CovCloseVolumeV1Factor",
+    "Alpha014ReturnOpenVolumeV1Factor",
+    "Alpha015HighVolumeCorrV1Factor",
+    "Alpha016CovHighVolumeV1Factor",
+    "Alpha017CloseRankVolumeV1Factor",
+    "Alpha018CloseOpenVolV1Factor",
+    "Alpha019CloseMomentumSignV1Factor",
+    "Alpha020OpenDelayRangeV1Factor",
 ]
