@@ -9,9 +9,8 @@
   workers: 4,
   factor_workers: 2,
   factor_files: [
-    "factor/factors_patch_ohlc_windowsize_20260327.json5"
-    // "factor/factors_20260326.json5"
-    // "factor/factors_20260325.json5"
+    "factor/factors_patch_ohlc_windowsize_20260327.json5",
+    "factor/factors_20260327.json5"
   ],
   backtest_enabled: true,
   factors: [],

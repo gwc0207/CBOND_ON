@@ -18,7 +18,8 @@ def _resolve_ohlc_rebuild_params(params: dict, required: list[str]) -> tuple[boo
     if not need_ohlc:
         return False, 0
 
-    # Single-param mode: pass `windowsize` (or alias `window_size`) to enable rolling OHLC rebuild.
+    # Single-param mode: pass `windowsize` (or alias `window_size`) to enable
+    # chunk aggregation OHLC rebuild (non-overlap buckets by seq order).
     raw_size = params.get("windowsize", params.get("window_size"))
     if raw_size is None:
         return False, 0
@@ -54,18 +55,24 @@ def _build_rolling_ohlc(
     window_points: int,
 ) -> dict[str, pd.Series]:
     w = max(1, int(window_points))
-    group_keys = [base_frame["dt"], base_frame["code"]]
-    grouped = price.groupby(group_keys, sort=False)
+    # Aggregate-by-chunk mode: each `(dt, code)` sequence is split into non-overlap
+    # buckets of size `w`, then bucket OHLC is broadcast back to every row in bucket.
+    tmp = pd.DataFrame(
+        {
+            "dt": base_frame["dt"].to_numpy(copy=False),
+            "code": base_frame["code"].to_numpy(copy=False),
+            "price": pd.to_numeric(price, errors="coerce").to_numpy(copy=False),
+        },
+        index=base_frame.index,
+    )
+    row_no = tmp.groupby(["dt", "code"], sort=False).cumcount()
+    tmp["__bucket_id__"] = (row_no // w).astype("int64")
+    grouped = tmp.groupby(["dt", "code", "__bucket_id__"], sort=False)["price"]
 
-    close_series = price
-    high_series = grouped.rolling(w, min_periods=1).max().reset_index(level=[0, 1], drop=True)
-    low_series = grouped.rolling(w, min_periods=1).min().reset_index(level=[0, 1], drop=True)
-    if w <= 1:
-        open_series = price
-    else:
-        shifted = grouped.shift(w - 1)
-        first = grouped.transform("first")
-        open_series = shifted.where(shifted.notna(), first)
+    open_series = grouped.transform("first")
+    high_series = grouped.transform("max")
+    low_series = grouped.transform("min")
+    close_series = grouped.transform("last")
 
     return {
         "open": pd.to_numeric(open_series, errors="coerce"),

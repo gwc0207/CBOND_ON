@@ -366,11 +366,14 @@ python cbond_on/run/factor_batch.py
 - Factors that only use non-OHLC fields (e.g. `last`, `volume`, `amount`, depth fields) are not affected.
 
 ### 15.3 Rebuild semantics
-- Rebuild is rolling by `(dt, code)` sequence, based on `last` as base price:
-  - `open`: first value in the trailing `windowsize` points
-  - `high`: max value in the trailing `windowsize` points
-  - `low`: min value in the trailing `windowsize` points
-  - `close`: last value in the trailing `windowsize` points
+- Rebuild is **chunk aggregation** by `(dt, code)` sequence, based on `last` as base price.
+- Sequence is split into non-overlap buckets of size `windowsize` (step = `windowsize`).
+- For each bucket:
+  - `open`: first `last` in bucket
+  - `high`: max `last` in bucket
+  - `low`: min `last` in bucket
+  - `close`: last `last` in bucket
+- Bucket OHLC values are then broadcast back to each row in that bucket.
 - When rebuild is enabled, open-like semantics use rebuilt `open` directly (no mid/open fallback path).
 
 ### 15.4 Config example
@@ -382,7 +385,7 @@ python cbond_on/run/factor_batch.py
     ts_rank_window: 5,
     corr_window: 5,
     ts_max_window: 3,
-    windowsize: 120
+    windowsize: 10
   }
 }
 ```
@@ -413,4 +416,5 @@ python cbond_on/run/factor_batch.py
 - If your formula depends on intraday OHLC dynamics, set `windowsize` explicitly per factor.
 - Different factors are expected to use different `windowsize`; there is no required shared default.
 - If formula does not use OHLC semantics, do not add `windowsize` unnecessarily.
+- Current recommended starting value: `windowsize = 10` (then tune by factor).
 

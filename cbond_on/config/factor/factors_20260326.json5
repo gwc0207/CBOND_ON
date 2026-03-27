@@ -1,24 +1,24 @@
 {
   factors: [
     { name: "alpha021_close_volatility_breakout_v1", factor: "alpha021_close_volatility_breakout_v1", params: { sum_window_long: 5, sum_window_short: 2, adv_window: 10 } },
-    // { name: "alpha022_high_volume_corr_change_v1", factor: "alpha022_high_volume_corr_change_v1", params: { corr_window: 5, delta_window: 5, stddev_window: 10, windowsize: 120 } },
-    { name: "alpha023_high_momentum_v1", factor: "alpha023_high_momentum_v1", params: { sum_window: 10, delta_window: 2, windowsize: 120 } },
+    // { name: "alpha022_high_volume_corr_change_v1", factor: "alpha022_high_volume_corr_change_v1", params: { corr_window: 5, delta_window: 5, stddev_window: 10, windowsize: 10 } },
+    { name: "alpha023_high_momentum_v1", factor: "alpha023_high_momentum_v1", params: { sum_window: 10, delta_window: 2, windowsize: 10 } },
     { name: "alpha024_close_trend_filter_v1", factor: "alpha024_close_trend_filter_v1", params: { sum_window: 20, delta_window: 20, ts_min_window: 20, short_delta_window: 3, trend_threshold: 0.05 } },
-    { name: "alpha025_return_volume_vwap_range_v1", factor: "alpha025_return_volume_vwap_range_v1", params: { adv_window: 10, windowsize: 120 } },
-    { name: "alpha026_volume_high_rank_corr_v1", factor: "alpha026_volume_high_rank_corr_v1", params: { ts_rank_window: 5, corr_window: 5, ts_max_window: 3, windowsize: 120 } },
+    { name: "alpha025_return_volume_vwap_range_v1", factor: "alpha025_return_volume_vwap_range_v1", params: { adv_window: 10, windowsize: 10 } },
+    { name: "alpha026_volume_high_rank_corr_v1", factor: "alpha026_volume_high_rank_corr_v1", params: { ts_rank_window: 5, corr_window: 5, ts_max_window: 3, windowsize: 10 } },
     { name: "alpha027_volume_vwap_corr_signal_v1", factor: "alpha027_volume_vwap_corr_signal_v1", params: { corr_window: 6, sum_window: 2 } },
-    { name: "alpha028_adv_low_close_signal_v1", factor: "alpha028_adv_low_close_signal_v1", params: { adv_window: 10, corr_window: 5, windowsize: 120 } },
+    { name: "alpha028_adv_low_close_signal_v1", factor: "alpha028_adv_low_close_signal_v1", params: { adv_window: 10, corr_window: 5, windowsize: 10 } },
     { name: "alpha029_complex_rank_signal_v1", factor: "alpha029_complex_rank_signal_v1", params: { ts_min_window: 2, ts_rank_window: 5, delay_window: 3, min_window: 5 } },
     { name: "alpha030_close_sign_volume_v1", factor: "alpha030_close_sign_volume_v1", params: { delay1: 1, delay2: 2, delay3: 3, sum_window_short: 5, sum_window_long: 10 } },
-    { name: "alpha031_close_decay_momentum_v1", factor: "alpha031_close_decay_momentum_v1", params: { delta_window: 10, decay_window: 10, delta_short_window: 3, corr_window: 12, adv_window: 10, windowsize: 120 } },
+    { name: "alpha031_close_decay_momentum_v1", factor: "alpha031_close_decay_momentum_v1", params: { delta_window: 10, decay_window: 10, delta_short_window: 3, corr_window: 12, adv_window: 10, windowsize: 10 } },
     { name: "alpha032_vwap_close_mean_reversion_v1", factor: "alpha032_vwap_close_mean_reversion_v1", params: { sum_window: 7, corr_window: 60, delay_window: 5, corr_scale: 20.0 } },
-    { name: "alpha033_open_close_ratio_v1", factor: "alpha033_open_close_ratio_v1", params: { windowsize: 120 } },
+    { name: "alpha033_open_close_ratio_v1", factor: "alpha033_open_close_ratio_v1", params: { windowsize: 10 } },
     { name: "alpha034_return_volatility_rank_v1", factor: "alpha034_return_volatility_rank_v1", params: { stddev_window_short: 2, stddev_window_long: 5, delta_window: 1 } },
-    { name: "alpha035_volume_price_momentum_v1", factor: "alpha035_volume_price_momentum_v1", params: { ts_rank_window_long: 20, ts_rank_window_short: 16, windowsize: 120 } },
+    { name: "alpha035_volume_price_momentum_v1", factor: "alpha035_volume_price_momentum_v1", params: { ts_rank_window_long: 20, ts_rank_window_short: 16, windowsize: 10 } },
     { name: "alpha036_complex_correlation_signal_v1", factor: "alpha036_complex_correlation_signal_v1", params: { corr_window_1: 15, corr_window_2: 6, sum_window: 60, ts_rank_window: 5, delay_window: 6, adv_window: 10 } },
-    { name: "alpha037_open_close_correlation_v1", factor: "alpha037_open_close_correlation_v1", params: { corr_window: 30, delay_window: 1, windowsize: 120 } },
-    { name: "alpha038_close_rank_ratio_v1", factor: "alpha038_close_rank_ratio_v1", params: { ts_rank_window: 10, windowsize: 120 } },
+    { name: "alpha037_open_close_correlation_v1", factor: "alpha037_open_close_correlation_v1", params: { corr_window: 30, delay_window: 1, windowsize: 10 } },
+    { name: "alpha038_close_rank_ratio_v1", factor: "alpha038_close_rank_ratio_v1", params: { ts_rank_window: 10, windowsize: 10 } },
     { name: "alpha039_volume_decay_momentum_v1", factor: "alpha039_volume_decay_momentum_v1", params: { adv_window: 10, decay_window: 9, delta_window: 7, sum_window: 60 } },
-    { name: "alpha040_high_volatility_corr_v1", factor: "alpha040_high_volatility_corr_v1", params: { stddev_window: 10, corr_window: 10, windowsize: 120 } }
+    { name: "alpha040_high_volatility_corr_v1", factor: "alpha040_high_volatility_corr_v1", params: { stddev_window: 10, corr_window: 10, windowsize: 10 } }
   ]
 }

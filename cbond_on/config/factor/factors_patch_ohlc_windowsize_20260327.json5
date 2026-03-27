@@ -1,30 +1,31 @@
-{
+﻿{
   factors: [
     // Group 01-20: OHLC semantic factors updated with windowsize
-    { name: "alpha002_corr_volume_return_v1", factor: "alpha002_corr_volume_return_v1", params: { corr_window: 6, windowsize: 120 } },
-    { name: "alpha003_corr_open_volume_v1", factor: "alpha003_corr_open_volume_v1", params: { corr_window: 10, windowsize: 120 } },
-    { name: "alpha004_ts_rank_low_v1", factor: "alpha004_ts_rank_low_v1", params: { ts_rank_window: 9, windowsize: 120 } },
-    { name: "alpha005_vwap_gap_v1", factor: "alpha005_vwap_gap_v1", params: { vwap_window: 10, windowsize: 120 } },
-    { name: "alpha006_corr_open_volume_neg_v1", factor: "alpha006_corr_open_volume_neg_v1", params: { corr_window: 10, windowsize: 120 } },
-    { name: "alpha008_open_return_momentum_v1", factor: "alpha008_open_return_momentum_v1", params: { sum_window: 5, delay_window: 10, windowsize: 120 } },
-    { name: "alpha015_high_volume_corr_v1", factor: "alpha015_high_volume_corr_v1", params: { corr_window: 3, sum_window: 3, windowsize: 120 } },
-    { name: "alpha016_cov_high_volume_v1", factor: "alpha016_cov_high_volume_v1", params: { cov_window: 5, windowsize: 120 } },
-    { name: "alpha018_close_open_vol_v1", factor: "alpha018_close_open_vol_v1", params: { stddev_window: 5, corr_window: 10, windowsize: 120 } },
-    { name: "alpha020_open_delay_range_v1", factor: "alpha020_open_delay_range_v1", params: { delay_window: 1, windowsize: 120 } },
+    { name: "alpha002_corr_volume_return_v1", factor: "alpha002_corr_volume_return_v1", params: { corr_window: 6, windowsize: 10 } },
+    { name: "alpha003_corr_open_volume_v1", factor: "alpha003_corr_open_volume_v1", params: { corr_window: 10, windowsize: 10 } },
+    { name: "alpha004_ts_rank_low_v1", factor: "alpha004_ts_rank_low_v1", params: { ts_rank_window: 9, windowsize: 10 } },
+    { name: "alpha005_vwap_gap_v1", factor: "alpha005_vwap_gap_v1", params: { vwap_window: 10, windowsize: 10 } },
+    { name: "alpha006_corr_open_volume_neg_v1", factor: "alpha006_corr_open_volume_neg_v1", params: { corr_window: 10, windowsize: 10 } },
+    { name: "alpha008_open_return_momentum_v1", factor: "alpha008_open_return_momentum_v1", params: { sum_window: 5, delay_window: 10, windowsize: 10 } },
+    { name: "alpha015_high_volume_corr_v1", factor: "alpha015_high_volume_corr_v1", params: { corr_window: 3, sum_window: 3, windowsize: 10 } },
+    { name: "alpha016_cov_high_volume_v1", factor: "alpha016_cov_high_volume_v1", params: { cov_window: 5, windowsize: 10 } },
+    { name: "alpha018_close_open_vol_v1", factor: "alpha018_close_open_vol_v1", params: { stddev_window: 5, corr_window: 10, windowsize: 10 } },
+    { name: "alpha020_open_delay_range_v1", factor: "alpha020_open_delay_range_v1", params: { delay_window: 1, windowsize: 10 } },
 
     // Group 21-40: active OHLC semantic factors updated with windowsize
-    { name: "alpha023_high_momentum_v1", factor: "alpha023_high_momentum_v1", params: { sum_window: 10, delta_window: 2, windowsize: 120 } },
-    { name: "alpha025_return_volume_vwap_range_v1", factor: "alpha025_return_volume_vwap_range_v1", params: { adv_window: 10, windowsize: 120 } },
-    { name: "alpha026_volume_high_rank_corr_v1", factor: "alpha026_volume_high_rank_corr_v1", params: { ts_rank_window: 5, corr_window: 5, ts_max_window: 3, windowsize: 120 } },
-    { name: "alpha028_adv_low_close_signal_v1", factor: "alpha028_adv_low_close_signal_v1", params: { adv_window: 10, corr_window: 5, windowsize: 120 } },
-    { name: "alpha031_close_decay_momentum_v1", factor: "alpha031_close_decay_momentum_v1", params: { delta_window: 10, decay_window: 10, delta_short_window: 3, corr_window: 12, adv_window: 10, windowsize: 120 } },
-    { name: "alpha033_open_close_ratio_v1", factor: "alpha033_open_close_ratio_v1", params: { windowsize: 120 } },
-    { name: "alpha035_volume_price_momentum_v1", factor: "alpha035_volume_price_momentum_v1", params: { ts_rank_window_long: 20, ts_rank_window_short: 16, windowsize: 120 } },
-    { name: "alpha037_open_close_correlation_v1", factor: "alpha037_open_close_correlation_v1", params: { corr_window: 30, delay_window: 1, windowsize: 120 } },
-    { name: "alpha038_close_rank_ratio_v1", factor: "alpha038_close_rank_ratio_v1", params: { ts_rank_window: 10, windowsize: 120 } },
-    { name: "alpha040_high_volatility_corr_v1", factor: "alpha040_high_volatility_corr_v1", params: { stddev_window: 10, corr_window: 10, windowsize: 120 } },
+    { name: "alpha023_high_momentum_v1", factor: "alpha023_high_momentum_v1", params: { sum_window: 10, delta_window: 2, windowsize: 10 } },
+    { name: "alpha025_return_volume_vwap_range_v1", factor: "alpha025_return_volume_vwap_range_v1", params: { adv_window: 10, windowsize: 10 } },
+    { name: "alpha026_volume_high_rank_corr_v1", factor: "alpha026_volume_high_rank_corr_v1", params: { ts_rank_window: 5, corr_window: 5, ts_max_window: 3, windowsize: 10 } },
+    { name: "alpha028_adv_low_close_signal_v1", factor: "alpha028_adv_low_close_signal_v1", params: { adv_window: 10, corr_window: 5, windowsize: 10 } },
+    { name: "alpha031_close_decay_momentum_v1", factor: "alpha031_close_decay_momentum_v1", params: { delta_window: 10, decay_window: 10, delta_short_window: 3, corr_window: 12, adv_window: 10, windowsize: 10 } },
+    { name: "alpha033_open_close_ratio_v1", factor: "alpha033_open_close_ratio_v1", params: { windowsize: 10 } },
+    { name: "alpha035_volume_price_momentum_v1", factor: "alpha035_volume_price_momentum_v1", params: { ts_rank_window_long: 20, ts_rank_window_short: 16, windowsize: 10 } },
+    { name: "alpha037_open_close_correlation_v1", factor: "alpha037_open_close_correlation_v1", params: { corr_window: 30, delay_window: 1, windowsize: 10 } },
+    { name: "alpha038_close_rank_ratio_v1", factor: "alpha038_close_rank_ratio_v1", params: { ts_rank_window: 10, windowsize: 10 } },
+    { name: "alpha040_high_volatility_corr_v1", factor: "alpha040_high_volatility_corr_v1", params: { stddev_window: 10, corr_window: 10, windowsize: 10 } },
 
     // Optional (if you want to re-enable alpha022)
-    // { name: "alpha022_high_volume_corr_change_v1", factor: "alpha022_high_volume_corr_change_v1", params: { corr_window: 5, delta_window: 5, stddev_window: 10, windowsize: 120 } },
+    // { name: "alpha022_high_volume_corr_change_v1", factor: "alpha022_high_volume_corr_change_v1", params: { corr_window: 5, delta_window: 5, stddev_window: 10, windowsize: 10 } },
   ]
 }
+
