@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, Optional
 
@@ -12,6 +13,8 @@ class FactorComputeContext:
     stock_panel: pd.DataFrame | None = None
     bond_stock_map: pd.DataFrame | None = None
     params: Dict[str, Any] = field(default_factory=dict)
+    cache: Dict[str, Any] = field(default_factory=dict, repr=False)
+    cache_lock: threading.RLock = field(default_factory=threading.RLock, repr=False)
 
 
 class Factor:

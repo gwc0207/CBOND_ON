@@ -51,6 +51,27 @@ def compute_factor_from_context(
     return series
 
 
+def _spawn_spec_context(base_ctx: FactorComputeContext, spec: FactorSpec) -> FactorComputeContext:
+    return FactorComputeContext(
+        panel=base_ctx.panel,
+        stock_panel=base_ctx.stock_panel,
+        bond_stock_map=base_ctx.bond_stock_map,
+        params=spec.params,
+        cache=base_ctx.cache,
+        cache_lock=base_ctx.cache_lock,
+    )
+
+
+def _compute_from_shared_context(base_ctx: FactorComputeContext, spec: FactorSpec) -> pd.Series:
+    factor = spec.build()
+    ctx = _spawn_spec_context(base_ctx, spec)
+    series = factor.compute(ctx)
+    if not isinstance(series, pd.Series):
+        raise ValueError(f"factor {spec.name} must return a Series")
+    series.name = build_factor_col(spec)
+    return series
+
+
 def build_factor_frame(
     panel: pd.DataFrame,
     specs: Iterable[FactorSpec],
@@ -63,18 +84,21 @@ def build_factor_frame(
     if not spec_list:
         return pd.DataFrame()
 
+    panel = ensure_panel_index(panel)
+    if stock_panel is not None and not stock_panel.empty:
+        stock_panel = ensure_panel_index(stock_panel)
+    base_ctx = FactorComputeContext(
+        panel=panel,
+        stock_panel=stock_panel,
+        bond_stock_map=bond_stock_map,
+        params={},
+    )
+
     workers = max(1, int(workers))
     if workers <= 1 or len(spec_list) <= 1:
         series_list: list[pd.Series] = []
         for spec in spec_list:
-            series_list.append(
-                compute_factor_from_context(
-                    panel,
-                    spec,
-                    stock_panel=stock_panel,
-                    bond_stock_map=bond_stock_map,
-                )
-            )
+            series_list.append(_compute_from_shared_context(base_ctx, spec))
         out = pd.concat(series_list, axis=1)
         return out
 
@@ -84,11 +108,9 @@ def build_factor_frame(
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {
             executor.submit(
-                compute_factor_from_context,
-                panel,
+                _compute_from_shared_context,
+                base_ctx,
                 spec,
-                stock_panel=stock_panel,
-                bond_stock_map=bond_stock_map,
             ): (idx, spec)
             for idx, spec in enumerate(spec_list)
         }

@@ -1,12 +1,13 @@
 ﻿{
-  start: "2026-01-03",
+  start: "2025-01-03",
   end: "2026-03-20",
   panel_name: "T1430",
   factor_time: "14:30",
   label_time: "14:42",
   refresh: false,
   overwrite: true,
-  workers: 6,
+  workers: 2,
+  factor_workers: 1,
   factor_files: [
     "factor/factors_20260326.json5"
     // "factor/factors_20260325.json5"

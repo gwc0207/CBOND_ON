@@ -193,6 +193,7 @@ def _build_factor_for_day(
     raw_data_root: Path | None,
     context_cfg: dict,
     map_index: _DailyTableIndex | None,
+    factor_workers: int,
 ) -> _FactorDayOutcome:
     panel = read_panel_data(
         panel_data_root,
@@ -253,6 +254,7 @@ def _build_factor_for_day(
         to_compute,
         stock_panel=stock_panel,
         bond_stock_map=bond_stock_map,
+        workers=factor_workers,
     )
     if new_frame.empty:
         return _FactorDayOutcome()
@@ -282,6 +284,7 @@ def run_factor_pipeline(
     refresh: bool = False,
     overwrite: bool = False,
     workers: int = 1,
+    factor_workers: int = 1,
     raw_data_root: str | Path | None = None,
     context_cfg: dict | None = None,
     specs: Sequence[FactorSpec],
@@ -302,6 +305,7 @@ def run_factor_pipeline(
         window_minutes=window_minutes,
     )
     workers = max(1, int(workers))
+    factor_workers = max(1, int(factor_workers))
     if workers <= 1:
         for day in progress(panel_days, desc="build_factors", unit="day", total=len(panel_days)):
             outcome = _build_factor_for_day(
@@ -316,6 +320,7 @@ def run_factor_pipeline(
                 raw_data_root=raw_data_root_path,
                 context_cfg=context,
                 map_index=map_index,
+                factor_workers=factor_workers,
             )
             result.written += outcome.written
             result.skipped += outcome.skipped
@@ -336,6 +341,7 @@ def run_factor_pipeline(
                 raw_data_root=raw_data_root_path,
                 context_cfg=context,
                 map_index=map_index,
+                factor_workers=factor_workers,
             ): day
             for day in panel_days
         }

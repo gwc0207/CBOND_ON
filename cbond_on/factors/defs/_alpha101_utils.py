@@ -10,21 +10,44 @@ EPS = 1e-8
 
 
 def _prepare_panel(ctx: FactorComputeContext, required: list[str]) -> pd.DataFrame:
-    panel = ensure_trade_time(ctx.panel)
-    missing = [c for c in required if c not in panel.columns]
+    cache_key = "_alpha101_prepare_cache"
+    with ctx.cache_lock:
+        cache = ctx.cache.get(cache_key)
+        if cache is None:
+            cache = {"base_frame": None, "numeric_cols": {}}
+            ctx.cache[cache_key] = cache
+
+    base_frame = cache.get("base_frame")
+    if base_frame is None:
+        panel = ensure_trade_time(ctx.panel)
+        built = panel.reset_index().sort_values(["dt", "code", "seq"], kind="mergesort").reset_index(drop=True)
+        with ctx.cache_lock:
+            if cache.get("base_frame") is None:
+                cache["base_frame"] = built
+            base_frame = cache["base_frame"]
+
+    missing = [c for c in required if c not in base_frame.columns]
     if missing:
         raise KeyError(f"alpha101 missing columns: {missing}")
-    frame = panel.reset_index()[["dt", "code", "seq", *required]].copy()
-    frame = frame.sort_values(["dt", "code", "seq"], kind="mergesort")
+
+    numeric_cols: dict[str, pd.Series] = cache["numeric_cols"]
     for col in required:
-        frame[col] = pd.to_numeric(frame[col], errors="coerce")
+        with ctx.cache_lock:
+            cached_col = numeric_cols.get(col)
+        if cached_col is None:
+            converted = pd.to_numeric(base_frame[col], errors="coerce")
+            with ctx.cache_lock:
+                numeric_cols.setdefault(col, converted)
+
+    frame = base_frame.loc[:, ["dt", "code", "seq"]].copy(deep=False)
+    for col in required:
+        frame[col] = numeric_cols[col]
     return frame
 
 
 def _group_scalar(frame: pd.DataFrame, func) -> pd.Series:
     rows: list[tuple[pd.Timestamp, str, float]] = []
     for (dt, code), g in frame.groupby(["dt", "code"], sort=False):
-        g = g.sort_values("seq", kind="mergesort")
         try:
             val = float(func(g))
         except Exception:

@@ -27,6 +27,7 @@ def run(
     if not panel_name:
         raise ValueError("factor_config.panel_name is required; window_minutes fallback is disabled")
     workers = int(factor_cfg.get("workers", 1))
+    factor_workers = int(factor_cfg.get("factor_workers", 1))
 
     result = run_factor_pipeline(
         paths_cfg["panel_data_root"],
@@ -37,6 +38,7 @@ def run(
         refresh=refresh_val,
         overwrite=overwrite_val,
         workers=workers,
+        factor_workers=factor_workers,
         raw_data_root=paths_cfg.get("raw_data_root"),
         context_cfg=factor_cfg.get("context"),
         specs=build_signal_specs(factor_cfg),
@@ -45,6 +47,7 @@ def run(
         "start": start_day,
         "end": end_day,
         "workers": workers,
+        "factor_workers": factor_workers,
         "written": int(result.written),
         "skipped": int(result.skipped),
     }

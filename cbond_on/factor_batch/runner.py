@@ -614,6 +614,7 @@ def run_factor_batch(
     if not panel_name_text:
         raise ValueError("factor_config.panel_name is required; window_minutes fallback is disabled")
     workers = int(cfg.get("workers", 1))
+    factor_workers = int(cfg.get("factor_workers", 1))
     run_factor_pipeline(
         panel_data_root,
         factor_data_root,
@@ -624,6 +625,7 @@ def run_factor_batch(
         refresh=refresh,
         overwrite=overwrite,
         workers=workers,
+        factor_workers=factor_workers,
         raw_data_root=raw_data_root,
         context_cfg=cfg.get("context"),
         specs=specs,
