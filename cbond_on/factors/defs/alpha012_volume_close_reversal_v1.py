@@ -1,11 +1,11 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import numpy as np
 import pandas as pd
 
 from cbond_on.core.registry import FactorRegistry
 from cbond_on.factors.base import FactorComputeContext
-from cbond_on.factors.defs._alpha101_utils import (
+from cbond_on.factors.defs._intraday_utils import (
     EPS,
     _AlphaBase,
     _corr_last,
@@ -34,3 +34,4 @@ class Alpha012VolumeCloseReversalV1Factor(_AlphaBase):
             return float(np.sign(d_vol) * (-d_last))
 
         return _group_scalar(frame, _calc)
+

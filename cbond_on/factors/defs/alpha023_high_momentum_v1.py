@@ -1,10 +1,10 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import pandas as pd
 
 from cbond_on.core.registry import FactorRegistry
 from cbond_on.factors.base import FactorComputeContext
-from cbond_on.factors.defs._alpha101_utils import _AlphaBase, _delta_last, _group_scalar, _prepare_panel
+from cbond_on.factors.defs._intraday_utils import _AlphaBase, _delta_last, _group_scalar, _prepare_panel
 
 
 @FactorRegistry.register("alpha023_high_momentum_v1")
@@ -24,4 +24,5 @@ class Alpha023HighMomentumV1Factor(_AlphaBase):
             return 0.0
 
         return _group_scalar(frame, _calc)
+
 

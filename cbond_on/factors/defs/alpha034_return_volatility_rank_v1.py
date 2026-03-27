@@ -1,10 +1,10 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import pandas as pd
 
 from cbond_on.core.registry import FactorRegistry
 from cbond_on.factors.base import FactorComputeContext
-from cbond_on.factors.defs._alpha101_utils import EPS, _AlphaBase, _cs_rank, _delta_last, _group_scalar, _prepare_panel
+from cbond_on.factors.defs._intraday_utils import EPS, _AlphaBase, _cs_rank, _delta_last, _group_scalar, _prepare_panel
 
 
 @FactorRegistry.register("alpha034_return_volatility_rank_v1")
@@ -38,4 +38,5 @@ class Alpha034ReturnVolatilityRankV1Factor(_AlphaBase):
         rank_vol = 1.0 - _cs_rank(vol_ratio)
         rank_delta = 1.0 - _cs_rank(delta_close)
         return rank_vol + rank_delta
+
 

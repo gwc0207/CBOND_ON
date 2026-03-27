@@ -1,11 +1,11 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import numpy as np
 import pandas as pd
 
 from cbond_on.core.registry import FactorRegistry
 from cbond_on.factors.base import FactorComputeContext
-from cbond_on.factors.defs._alpha101_utils import EPS, _AlphaBase, _cs_rank, _group_scalar, _prepare_panel
+from cbond_on.factors.defs._intraday_utils import EPS, _AlphaBase, _cs_rank, _group_scalar, _prepare_panel
 
 
 @FactorRegistry.register("alpha030_close_sign_volume_v1")
@@ -37,4 +37,5 @@ class Alpha030CloseSignVolumeV1Factor(_AlphaBase):
         vol_ratio = _group_scalar(frame, _vol_ratio)
         rank_sign = 1.0 - _cs_rank(sign_sum)
         return rank_sign * vol_ratio
+
 

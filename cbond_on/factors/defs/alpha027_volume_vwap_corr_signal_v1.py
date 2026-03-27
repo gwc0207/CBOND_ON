@@ -1,11 +1,11 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import numpy as np
 import pandas as pd
 
 from cbond_on.core.registry import FactorRegistry
 from cbond_on.factors.base import FactorComputeContext
-from cbond_on.factors.defs._alpha101_utils import EPS, _AlphaBase, _cs_rank, _group_scalar, _prepare_panel
+from cbond_on.factors.defs._intraday_utils import EPS, _AlphaBase, _cs_rank, _group_scalar, _prepare_panel
 
 
 @FactorRegistry.register("alpha027_volume_vwap_corr_signal_v1")
@@ -32,4 +32,5 @@ class Alpha027VolumeVwapCorrSignalV1Factor(_AlphaBase):
         avg_corr = _group_scalar(frame, _calc)
         cond = _cs_rank(avg_corr) > 0.5
         return pd.Series(np.where(cond, -1.0, 1.0), index=avg_corr.index, dtype="float64")
+
 

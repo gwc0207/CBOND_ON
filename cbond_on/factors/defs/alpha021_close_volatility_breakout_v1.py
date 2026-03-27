@@ -1,10 +1,10 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import pandas as pd
 
 from cbond_on.core.registry import FactorRegistry
 from cbond_on.factors.base import FactorComputeContext
-from cbond_on.factors.defs._alpha101_utils import (
+from cbond_on.factors.defs._intraday_utils import (
     EPS,
     _AlphaBase,
     _group_scalar,
@@ -42,4 +42,5 @@ class Alpha021CloseVolatilityBreakoutV1Factor(_AlphaBase):
             return 1.0 if vol_ratio >= 1.0 else -1.0
 
         return _group_scalar(frame, _calc)
+
 

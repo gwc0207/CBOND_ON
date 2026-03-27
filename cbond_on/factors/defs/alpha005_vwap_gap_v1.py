@@ -1,11 +1,11 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import numpy as np
 import pandas as pd
 
 from cbond_on.core.registry import FactorRegistry
 from cbond_on.factors.base import FactorComputeContext
-from cbond_on.factors.defs._alpha101_utils import (
+from cbond_on.factors.defs._intraday_utils import (
     EPS,
     _AlphaBase,
     _corr_last,
@@ -45,3 +45,4 @@ class Alpha005VwapGapV1Factor(_AlphaBase):
         gap1 = _group_scalar(frame, _gap1)
         gap2 = _group_scalar(frame, _gap2)
         return _cs_rank(gap1) * (-_cs_rank(gap2).abs())
+

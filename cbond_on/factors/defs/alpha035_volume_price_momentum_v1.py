@@ -1,10 +1,10 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import pandas as pd
 
 from cbond_on.core.registry import FactorRegistry
 from cbond_on.factors.base import FactorComputeContext
-from cbond_on.factors.defs._alpha101_utils import EPS, _AlphaBase, _group_scalar, _prepare_panel, _ts_rank_last
+from cbond_on.factors.defs._intraday_utils import EPS, _AlphaBase, _group_scalar, _prepare_panel, _ts_rank_last
 
 
 @FactorRegistry.register("alpha035_volume_price_momentum_v1")
@@ -30,4 +30,5 @@ class Alpha035VolumePriceMomentumV1Factor(_AlphaBase):
             return float(ts_rank_vol * ts_rank_price * ts_rank_ret)
 
         return _group_scalar(frame, _calc)
+
 

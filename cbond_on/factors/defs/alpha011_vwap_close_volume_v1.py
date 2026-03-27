@@ -1,11 +1,11 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import numpy as np
 import pandas as pd
 
 from cbond_on.core.registry import FactorRegistry
 from cbond_on.factors.base import FactorComputeContext
-from cbond_on.factors.defs._alpha101_utils import (
+from cbond_on.factors.defs._intraday_utils import (
     EPS,
     _AlphaBase,
     _corr_last,
@@ -51,3 +51,4 @@ class Alpha011VwapCloseVolumeV1Factor(_AlphaBase):
         min_diff = _group_scalar(frame, _min_diff)
         delta_vol = _group_scalar(frame, _delta_vol)
         return (_cs_rank(max_diff) + _cs_rank(min_diff)) * _cs_rank(delta_vol)
+

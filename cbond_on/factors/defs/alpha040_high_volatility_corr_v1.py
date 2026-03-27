@@ -1,10 +1,10 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import pandas as pd
 
 from cbond_on.core.registry import FactorRegistry
 from cbond_on.factors.base import FactorComputeContext
-from cbond_on.factors.defs._alpha101_utils import _AlphaBase, _corr_last, _cs_rank, _group_scalar, _prepare_panel
+from cbond_on.factors.defs._intraday_utils import _AlphaBase, _corr_last, _cs_rank, _group_scalar, _prepare_panel
 
 
 @FactorRegistry.register("alpha040_high_volatility_corr_v1")
@@ -28,4 +28,5 @@ class Alpha040HighVolatilityCorrV1Factor(_AlphaBase):
         std_high = _group_scalar(frame, _std_high)
         corr_hv = _group_scalar(frame, _corr_hv)
         return (-_cs_rank(std_high)) * corr_hv
+
 

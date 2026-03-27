@@ -12,11 +12,21 @@ from cbond_on.core.plotting import compress_lunch
 
 def _summary_stats(result: Any) -> dict[str, float]:
     rets = pd.to_numeric(result.returns, errors="coerce").dropna()
+    trade_rets = pd.to_numeric(
+        getattr(result, "trade_returns", pd.Series(dtype=float)),
+        errors="coerce",
+    ).dropna()
+    if not trade_rets.empty:
+        win_rate = float((trade_rets > 0).mean())
+    elif not rets.empty:
+        win_rate = float((rets > 0).mean())
+    else:
+        win_rate = 0.0
     if rets.empty:
         return {
             "sharpe": 0.0,
             "maxdd": 0.0,
-            "win_rate": 0.0,
+            "win_rate": win_rate,
             "ic_mean": 0.0,
             "ic_ir": 0.0,
             "rank_ic_mean": 0.0,
@@ -39,7 +49,7 @@ def _summary_stats(result: Any) -> dict[str, float]:
     return {
         "sharpe": sharpe,
         "maxdd": maxdd,
-        "win_rate": float((rets > 0).mean()),
+        "win_rate": win_rate,
         "ic_mean": float(ic.mean()) if not ic.empty else 0.0,
         "ic_ir": float(ic.mean() / ic_std) if ic_std > 0 else 0.0,
         "rank_ic_mean": float(rank_ic.mean()) if not rank_ic.empty else 0.0,
@@ -258,13 +268,26 @@ def save_single_factor_report(
     ax.grid(True, alpha=0.3)
 
     ax = axes[1, 0]
-    if not bin_stats.empty:
-        x = pd.to_numeric(bin_stats["bin"], errors="coerce")
-        y = pd.to_numeric(bin_stats["total_return"], errors="coerce")
-        ax.bar(x, y, color="#1F77B4")
+    factor_values = pd.to_numeric(
+        getattr(result, "factor_values", pd.Series(dtype=float)),
+        errors="coerce",
+    ).replace([np.inf, -np.inf], np.nan).dropna()
+    if not factor_values.empty:
+        q01 = float(factor_values.quantile(0.01))
+        q99 = float(factor_values.quantile(0.99))
+        clipped = factor_values.clip(lower=q01, upper=q99) if q99 > q01 else factor_values
+        bins = int(min(80, max(20, np.sqrt(max(1, len(clipped))))))
+        ax.hist(clipped, bins=bins, color="#1F77B4", alpha=0.85, edgecolor="white", linewidth=0.3)
+        mean_val = float(clipped.mean())
+        med_val = float(clipped.median())
+        ax.axvline(mean_val, color="#E45756", linestyle="--", linewidth=1.2, label=f"mean={mean_val:.4g}")
+        ax.axvline(med_val, color="#54A24B", linestyle="-.", linewidth=1.2, label=f"median={med_val:.4g}")
+        ax.legend(fontsize=7)
     else:
-        ax.text(0.5, 0.5, "No bin stats", ha="center", va="center", transform=ax.transAxes)
-    ax.set_title("Bin Total Return")
+        ax.text(0.5, 0.5, "No factor values", ha="center", va="center", transform=ax.transAxes)
+    ax.set_title("Factor Value Distribution")
+    ax.set_xlabel(factor_col)
+    ax.set_ylabel("Count")
     ax.grid(True, axis="y", alpha=0.3)
 
     ax = axes[1, 1]

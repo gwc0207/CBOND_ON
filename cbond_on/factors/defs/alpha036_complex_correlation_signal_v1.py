@@ -1,10 +1,10 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import pandas as pd
 
 from cbond_on.core.registry import FactorRegistry
 from cbond_on.factors.base import FactorComputeContext
-from cbond_on.factors.defs._alpha101_utils import (
+from cbond_on.factors.defs._intraday_utils import (
     EPS,
     _AlphaBase,
     _corr_last,
@@ -71,4 +71,5 @@ class Alpha036ComplexCorrelationSignalV1Factor(_AlphaBase):
         t4 = _group_scalar(frame, _term4)
         t5 = _group_scalar(frame, _term5)
         return 2.21 * _cs_rank(t1) + 0.70 * _cs_rank(t2) + 0.73 * _cs_rank(t3) + _cs_rank(t4) + 0.60 * _cs_rank(t5)
+
 

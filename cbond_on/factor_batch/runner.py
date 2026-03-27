@@ -227,6 +227,7 @@ def run_intraday_factor_backtest(
     workers: int = 1,
 ) -> FactorBacktestResult:
     rows = []
+    trade_returns_rows: list[float] = []
     diagnostics: list[dict] = []
     days = list(_iter_existing_label_days(label_root, start, end))
     workers = max(1, int(workers))
@@ -282,6 +283,8 @@ def run_intraday_factor_backtest(
     if not rows:
         empty = pd.Series(dtype=float)
         result = FactorBacktestResult(empty, empty, empty, empty, pd.DataFrame(), pd.DataFrame())
+        result.trade_returns = empty  # type: ignore[attr-defined]
+        result.factor_values = empty  # type: ignore[attr-defined]
         result.diagnostics = pd.DataFrame(diagnostics)  # type: ignore[attr-defined]
         return result
 
@@ -404,6 +407,9 @@ def run_intraday_factor_backtest(
             daily_records.append({"dt": dt, "ret": pd.NA, "ic": ic, "rank_ic": rank_ic, "count": len(g)})
             continue
         ret = picks["y"].mean()
+        picks_y = pd.to_numeric(picks["y"], errors="coerce").dropna()
+        if not picks_y.empty:
+            trade_returns_rows.extend(float(v) for v in picks_y.to_numpy())
 
         diagnostics.append(
             {
@@ -462,6 +468,8 @@ def run_intraday_factor_backtest(
     else:
         bin_returns = pd.DataFrame()
     daily_stats = daily.reset_index().rename(columns={"dt": "trade_time"})
+    trade_returns = pd.to_numeric(pd.Series(trade_returns_rows, dtype=float), errors="coerce").dropna()
+    factor_values = pd.to_numeric(data.get(factor_col), errors="coerce").dropna()
     result = FactorBacktestResult(
         returns=returns,
         nav=nav,
@@ -470,6 +478,8 @@ def run_intraday_factor_backtest(
         bin_returns=bin_returns,
         daily_stats=daily_stats,
     )
+    result.trade_returns = trade_returns  # type: ignore[attr-defined]
+    result.factor_values = factor_values  # type: ignore[attr-defined]
     result.diagnostics = pd.DataFrame(diagnostics)  # type: ignore[attr-defined]
     result.bin_ok = len(bin_rows)  # type: ignore[attr-defined]
     result.bin_fail = bin_fail  # type: ignore[attr-defined]
@@ -594,6 +604,35 @@ def _write_screening_outputs(out_root: Path, *, screening_cfg: dict, rows: list[
                 shutil.copy2(src, dst)
 
 
+def _collect_report_plots(out_root: Path) -> Path:
+    # Aggregate current run's factor report images into one timestamped folder.
+    plot_root = out_root / "plot"
+    plot_root.mkdir(parents=True, exist_ok=True)
+
+    copied_rows: list[dict[str, str]] = []
+    for signal_dir in sorted(out_root.iterdir(), key=lambda p: p.name):
+        if not signal_dir.is_dir():
+            continue
+        src = signal_dir / "factor_report.png"
+        if not src.exists():
+            continue
+        dst = plot_root / f"{signal_dir.name}.png"
+        shutil.copy2(src, dst)
+        copied_rows.append(
+            {
+                "factor_name": signal_dir.name,
+                "source": str(src),
+                "target": str(dst),
+            }
+        )
+
+    pd.DataFrame(copied_rows, columns=["factor_name", "source", "target"]).to_csv(
+        plot_root / "index.csv",
+        index=False,
+    )
+    return plot_root
+
+
 def run_factor_batch(
     cfg: dict,
     *,
@@ -703,4 +742,5 @@ def run_factor_batch(
             )
     if bool(screening_cfg.get("enabled", False)):
         _write_screening_outputs(out_root, screening_cfg=screening_cfg, rows=screening_rows)
+    _collect_report_plots(out_root)
     return out_root

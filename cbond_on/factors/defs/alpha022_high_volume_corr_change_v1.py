@@ -1,10 +1,10 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import pandas as pd
 
 from cbond_on.core.registry import FactorRegistry
 from cbond_on.factors.base import FactorComputeContext
-from cbond_on.factors.defs._alpha101_utils import (
+from cbond_on.factors.defs._intraday_utils import (
     _AlphaBase,
     _cs_rank,
     _group_scalar,
@@ -39,4 +39,5 @@ class Alpha022HighVolumeCorrChangeV1Factor(_AlphaBase):
         delta_corr = _group_scalar(frame, _delta_corr)
         std_close = _group_scalar(frame, _std_close)
         return -(delta_corr * _cs_rank(std_close))
+
 

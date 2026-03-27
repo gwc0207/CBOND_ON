@@ -1,11 +1,11 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import numpy as np
 import pandas as pd
 
 from cbond_on.core.registry import FactorRegistry
 from cbond_on.factors.base import FactorComputeContext
-from cbond_on.factors.defs._alpha101_utils import _AlphaBase, _corr_last, _cs_rank, _delta_last, _group_scalar, _prepare_panel
+from cbond_on.factors.defs._intraday_utils import _AlphaBase, _corr_last, _cs_rank, _delta_last, _group_scalar, _prepare_panel
 
 
 @FactorRegistry.register("alpha031_close_decay_momentum_v1")
@@ -45,4 +45,5 @@ class Alpha031CloseDecayMomentumV1Factor(_AlphaBase):
         corr_term = _group_scalar(frame, _corr_term)
         corr_sign = np.sign(_cs_rank(corr_term) - 0.5)
         return _cs_rank(decay_term) + _cs_rank(short_mom) + corr_sign
+
 

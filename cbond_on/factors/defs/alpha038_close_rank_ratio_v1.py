@@ -1,10 +1,10 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import pandas as pd
 
 from cbond_on.core.registry import FactorRegistry
 from cbond_on.factors.base import FactorComputeContext
-from cbond_on.factors.defs._alpha101_utils import EPS, _AlphaBase, _cs_rank, _group_scalar, _open_like, _prepare_panel, _ts_rank_last
+from cbond_on.factors.defs._intraday_utils import EPS, _AlphaBase, _cs_rank, _group_scalar, _open_like, _prepare_panel, _ts_rank_last
 
 
 @FactorRegistry.register("alpha038_close_rank_ratio_v1")
@@ -27,4 +27,5 @@ class Alpha038CloseRankRatioV1Factor(_AlphaBase):
         rank_close = _group_scalar(frame, _rank_close)
         ratio = _group_scalar(frame, _ratio)
         return (-_cs_rank(rank_close)) * _cs_rank(ratio)
+
 

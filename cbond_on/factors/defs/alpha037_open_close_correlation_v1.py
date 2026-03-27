@@ -1,10 +1,10 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import pandas as pd
 
 from cbond_on.core.registry import FactorRegistry
 from cbond_on.factors.base import FactorComputeContext
-from cbond_on.factors.defs._alpha101_utils import _AlphaBase, _corr_last, _cs_rank, _group_scalar, _open_like, _prepare_panel
+from cbond_on.factors.defs._intraday_utils import _AlphaBase, _corr_last, _cs_rank, _group_scalar, _open_like, _prepare_panel
 
 
 @FactorRegistry.register("alpha037_open_close_correlation_v1")
@@ -30,4 +30,5 @@ class Alpha037OpenCloseCorrelationV1Factor(_AlphaBase):
         corr_term = _group_scalar(frame, _corr_term)
         diff_term = _group_scalar(frame, _diff_term)
         return _cs_rank(corr_term) + _cs_rank(diff_term)
+
 

@@ -1,10 +1,10 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import pandas as pd
 
 from cbond_on.core.registry import FactorRegistry
 from cbond_on.factors.base import FactorComputeContext
-from cbond_on.factors.defs._alpha101_utils import _AlphaBase, _corr_last, _cs_rank, _group_scalar, _prepare_panel
+from cbond_on.factors.defs._intraday_utils import _AlphaBase, _corr_last, _cs_rank, _group_scalar, _prepare_panel
 
 
 @FactorRegistry.register("alpha028_adv_low_close_signal_v1")
@@ -28,4 +28,5 @@ class Alpha028AdvLowCloseSignalV1Factor(_AlphaBase):
 
         raw = _group_scalar(frame, _calc)
         return _cs_rank(raw)
+
 

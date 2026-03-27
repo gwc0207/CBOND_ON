@@ -1,11 +1,11 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import numpy as np
 import pandas as pd
 
 from cbond_on.core.registry import FactorRegistry
 from cbond_on.factors.base import FactorComputeContext
-from cbond_on.factors.defs._alpha101_utils import (
+from cbond_on.factors.defs._intraday_utils import (
     EPS,
     _AlphaBase,
     _corr_last,
@@ -38,3 +38,4 @@ class Alpha018CloseOpenVolV1Factor(_AlphaBase):
 
         raw = _group_scalar(frame, _calc)
         return -_cs_rank(raw)
+
