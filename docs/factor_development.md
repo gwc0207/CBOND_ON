@@ -350,44 +350,67 @@ python cbond_on/run/factor_batch.py
 - `overwrite = true` and `refresh = false`: recompute selected factor columns and overwrite those columns only; keep all other existing columns unchanged.
 - `overwrite = false` and `refresh = false`: incremental append mode. Only missing factor columns are computed; existing columns are kept untouched.
 
-## 15. Snapshot Price Convention (2026-03-26)
-- Intraday `snapshot` data source currently has `close` mostly equal to `0` during continuous trading phases (`T/T0/T1`).
-- Effective rule for ON factor development: use `last` as the primary intraday price field.
-- `open/high/low/pre_close` can be used as auxiliary fields.
-- Do not use intraday `close` in factor formulas unless the factor explicitly targets close auction phases (`E/E0`) and documents this assumption.
+## 15. Per-Factor `windowsize` OHLC Rebuild Rule (2026-03-27)
+- This is now the **active** intraday OHLC convention for ON factor development.
+- No global switch is used. OHLC rebuild is controlled **per factor** via params only.
 
-Updated factor implementations (switched intraday price dependency from `close` to `last`):
-- `alpha001_signed_power_v1`
+### 15.1 Trigger condition
+- Rebuild is enabled only when a factor params contains:
+  - `windowsize: <int>`
+- Alias `window_size` is also accepted for compatibility.
+- If no `windowsize` is provided, the factor keeps legacy field behavior.
+
+### 15.2 Scope
+- Rebuild only affects factors that use OHLC semantic fields:
+  - `open`, `high`, `low`, `close`
+- Factors that only use non-OHLC fields (e.g. `last`, `volume`, `amount`, depth fields) are not affected.
+
+### 15.3 Rebuild semantics
+- Rebuild is rolling by `(dt, code)` sequence, based on `last` as base price:
+  - `open`: first value in the trailing `windowsize` points
+  - `high`: max value in the trailing `windowsize` points
+  - `low`: min value in the trailing `windowsize` points
+  - `close`: last value in the trailing `windowsize` points
+- When rebuild is enabled, open-like semantics use rebuilt `open` directly (no mid/open fallback path).
+
+### 15.4 Config example
+```json5
+{
+  name: "alpha026_volume_high_rank_corr_v1",
+  factor: "alpha026_volume_high_rank_corr_v1",
+  params: {
+    ts_rank_window: 5,
+    corr_window: 5,
+    ts_max_window: 3,
+    windowsize: 120
+  }
+}
+```
+
+### 15.5 Factors already switched to `windowsize`
 - `alpha002_corr_volume_return_v1`
+- `alpha003_corr_open_volume_v1`
+- `alpha004_ts_rank_low_v1`
 - `alpha005_vwap_gap_v1`
-- `alpha007_volume_breakout_v1`
+- `alpha006_corr_open_volume_neg_v1`
 - `alpha008_open_return_momentum_v1`
-- `alpha009_close_change_filter_v1`
-- `alpha010_close_change_rank_v1`
-- `alpha011_vwap_close_volume_v1`
-- `alpha012_volume_close_reversal_v1`
-- `alpha013_cov_close_volume_v1`
-- `alpha014_return_open_volume_v1`
-- `alpha017_close_rank_volume_v1`
+- `alpha015_high_volume_corr_v1`
+- `alpha016_cov_high_volume_v1`
 - `alpha018_close_open_vol_v1`
-- `alpha019_close_momentum_sign_v1`
 - `alpha020_open_delay_range_v1`
+- `alpha023_high_momentum_v1`
+- `alpha025_return_volume_vwap_range_v1`
+- `alpha026_volume_high_rank_corr_v1`
+- `alpha028_adv_low_close_signal_v1`
+- `alpha031_close_decay_momentum_v1`
+- `alpha033_open_close_ratio_v1`
+- `alpha035_volume_price_momentum_v1`
+- `alpha037_open_close_correlation_v1`
+- `alpha038_close_rank_ratio_v1`
+- `alpha040_high_volatility_corr_v1`
 
-## 17. Intraday Open-like Convention (2026-03-26)
-- For intraday factor semantics, `open` is no longer used as the primary dynamic time-series field.
-- Unified rule: use `open_like = mid_price1`, where `mid_price1 = (ask_price1 + bid_price1) / 2`.
-- Fallback rule: if `ask_price1`/`bid_price1` is missing or invalid, fallback to `open`.
-- Rationale: in current DataHub snapshot/panel data, `open` is mostly day-static inside intraday sequences, which can cause zero-variance inputs and unstable IC/RankIC.
-- This rule is applied in shared helper and factor implementations. New factors with intraday "open-like" semantics must follow this convention by default.
-
-## 18. Mid-vs-Last Equality Note (2026-03-26)
-- `open_like` uses `mid_price1`, while close-like intraday semantics should use `last`.
-- It is normal that `mid_price1` and `last` are occasionally equal; this is not a data-quality bug by itself.
-- On `2026-03-24` cbond panel (`T1430`) check:
-  - Full-sample `mid_price1 == last` ratio: about `0.498%`.
-  - Per-bond last-row `mid_price1 == last` ratio: about `0.567%`.
-  - Per-bond last-10 rows, all-equal ratio: `0%`.
-- Practical rule:
-  - No special handling is needed when equality happens occasionally.
-  - Risk control should target **low cross-sectional variation** (e.g., near-constant factor values), not literal `mid == last` events.
+### 15.6 Notes for new factor agents
+- If your formula depends on intraday OHLC dynamics, set `windowsize` explicitly per factor.
+- Different factors are expected to use different `windowsize`; there is no required shared default.
+- If formula does not use OHLC semantics, do not add `windowsize` unnecessarily.
 

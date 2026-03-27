@@ -29,6 +29,24 @@ def _resolve_ohlc_rebuild_params(params: dict, required: list[str]) -> tuple[boo
     return True, window_points
 
 
+def _normalize_ohlc_windows_plan(params: dict) -> list[int]:
+    raw = params.get("__ohlc_windows_plan__")
+    if not isinstance(raw, (list, tuple, set)):
+        return []
+    out: list[int] = []
+    seen: set[int] = set()
+    for item in raw:
+        try:
+            w = int(item)
+        except Exception:
+            continue
+        if w <= 0 or w in seen:
+            continue
+        seen.add(w)
+        out.append(w)
+    return sorted(out)
+
+
 def _build_rolling_ohlc(
     base_frame: pd.DataFrame,
     price: pd.Series,
@@ -172,6 +190,31 @@ def _prepare_panel(ctx: FactorComputeContext, required: list[str]) -> pd.DataFra
         _ensure_numeric(col)
 
     rebuilt_ohlc: dict[str, pd.Series] = {}
+    ohlc_windows_plan = _normalize_ohlc_windows_plan(ctx.params)
+    if ohlc_windows_plan and ohlc_base_price_col in base_frame.columns:
+        base_price = _ensure_numeric(ohlc_base_price_col)
+        plan_missing: list[int] = []
+        with ctx.cache_lock:
+            for w in ohlc_windows_plan:
+                key_base = f"__ohlc_rebuild__{ohlc_base_price_col}__w{w}"
+                has_all = all(
+                    f"{key_base}__{col_name}" in derived_cols
+                    for col_name in OHLC_COLS
+                )
+                if not has_all:
+                    plan_missing.append(w)
+        if plan_missing:
+            for w in plan_missing:
+                key_base = f"__ohlc_rebuild__{ohlc_base_price_col}__w{w}"
+                built_ohlc = _build_rolling_ohlc(
+                    base_frame,
+                    base_price,
+                    window_points=w,
+                )
+                with ctx.cache_lock:
+                    for col_name in OHLC_COLS:
+                        derived_cols.setdefault(f"{key_base}__{col_name}", built_ohlc[col_name])
+
     if ohlc_rebuild and any(c in required for c in OHLC_COLS):
         key_base = f"__ohlc_rebuild__{ohlc_base_price_col}__w{ohlc_window_points}"
         key_map = {

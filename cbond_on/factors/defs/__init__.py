@@ -69,6 +69,22 @@ from cbond_on.factors.defs.alpha037_open_close_correlation_v1 import Alpha037Ope
 from cbond_on.factors.defs.alpha038_close_rank_ratio_v1 import Alpha038CloseRankRatioV1Factor
 from cbond_on.factors.defs.alpha039_volume_decay_momentum_v1 import Alpha039VolumeDecayMomentumV1Factor
 from cbond_on.factors.defs.alpha040_high_volatility_corr_v1 import Alpha040HighVolatilityCorrV1Factor
+from cbond_on.factors.defs.alpha041_geometric_mean_vwap_v1 import Alpha041GeometricMeanVwapV1Factor
+from cbond_on.factors.defs.alpha042_vwap_close_rank_ratio_v1 import Alpha042VwapCloseRankRatioV1Factor
+from cbond_on.factors.defs.alpha043_volume_delay_momentum_v1 import Alpha043VolumeDelayMomentumV1Factor
+from cbond_on.factors.defs.alpha044_high_volume_rank_corr_v1 import Alpha044HighVolumeRankCorrV1Factor
+from cbond_on.factors.defs.alpha045_close_sum_corr_v1 import Alpha045CloseSumCorrV1Factor
+from cbond_on.factors.defs.alpha046_close_delay_trend_v1 import Alpha046CloseDelayTrendV1Factor
+from cbond_on.factors.defs.alpha047_inverse_close_volume_v1 import Alpha047InverseCloseVolumeV1Factor
+from cbond_on.factors.defs.alpha049_close_delay_threshold_v1 import Alpha049CloseDelayThresholdV1Factor
+from cbond_on.factors.defs.alpha050_volume_vwap_corr_max_v1 import Alpha050VolumeVwapCorrMaxV1Factor
+from cbond_on.factors.defs.alpha051_close_delay_threshold_v2_v1 import Alpha051CloseDelayThresholdV2V1Factor
+from cbond_on.factors.defs.alpha052_low_momentum_volume_v1 import Alpha052LowMomentumVolumeV1Factor
+from cbond_on.factors.defs.alpha053_price_position_delta_v1 import Alpha053PricePositionDeltaV1Factor
+from cbond_on.factors.defs.alpha054_price_power_ratio_v1 import Alpha054PricePowerRatioV1Factor
+from cbond_on.factors.defs.alpha055_close_range_volume_corr_v1 import Alpha055CloseRangeVolumeCorrV1Factor
+from cbond_on.factors.defs.alpha057_close_vwap_decay_v1 import Alpha057CloseVwapDecayV1Factor
+from cbond_on.factors.defs.alpha060_price_range_volume_scale_v1 import Alpha060PriceRangeVolumeScaleV1Factor
 
 __all__ = [
     "AacbFactor",
@@ -142,4 +158,20 @@ __all__ = [
     "Alpha038CloseRankRatioV1Factor",
     "Alpha039VolumeDecayMomentumV1Factor",
     "Alpha040HighVolatilityCorrV1Factor",
+    "Alpha041GeometricMeanVwapV1Factor",
+    "Alpha042VwapCloseRankRatioV1Factor",
+    "Alpha043VolumeDelayMomentumV1Factor",
+    "Alpha044HighVolumeRankCorrV1Factor",
+    "Alpha045CloseSumCorrV1Factor",
+    "Alpha046CloseDelayTrendV1Factor",
+    "Alpha047InverseCloseVolumeV1Factor",
+    "Alpha049CloseDelayThresholdV1Factor",
+    "Alpha050VolumeVwapCorrMaxV1Factor",
+    "Alpha051CloseDelayThresholdV2V1Factor",
+    "Alpha052LowMomentumVolumeV1Factor",
+    "Alpha053PricePositionDeltaV1Factor",
+    "Alpha054PricePowerRatioV1Factor",
+    "Alpha055CloseRangeVolumeCorrV1Factor",
+    "Alpha057CloseVwapDecayV1Factor",
+    "Alpha060PriceRangeVolumeScaleV1Factor",
 ]
