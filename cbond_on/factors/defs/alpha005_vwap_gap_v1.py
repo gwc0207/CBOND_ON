@@ -42,7 +42,17 @@ class Alpha005VwapGapV1Factor(_AlphaBase):
             vwap = amount / (volume + EPS)
             return float(last_px.iloc[-1] - vwap.iloc[-1])
 
-        gap1 = _group_scalar(frame, _gap1)
-        gap2 = _group_scalar(frame, _gap2)
+        gap1 = _group_scalar(
+            frame,
+            _gap1,
+            kernel_name="alpha005_vwap_gap_v1_gap1",
+            kernel_params={"vwap_window": vwap_window},
+        )
+        gap2 = _group_scalar(
+            frame,
+            _gap2,
+            kernel_name="alpha005_vwap_gap_v1_gap2",
+            kernel_params={},
+        )
         return _cs_rank(gap1) * (-_cs_rank(gap2).abs())
 

@@ -41,6 +41,7 @@ def run(
         factor_workers=factor_workers,
         raw_data_root=paths_cfg.get("raw_data_root"),
         context_cfg=factor_cfg.get("context"),
+        compute_cfg=factor_cfg.get("compute"),
         specs=build_signal_specs(factor_cfg),
     )
     return {

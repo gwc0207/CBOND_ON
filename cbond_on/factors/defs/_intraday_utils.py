@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 from datetime import time as dt_time
-from typing import Callable
+from typing import Any, Callable
 
 import numpy as np
 import pandas as pd
 
 from cbond_on.factors.base import Factor, FactorComputeContext, ensure_panel_index
+
+try:
+    import torch
+except Exception:  # pragma: no cover
+    torch = None
 
 EPS = 1e-8
 OPEN_LIKE_CACHE_COL = "__open_like__"
@@ -18,6 +23,30 @@ REBUILD_TRIGGER_COLS = REBUILD_PRICE_COLS + REBUILD_VALUE_COLS + REBUILD_PREV_CO
     "ask_price1",
     "bid_price1",
 )
+
+
+def _compute_backend_runtime(params: dict) -> tuple[str, str]:
+    raw = params.get("__compute_backend__", {})
+    if not isinstance(raw, dict):
+        return "cpu", "cuda"
+    active = str(raw.get("active", "cpu")).strip().lower() or "cpu"
+    device = str(raw.get("torch_device", "cuda")).strip() or "cuda"
+    return active, device
+
+
+def _panel_compute_backend_runtime(panel: pd.DataFrame) -> tuple[str, str]:
+    backend = "cpu"
+    device = "cuda"
+    raw_attr = panel.attrs.get("__compute_backend__")
+    if isinstance(raw_attr, dict):
+        backend = str(raw_attr.get("active", backend)).strip().lower() or backend
+        device = str(raw_attr.get("torch_device", device)).strip() or device
+    if "__compute_backend__" in panel.columns and not panel.empty:
+        raw_col = panel["__compute_backend__"].iloc[0]
+        if isinstance(raw_col, dict):
+            backend = str(raw_col.get("active", backend)).strip().lower() or backend
+            device = str(raw_col.get("torch_device", device)).strip() or device
+    return backend, device
 
 
 def _resolve_ohlc_rebuild_params(params: dict, required: list[str]) -> tuple[bool, int]:
@@ -55,7 +84,7 @@ def _normalize_ohlc_windows_plan(params: dict) -> list[int]:
     return sorted(out)
 
 
-def _build_rebuilt_bar_frame(
+def _build_rebuilt_bar_frame_pandas(
     base_frame: pd.DataFrame,
     *,
     window_points: int,
@@ -139,6 +168,168 @@ def _build_rebuilt_bar_frame(
     return out
 
 
+def _build_rebuilt_bar_frame_torch(
+    base_frame: pd.DataFrame,
+    *,
+    window_points: int,
+    torch_device: str,
+) -> pd.DataFrame:
+    if torch is None:
+        raise RuntimeError("torch is not available")
+    if not torch.cuda.is_available():
+        raise RuntimeError("torch cuda is not available")
+
+    w = max(1, int(window_points))
+    if base_frame.empty:
+        return base_frame.loc[:, ["dt", "code", "seq"]].copy(deep=False)
+
+    frame = base_frame.copy()
+    row_no = frame.groupby(["dt", "code"], sort=False).cumcount()
+    frame["bar_seq"] = (row_no // w).astype("int64")
+
+    ohlc_rows: list[tuple[pd.Timestamp, str, int, float, float, float, float]] = []
+    for (dt, code), g in frame.groupby(["dt", "code"], sort=False):
+        arr = pd.to_numeric(g["last"], errors="coerce").to_numpy(dtype=np.float64, copy=False)
+        n = int(arr.size)
+        if n <= 0:
+            continue
+        px = torch.as_tensor(arr, dtype=torch.float64, device=torch_device)
+        n_bars = (n + w - 1) // w
+        pad = n_bars * w - n
+        if pad > 0:
+            px_padded = torch.cat(
+                [px, torch.full((pad,), float("nan"), dtype=torch.float64, device=torch_device)]
+            )
+        else:
+            px_padded = px
+        px_mat = px_padded.view(n_bars, w)
+        open_v = px_mat[:, 0]
+        high_v = torch.nanmax(px_mat, dim=1).values
+        low_v = torch.nanmin(px_mat, dim=1).values
+
+        start_idx = torch.arange(0, n_bars * w, w, device=torch_device, dtype=torch.long)
+        end_idx = torch.clamp(start_idx + (w - 1), max=n - 1)
+        close_v = px[end_idx]
+
+        open_np = open_v.detach().cpu().numpy()
+        high_np = high_v.detach().cpu().numpy()
+        low_np = low_v.detach().cpu().numpy()
+        close_np = close_v.detach().cpu().numpy()
+        for i in range(n_bars):
+            ohlc_rows.append(
+                (
+                    pd.Timestamp(dt),
+                    str(code),
+                    int(i),
+                    float(open_np[i]),
+                    float(high_np[i]),
+                    float(low_np[i]),
+                    float(close_np[i]),
+                )
+            )
+
+    if not ohlc_rows:
+        return frame.loc[:, ["dt", "code", "seq"]].copy(deep=False)
+
+    bars = pd.DataFrame(
+        ohlc_rows,
+        columns=["dt", "code", "bar_seq", "open", "high", "low", "close"],
+    ).set_index(["dt", "code", "bar_seq"])
+    bars["last"] = bars["close"]
+
+    if "trade_time" in frame.columns:
+        bars["trade_time"] = pd.to_datetime(frame["trade_time"], errors="coerce").groupby(
+            [frame["dt"], frame["code"], frame["bar_seq"]],
+            sort=False,
+        ).last().reindex(bars.index)
+
+    for col in REBUILD_VALUE_COLS:
+        if col not in frame.columns:
+            continue
+        cum = pd.to_numeric(frame[col], errors="coerce")
+        delta = cum.groupby([frame["dt"], frame["code"]], sort=False).diff()
+        delta = delta.where(delta.notna(), cum)
+        delta = delta.where(delta >= 0.0, cum)
+        delta = delta.fillna(0.0)
+        bars[col] = (
+            delta.groupby([frame["dt"], frame["code"], frame["bar_seq"]], sort=False)
+            .sum(min_count=1)
+            .fillna(0.0)
+            .reindex(bars.index)
+        )
+
+    carry_cols = [
+        c
+        for c in frame.columns
+        if c not in {"dt", "code", "seq", "bar_seq"}
+        and c not in bars.columns
+        and c not in REBUILD_VALUE_COLS
+    ]
+    for col in carry_cols:
+        src = frame[col]
+        if pd.api.types.is_numeric_dtype(src):
+            bars[col] = pd.to_numeric(src, errors="coerce").groupby(
+                [frame["dt"], frame["code"], frame["bar_seq"]],
+                sort=False,
+            ).last().reindex(bars.index)
+        else:
+            bars[col] = src.groupby(
+                [frame["dt"], frame["code"], frame["bar_seq"]],
+                sort=False,
+            ).last().reindex(bars.index)
+
+    prev_bar_close = bars.groupby(level=["dt", "code"], sort=False)["close"].shift(1)
+    if "pre_close" in frame.columns:
+        pre_close_day = pd.to_numeric(frame["pre_close"], errors="coerce").groupby(
+            [frame["dt"], frame["code"]],
+            sort=False,
+        ).first()
+        lookup_idx = pd.MultiIndex.from_arrays(
+            [bars.index.get_level_values(0), bars.index.get_level_values(1)],
+            names=["dt", "code"],
+        )
+        fallback = pre_close_day.reindex(lookup_idx).to_numpy()
+        prev_bar_close = prev_bar_close.fillna(
+            pd.Series(fallback, index=bars.index, dtype="float64")
+        )
+    bars["prev_bar_close"] = pd.to_numeric(prev_bar_close, errors="coerce")
+    bars["pre_close"] = bars["prev_bar_close"]
+
+    out = bars.reset_index()
+    if "bar_seq" in out.columns:
+        out = out.rename(columns={"bar_seq": "seq"})
+    elif "level_2" in out.columns:
+        out = out.rename(columns={"level_2": "seq"})
+    out["seq"] = pd.to_numeric(out["seq"], errors="coerce").fillna(0).astype("int64")
+    out = out.sort_values(["dt", "code", "seq"], kind="mergesort").reset_index(drop=True)
+    return out
+
+
+def _build_rebuilt_bar_frame(
+    base_frame: pd.DataFrame,
+    *,
+    window_points: int,
+    backend_mode: str = "cpu",
+    torch_device: str = "cuda",
+) -> pd.DataFrame:
+    if backend_mode == "torch_cuda":
+        try:
+            return _build_rebuilt_bar_frame_torch(
+                base_frame,
+                window_points=window_points,
+                torch_device=torch_device,
+            )
+        except Exception:
+            return _build_rebuilt_bar_frame_pandas(
+                base_frame,
+                window_points=window_points,
+            )
+    return _build_rebuilt_bar_frame_pandas(
+        base_frame,
+        window_points=window_points,
+    )
+
+
 def ensure_trade_time(panel: pd.DataFrame) -> pd.DataFrame:
     if "trade_time" not in panel.columns:
         raise KeyError("panel missing column: trade_time")
@@ -149,11 +340,13 @@ def ensure_trade_time(panel: pd.DataFrame) -> pd.DataFrame:
 
 
 def group_apply_scalar(panel: pd.DataFrame, func: Callable[[pd.DataFrame], float]) -> pd.Series:
-    grouped = panel.groupby(level=["dt", "code"], sort=False)
-    out = grouped.apply(func)
-    if isinstance(out.index, pd.MultiIndex) and out.index.nlevels > 2:
-        out = out.droplevel(-1)
-    return out
+    backend, device = _panel_compute_backend_runtime(panel)
+    if backend == "torch_cuda" and _torch_device_available(device):
+        try:
+            return _group_apply_scalar_torch_proxy(panel, func, torch_device=device)
+        except Exception:
+            pass
+    return _group_apply_scalar_cpu(panel, func)
 
 
 def slice_window(df: pd.DataFrame, window_minutes: int | None) -> pd.DataFrame:
@@ -242,13 +435,19 @@ def _prepare_panel(ctx: FactorComputeContext, required: list[str]) -> pd.DataFra
 
     rebuild_frames: dict[int, pd.DataFrame] = cache["rebuild_frames"]
     if ohlc_rebuild and rebuild_windows:
+        backend_mode, torch_device = _compute_backend_runtime(ctx.params)
         to_build: list[int] = []
         with ctx.cache_lock:
             for w in rebuild_windows:
                 if w not in rebuild_frames:
                     to_build.append(w)
         for w in to_build:
-            built = _build_rebuilt_bar_frame(base_frame, window_points=w)
+            built = _build_rebuilt_bar_frame(
+                base_frame,
+                window_points=w,
+                backend_mode=backend_mode,
+                torch_device=torch_device,
+            )
             with ctx.cache_lock:
                 rebuild_frames.setdefault(w, built)
 
@@ -309,10 +508,797 @@ def _prepare_panel(ctx: FactorComputeContext, required: list[str]) -> pd.DataFra
         frame[col] = _ensure_numeric(col)
     if need_open_like:
         frame[OPEN_LIKE_CACHE_COL] = derived_cols[open_like_cache_key]
+    backend_mode, torch_device = _compute_backend_runtime(ctx.params)
+    frame["__compute_backend__"] = {
+        "active": backend_mode,
+        "torch_device": torch_device,
+    }
+    frame["__factor_kernel_name__"] = str(ctx.params.get("__factor_kernel_name__", "")).strip()
+    frame["__factor_kernel_params__"] = (
+        dict(ctx.params.get("__factor_kernel_params__", {}))
+        if isinstance(ctx.params.get("__factor_kernel_params__", {}), dict)
+        else {}
+    )
     return frame
 
 
-def _group_scalar(frame: pd.DataFrame, func: Callable[[pd.DataFrame], float]) -> pd.Series:
+TorchKernelFn = Callable[[pd.DataFrame, dict[str, Any], str], float]
+_TORCH_SCALAR_KERNELS: dict[str, TorchKernelFn] = {}
+
+
+def _register_torch_scalar_kernel(name: str) -> Callable[[TorchKernelFn], TorchKernelFn]:
+    def _decorator(fn: TorchKernelFn) -> TorchKernelFn:
+        _TORCH_SCALAR_KERNELS[str(name).strip()] = fn
+        return fn
+
+    return _decorator
+
+
+def _torch_tensor_from_series(series: pd.Series, *, device: str) -> Any:
+    if torch is None:
+        raise RuntimeError("torch is not available")
+    arr = pd.to_numeric(series, errors="coerce").to_numpy(dtype=np.float64, copy=True)
+    return torch.as_tensor(arr, dtype=torch.float64, device=device)
+
+
+def _torch_device_available(device: str) -> bool:
+    dev = str(device or "").strip().lower()
+    if dev.startswith("cpu"):
+        return torch is not None
+    return torch is not None and torch.cuda.is_available()
+
+
+def _torch_scalar_to_float(x: Any) -> float:
+    if torch is None:
+        return float(x)
+    if isinstance(x, torch.Tensor):
+        if x.numel() == 0:
+            return float("nan")
+        if x.ndim == 0:
+            return float(x.item())
+        return float(x.reshape(-1)[-1].item())
+    return float(x)
+
+
+def _torch_open_like_from_group(g: pd.DataFrame, *, device: str) -> Any:
+    if OPEN_LIKE_CACHE_COL in g.columns:
+        return _torch_tensor_from_series(g[OPEN_LIKE_CACHE_COL], device=device)
+    if "open" in g.columns:
+        open_t = _torch_tensor_from_series(g["open"], device=device)
+    else:
+        open_t = None
+    ask_t = _torch_tensor_from_series(g["ask_price1"], device=device) if "ask_price1" in g.columns else None
+    bid_t = _torch_tensor_from_series(g["bid_price1"], device=device) if "bid_price1" in g.columns else None
+    if ask_t is not None and bid_t is not None:
+        mid = (ask_t + bid_t) / 2.0
+        if open_t is not None:
+            return torch.where(torch.isnan(mid), open_t, mid)
+        return mid
+    if open_t is not None:
+        return open_t
+    raise KeyError("open-like requires open or ask/bid columns")
+
+
+def _torch_rank_pct(x: Any) -> Any:
+    if torch is None:
+        raise RuntimeError("torch is not available")
+    out = torch.full_like(x, float("nan"))
+    valid = ~torch.isnan(x)
+    if int(valid.sum().item()) <= 0:
+        return out
+    idx_valid = torch.nonzero(valid, as_tuple=False).squeeze(1)
+    xv = x[idx_valid]
+    sorted_vals, order = torch.sort(xv)
+    m = int(sorted_vals.numel())
+    ranks_sorted = torch.empty_like(sorted_vals)
+    i = 0
+    while i < m:
+        j = i + 1
+        while j < m and bool(sorted_vals[j] == sorted_vals[i]):
+            j += 1
+        avg_rank = (float(i + 1) + float(j)) / 2.0
+        ranks_sorted[i:j] = avg_rank
+        i = j
+    ranks = torch.empty_like(xv)
+    ranks[order] = ranks_sorted / float(max(1, m))
+    out[idx_valid] = ranks
+    return out
+
+
+def _torch_corr_last(x: Any, y: Any, window: int) -> float:
+    if torch is None:
+        raise RuntimeError("torch is not available")
+    w = max(2, int(window))
+    pair = torch.stack([x, y], dim=1)
+    valid = ~torch.isnan(pair).any(dim=1)
+    pair = pair[valid]
+    if int(pair.shape[0]) < 2:
+        return 0.0
+    pair = pair[-w:]
+    a = pair[:, 0]
+    b = pair[:, 1]
+    a_std = torch.std(a, unbiased=False)
+    b_std = torch.std(b, unbiased=False)
+    if float(a_std.item()) <= EPS or float(b_std.item()) <= EPS:
+        return 0.0
+    am = torch.mean(a)
+    bm = torch.mean(b)
+    cov = torch.mean((a - am) * (b - bm))
+    corr = cov / (a_std * b_std + EPS)
+    if torch.isnan(corr):
+        return 0.0
+    return float(corr.item())
+
+
+def _torch_ts_rank_last(x: Any, window: int) -> float:
+    if torch is None:
+        raise RuntimeError("torch is not available")
+    w = max(1, int(window))
+    tail = x[-w:]
+    tail = tail[~torch.isnan(tail)]
+    if int(tail.numel()) <= 0:
+        return 0.0
+    ranks = _torch_rank_pct(tail)
+    return float(ranks[-1].item())
+
+
+def _torch_rolling_mean_last(x: Any, window: int) -> float:
+    if torch is None:
+        raise RuntimeError("torch is not available")
+    w = max(1, int(window))
+    tail = x[-w:]
+    if int(tail.numel()) <= 0:
+        return float("nan")
+    valid = tail[~torch.isnan(tail)]
+    if int(valid.numel()) <= 0:
+        return float("nan")
+    return float(torch.mean(valid).item())
+
+
+def _torch_rolling_min_last(x: Any, window: int) -> float:
+    if torch is None:
+        raise RuntimeError("torch is not available")
+    w = max(1, int(window))
+    tail = x[-w:]
+    valid = tail[~torch.isnan(tail)]
+    if int(valid.numel()) <= 0:
+        return float("nan")
+    return float(torch.min(valid).item())
+
+
+def _torch_rolling_max_last(x: Any, window: int) -> float:
+    if torch is None:
+        raise RuntimeError("torch is not available")
+    w = max(1, int(window))
+    tail = x[-w:]
+    valid = tail[~torch.isnan(tail)]
+    if int(valid.numel()) <= 0:
+        return float("nan")
+    return float(torch.max(valid).item())
+
+
+def _torch_rolling_std_series(x: Any, window: int, *, min_periods: int = 2) -> Any:
+    if torch is None:
+        raise RuntimeError("torch is not available")
+    w = max(1, int(window))
+    out = torch.full_like(x, float("nan"))
+    n = int(x.numel())
+    for i in range(n):
+        left = max(0, i - w + 1)
+        seg = x[left : i + 1]
+        valid = seg[~torch.isnan(seg)]
+        if int(valid.numel()) < int(min_periods):
+            continue
+        out[i] = torch.std(valid, unbiased=True)
+    return out
+
+
+def _to_torch_tensor(value: Any, *, device: str, dtype: Any | None = None, like: Any | None = None) -> Any:
+    if torch is None:
+        raise RuntimeError("torch is not available")
+    if isinstance(value, _TorchSeries):
+        t = value.tensor
+    elif isinstance(value, torch.Tensor):
+        t = value
+    elif np.isscalar(value):
+        if like is not None:
+            base = like.tensor if isinstance(like, _TorchSeries) else like
+            t = torch.full_like(base, float(value), dtype=dtype or base.dtype, device=device)
+        else:
+            t = torch.tensor(float(value), dtype=dtype or torch.float64, device=device)
+    else:
+        arr = np.asarray(value)
+        t = torch.as_tensor(arr, dtype=dtype or torch.float64, device=device)
+    if dtype is not None and t.dtype != dtype:
+        t = t.to(dtype=dtype)
+    if t.device.type != torch.device(device).type:
+        t = t.to(device=device)
+    return t
+
+
+class _TorchILoc:
+    def __init__(self, series: "_TorchSeries") -> None:
+        self._s = series
+
+    def __getitem__(self, key: int) -> float:
+        t = self._s.tensor
+        if t.numel() == 0:
+            return float("nan")
+        idx = int(key)
+        if idx < 0:
+            idx = int(t.numel()) + idx
+        idx = min(max(0, idx), int(t.numel()) - 1)
+        return float(t[idx].item())
+
+
+class _TorchRolling:
+    def __init__(self, series: "_TorchSeries", window: int, min_periods: int = 1) -> None:
+        self._s = series
+        self._w = max(1, int(window))
+        self._minp = max(1, int(min_periods))
+
+    def _apply(self, op: str) -> "_TorchSeries":
+        x = self._s.tensor
+        n = int(x.numel())
+        out = torch.full_like(x, float("nan"))
+        for i in range(n):
+            left = max(0, i - self._w + 1)
+            seg = x[left : i + 1]
+            valid = seg[~torch.isnan(seg)]
+            if int(valid.numel()) < self._minp:
+                continue
+            if op == "mean":
+                out[i] = torch.mean(valid)
+            elif op == "sum":
+                out[i] = torch.sum(valid)
+            elif op == "min":
+                out[i] = torch.min(valid)
+            elif op == "max":
+                out[i] = torch.max(valid)
+            elif op == "std":
+                if int(valid.numel()) < 2:
+                    continue
+                out[i] = torch.std(valid, unbiased=True)
+            else:
+                raise ValueError(f"unknown rolling op: {op}")
+        return _TorchSeries(out, self._s.device)
+
+    def mean(self) -> "_TorchSeries":
+        return self._apply("mean")
+
+    def sum(self) -> "_TorchSeries":
+        return self._apply("sum")
+
+    def min(self) -> "_TorchSeries":
+        return self._apply("min")
+
+    def max(self) -> "_TorchSeries":
+        return self._apply("max")
+
+    def std(self) -> "_TorchSeries":
+        return self._apply("std")
+
+
+class _TorchSeries:
+    __array_priority__ = 1000
+
+    def __init__(self, tensor: Any, device: str) -> None:
+        if torch is None:
+            raise RuntimeError("torch is not available")
+        if not isinstance(tensor, torch.Tensor):
+            tensor = _to_torch_tensor(tensor, device=device)
+        self.tensor = tensor
+        self.device = str(device)
+
+    @property
+    def iloc(self) -> _TorchILoc:
+        return _TorchILoc(self)
+
+    def __len__(self) -> int:
+        return int(self.tensor.numel())
+
+    def __iter__(self):
+        arr = self.tensor.detach().cpu().numpy().reshape(-1)
+        for v in arr:
+            yield float(v)
+
+    def _binary(self, other: Any, op: str) -> "_TorchSeries":
+        t = self.tensor
+        o = _to_torch_tensor(other, device=self.device, like=self)
+        if op == "add":
+            out = t + o
+        elif op == "sub":
+            out = t - o
+        elif op == "rsub":
+            out = o - t
+        elif op == "mul":
+            out = t * o
+        elif op == "div":
+            out = t / o
+        elif op == "rdiv":
+            out = o / t
+        elif op == "pow":
+            out = torch.pow(t, o)
+        elif op == "rpow":
+            out = torch.pow(o, t)
+        elif op == "lt":
+            out = t < o
+        elif op == "le":
+            out = t <= o
+        elif op == "gt":
+            out = t > o
+        elif op == "ge":
+            out = t >= o
+        elif op == "eq":
+            out = t == o
+        elif op == "ne":
+            out = t != o
+        else:
+            raise ValueError(f"unknown op: {op}")
+        return _TorchSeries(out, self.device)
+
+    def __add__(self, other: Any) -> "_TorchSeries":
+        return self._binary(other, "add")
+
+    def __radd__(self, other: Any) -> "_TorchSeries":
+        return self._binary(other, "add")
+
+    def __sub__(self, other: Any) -> "_TorchSeries":
+        return self._binary(other, "sub")
+
+    def __rsub__(self, other: Any) -> "_TorchSeries":
+        return self._binary(other, "rsub")
+
+    def __mul__(self, other: Any) -> "_TorchSeries":
+        return self._binary(other, "mul")
+
+    def __rmul__(self, other: Any) -> "_TorchSeries":
+        return self._binary(other, "mul")
+
+    def __truediv__(self, other: Any) -> "_TorchSeries":
+        return self._binary(other, "div")
+
+    def __rtruediv__(self, other: Any) -> "_TorchSeries":
+        return self._binary(other, "rdiv")
+
+    def __pow__(self, other: Any) -> "_TorchSeries":
+        return self._binary(other, "pow")
+
+    def __rpow__(self, other: Any) -> "_TorchSeries":
+        return self._binary(other, "rpow")
+
+    def __lt__(self, other: Any) -> "_TorchSeries":
+        return self._binary(other, "lt")
+
+    def __le__(self, other: Any) -> "_TorchSeries":
+        return self._binary(other, "le")
+
+    def __gt__(self, other: Any) -> "_TorchSeries":
+        return self._binary(other, "gt")
+
+    def __ge__(self, other: Any) -> "_TorchSeries":
+        return self._binary(other, "ge")
+
+    def __eq__(self, other: Any) -> "_TorchSeries":  # type: ignore[override]
+        return self._binary(other, "eq")
+
+    def __ne__(self, other: Any) -> "_TorchSeries":  # type: ignore[override]
+        return self._binary(other, "ne")
+
+    def __neg__(self) -> "_TorchSeries":
+        return _TorchSeries(-self.tensor, self.device)
+
+    def __abs__(self) -> "_TorchSeries":
+        return self.abs()
+
+    def abs(self) -> "_TorchSeries":
+        return _TorchSeries(torch.abs(self.tensor), self.device)
+
+    def astype(self, _dtype: str) -> "_TorchSeries":
+        return _TorchSeries(self.tensor.to(dtype=torch.float64), self.device)
+
+    def clip(self, lower: float | None = None, upper: float | None = None) -> "_TorchSeries":
+        t = self.tensor
+        if lower is not None:
+            t = torch.clamp(t, min=float(lower))
+        if upper is not None:
+            t = torch.clamp(t, max=float(upper))
+        return _TorchSeries(t, self.device)
+
+    def diff(self, periods: int = 1) -> "_TorchSeries":
+        p = max(1, int(periods))
+        t = self.tensor
+        out = torch.full_like(t, float("nan"))
+        if int(t.numel()) > p:
+            out[p:] = t[p:] - t[:-p]
+        return _TorchSeries(out, self.device)
+
+    def rank(self, pct: bool = False, method: str = "average") -> "_TorchSeries":
+        if method != "average":
+            raise ValueError("torch proxy rank only supports method='average'")
+        ranks = _torch_rank_pct(self.tensor)
+        if not pct:
+            valid = ~torch.isnan(ranks)
+            n = int(valid.sum().item())
+            if n > 0:
+                ranks = ranks * float(n)
+        return _TorchSeries(ranks, self.device)
+
+    def rolling(self, window: int, min_periods: int = 1) -> _TorchRolling:
+        return _TorchRolling(self, window=window, min_periods=min_periods)
+
+    def fillna(self, value: float) -> "_TorchSeries":
+        fill = _to_torch_tensor(value, device=self.device, like=self)
+        out = torch.where(torch.isnan(self.tensor), fill, self.tensor)
+        return _TorchSeries(out, self.device)
+
+    def shift(self, periods: int = 1) -> "_TorchSeries":
+        p = int(periods)
+        t = self.tensor
+        out = torch.full_like(t, float("nan"))
+        n = int(t.numel())
+        if p == 0:
+            out = t.clone()
+        elif p > 0 and n > p:
+            out[p:] = t[:-p]
+        elif p < 0 and n > (-p):
+            out[:p] = t[-p:]
+        return _TorchSeries(out, self.device)
+
+    def tail(self, n: int) -> "_TorchSeries":
+        n = max(0, int(n))
+        if n == 0:
+            return _TorchSeries(self.tensor[:0], self.device)
+        return _TorchSeries(self.tensor[-n:], self.device)
+
+    def dropna(self) -> "_TorchSeries":
+        valid = ~torch.isnan(self.tensor)
+        return _TorchSeries(self.tensor[valid], self.device)
+
+    def where(self, cond: Any, other: Any) -> "_TorchSeries":
+        c = _to_torch_tensor(cond, device=self.device, dtype=torch.bool, like=self)
+        o = _to_torch_tensor(other, device=self.device, like=self)
+        out = torch.where(c, self.tensor, o)
+        return _TorchSeries(out, self.device)
+
+    def sum(self) -> float:
+        valid = self.tensor[~torch.isnan(self.tensor)]
+        if int(valid.numel()) <= 0:
+            return float("nan")
+        return float(torch.sum(valid).item())
+
+    def mean(self) -> float:
+        valid = self.tensor[~torch.isnan(self.tensor)]
+        if int(valid.numel()) <= 0:
+            return float("nan")
+        return float(torch.mean(valid).item())
+
+    def std(self, ddof: int = 0) -> float:
+        valid = self.tensor[~torch.isnan(self.tensor)]
+        if int(valid.numel()) <= int(ddof):
+            return float("nan")
+        return float(torch.std(valid, unbiased=bool(ddof)).item())
+
+    def min(self) -> float:
+        valid = self.tensor[~torch.isnan(self.tensor)]
+        if int(valid.numel()) <= 0:
+            return float("nan")
+        return float(torch.min(valid).item())
+
+    def max(self) -> float:
+        valid = self.tensor[~torch.isnan(self.tensor)]
+        if int(valid.numel()) <= 0:
+            return float("nan")
+        return float(torch.max(valid).item())
+
+    def corr(self, other: Any, method: str = "pearson") -> float:
+        y = _to_torch_tensor(other, device=self.device, like=self)
+        x = self.tensor
+        pair = torch.stack([x, y], dim=1)
+        valid = ~torch.isnan(pair).any(dim=1)
+        pair = pair[valid]
+        if int(pair.shape[0]) < 2:
+            return float("nan")
+        a = pair[:, 0]
+        b = pair[:, 1]
+        if method == "spearman":
+            a = _torch_rank_pct(a)
+            b = _torch_rank_pct(b)
+            pair2 = torch.stack([a, b], dim=1)
+            valid2 = ~torch.isnan(pair2).any(dim=1)
+            pair2 = pair2[valid2]
+            if int(pair2.shape[0]) < 2:
+                return float("nan")
+            a = pair2[:, 0]
+            b = pair2[:, 1]
+        a_std = torch.std(a, unbiased=False)
+        b_std = torch.std(b, unbiased=False)
+        if float(a_std.item()) <= EPS or float(b_std.item()) <= EPS:
+            return float("nan")
+        am = torch.mean(a)
+        bm = torch.mean(b)
+        cov = torch.mean((a - am) * (b - bm))
+        r = cov / (a_std * b_std + EPS)
+        if torch.isnan(r):
+            return float("nan")
+        return float(r.item())
+
+    def cov(self, other: Any) -> float:
+        y = _to_torch_tensor(other, device=self.device, like=self)
+        x = self.tensor
+        pair = torch.stack([x, y], dim=1)
+        valid = ~torch.isnan(pair).any(dim=1)
+        pair = pair[valid]
+        if int(pair.shape[0]) < 2:
+            return float("nan")
+        a = pair[:, 0]
+        b = pair[:, 1]
+        am = torch.mean(a)
+        bm = torch.mean(b)
+        denom = max(1, int(a.numel()) - 1)
+        cov = torch.sum((a - am) * (b - bm)) / float(denom)
+        return float(cov.item())
+
+    def to_numpy(self) -> np.ndarray:
+        return self.tensor.detach().cpu().numpy()
+
+    @property
+    def values(self) -> np.ndarray:
+        return self.to_numpy()
+
+    def __array_function__(self, func, types, args, kwargs):
+        if func is np.where:
+            cond, x, y = args
+            if isinstance(x, _TorchSeries):
+                dev = x.device
+                like = x
+            elif isinstance(y, _TorchSeries):
+                dev = y.device
+                like = y
+            else:
+                dev = self.device
+                like = self
+            c = _to_torch_tensor(cond, device=dev, dtype=torch.bool, like=like)
+            tx = _to_torch_tensor(x, device=dev, like=like)
+            ty = _to_torch_tensor(y, device=dev, like=like)
+            return _TorchSeries(torch.where(c, tx, ty), dev)
+        return NotImplemented
+
+    def __array_ufunc__(self, ufunc, method, *inputs, **kwargs):
+        if method != "__call__":
+            return NotImplemented
+        tensors = []
+        device = self.device
+        like: _TorchSeries | None = None
+        for inp in inputs:
+            if isinstance(inp, _TorchSeries):
+                like = inp
+                device = inp.device
+                break
+        for inp in inputs:
+            tensors.append(_to_torch_tensor(inp, device=device, like=like or self))
+        out = getattr(torch, ufunc.__name__)(*tensors, **kwargs)
+        return _TorchSeries(out, device)
+
+
+class _TorchGroupProxy:
+    def __init__(self, group_df: pd.DataFrame, *, device: str) -> None:
+        self._g = group_df
+        self._device = device
+
+    @property
+    def empty(self) -> bool:
+        return bool(self._g.empty)
+
+    @property
+    def columns(self):
+        return self._g.columns
+
+    def __len__(self) -> int:
+        return int(len(self._g))
+
+    def __getitem__(self, key: str) -> _TorchSeries:
+        if key not in self._g.columns:
+            raise KeyError(key)
+        return _TorchSeries(_torch_tensor_from_series(self._g[key], device=self._device), self._device)
+
+    def get(self, key: str, default: Any = None) -> Any:
+        if key in self._g.columns:
+            return self[key]
+        return default
+
+
+@_register_torch_scalar_kernel("alpha001_signed_power_v1")
+def _kernel_alpha001(g: pd.DataFrame, params: dict[str, Any], device: str) -> float:
+    stddev_window = int(params.get("stddev_window", 20))
+    ts_max_window = int(params.get("ts_max_window", 5))
+    last_px = _torch_tensor_from_series(g["last"], device=device)
+    pre_close = _torch_tensor_from_series(g["prev_bar_close"], device=device)
+    ret = (last_px - pre_close) / (pre_close + EPS)
+    std_ret = _torch_rolling_std_series(ret, max(2, stddev_window), min_periods=2)
+    std_ret = torch.nan_to_num(std_ret, nan=0.0)
+    base = torch.where(ret < 0.0, std_ret, last_px)
+    sp = torch.sign(base) * torch.pow(torch.abs(base), 2.0)
+    n = int(sp.numel())
+    if n <= 0:
+        return 0.0
+    out = torch.full_like(sp, float("nan"))
+    w = max(1, int(ts_max_window))
+    for i in range(n):
+        left = max(0, i - w + 1)
+        seg = sp[left : i + 1]
+        valid = seg[~torch.isnan(seg)]
+        if int(valid.numel()) <= 0:
+            continue
+        out[i] = torch.max(valid)
+    val = out[-1]
+    if torch.isnan(val):
+        return 0.0
+    return float(val.item())
+
+
+@_register_torch_scalar_kernel("alpha002_corr_volume_return_v1")
+def _kernel_alpha002(g: pd.DataFrame, params: dict[str, Any], device: str) -> float:
+    corr_window = int(params.get("corr_window", 6))
+    volume = torch.clamp(_torch_tensor_from_series(g["volume"], device=device), min=0.0)
+    last_px = _torch_tensor_from_series(g["last"], device=device)
+    open_like = _torch_open_like_from_group(g, device=device)
+    log_volume = torch.log(volume + EPS)
+    delta = torch.full_like(log_volume, float("nan"))
+    if int(log_volume.numel()) > 2:
+        delta[2:] = log_volume[2:] - log_volume[:-2]
+    ret = (last_px - open_like) / (open_like + EPS)
+    x = _torch_rank_pct(delta)
+    y = _torch_rank_pct(ret)
+    return -_torch_corr_last(x, y, corr_window)
+
+
+@_register_torch_scalar_kernel("alpha003_corr_open_volume_v1")
+def _kernel_alpha003(g: pd.DataFrame, params: dict[str, Any], device: str) -> float:
+    corr_window = int(params.get("corr_window", 10))
+    open_like = _torch_open_like_from_group(g, device=device)
+    volume = _torch_tensor_from_series(g["volume"], device=device)
+    open_rank = _torch_rank_pct(open_like)
+    vol_rank = _torch_rank_pct(volume)
+    return -_torch_corr_last(open_rank, vol_rank, corr_window)
+
+
+@_register_torch_scalar_kernel("alpha004_ts_rank_low_v1")
+def _kernel_alpha004(g: pd.DataFrame, params: dict[str, Any], device: str) -> float:
+    ts_rank_window = int(params.get("ts_rank_window", 9))
+    low = _torch_tensor_from_series(g["low"], device=device)
+    low_rank = _torch_rank_pct(low)
+    return -_torch_ts_rank_last(low_rank, ts_rank_window)
+
+
+@_register_torch_scalar_kernel("alpha005_vwap_gap_v1_gap1")
+def _kernel_alpha005_gap1(g: pd.DataFrame, params: dict[str, Any], device: str) -> float:
+    vwap_window = int(params.get("vwap_window", 10))
+    amount = _torch_tensor_from_series(g["amount"], device=device)
+    volume = _torch_tensor_from_series(g["volume"], device=device)
+    open_like = _torch_open_like_from_group(g, device=device)
+    vwap = amount / (volume + EPS)
+    avg_vwap_last = _torch_rolling_mean_last(vwap, vwap_window)
+    open_last = float(open_like[-1].item()) if int(open_like.numel()) else float("nan")
+    return float(open_last - avg_vwap_last)
+
+
+@_register_torch_scalar_kernel("alpha005_vwap_gap_v1_gap2")
+def _kernel_alpha005_gap2(g: pd.DataFrame, params: dict[str, Any], device: str) -> float:
+    amount = _torch_tensor_from_series(g["amount"], device=device)
+    volume = _torch_tensor_from_series(g["volume"], device=device)
+    last_px = _torch_tensor_from_series(g["last"], device=device)
+    if int(last_px.numel()) <= 0:
+        return 0.0
+    vwap = amount / (volume + EPS)
+    return float((last_px[-1] - vwap[-1]).item())
+
+
+@_register_torch_scalar_kernel("alpha006_corr_open_volume_neg_v1")
+def _kernel_alpha006(g: pd.DataFrame, params: dict[str, Any], device: str) -> float:
+    corr_window = int(params.get("corr_window", 10))
+    open_like = _torch_open_like_from_group(g, device=device)
+    volume = _torch_tensor_from_series(g["volume"], device=device)
+    return -_torch_corr_last(open_like, volume, corr_window)
+
+
+@_register_torch_scalar_kernel("alpha008_open_return_momentum_v1")
+def _kernel_alpha008(g: pd.DataFrame, params: dict[str, Any], device: str) -> float:
+    sum_window = int(params.get("sum_window", 5))
+    delay_window = int(params.get("delay_window", 10))
+    open_like = _torch_open_like_from_group(g, device=device)
+    last_px = _torch_tensor_from_series(g["last"], device=device)
+    ret = (last_px - open_like) / (open_like + EPS)
+    n = int(last_px.numel())
+    if n <= 0:
+        return 0.0
+    sum_open = torch.full_like(open_like, float("nan"))
+    sum_ret = torch.full_like(ret, float("nan"))
+    w = max(1, int(sum_window))
+    for i in range(n):
+        left = max(0, i - w + 1)
+        seg_o = open_like[left : i + 1]
+        seg_r = ret[left : i + 1]
+        valid_o = seg_o[~torch.isnan(seg_o)]
+        valid_r = seg_r[~torch.isnan(seg_r)]
+        if int(valid_o.numel()) > 0:
+            sum_open[i] = torch.sum(valid_o)
+        if int(valid_r.numel()) > 0:
+            sum_ret[i] = torch.sum(valid_r)
+    prod = sum_open * sum_ret
+    d = max(1, int(delay_window))
+    delayed = torch.full_like(prod, float("nan"))
+    if n > d:
+        delayed[d:] = prod[:-d]
+    delay_val = delayed[-1]
+    if torch.isnan(delay_val):
+        delay_val = prod[0]
+    out = prod[-1] - delay_val
+    if torch.isnan(out):
+        return 0.0
+    return float(out.item())
+
+
+@_register_torch_scalar_kernel("alpha009_close_change_filter_v1")
+def _kernel_alpha009(g: pd.DataFrame, params: dict[str, Any], device: str) -> float:
+    ts_window = int(params.get("ts_window", 5))
+    last_px = _torch_tensor_from_series(g["last"], device=device)
+    n = int(last_px.numel())
+    if n <= 0:
+        return 0.0
+    delta = torch.full_like(last_px, float("nan"))
+    if n > 1:
+        delta[1:] = last_px[1:] - last_px[:-1]
+    d = delta[-1]
+    if torch.isnan(d):
+        d = torch.tensor(0.0, dtype=last_px.dtype, device=last_px.device)
+    ts_min = _torch_rolling_min_last(delta, ts_window)
+    ts_max = _torch_rolling_max_last(delta, ts_window)
+    if np.isfinite(ts_min) and ts_min > 0.0:
+        return float(d.item())
+    if np.isfinite(ts_max) and ts_max < 0.0:
+        return float(d.item())
+    return float((-d).item())
+
+
+@_register_torch_scalar_kernel("alpha010_close_change_rank_v1")
+def _kernel_alpha010(g: pd.DataFrame, params: dict[str, Any], device: str) -> float:
+    return _kernel_alpha009(g, params, device)
+
+
+def _group_apply_scalar_cpu(panel: pd.DataFrame, func: Callable[[pd.DataFrame], float]) -> pd.Series:
+    grouped = panel.groupby(level=["dt", "code"], sort=False)
+    out = grouped.apply(func)
+    if isinstance(out.index, pd.MultiIndex) and out.index.nlevels > 2:
+        out = out.droplevel(-1)
+    return out
+
+
+def _group_apply_scalar_torch_proxy(
+    panel: pd.DataFrame,
+    func: Callable[[pd.DataFrame], float],
+    *,
+    torch_device: str,
+) -> pd.Series:
+    rows: list[tuple[pd.Timestamp, str, float]] = []
+    for (dt, code), g in panel.groupby(level=["dt", "code"], sort=False):
+        proxy = _TorchGroupProxy(g, device=torch_device)
+        raw = func(proxy)
+        if isinstance(raw, _TorchSeries):
+            val = _torch_scalar_to_float(raw.tensor)
+        elif torch is not None and isinstance(raw, torch.Tensor):
+            val = _torch_scalar_to_float(raw)
+        else:
+            val = float(raw)
+        rows.append((dt, str(code), val))
+    if not rows:
+        return pd.Series(dtype="float64")
+    idx = pd.MultiIndex.from_tuples([(dt, code) for dt, code, _ in rows], names=["dt", "code"])
+    out = pd.Series([v for _, _, v in rows], index=idx, dtype="float64")
+    return out.replace([np.inf, -np.inf], np.nan)
+
+
+def _group_scalar_cpu(frame: pd.DataFrame, func: Callable[[pd.DataFrame], float]) -> pd.Series:
     rows: list[tuple[pd.Timestamp, str, float]] = []
     for (dt, code), g in frame.groupby(["dt", "code"], sort=False):
         try:
@@ -326,6 +1312,103 @@ def _group_scalar(frame: pd.DataFrame, func: Callable[[pd.DataFrame], float]) ->
     out = pd.Series([v for _, _, v in rows], index=idx, dtype="float64")
     out = out.replace([np.inf, -np.inf], np.nan)
     return out
+
+
+def _group_scalar_torch_kernel(
+    frame: pd.DataFrame,
+    *,
+    kernel_name: str,
+    kernel_params: dict[str, Any],
+    torch_device: str,
+) -> pd.Series:
+    kernel = _TORCH_SCALAR_KERNELS.get(str(kernel_name).strip())
+    if kernel is None:
+        raise KeyError(f"unknown torch kernel: {kernel_name}")
+    rows: list[tuple[pd.Timestamp, str, float]] = []
+    for (dt, code), g in frame.groupby(["dt", "code"], sort=False):
+        try:
+            val = float(kernel(g, kernel_params, torch_device))
+        except Exception:
+            val = np.nan
+        rows.append((dt, str(code), val))
+    if not rows:
+        return pd.Series(dtype="float64")
+    idx = pd.MultiIndex.from_tuples([(dt, code) for dt, code, _ in rows], names=["dt", "code"])
+    out = pd.Series([v for _, _, v in rows], index=idx, dtype="float64")
+    return out.replace([np.inf, -np.inf], np.nan)
+
+
+def _group_scalar_torch_proxy(
+    frame: pd.DataFrame,
+    func: Callable[[pd.DataFrame], float],
+    *,
+    torch_device: str,
+) -> pd.Series:
+    rows: list[tuple[pd.Timestamp, str, float]] = []
+    for (dt, code), g in frame.groupby(["dt", "code"], sort=False):
+        proxy = _TorchGroupProxy(g, device=torch_device)
+        raw = func(proxy)
+        if isinstance(raw, _TorchSeries):
+            val = _torch_scalar_to_float(raw.tensor)
+        elif torch is not None and isinstance(raw, torch.Tensor):
+            val = _torch_scalar_to_float(raw)
+        else:
+            val = float(raw)
+        rows.append((dt, str(code), val))
+    if not rows:
+        return pd.Series(dtype="float64")
+    idx = pd.MultiIndex.from_tuples([(dt, code) for dt, code, _ in rows], names=["dt", "code"])
+    out = pd.Series([v for _, _, v in rows], index=idx, dtype="float64")
+    return out.replace([np.inf, -np.inf], np.nan)
+
+
+def _group_scalar(
+    frame: pd.DataFrame,
+    func: Callable[[pd.DataFrame], float],
+    *,
+    kernel_name: str | None = None,
+    kernel_params: dict[str, Any] | None = None,
+) -> pd.Series:
+    backend, device = _panel_compute_backend_runtime(frame)
+    if backend == "torch_cuda" and kernel_name and _torch_device_available(device):
+        try:
+            return _group_scalar_torch_kernel(
+                frame,
+                kernel_name=kernel_name,
+                kernel_params=dict(kernel_params or {}),
+                torch_device=device,
+            )
+        except Exception:
+            pass
+    if backend == "torch_cuda" and _torch_device_available(device):
+        auto_name = ""
+        auto_params: dict[str, Any] = {}
+        if "__factor_kernel_name__" in frame.columns:
+            auto_name = str(frame["__factor_kernel_name__"].iloc[0] or "").strip()
+        if "__factor_kernel_params__" in frame.columns:
+            raw = frame["__factor_kernel_params__"].iloc[0]
+            if isinstance(raw, dict):
+                auto_params = dict(raw)
+        if auto_name:
+            try:
+                return _group_scalar_torch_kernel(
+                    frame,
+                    kernel_name=auto_name,
+                    kernel_params=auto_params,
+                    torch_device=device,
+                )
+            except Exception:
+                pass
+    if backend == "torch_cuda" and _torch_device_available(device):
+        try:
+            return _group_scalar_torch_proxy(
+                frame,
+                func,
+                torch_device=device,
+            )
+        except Exception:
+            pass
+    return _group_scalar_cpu(frame, func)
 
 
 def _cs_rank(series: pd.Series) -> pd.Series:

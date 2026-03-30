@@ -39,5 +39,10 @@ class Alpha009CloseChangeFilterV1Factor(_AlphaBase):
                 return d
             return -d
 
-        return _group_scalar(frame, _calc)
+        return _group_scalar(
+            frame,
+            _calc,
+            kernel_name="alpha009_close_change_filter_v1",
+            kernel_params={"ts_window": ts_window},
+        )
 

@@ -5,6 +5,11 @@
   refresh: false,
   overwrite: false,
   workers: 6,
+  compute: {
+    backend: "auto",      // auto | torch | cpu
+    torch_device: "cuda", // e.g. "cuda", "cuda:0"
+    fallback_cpu: true
+  },
   factors: [
     { name: "order_flow_imbalance_v1", factor: "order_flow_imbalance_v1", params: {} },
     { name: "depth_weighted_imbalance_v1", factor: "depth_weighted_imbalance_v1", params: { weights: [5, 4, 3, 2, 1] } },

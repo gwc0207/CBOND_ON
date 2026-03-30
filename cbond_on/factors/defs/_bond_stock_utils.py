@@ -1,9 +1,13 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import pandas as pd
 
 from cbond_on.factors.base import FactorComputeContext
-from cbond_on.factors.defs._intraday_utils import _build_rebuilt_bar_frame, ensure_trade_time
+from cbond_on.factors.defs._intraday_utils import (
+    _build_rebuilt_bar_frame,
+    _compute_backend_runtime,
+    ensure_trade_time,
+)
 
 
 def _normalize_code(series: pd.Series) -> pd.Series:
@@ -35,7 +39,13 @@ def _normalize_windowsize(ctx: FactorComputeContext) -> int:
         return 0
 
 
-def _prepare_latest_source_panel(panel: pd.DataFrame, *, windowsize: int) -> pd.DataFrame:
+def _prepare_latest_source_panel(
+    panel: pd.DataFrame,
+    *,
+    windowsize: int,
+    backend_mode: str,
+    torch_device: str,
+) -> pd.DataFrame:
     panel = ensure_trade_time(panel)
     if windowsize <= 0:
         return panel
@@ -44,7 +54,12 @@ def _prepare_latest_source_panel(panel: pd.DataFrame, *, windowsize: int) -> pd.
         .sort_values(["dt", "code", "seq"], kind="mergesort")
         .reset_index(drop=True)
     )
-    rebuilt = _build_rebuilt_bar_frame(base, window_points=windowsize)
+    rebuilt = _build_rebuilt_bar_frame(
+        base,
+        window_points=windowsize,
+        backend_mode=backend_mode,
+        torch_device=torch_device,
+    )
     rebuilt = rebuilt.set_index(["dt", "code", "seq"]).sort_index()
     return ensure_trade_time(rebuilt)
 
@@ -69,8 +84,14 @@ def build_bond_stock_latest_frame(
 ) -> pd.DataFrame:
     prev_cols = {"pre_close", "prev_bar_close"}
     windowsize = _normalize_windowsize(ctx)
+    backend_mode, torch_device = _compute_backend_runtime(ctx.params)
 
-    bond_panel = _prepare_latest_source_panel(ctx.panel, windowsize=windowsize)
+    bond_panel = _prepare_latest_source_panel(
+        ctx.panel,
+        windowsize=windowsize,
+        backend_mode=backend_mode,
+        torch_device=torch_device,
+    )
     missing_bond = [c for c in bond_cols if c not in bond_panel.columns and c not in prev_cols]
     if missing_bond:
         raise KeyError(f"bond panel missing columns: {missing_bond}")
@@ -107,7 +128,12 @@ def build_bond_stock_latest_frame(
             base[f"stock_{col}"] = pd.NA
         return base
 
-    stock_panel = _prepare_latest_source_panel(stock_panel, windowsize=windowsize)
+    stock_panel = _prepare_latest_source_panel(
+        stock_panel,
+        windowsize=windowsize,
+        backend_mode=backend_mode,
+        torch_device=torch_device,
+    )
     missing_stock = [c for c in stock_cols if c not in stock_panel.columns and c not in prev_cols]
     if missing_stock:
         raise KeyError(f"stock panel missing columns: {missing_stock}")
@@ -136,4 +162,3 @@ def to_dt_code_series(frame: pd.DataFrame, values: pd.Series, *, name: str) -> p
     out = out.fillna(0.0)
     out.name = name
     return out
-

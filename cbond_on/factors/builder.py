@@ -83,7 +83,11 @@ def _spawn_spec_context(
     *,
     windowsize_plan: list[int],
 ) -> FactorComputeContext:
-    params = dict(spec.params) if isinstance(spec.params, dict) else {}
+    params = dict(base_ctx.params) if isinstance(base_ctx.params, dict) else {}
+    if isinstance(spec.params, dict):
+        params.update(spec.params)
+    params["__factor_kernel_name__"] = str(spec.factor)
+    params["__factor_kernel_params__"] = dict(spec.params) if isinstance(spec.params, dict) else {}
     if windowsize_plan:
         params["__ohlc_windows_plan__"] = list(windowsize_plan)
     return FactorComputeContext(
@@ -118,20 +122,27 @@ def build_factor_frame(
     stock_panel: pd.DataFrame | None = None,
     bond_stock_map: pd.DataFrame | None = None,
     workers: int = 1,
+    compute_backend_params: dict | None = None,
 ) -> pd.DataFrame:
     spec_list = list(specs)
     if not spec_list:
         return pd.DataFrame()
     windowsize_plan = _collect_windowsize_plan(spec_list)
 
-    panel = ensure_panel_index(panel)
+    panel = ensure_panel_index(panel).copy(deep=False)
     if stock_panel is not None and not stock_panel.empty:
         stock_panel = ensure_panel_index(stock_panel)
+    runtime_backend = {}
+    if isinstance(compute_backend_params, dict):
+        raw_backend = compute_backend_params.get("__compute_backend__")
+        if isinstance(raw_backend, dict):
+            runtime_backend = dict(raw_backend)
+    panel.attrs["__compute_backend__"] = runtime_backend
     base_ctx = FactorComputeContext(
         panel=panel,
         stock_panel=stock_panel,
         bond_stock_map=bond_stock_map,
-        params={},
+        params=dict(compute_backend_params or {}),
     )
 
     workers = max(1, int(workers))

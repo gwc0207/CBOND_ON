@@ -22,6 +22,6 @@
   },
   panel_name: "T1430",
   count_points: 5000,
-  max_lookback_days: 2,
+  max_lookback_days: 4,
   snapshot_columns: null
 }

@@ -32,5 +32,10 @@ class Alpha003CorrOpenVolumeV1Factor(_AlphaBase):
             vol_rank = g["volume"].astype("float64").rank(pct=True, method="average")
             return -_corr_last(open_rank, vol_rank, corr_window)
 
-        return _group_scalar(frame, _calc)
+        return _group_scalar(
+            frame,
+            _calc,
+            kernel_name="alpha003_corr_open_volume_v1",
+            kernel_params={"corr_window": corr_window},
+        )
 

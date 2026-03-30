@@ -38,5 +38,10 @@ class Alpha002CorrVolumeReturnV1Factor(_AlphaBase):
             y = ret.rank(pct=True, method="average")
             return -_corr_last(x, y, corr_window)
 
-        return _group_scalar(frame, _calc)
+        return _group_scalar(
+            frame,
+            _calc,
+            kernel_name="alpha002_corr_volume_return_v1",
+            kernel_params={"corr_window": corr_window},
+        )
 

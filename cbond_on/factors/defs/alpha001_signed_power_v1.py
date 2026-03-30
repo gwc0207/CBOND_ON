@@ -38,7 +38,15 @@ class Alpha001SignedPowerV1Factor(_AlphaBase):
             ts_max_sp = pd.Series(sp).rolling(max(1, ts_max_window), min_periods=1).max()
             return float(ts_max_sp.iloc[-1])
 
-        raw = _group_scalar(frame, _calc)
+        raw = _group_scalar(
+            frame,
+            _calc,
+            kernel_name="alpha001_signed_power_v1",
+            kernel_params={
+                "stddev_window": stddev_window,
+                "ts_max_window": ts_max_window,
+            },
+        )
         return _cs_rank(raw) - 0.5
 
 

@@ -667,6 +667,7 @@ def run_factor_batch(
         factor_workers=factor_workers,
         raw_data_root=raw_data_root,
         context_cfg=cfg.get("context"),
+        compute_cfg=cfg.get("compute"),
         specs=specs,
     )
 

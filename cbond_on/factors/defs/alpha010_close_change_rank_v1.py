@@ -39,6 +39,11 @@ class Alpha010CloseChangeRankV1Factor(_AlphaBase):
                 return d
             return -d
 
-        raw = _group_scalar(frame, _calc)
+        raw = _group_scalar(
+            frame,
+            _calc,
+            kernel_name="alpha010_close_change_rank_v1",
+            kernel_params={"ts_window": ts_window},
+        )
         return _cs_rank(raw)
 

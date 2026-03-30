@@ -39,6 +39,14 @@ class Alpha008OpenReturnMomentumV1Factor(_AlphaBase):
             delay_val = float(delayed.iloc[-1]) if pd.notna(delayed.iloc[-1]) else float(prod.iloc[0])
             return float(prod.iloc[-1] - delay_val)
 
-        raw = _group_scalar(frame, _calc)
+        raw = _group_scalar(
+            frame,
+            _calc,
+            kernel_name="alpha008_open_return_momentum_v1",
+            kernel_params={
+                "sum_window": sum_window,
+                "delay_window": delay_window,
+            },
+        )
         return -_cs_rank(raw)
 

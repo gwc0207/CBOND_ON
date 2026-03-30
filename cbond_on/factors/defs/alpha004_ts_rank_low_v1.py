@@ -31,5 +31,10 @@ class Alpha004TsRankLowV1Factor(_AlphaBase):
             low_rank = g["low"].astype("float64").rank(pct=True, method="average")
             return -_ts_rank_last(low_rank, ts_rank_window)
 
-        return _group_scalar(frame, _calc)
+        return _group_scalar(
+            frame,
+            _calc,
+            kernel_name="alpha004_ts_rank_low_v1",
+            kernel_params={"ts_rank_window": ts_rank_window},
+        )
 

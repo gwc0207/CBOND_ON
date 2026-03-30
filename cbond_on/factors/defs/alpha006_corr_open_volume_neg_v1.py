@@ -32,5 +32,10 @@ class Alpha006CorrOpenVolumeNegV1Factor(_AlphaBase):
             volume = g["volume"].astype("float64")
             return -_corr_last(open_, volume, corr_window)
 
-        return _group_scalar(frame, _calc)
+        return _group_scalar(
+            frame,
+            _calc,
+            kernel_name="alpha006_corr_open_volume_neg_v1",
+            kernel_params={"corr_window": corr_window},
+        )
 

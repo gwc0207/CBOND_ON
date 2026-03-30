@@ -8,6 +8,11 @@
   overwrite: true,
   workers: 4,
   factor_workers: 2,
+  compute: {
+    backend: "auto",      // auto | torch | cpu
+    torch_device: "cuda", // e.g. "cuda", "cuda:0"
+    fallback_cpu: true
+  },
   factor_files: [
     "factor/factors_patch_ohlc_windowsize_20260327.json5",
     "factor/factors_20260327.json5"
