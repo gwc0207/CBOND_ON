@@ -85,6 +85,16 @@ from cbond_on.factors.defs.alpha054_price_power_ratio_v1 import Alpha054PricePow
 from cbond_on.factors.defs.alpha055_close_range_volume_corr_v1 import Alpha055CloseRangeVolumeCorrV1Factor
 from cbond_on.factors.defs.alpha057_close_vwap_decay_v1 import Alpha057CloseVwapDecayV1Factor
 from cbond_on.factors.defs.alpha060_price_range_volume_scale_v1 import Alpha060PriceRangeVolumeScaleV1Factor
+from cbond_on.factors.defs.alpha062_vwap_open_rank_compare_v1 import Alpha062VwapOpenRankCompareV1Factor
+from cbond_on.factors.defs.alpha065_open_vwap_min_signal_v1 import Alpha065OpenVwapMinSignalV1Factor
+from cbond_on.factors.defs.alpha066_vwap_low_decay_v1 import Alpha066VwapLowDecayV1Factor
+from cbond_on.factors.defs.alpha068_high_adv_rank_signal_v1 import Alpha068HighAdvRankSignalV1Factor
+from cbond_on.factors.defs.alpha072_vwap_volume_decay_ratio_v1 import Alpha072VwapVolumeDecayRatioV1Factor
+from cbond_on.factors.defs.alpha073_vwap_open_decay_max_v1 import Alpha073VwapOpenDecayMaxV1Factor
+from cbond_on.factors.defs.alpha074_close_adv_rank_corr_v1 import Alpha074CloseAdvRankCorrV1Factor
+from cbond_on.factors.defs.alpha075_vwap_volume_low_adv_corr_v1 import Alpha075VwapVolumeLowAdvCorrV1Factor
+from cbond_on.factors.defs.alpha077_mid_price_adv_decay_min_v1 import Alpha077MidPriceAdvDecayMinV1Factor
+from cbond_on.factors.defs.alpha078_low_vwap_adv_corr_v1 import Alpha078LowVwapAdvCorrV1Factor
 
 __all__ = [
     "AacbFactor",
@@ -174,4 +184,14 @@ __all__ = [
     "Alpha055CloseRangeVolumeCorrV1Factor",
     "Alpha057CloseVwapDecayV1Factor",
     "Alpha060PriceRangeVolumeScaleV1Factor",
+    "Alpha062VwapOpenRankCompareV1Factor",
+    "Alpha065OpenVwapMinSignalV1Factor",
+    "Alpha066VwapLowDecayV1Factor",
+    "Alpha068HighAdvRankSignalV1Factor",
+    "Alpha072VwapVolumeDecayRatioV1Factor",
+    "Alpha073VwapOpenDecayMaxV1Factor",
+    "Alpha074CloseAdvRankCorrV1Factor",
+    "Alpha075VwapVolumeLowAdvCorrV1Factor",
+    "Alpha077MidPriceAdvDecayMinV1Factor",
+    "Alpha078LowVwapAdvCorrV1Factor",
 ]

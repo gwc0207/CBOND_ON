@@ -15,12 +15,35 @@
     { name: "alpha054_price_power_ratio_v1", factor: "alpha054_price_power_ratio_v1", params: { power: 5, windowsize: 10 } },
     { name: "alpha055_close_range_volume_corr_v1", factor: "alpha055_close_range_volume_corr_v1", params: { ts_window: 12, corr_window: 6, windowsize: 10 } },
     { name: "alpha057_close_vwap_decay_v1", factor: "alpha057_close_vwap_decay_v1", params: { ts_argmax_window: 10, decay_window: 2 } },
-    { name: "alpha060_price_range_volume_scale_v1", factor: "alpha060_price_range_volume_scale_v1", params: { ts_argmax_window: 10, windowsize: 10 } }
+    { name: "alpha060_price_range_volume_scale_v1", factor: "alpha060_price_range_volume_scale_v1", params: { ts_argmax_window: 10, windowsize: 10 } },
+
+    { name: "alpha062_vwap_open_rank_compare_v1", factor: "alpha062_vwap_open_rank_compare_v1", params: { adv_window: 20, sum_window: 22, corr_window: 10, windowsize: 10 } },
+    { name: "alpha065_open_vwap_min_signal_v1", factor: "alpha065_open_vwap_min_signal_v1", params: { weight: 0.008, adv_window: 30, sum_window: 9, corr_window: 6, ts_min_window: 14, windowsize: 10 } },
+    { name: "alpha066_vwap_low_decay_v1", factor: "alpha066_vwap_low_decay_v1", params: { delta_window: 4, decay_window_1: 7, weight: 0.966, decay_window_2: 11, ts_rank_window: 7, windowsize: 10 } },
+    { name: "alpha068_high_adv_rank_signal_v1", factor: "alpha068_high_adv_rank_signal_v1", params: { adv_window: 15, corr_window: 9, ts_rank_window: 14, weight: 0.518, delta_window: 1, windowsize: 10 } },
+    { name: "alpha072_vwap_volume_decay_ratio_v1", factor: "alpha072_vwap_volume_decay_ratio_v1", params: { adv_window: 20, corr_window_1: 9, decay_window_1: 10, ts_rank_window_1: 4, ts_rank_window_2: 19, corr_window_2: 7, decay_window_2: 3, windowsize: 10 } },
+    { name: "alpha073_vwap_open_decay_max_v1", factor: "alpha073_vwap_open_decay_max_v1", params: { delta_window_1: 5, decay_window_1: 3, weight: 0.147, delta_window_2: 2, decay_window_2: 3, ts_rank_window: 17, windowsize: 10 } },
+    { name: "alpha074_close_adv_rank_corr_v1", factor: "alpha074_close_adv_rank_corr_v1", params: { adv_window: 20, sum_window: 37, corr_window_1: 15, weight: 0.026, corr_window_2: 11, windowsize: 10 } },
+    { name: "alpha075_vwap_volume_low_adv_corr_v1", factor: "alpha075_vwap_volume_low_adv_corr_v1", params: { corr_window_1: 4, adv_window: 30, corr_window_2: 12, windowsize: 10 } },
+    { name: "alpha077_mid_price_adv_decay_min_v1", factor: "alpha077_mid_price_adv_decay_min_v1", params: { decay_window_1: 10, adv_window: 20, corr_window: 3, decay_window_2: 6, windowsize: 10 } },
+    { name: "alpha078_low_vwap_adv_corr_v1", factor: "alpha078_low_vwap_adv_corr_v1", params: { weight: 0.352, sum_window_1: 20, adv_window: 20, sum_window_2: 20, corr_window_1: 7, corr_window_2: 6, windowsize: 10 } }
 
     // Not landed in this batch (extra data dependency):
     // alpha048_industry_neutral_corr_v1 (industry neutralization)
     // alpha056_return_cap_momentum_v1 (cap field)
     // alpha058_sector_neutral_vwap_volume_v1 (sector neutralization)
     // alpha059_industry_neutral_vwap_v1 (industry neutralization)
+
+    // Group 05 - not landed in this batch:
+    // alpha061_vwap_min_corr_v1 (adv180 too long)
+    // alpha063_industry_neutral_decay_v1 (industry neutralization + adv180)
+    // alpha064_open_low_vwap_corr_v1 (adv120 too long)
+    // alpha067_high_sector_neutral_corr_v1 (industry/sector neutralization)
+    // alpha069_vwap_industry_max_corr_v1 (industry neutralization)
+    // alpha070_vwap_close_industry_corr_v1 (industry neutralization)
+    // alpha071_close_adv_decay_max_v1 (adv180 too long)
+    // alpha076_vwap_low_sector_decay_v1 (industry/sector neutralization + adv81)
+    // alpha079_close_sector_ts_rank_v1 (industry/sector neutralization + adv150)
+    // alpha080_open_high_industry_sign_v1 (industry neutralization)
   ]
 }
