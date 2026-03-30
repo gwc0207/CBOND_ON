@@ -49,6 +49,41 @@ def _panel_compute_backend_runtime(panel: pd.DataFrame) -> tuple[str, str]:
     return backend, device
 
 
+def _dataframe_backend_runtime(params: dict) -> str:
+    raw = params.get("__compute_backend__", {})
+    if not isinstance(raw, dict):
+        return "pandas"
+    active = str(raw.get("dataframe_active", "pandas")).strip().lower() or "pandas"
+    return active
+
+
+def _panel_dataframe_backend_runtime(panel: pd.DataFrame) -> str:
+    active = "pandas"
+    raw_attr = panel.attrs.get("__compute_backend__")
+    if isinstance(raw_attr, dict):
+        active = str(raw_attr.get("dataframe_active", active)).strip().lower() or active
+    if "__compute_backend__" in panel.columns and not panel.empty:
+        raw_col = panel["__compute_backend__"].iloc[0]
+        if isinstance(raw_col, dict):
+            active = str(raw_col.get("dataframe_active", active)).strip().lower() or active
+    return active
+
+
+def _try_sort_frame_with_cudf(frame: pd.DataFrame) -> pd.DataFrame:
+    try:
+        import cudf  # type: ignore
+    except Exception as exc:
+        raise RuntimeError("cudf is not available") from exc
+    try:
+        gdf = cudf.from_pandas(frame)
+        gdf = gdf.sort_values(["dt", "code", "seq"])
+        out = gdf.to_pandas()
+        out = out.sort_values(["dt", "code", "seq"], kind="mergesort").reset_index(drop=True)
+        return out
+    except Exception as exc:
+        raise RuntimeError("cudf frame sort failed") from exc
+
+
 def _resolve_ohlc_rebuild_params(params: dict, required: list[str]) -> tuple[bool, int]:
     need_rebuild = any(col in required for col in REBUILD_TRIGGER_COLS)
     if not need_rebuild:
@@ -305,12 +340,25 @@ def _build_rebuilt_bar_frame_torch(
     return out
 
 
+def _build_rebuilt_bar_frame_cudf(
+    base_frame: pd.DataFrame,
+    *,
+    window_points: int,
+) -> pd.DataFrame:
+    sorted_frame = _try_sort_frame_with_cudf(base_frame)
+    return _build_rebuilt_bar_frame_pandas(
+        sorted_frame,
+        window_points=window_points,
+    )
+
+
 def _build_rebuilt_bar_frame(
     base_frame: pd.DataFrame,
     *,
     window_points: int,
     backend_mode: str = "cpu",
     torch_device: str = "cuda",
+    dataframe_backend: str = "pandas",
 ) -> pd.DataFrame:
     if backend_mode == "torch_cuda":
         try:
@@ -320,10 +368,15 @@ def _build_rebuilt_bar_frame(
                 torch_device=torch_device,
             )
         except Exception:
-            return _build_rebuilt_bar_frame_pandas(
+            pass
+    if str(dataframe_backend).strip().lower() == "cudf":
+        try:
+            return _build_rebuilt_bar_frame_cudf(
                 base_frame,
                 window_points=window_points,
             )
+        except Exception:
+            pass
     return _build_rebuilt_bar_frame_pandas(
         base_frame,
         window_points=window_points,
@@ -418,7 +471,15 @@ def _prepare_panel(ctx: FactorComputeContext, required: list[str]) -> pd.DataFra
     base_frame = cache.get("base_frame")
     if base_frame is None:
         panel = ensure_trade_time(ctx.panel)
-        built = panel.reset_index().sort_values(["dt", "code", "seq"], kind="mergesort").reset_index(drop=True)
+        dataframe_backend = _dataframe_backend_runtime(ctx.params)
+        built = panel.reset_index()
+        if dataframe_backend == "cudf":
+            try:
+                built = _try_sort_frame_with_cudf(built)
+            except Exception:
+                built = built.sort_values(["dt", "code", "seq"], kind="mergesort").reset_index(drop=True)
+        else:
+            built = built.sort_values(["dt", "code", "seq"], kind="mergesort").reset_index(drop=True)
         with ctx.cache_lock:
             if cache.get("base_frame") is None:
                 cache["base_frame"] = built
@@ -436,6 +497,7 @@ def _prepare_panel(ctx: FactorComputeContext, required: list[str]) -> pd.DataFra
     rebuild_frames: dict[int, pd.DataFrame] = cache["rebuild_frames"]
     if ohlc_rebuild and rebuild_windows:
         backend_mode, torch_device = _compute_backend_runtime(ctx.params)
+        dataframe_backend = _dataframe_backend_runtime(ctx.params)
         to_build: list[int] = []
         with ctx.cache_lock:
             for w in rebuild_windows:
@@ -447,6 +509,7 @@ def _prepare_panel(ctx: FactorComputeContext, required: list[str]) -> pd.DataFra
                 window_points=w,
                 backend_mode=backend_mode,
                 torch_device=torch_device,
+                dataframe_backend=dataframe_backend,
             )
             with ctx.cache_lock:
                 rebuild_frames.setdefault(w, built)

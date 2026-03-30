@@ -11,7 +11,9 @@
   compute: {
     backend: "auto",      // auto | torch | cpu
     torch_device: "cuda", // e.g. "cuda", "cuda:0"
-    fallback_cpu: true
+    fallback_cpu: true,
+    dataframe_backend: "auto", // auto | cudf | pandas
+    fallback_pandas: true
   },
   factor_files: [
     "factor/factors_patch_ohlc_windowsize_20260327.json5",

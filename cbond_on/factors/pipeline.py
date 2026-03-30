@@ -14,7 +14,7 @@ from cbond_on.core.naming import make_window_label
 from cbond_on.data.io import read_table_range
 from cbond_on.data.panel import read_panel_data
 from cbond_on.factors.builder import build_factor_frame
-from cbond_on.factors.compute_backend import resolve_compute_backend
+from cbond_on.factors.compute_backend import resolve_compute_backend, resolve_dataframe_backend
 from cbond_on.factors.spec import FactorSpec, build_factor_col
 from cbond_on.factors.storage import FactorStore
 
@@ -298,13 +298,23 @@ def run_factor_pipeline(
     raw_data_root_path = Path(raw_data_root) if raw_data_root else None
     context = _build_context_config(context_cfg)
     backend_state = resolve_compute_backend(compute_cfg)
+    dataframe_state = resolve_dataframe_backend(compute_cfg)
     compute_backend_params = backend_state.to_params()
+    compute_backend_params["__compute_backend__"].update(
+        dataframe_state.to_params()["__compute_backend__"]
+    )
     print(
         "factor compute backend:",
         f"requested={backend_state.requested}",
         f"active={backend_state.active}",
         f"device={backend_state.torch_device}",
         f"reason={backend_state.reason}",
+    )
+    print(
+        "factor dataframe backend:",
+        f"requested={dataframe_state.requested}",
+        f"active={dataframe_state.active}",
+        f"reason={dataframe_state.reason}",
     )
     map_index: _DailyTableIndex | None = None
     if bool(context.get("map_enabled", False)) and raw_data_root_path is not None:

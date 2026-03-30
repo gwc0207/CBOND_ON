@@ -6,6 +6,7 @@ from cbond_on.factors.base import FactorComputeContext
 from cbond_on.factors.defs._intraday_utils import (
     _build_rebuilt_bar_frame,
     _compute_backend_runtime,
+    _dataframe_backend_runtime,
     ensure_trade_time,
 )
 
@@ -45,6 +46,7 @@ def _prepare_latest_source_panel(
     windowsize: int,
     backend_mode: str,
     torch_device: str,
+    dataframe_backend: str,
 ) -> pd.DataFrame:
     panel = ensure_trade_time(panel)
     if windowsize <= 0:
@@ -59,6 +61,7 @@ def _prepare_latest_source_panel(
         window_points=windowsize,
         backend_mode=backend_mode,
         torch_device=torch_device,
+        dataframe_backend=dataframe_backend,
     )
     rebuilt = rebuilt.set_index(["dt", "code", "seq"]).sort_index()
     return ensure_trade_time(rebuilt)
@@ -85,12 +88,14 @@ def build_bond_stock_latest_frame(
     prev_cols = {"pre_close", "prev_bar_close"}
     windowsize = _normalize_windowsize(ctx)
     backend_mode, torch_device = _compute_backend_runtime(ctx.params)
+    dataframe_backend = _dataframe_backend_runtime(ctx.params)
 
     bond_panel = _prepare_latest_source_panel(
         ctx.panel,
         windowsize=windowsize,
         backend_mode=backend_mode,
         torch_device=torch_device,
+        dataframe_backend=dataframe_backend,
     )
     missing_bond = [c for c in bond_cols if c not in bond_panel.columns and c not in prev_cols]
     if missing_bond:
@@ -133,6 +138,7 @@ def build_bond_stock_latest_frame(
         windowsize=windowsize,
         backend_mode=backend_mode,
         torch_device=torch_device,
+        dataframe_backend=dataframe_backend,
     )
     missing_stock = [c for c in stock_cols if c not in stock_panel.columns and c not in prev_cols]
     if missing_stock:

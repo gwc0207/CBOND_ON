@@ -8,7 +8,9 @@
   compute: {
     backend: "auto",      // auto | torch | cpu
     torch_device: "cuda", // e.g. "cuda", "cuda:0"
-    fallback_cpu: true
+    fallback_cpu: true,
+    dataframe_backend: "auto", // auto | cudf | pandas
+    fallback_pandas: true
   },
   factors: [
     { name: "order_flow_imbalance_v1", factor: "order_flow_imbalance_v1", params: {} },
