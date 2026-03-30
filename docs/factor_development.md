@@ -351,30 +351,38 @@ python cbond_on/run/factor_batch.py
 - `overwrite = false` and `refresh = false`: incremental append mode. Only missing factor columns are computed; existing columns are kept untouched.
 
 ## 15. Per-Factor `windowsize` OHLC Rebuild Rule (2026-03-27)
-- This is now the **active** intraday OHLC convention for ON factor development.
-- No global switch is used. OHLC rebuild is controlled **per factor** via params only.
+- This is now the **active** intraday bar rebuild convention for ON factor development.
+- No global switch is used. Rebuild is controlled **per factor** via params only.
 
 ### 15.1 Trigger condition
 - Rebuild is enabled only when a factor params contains:
   - `windowsize: <int>`
 - Alias `window_size` is also accepted for compatibility.
-- If no `windowsize` is provided, the factor keeps legacy field behavior.
+- If no `windowsize` is provided, the factor keeps legacy snapshot-row behavior.
 
 ### 15.2 Scope
-- Rebuild only affects factors that use OHLC semantic fields:
-  - `open`, `high`, `low`, `close`
-- Factors that only use non-OHLC fields (e.g. `last`, `volume`, `amount`, depth fields) are not affected.
+- Rebuild affects factor fields with market-bar semantics:
+  - price: `open`, `high`, `low`, `close`, `last`
+  - flow: `volume`, `amount`, `num_trades`
+  - previous close semantics: `prev_bar_close` (alias output `pre_close`)
+- Non-bar microstructure fields (depth ladders, `ask_volume*`, `bid_volume*`, etc.) stay as last snapshot of each rebuilt bar.
 
 ### 15.3 Rebuild semantics
-- Rebuild is **chunk aggregation** by `(dt, code)` sequence, based on `last` as base price.
-- Sequence is split into non-overlap buckets of size `windowsize` (step = `windowsize`).
-- For each bucket:
+- Rebuild is **bar-sequence aggregation** by `(dt, code)`, with non-overlap bucket size `windowsize`.
+- One bucket produces one rebuilt row (no broadcast back to original snapshot rows).
+- Price fields are rebuilt from `last`:
   - `open`: first `last` in bucket
   - `high`: max `last` in bucket
   - `low`: min `last` in bucket
   - `close`: last `last` in bucket
-- Bucket OHLC values are then broadcast back to each row in that bucket.
-- When rebuild is enabled, open-like semantics use rebuilt `open` directly (no mid/open fallback path).
+  - `last`: equal to rebuilt `close`
+- Flow fields are rebuilt from cumulative snapshot fields:
+  - per-snapshot increment = `diff(cum)` with reset protection (`diff<0` fallback to current cumulative),
+  - bucket value = sum of increments in bucket.
+- `prev_bar_close` is rebuilt as previous bucket `close` in the same `(dt, code)`.
+  - first bucket fallback uses same-day source `pre_close` (if available).
+  - output keeps compatibility alias: `pre_close == prev_bar_close`.
+- When rebuild is enabled, open-like semantics prioritize rebuilt `open`.
 
 ### 15.4 Config example
 ```json5
@@ -391,30 +399,42 @@ python cbond_on/run/factor_batch.py
 ```
 
 ### 15.5 Factors already switched to `windowsize`
+- `volatility_scaled_return_v1`
+- `volume_price_trend_v1`
+- `trade_intensity_v1`
+- `premium_momentum_proxy_v1`
+- `alpha001_signed_power_v1`
 - `alpha002_corr_volume_return_v1`
 - `alpha003_corr_open_volume_v1`
 - `alpha004_ts_rank_low_v1`
 - `alpha005_vwap_gap_v1`
 - `alpha006_corr_open_volume_neg_v1`
 - `alpha008_open_return_momentum_v1`
+- `alpha014_return_open_volume_v1`
 - `alpha015_high_volume_corr_v1`
 - `alpha016_cov_high_volume_v1`
 - `alpha018_close_open_vol_v1`
+- `alpha019_close_momentum_sign_v1`
 - `alpha020_open_delay_range_v1`
 - `alpha023_high_momentum_v1`
 - `alpha025_return_volume_vwap_range_v1`
 - `alpha026_volume_high_rank_corr_v1`
 - `alpha028_adv_low_close_signal_v1`
+- `alpha029_complex_rank_signal_v1`
 - `alpha031_close_decay_momentum_v1`
 - `alpha033_open_close_ratio_v1`
+- `alpha034_return_volatility_rank_v1`
 - `alpha035_volume_price_momentum_v1`
+- `alpha036_complex_correlation_signal_v1`
 - `alpha037_open_close_correlation_v1`
 - `alpha038_close_rank_ratio_v1`
+- `alpha039_volume_decay_momentum_v1`
 - `alpha040_high_volatility_corr_v1`
+- `alpha052_low_momentum_volume_v1`
 
 ### 15.6 Notes for new factor agents
-- If your formula depends on intraday OHLC dynamics, set `windowsize` explicitly per factor.
-- Different factors are expected to use different `windowsize`; there is no required shared default.
-- If formula does not use OHLC semantics, do not add `windowsize` unnecessarily.
+- If your formula depends on OHLCV or previous-close semantics, set `windowsize` explicitly per factor.
+- Different factors can use different `windowsize`; no global mandatory value.
+- New formulas should use `prev_bar_close`; `pre_close` is kept as compatibility alias only.
 - Current recommended starting value: `windowsize = 10` (then tune by factor).
 

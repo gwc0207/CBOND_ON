@@ -15,11 +15,11 @@ class Alpha034ReturnVolatilityRankV1Factor(_AlphaBase):
         stddev_window_short = int(ctx.params.get("stddev_window_short", 2))
         stddev_window_long = int(ctx.params.get("stddev_window_long", 5))
         delta_window = int(ctx.params.get("delta_window", 1))
-        frame = _prepare_panel(ctx, ["last", "pre_close"])
+        frame = _prepare_panel(ctx, ["last", "prev_bar_close"])
 
         def _vol_ratio(g: pd.DataFrame) -> float:
             last_px = g["last"].astype("float64")
-            pre_close = g["pre_close"].astype("float64")
+            pre_close = g["prev_bar_close"].astype("float64")
             returns = (last_px - pre_close) / (pre_close + EPS)
             std_short = float(
                 returns.rolling(max(2, stddev_window_short), min_periods=2).std().fillna(0.0).iloc[-1]
@@ -38,5 +38,6 @@ class Alpha034ReturnVolatilityRankV1Factor(_AlphaBase):
         rank_vol = 1.0 - _cs_rank(vol_ratio)
         rank_delta = 1.0 - _cs_rank(delta_close)
         return rank_vol + rank_delta
+
 
 

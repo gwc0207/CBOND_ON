@@ -28,12 +28,12 @@ class Alpha014ReturnOpenVolumeV1Factor(_AlphaBase):
         corr_window = int(ctx.params.get("corr_window", 10))
         frame = _prepare_panel(
             ctx,
-            ["last", "pre_close", "open", "ask_price1", "bid_price1", "volume"],
+            ["last", "prev_bar_close", "open", "ask_price1", "bid_price1", "volume"],
         )
 
         def _delta_ret(g: pd.DataFrame) -> float:
             last_px = g["last"].astype("float64")
-            pre_close = g["pre_close"].astype("float64")
+            pre_close = g["prev_bar_close"].astype("float64")
             returns = (last_px - pre_close) / (pre_close + EPS)
             return _delta_last(returns, delta_window)
 
@@ -45,4 +45,5 @@ class Alpha014ReturnOpenVolumeV1Factor(_AlphaBase):
         delta_ret = _group_scalar(frame, _delta_ret)
         corr_ov = _group_scalar(frame, _corr_ov)
         return (-_cs_rank(delta_ret)) * corr_ov
+
 

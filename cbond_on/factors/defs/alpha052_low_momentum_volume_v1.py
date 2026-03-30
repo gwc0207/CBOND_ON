@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import pandas as pd
 
@@ -17,13 +17,13 @@ class Alpha052LowMomentumVolumeV1Factor(_AlphaBase):
         sum_window_long = int(ctx.params.get("sum_window_long", 60))
         sum_window_short = int(ctx.params.get("sum_window_short", 20))
         ts_rank_window = int(ctx.params.get("ts_rank_window", 5))
-        frame = _prepare_panel(ctx, ["low", "volume", "last", "pre_close"])
+        frame = _prepare_panel(ctx, ["low", "volume", "last", "prev_bar_close"])
 
         def _calc(g: pd.DataFrame) -> float:
             low = g["low"].astype("float64")
             volume = g["volume"].astype("float64")
             last_px = g["last"].astype("float64")
-            pre_close = g["pre_close"].astype("float64")
+            pre_close = g["prev_bar_close"].astype("float64")
 
             ts_min_low = low.rolling(max(1, ts_min_window), min_periods=1).min()
             delay_min = ts_min_low.shift(max(1, delay_window))
@@ -43,4 +43,5 @@ class Alpha052LowMomentumVolumeV1Factor(_AlphaBase):
             return float(val)
 
         return _group_scalar(frame, _calc)
+
 

@@ -26,7 +26,7 @@ class Alpha019CloseMomentumSignV1Factor(_AlphaBase):
     def _compute_series(self, ctx: FactorComputeContext) -> pd.Series:
         delta_window = int(ctx.params.get("delta_window", 7))
         sum_window = int(ctx.params.get("sum_window", 250))
-        frame = _prepare_panel(ctx, ["last", "pre_close"])
+        frame = _prepare_panel(ctx, ["last", "prev_bar_close"])
 
         def _sign_term(g: pd.DataFrame) -> float:
             last_px = g["last"].astype("float64")
@@ -37,11 +37,12 @@ class Alpha019CloseMomentumSignV1Factor(_AlphaBase):
 
         def _sum_ret(g: pd.DataFrame) -> float:
             last_px = g["last"].astype("float64")
-            pre_close = g["pre_close"].astype("float64")
+            pre_close = g["prev_bar_close"].astype("float64")
             returns = (last_px - pre_close) / (pre_close + EPS)
             return float(returns.rolling(max(1, sum_window), min_periods=1).sum().iloc[-1])
 
         sign_term = _group_scalar(frame, _sign_term)
         sum_ret = _group_scalar(frame, _sum_ret)
         return (-sign_term) * (1.0 + _cs_rank(1.0 + sum_ret))
+
 

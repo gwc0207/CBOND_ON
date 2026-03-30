@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import pandas as pd
 
@@ -14,8 +14,8 @@ class PremiumMomentumProxyV1Factor(Factor):
     def compute(self, ctx: FactorComputeContext) -> pd.Series:
         frame = build_bond_stock_latest_frame(
             ctx,
-            bond_cols=["last", "pre_close"],
-            stock_cols=["last", "pre_close"],
+            bond_cols=["last", "prev_bar_close"],
+            stock_cols=["last", "prev_bar_close"],
         )
         if frame.empty:
             out = pd.Series(dtype="float64")
@@ -23,12 +23,13 @@ class PremiumMomentumProxyV1Factor(Factor):
             return out
 
         bond_last = pd.to_numeric(frame["last"], errors="coerce")
-        bond_pre_close = pd.to_numeric(frame["pre_close"], errors="coerce")
+        bond_pre_close = pd.to_numeric(frame["prev_bar_close"], errors="coerce")
         stock_last = pd.to_numeric(frame["stock_last"], errors="coerce")
-        stock_pre_close = pd.to_numeric(frame["stock_pre_close"], errors="coerce")
+        stock_prev_bar_close = pd.to_numeric(frame["stock_prev_bar_close"], errors="coerce")
 
         bond_strength = (bond_last - bond_pre_close) / (bond_pre_close + 1e-8)
-        stock_strength = (stock_last - stock_pre_close) / (stock_pre_close + 1e-8)
+        stock_strength = (stock_last - stock_prev_bar_close) / (stock_prev_bar_close + 1e-8)
         values = bond_strength - stock_strength
         return to_dt_code_series(frame, values, name=self.output_name(self.name))
+
 

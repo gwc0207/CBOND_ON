@@ -13,11 +13,11 @@ class Alpha025ReturnVolumeVwapRangeV1Factor(_AlphaBase):
 
     def _compute_series(self, ctx: FactorComputeContext) -> pd.Series:
         adv_window = int(ctx.params.get("adv_window", 10))
-        frame = _prepare_panel(ctx, ["last", "pre_close", "amount", "volume", "high"])
+        frame = _prepare_panel(ctx, ["last", "prev_bar_close", "amount", "volume", "high"])
 
         def _calc(g: pd.DataFrame) -> float:
             last_px = g["last"].astype("float64")
-            pre_close = g["pre_close"].astype("float64")
+            pre_close = g["prev_bar_close"].astype("float64")
             amount = g["amount"].astype("float64")
             volume = g["volume"].astype("float64")
             high = g["high"].astype("float64")
@@ -29,5 +29,6 @@ class Alpha025ReturnVolumeVwapRangeV1Factor(_AlphaBase):
 
         raw = _group_scalar(frame, _calc)
         return _cs_rank(raw)
+
 
 

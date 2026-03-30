@@ -17,7 +17,7 @@ class Alpha039VolumeDecayMomentumV1Factor(_AlphaBase):
         decay_window = int(ctx.params.get("decay_window", 9))
         delta_window = int(ctx.params.get("delta_window", 7))
         sum_window = int(ctx.params.get("sum_window", 60))
-        frame = _prepare_panel(ctx, ["amount", "volume", "last", "pre_close"])
+        frame = _prepare_panel(ctx, ["amount", "volume", "last", "prev_bar_close"])
 
         def _term(g: pd.DataFrame) -> float:
             amount = g["amount"].astype("float64")
@@ -31,12 +31,13 @@ class Alpha039VolumeDecayMomentumV1Factor(_AlphaBase):
 
         def _sum_ret(g: pd.DataFrame) -> float:
             last_px = g["last"].astype("float64")
-            pre_close = g["pre_close"].astype("float64")
+            pre_close = g["prev_bar_close"].astype("float64")
             returns = (last_px - pre_close) / (pre_close + EPS)
             return float(returns.rolling(max(1, sum_window), min_periods=1).sum().iloc[-1])
 
         term = _group_scalar(frame, _term)
         sum_ret = _group_scalar(frame, _sum_ret)
         return (-_cs_rank(term)) * (1.0 + _cs_rank(sum_ret + 1.0))
+
 
 

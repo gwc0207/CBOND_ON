@@ -24,11 +24,11 @@ class Alpha029ComplexRankSignalV1Factor(_AlphaBase):
         ts_rank_window = int(ctx.params.get("ts_rank_window", 5))
         delay_window = int(ctx.params.get("delay_window", 3))
         min_window = int(ctx.params.get("min_window", 5))
-        frame = _prepare_panel(ctx, ["last", "pre_close"])
+        frame = _prepare_panel(ctx, ["last", "prev_bar_close"])
 
         def _calc(g: pd.DataFrame) -> float:
             last_px = g["last"].astype("float64")
-            pre_close = g["pre_close"].astype("float64")
+            pre_close = g["prev_bar_close"].astype("float64")
             returns = (last_px - pre_close) / (pre_close + EPS)
             delta_close = last_px.diff(1)
             rank_delta = (-delta_close).rank(pct=True, method="average")
@@ -44,5 +44,6 @@ class Alpha029ComplexRankSignalV1Factor(_AlphaBase):
             return float(min_rank + ts_rank_ret)
 
         return _group_scalar(frame, _calc)
+
 
 

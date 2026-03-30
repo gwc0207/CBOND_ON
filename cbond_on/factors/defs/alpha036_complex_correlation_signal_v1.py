@@ -29,7 +29,7 @@ class Alpha036ComplexCorrelationSignalV1Factor(_AlphaBase):
         adv_window = int(ctx.params.get("adv_window", 10))
         frame = _prepare_panel(
             ctx,
-            ["last", "open", "ask_price1", "bid_price1", "volume", "pre_close", "amount"],
+            ["last", "open", "ask_price1", "bid_price1", "volume", "prev_bar_close", "amount"],
         )
 
         def _term1(g: pd.DataFrame) -> float:
@@ -47,7 +47,7 @@ class Alpha036ComplexCorrelationSignalV1Factor(_AlphaBase):
 
         def _term3(g: pd.DataFrame) -> float:
             last_px = g["last"].astype("float64")
-            pre_close = g["pre_close"].astype("float64")
+            pre_close = g["prev_bar_close"].astype("float64")
             returns = (last_px - pre_close) / (pre_close + EPS)
             delay_ret = (-returns).shift(max(1, delay_window))
             return float(_ts_rank_last(delay_ret, ts_rank_window))
@@ -71,5 +71,6 @@ class Alpha036ComplexCorrelationSignalV1Factor(_AlphaBase):
         t4 = _group_scalar(frame, _term4)
         t5 = _group_scalar(frame, _term5)
         return 2.21 * _cs_rank(t1) + 0.70 * _cs_rank(t2) + 0.73 * _cs_rank(t3) + _cs_rank(t4) + 0.60 * _cs_rank(t5)
+
 
 

@@ -26,11 +26,11 @@ class Alpha001SignedPowerV1Factor(_AlphaBase):
     def _compute_series(self, ctx: FactorComputeContext) -> pd.Series:
         stddev_window = int(ctx.params.get("stddev_window", 20))
         ts_max_window = int(ctx.params.get("ts_max_window", 5))
-        frame = _prepare_panel(ctx, ["last", "pre_close"])
+        frame = _prepare_panel(ctx, ["last", "prev_bar_close"])
 
         def _calc(g: pd.DataFrame) -> float:
             last_px = g["last"].astype("float64")
-            pre_close = g["pre_close"].astype("float64")
+            pre_close = g["prev_bar_close"].astype("float64")
             returns = (last_px - pre_close) / (pre_close + EPS)
             std_ret = returns.rolling(max(2, stddev_window), min_periods=2).std().fillna(0.0)
             base = np.where(returns < 0.0, std_ret, last_px)
@@ -40,4 +40,5 @@ class Alpha001SignedPowerV1Factor(_AlphaBase):
 
         raw = _group_scalar(frame, _calc)
         return _cs_rank(raw) - 0.5
+
 
