@@ -759,6 +759,21 @@ def _kill_pid(pid: int) -> None:
         os.kill(pid, signal.SIGTERM)
 
 
+def _stop_scheduler_processes() -> list[int]:
+    killed: list[int] = []
+    for item in _list_daemon_processes():
+        pid = int(item.get("pid", 0) or 0)
+        if pid:
+            _kill_pid(pid)
+            killed.append(pid)
+
+    pid = int(_read_json(_PID_PATH).get("pid", 0) or 0)
+    if pid and pid not in killed:
+        _kill_pid(pid)
+        killed.append(pid)
+    return killed
+
+
 def create_app() -> Flask:
     paths_cfg = load_config_file("paths")
     results_root = Path(paths_cfg["results_root"])
@@ -771,6 +786,27 @@ def create_app() -> Flask:
     template_dir = Path(__file__).resolve().parent / "templates"
     static_dir = Path(__file__).resolve().parent / "static"
     app = Flask(__name__, template_folder=str(template_dir), static_folder=str(static_dir))
+
+    def _clear_stop_flags_for_cycle() -> tuple[list[str], list[str]]:
+        st = _read_json(state_path)
+        days = {
+            _today_day_tag(),
+            _normalize_day_tag(st.get("today")),
+            _normalize_day_tag(st.get("target")),
+            _normalize_day_tag(st.get("last_target_run")),
+        }
+        removed: list[str] = []
+        failed: list[str] = []
+        for day in sorted(x for x in days if x):
+            stop_flag = _stop_flag_path(day)
+            if not stop_flag.exists():
+                continue
+            try:
+                stop_flag.unlink()
+                removed.append(str(stop_flag))
+            except Exception as exc:
+                failed.append(f"{stop_flag}: {exc}")
+        return removed, failed
 
     @app.route("/")
     def index():
@@ -962,17 +998,7 @@ def create_app() -> Flask:
 
     @app.post("/api/stop")
     def api_stop():
-        killed = []
-        for item in _list_daemon_processes():
-            pid = int(item.get("pid", 0) or 0)
-            if pid:
-                _kill_pid(pid)
-                killed.append(pid)
-
-        pid = int(_read_json(_PID_PATH).get("pid", 0) or 0)
-        if pid and pid not in killed:
-            _kill_pid(pid)
-            killed.append(pid)
+        killed = _stop_scheduler_processes()
         _append_dashboard_log("stop", f"killed={killed}")
         return jsonify({"ok": True, "killed": killed})
 
@@ -984,10 +1010,11 @@ def create_app() -> Flask:
 
     @app.post("/api/start_open")
     def api_start_open():
-        stop_flag = _stop_flag_path()
-        if stop_flag.exists():
-            stop_flag.unlink()
-            _append_dashboard_log("start_open", "removed STOP flag")
+        removed, failed = _clear_stop_flags_for_cycle()
+        if removed:
+            _append_dashboard_log("start_open", f"removed STOP flags: {removed}")
+        if failed:
+            _append_dashboard_log("start_open", f"failed to remove STOP flags: {failed}")
         _ = api_stop()
         time.sleep(0.5)
         res = api_start()
@@ -997,17 +1024,32 @@ def create_app() -> Flask:
     @app.post("/api/emergency_stop")
     def api_emergency_stop():
         stop_flag = _stop_flag_path()
-        stop_flag.parent.mkdir(parents=True, exist_ok=True)
-        stop_flag.write_text("STOP", encoding="utf-8")
-        _append_dashboard_log("emergency_stop", f"set STOP at {stop_flag}")
-        return jsonify({"ok": True, "stop_flag": str(stop_flag)})
+        stop_flag_error = ""
+        try:
+            stop_flag.parent.mkdir(parents=True, exist_ok=True)
+            stop_flag.write_text("STOP", encoding="utf-8")
+        except Exception as exc:
+            stop_flag_error = str(exc)
+        killed = _stop_scheduler_processes()
+        if stop_flag_error:
+            _append_dashboard_log(
+                "emergency_stop",
+                f"set STOP failed at {stop_flag}: {stop_flag_error}; killed={killed}",
+            )
+        else:
+            _append_dashboard_log("emergency_stop", f"set STOP at {stop_flag} killed={killed}")
+        out = {"ok": True, "stop_flag": str(stop_flag), "killed": killed}
+        if stop_flag_error:
+            out["stop_flag_error"] = stop_flag_error
+        return jsonify(out)
 
     @app.post("/api/restart_scheduler")
     def api_restart_scheduler():
-        stop_flag = _stop_flag_path()
-        if stop_flag.exists():
-            stop_flag.unlink()
-            _append_dashboard_log("restart_scheduler", "removed STOP flag")
+        removed, failed = _clear_stop_flags_for_cycle()
+        if removed:
+            _append_dashboard_log("restart_scheduler", f"removed STOP flags: {removed}")
+        if failed:
+            _append_dashboard_log("restart_scheduler", f"failed to remove STOP flags: {failed}")
         _ = api_stop()
         time.sleep(0.5)
         res = api_start()
