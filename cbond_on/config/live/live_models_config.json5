@@ -4,6 +4,10 @@
   start: "2025-06-01",
   end: "2026-03-20",
   label_cutoff: null,
+  execution: {
+    // Refit cadence in trading-day steps (1 = refit every target day).
+    refit_every_n_days: 1
+  },
   models: {
     lgbm_factor_MSE_live: {
       model_type: "lgbm",

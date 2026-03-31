@@ -49,6 +49,7 @@ def main(
     config_path: str | Path | None = None,
     start: str | None = None,
     end: str | None = None,
+    execution: dict | None = None,
 ) -> None:
     paths_cfg = load_config_file("paths")
     cfg_path = Path(config_path) if config_path else None
@@ -96,6 +97,10 @@ def main(
     linear_cfg = cfg.get("linear", {})
     lookback_days = int(linear_cfg.get("lookback_days", 60))
     refit_freq = int(linear_cfg.get("refit_freq", 1))
+    execution_cfg = dict(execution or {})
+    exec_refit = execution_cfg.get("refit_every_n_days")
+    if exec_refit is not None:
+        refit_freq = max(1, int(exec_refit))
     regression_alpha = float(linear_cfg.get("regression_alpha", 1.0))
     weight_source = str(linear_cfg.get("weight_source", "regression"))
     fallback = str(linear_cfg.get("fallback", "manual"))

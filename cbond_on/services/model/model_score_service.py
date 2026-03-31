@@ -35,18 +35,26 @@ def run(
     start_day = parse_date(start or score_cfg.get("start") or model_cfg.get("start"))
     end_day = parse_date(end or score_cfg.get("end") or model_cfg.get("end"))
     cutoff_day = parse_date(label_cutoff) if label_cutoff else None
+    execution_cfg = score_cfg.get("execution")
+    if execution_cfg is None:
+        execution_cfg = {}
+    if not isinstance(execution_cfg, dict):
+        raise ValueError("model_score.execution must be an object")
+    execution_cfg = dict(execution_cfg)
 
     adapter = build_adapter(model_type, model_config_path=model_config_path)
     artifact = adapter.fit(
         start=str(start_day),
         end=str(end_day),
         label_cutoff=str(cutoff_day) if cutoff_day else None,
+        execution=execution_cfg,
     )
     adapter.predict(
         start=str(start_day),
         end=str(end_day),
         artifact=artifact,
         label_cutoff=str(cutoff_day) if cutoff_day else None,
+        execution=execution_cfg,
     )
     return {
         "model_id": model_id,

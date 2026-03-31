@@ -1,9 +1,13 @@
 {
-  default_model_id: "lgbm_factor_ranker",
-  model_id: "lgbm_factor_ranker",
+  default_model_id: "lob_st_default",
+  model_id: "lob_st_default",
   start: "2025-06-01",
   end: "2026-03-20",
   label_cutoff: null,
+  execution: {
+    // Refit cadence in trading-day steps (1 = refit every target day).
+    refit_every_n_days: 1
+  },
   models: {
     linear_factor_default: {
       model_type: "linear",
@@ -16,6 +20,10 @@
     lgbm_factor_ranker: {
       model_type: "lgbm_ranker",
       model_config: "models/lgbm_ranker/lgbm_factor_ranker"
+    },
+    lob_st_default: {
+      model_type: "lob",
+      model_config: "models/lob/model"
     }
   }
 }

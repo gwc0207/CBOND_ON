@@ -102,7 +102,9 @@ def main(
     start: str | None = None,
     end: str | None = None,
     label_cutoff: str | None = None,
+    execution: dict | None = None,
 ) -> None:
+    _ = execution
     paths_cfg = load_config_file("paths")
     cfg_file = Path(config_path) if config_path else None
     if cfg_file is None and len(sys.argv) > 1:
