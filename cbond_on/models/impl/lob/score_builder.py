@@ -28,7 +28,7 @@ def _load_day_inputs(day_dir: Path) -> tuple[np.ndarray, pd.DataFrame]:
 
 
 def _device_from_config(device_name: str) -> torch.device:
-    if device_name == "cuda" and torch.cuda.is_available():
+    if str(device_name).strip().lower() in {"cuda", "gpu"} and torch.cuda.is_available():
         return torch.device("cuda")
     return torch.device("cpu")
 

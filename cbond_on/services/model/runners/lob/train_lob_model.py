@@ -378,8 +378,11 @@ def main() -> None:
 
     batch_size = int(train_cfg.get("batch_size", 8))
     num_workers = int(train_cfg.get("num_workers", 0))
-    device_name = str(train_cfg.get("device", "cuda"))
-    device = torch.device(device_name if torch.cuda.is_available() else "cpu")
+    device_name = str(train_cfg.get("device", "cuda")).strip().lower()
+    if device_name in {"cuda", "gpu"} and torch.cuda.is_available():
+        device = torch.device("cuda")
+    else:
+        device = torch.device("cpu")
     shuffle_train = bool(train_cfg.get("shuffle_train", True))
 
     train_loader = DataLoader(

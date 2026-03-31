@@ -1,6 +1,6 @@
 {
-  start: "2025-01-01",
-  end: "2025-06-02",
+  start: "2026-01-01",
+  end: "2026-01-10",
   panel_mode: "snapshot_sequence",
   assets: ["cbond", "stock"],
   workers: 6,

@@ -1,0 +1,13 @@
+{
+  raw_data_root: "/mnt/cbond_data_hub_ro/raw_data",
+  clean_data_root: "/mnt/cbond_data_hub_ro/clean_data",
+  cleaned_data_root: "/mnt/cbond_data_hub_ro/clean_data",
+  panel_data_root: "/home/gswzif/cbond_on_runtime/panel_data",
+  label_data_root: "/home/gswzif/cbond_on_runtime/label_data",
+  factor_data_root: "/home/gswzif/cbond_on_runtime/factor_data",
+  ads_root: "/home/gswzif/cbond_on_runtime/ads",
+  results_root: "/home/gswzif/cbond_on_runtime/results",
+  model_root: "/home/gswzif/cbond_on_runtime/results/models",
+  score_root: "/home/gswzif/cbond_on_runtime/results/scores",
+  logs_root: "/home/gswzif/cbond_on_runtime/logs"
+}
