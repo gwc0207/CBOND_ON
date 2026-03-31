@@ -75,6 +75,7 @@ def run(
                 workers=workers,
                 snapshot_columns=snapshot_columns,
                 lead_minutes=lead_minutes,
+                compute_cfg=panel_cfg.get("compute"),
             )
             wrote += int(result.written)
             skipped += int(result.skipped)
