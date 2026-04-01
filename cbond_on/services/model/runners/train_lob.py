@@ -117,6 +117,44 @@ def _load_existing_score_days(score_output: Path) -> set[date]:
     return set(cache.keys())
 
 
+def _empty_day_samples(seq_len: int, depth_levels: int) -> tuple[np.ndarray, np.ndarray]:
+    return (
+        np.empty((0, 2, max(seq_len, 0), max(depth_levels, 0)), dtype=np.float32),
+        np.array([], dtype=object),
+    )
+
+
+def _resolve_preprocess_backend(train_cfg: dict) -> tuple[str, str, bool]:
+    requested = str(train_cfg.get("preprocess_backend", "auto")).strip().lower()
+    fallback_to_cpu = bool(train_cfg.get("preprocess_fallback_to_cpu", True))
+    if requested not in {"auto", "cpu", "gpu"}:
+        raise ValueError(
+            f"invalid train.preprocess_backend={requested}; expected one of auto/cpu/gpu"
+        )
+    if requested == "cpu":
+        return "cpu", "requested_cpu", fallback_to_cpu
+
+    if not torch.cuda.is_available():
+        reason = "cuda_unavailable"
+        if requested == "gpu" and not fallback_to_cpu:
+            raise RuntimeError(f"gpu preprocess requested but unavailable: {reason}")
+        return "cpu", reason, fallback_to_cpu
+
+    try:
+        import cupy as cp  # type: ignore
+        import cudf  # type: ignore
+
+        _ = cp.asarray([1.0], dtype=cp.float32)
+        _ = cudf.DataFrame({"_k": [0], "_v": [1.0]})
+    except Exception as exc:
+        reason = f"gpu_preprocess_unavailable:{type(exc).__name__}:{exc}"
+        if requested == "gpu" and not fallback_to_cpu:
+            raise RuntimeError(f"gpu preprocess requested but unavailable: {reason}") from exc
+        return "cpu", reason, fallback_to_cpu
+
+    return "gpu", "cudf_cupy_ready", fallback_to_cpu
+
+
 def _normalize_x_batch(x: torch.Tensor, method: str) -> torch.Tensor:
     if method == "zscore_sample":
         mean = x.mean(dim=(2, 3), keepdim=True)
@@ -469,36 +507,21 @@ def _label_map_for_day(
     return mapping
 
 
-def _build_day_base_samples(
+def _build_day_base_samples_cpu(
     *,
     panel_root: Path,
     day: date,
     depth_levels: int,
     seq_len: int,
     min_seq_len: int,
-    base_cache: dict[date, tuple[np.ndarray, np.ndarray]],
+    panel_path: Path,
 ) -> tuple[np.ndarray, np.ndarray]:
-    cached = base_cache.get(day)
-    if cached is not None:
-        return cached
-
-    panel_path = _panel_day_path(panel_root, day)
     if not panel_path.exists():
-        empty = (
-            np.empty((0, 2, max(seq_len, 0), max(depth_levels, 0)), dtype=np.float32),
-            np.array([], dtype=object),
-        )
-        base_cache[day] = empty
-        return empty
+        return _empty_day_samples(seq_len, depth_levels)
 
     df = pd.read_parquet(panel_path)
     if df.empty:
-        empty = (
-            np.empty((0, 2, max(seq_len, 0), max(depth_levels, 0)), dtype=np.float32),
-            np.array([], dtype=object),
-        )
-        base_cache[day] = empty
-        return empty
+        return _empty_day_samples(seq_len, depth_levels)
 
     if isinstance(df.index, pd.MultiIndex):
         df = df.reset_index()
@@ -547,11 +570,158 @@ def _build_day_base_samples(
         x_day = np.stack(frames, axis=0)
         code_day = np.asarray(codes, dtype=object)
     else:
-        x_day = np.empty((0, 2, max(target_len, 0), depth_levels), dtype=np.float32)
-        code_day = np.array([], dtype=object)
+        return _empty_day_samples(target_len, depth_levels)
 
-    base_cache[day] = (x_day, code_day)
     return x_day, code_day
+
+
+def _build_day_base_samples_gpu(
+    *,
+    panel_root: Path,
+    day: date,
+    depth_levels: int,
+    seq_len: int,
+    min_seq_len: int,
+    panel_path: Path,
+) -> tuple[np.ndarray, np.ndarray]:
+    import cupy as cp  # type: ignore
+    import cudf  # type: ignore
+
+    if not panel_path.exists():
+        return _empty_day_samples(seq_len, depth_levels)
+
+    gdf = cudf.read_parquet(panel_path)
+    if len(gdf) == 0:
+        return _empty_day_samples(seq_len, depth_levels)
+
+    if "code" not in gdf.columns:
+        raise RuntimeError(f"panel missing code column: {panel_path}")
+    if "seq" not in gdf.columns:
+        if "trade_time" in gdf.columns:
+            try:
+                gdf["trade_time"] = cudf.to_datetime(gdf["trade_time"], errors="coerce")
+            except Exception:
+                pass
+            gdf = gdf.sort_values(["code", "trade_time"])
+        else:
+            gdf = gdf.sort_values(["code"])
+        gdf["seq"] = gdf.groupby("code").cumcount()
+    else:
+        gdf = gdf.sort_values(["code", "seq"])
+
+    price_cols, volume_cols = _lob_columns(depth_levels)
+    required = price_cols + volume_cols
+    missing_cols = [c for c in required if c not in gdf.columns]
+    if missing_cols:
+        raise RuntimeError(f"panel missing lob columns for {day}: {missing_cols}")
+
+    target_len = max(0, int(seq_len))
+    min_len = max(1, int(min_seq_len))
+    min_required = max(min_len, target_len if target_len > 0 else min_len)
+
+    counts = gdf.groupby("code").size().reset_index(name="_cnt")
+    keep_codes = counts[counts["_cnt"] >= min_required][["code"]]
+    if len(keep_codes) == 0:
+        return _empty_day_samples(target_len, depth_levels)
+
+    gdf = gdf.merge(keep_codes, on="code", how="inner")
+    if target_len > 0:
+        gdf = gdf.merge(counts[["code", "_cnt"]], on="code", how="left")
+        gdf["_rn"] = gdf.groupby("code").cumcount()
+        gdf = gdf[gdf["_rn"] >= (gdf["_cnt"] - target_len)]
+        gdf = gdf.drop(columns=["_rn", "_cnt"])
+
+    gdf = gdf.sort_values(["code", "seq"])
+    codes_order = (
+        gdf["code"]
+        .astype("str")
+        .drop_duplicates()
+        .to_pandas()
+        .astype(str)
+        .tolist()
+    )
+    if not codes_order:
+        return _empty_day_samples(target_len, depth_levels)
+
+    if target_len <= 0:
+        raise RuntimeError("gpu preprocess requires seq_len > 0")
+
+    rows = len(gdf)
+    expected_rows = len(codes_order) * target_len
+    if rows != expected_rows:
+        raise RuntimeError(
+            f"inconsistent grouped rows for gpu preprocess: rows={rows}, "
+            f"codes={len(codes_order)}, target_len={target_len}"
+        )
+
+    price = gdf[price_cols].astype("float32").to_cupy().reshape((len(codes_order), target_len, depth_levels))
+    volume = (
+        gdf[volume_cols]
+        .astype("float32")
+        .to_cupy()
+        .reshape((len(codes_order), target_len, depth_levels))
+    )
+    valid_mask = cp.isfinite(price).all(axis=(1, 2)) & cp.isfinite(volume).all(axis=(1, 2))
+    if not bool(valid_mask.any()):
+        return _empty_day_samples(target_len, depth_levels)
+
+    x = cp.stack([price, volume], axis=1)
+    valid_mask_np = cp.asnumpy(valid_mask)
+    kept_codes = np.asarray(
+        [codes_order[i] for i, ok in enumerate(valid_mask_np) if bool(ok)],
+        dtype=object,
+    )
+    x_day = cp.asnumpy(x[valid_mask]).astype(np.float32, copy=False)
+    return x_day, kept_codes
+
+
+def _build_day_base_samples(
+    *,
+    panel_root: Path,
+    day: date,
+    depth_levels: int,
+    seq_len: int,
+    min_seq_len: int,
+    base_cache: dict[date, tuple[np.ndarray, np.ndarray]],
+    preprocess_backend: str,
+    preprocess_gpu_fallback_to_cpu: bool,
+) -> tuple[np.ndarray, np.ndarray]:
+    cached = base_cache.get(day)
+    if cached is not None:
+        return cached
+
+    panel_path = _panel_day_path(panel_root, day)
+    if preprocess_backend == "gpu":
+        try:
+            out = _build_day_base_samples_gpu(
+                panel_root=panel_root,
+                day=day,
+                depth_levels=depth_levels,
+                seq_len=seq_len,
+                min_seq_len=min_seq_len,
+                panel_path=panel_path,
+            )
+            base_cache[day] = out
+            return out
+        except Exception as exc:
+            if not preprocess_gpu_fallback_to_cpu:
+                raise
+            print(
+                f"[preprocess] gpu fallback to cpu for day={day}: "
+                f"{type(exc).__name__}: {exc}"
+            )
+
+    out = _build_day_base_samples_cpu(
+        panel_root=panel_root,
+        day=day,
+        depth_levels=depth_levels,
+        seq_len=seq_len,
+        min_seq_len=min_seq_len,
+        panel_path=panel_path,
+    )
+
+    base_cache[day] = out
+    return out
 
 
 def _build_split_data(
@@ -567,6 +737,8 @@ def _build_split_data(
     require_label: bool,
     base_cache: dict[date, tuple[np.ndarray, np.ndarray]],
     label_cache: dict[date, dict[str, float]],
+    preprocess_backend: str,
+    preprocess_gpu_fallback_to_cpu: bool,
 ) -> SplitData:
     x_list: list[np.ndarray] = []
     y_list: list[np.ndarray] = []
@@ -581,6 +753,8 @@ def _build_split_data(
             seq_len=seq_len,
             min_seq_len=min_seq_len,
             base_cache=base_cache,
+            preprocess_backend=preprocess_backend,
+            preprocess_gpu_fallback_to_cpu=preprocess_gpu_fallback_to_cpu,
         )
         if x_day.size == 0 or code_day.size == 0:
             continue
@@ -742,6 +916,17 @@ def main(
         raise RuntimeError("no panel days found for desired range")
 
     train_cfg = dict(cfg.get("train", {}))
+    preprocess_backend, preprocess_reason, preprocess_gpu_fallback_to_cpu = _resolve_preprocess_backend(
+        train_cfg
+    )
+    requested_preprocess = str(train_cfg.get("preprocess_backend", "auto")).strip().lower()
+    print(
+        "lob preprocess backend:",
+        f"requested={requested_preprocess}",
+        f"active={preprocess_backend}",
+        f"reason={preprocess_reason}",
+        f"fallback_to_cpu={preprocess_gpu_fallback_to_cpu}",
+    )
     rolling_cfg = dict(cfg.get("rolling", {}))
     rolling_enabled = bool(rolling_cfg.get("enabled", True))
     window_days = int(rolling_cfg.get("window_days", 120))
@@ -751,6 +936,12 @@ def main(
     refit_every_n_days = max(1, int(execution_cfg.get("refit_every_n_days", 1)))
     cfg_out = dict(cfg)
     cfg_out["execution"] = {"refit_every_n_days": refit_every_n_days}
+    cfg_out["preprocess"] = {
+        "requested": requested_preprocess,
+        "active": preprocess_backend,
+        "fallback_to_cpu": preprocess_gpu_fallback_to_cpu,
+        "reason": preprocess_reason,
+    }
     train_ratio = float(train_cfg.get("train_ratio", 0.7))
     val_ratio = float(train_cfg.get("val_ratio", 0.15))
     test_ratio = float(train_cfg.get("test_ratio", 0.15))
@@ -842,6 +1033,8 @@ def main(
                 require_label=False,
                 base_cache=base_cache,
                 label_cache=label_cache,
+                preprocess_backend=preprocess_backend,
+                preprocess_gpu_fallback_to_cpu=preprocess_gpu_fallback_to_cpu,
             )
             if test_data.x.size == 0:
                 print(f"[rolling] skip test_day={test_day}: empty test samples")
@@ -878,6 +1071,8 @@ def main(
                         require_label=True,
                         base_cache=base_cache,
                         label_cache=label_cache,
+                        preprocess_backend=preprocess_backend,
+                        preprocess_gpu_fallback_to_cpu=preprocess_gpu_fallback_to_cpu,
                     )
                     val_data = _build_split_data(
                         days=roll_val_days,
@@ -891,6 +1086,8 @@ def main(
                         require_label=True,
                         base_cache=base_cache,
                         label_cache=label_cache,
+                        preprocess_backend=preprocess_backend,
+                        preprocess_gpu_fallback_to_cpu=preprocess_gpu_fallback_to_cpu,
                     )
                     if train_data.x.size == 0:
                         if last_model is None:
@@ -995,6 +1192,8 @@ def main(
             require_label=True,
             base_cache=base_cache,
             label_cache=label_cache,
+            preprocess_backend=preprocess_backend,
+            preprocess_gpu_fallback_to_cpu=preprocess_gpu_fallback_to_cpu,
         )
         val_data = _build_split_data(
             days=va_days,
@@ -1008,6 +1207,8 @@ def main(
             require_label=True,
             base_cache=base_cache,
             label_cache=label_cache,
+            preprocess_backend=preprocess_backend,
+            preprocess_gpu_fallback_to_cpu=preprocess_gpu_fallback_to_cpu,
         )
         model, hist = _train_one_model(
             train_data=train_data,
@@ -1031,6 +1232,8 @@ def main(
                 require_label=False,
                 base_cache=base_cache,
                 label_cache=label_cache,
+                preprocess_backend=preprocess_backend,
+                preprocess_gpu_fallback_to_cpu=preprocess_gpu_fallback_to_cpu,
             )
             if test_data.x.size == 0:
                 continue

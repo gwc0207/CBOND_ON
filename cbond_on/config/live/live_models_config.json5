@@ -1,8 +1,8 @@
 {
   model_id: "lgbm_factor_MSE_live",
   default_model_id: "lgbm_factor_MSE_live",
-  start: "2025-06-01",
-  end: "2026-03-20",
+  start: "2025-12-01",
+  end: "2026-03-30",
   label_cutoff: null,
   execution: {
     // Refit cadence in trading-day steps (1 = refit every target day).

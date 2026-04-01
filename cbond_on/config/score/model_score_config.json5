@@ -1,12 +1,12 @@
 {
   default_model_id: "lob_st_default",
   model_id: "lob_st_default",
-  start: "2025-06-01",
-  end: "2026-03-20",
+  start: "2025-12-01",
+  end: "2026-03-30",
   label_cutoff: null,
   execution: {
     // Refit cadence in trading-day steps (1 = refit every target day).
-    refit_every_n_days: 1
+    refit_every_n_days: 15
   },
   models: {
     linear_factor_default: {

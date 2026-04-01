@@ -3,8 +3,8 @@
   model_type: "lob",
 
   // Default window; can be overridden by model_score start/end.
-  start: "2025-06-01",
-  end: "2026-03-20",
+  start: "2025-12-01",
+  end: "2026-03-30",
 
   // Input source: panel + label (no standalone LOBDS dependency).
   panel_name: "T1430",
@@ -35,7 +35,7 @@
     val_ratio: 0.3,
     test_ratio: 0.0,
     batch_size: 8,
-    num_epochs: 30,
+    num_epochs: 80,
     lr: 0.001,
     weight_decay: 0.0001,
     grad_clip_norm: 1.0,
@@ -47,7 +47,9 @@
     checkpoint_dir_weight: 1.0,
     checkpoint_corr_weight: 0.3,
     device: "gpu",
-    num_workers: 0
+    num_workers: 0,
+    preprocess_backend: "gpu",
+    preprocess_fallback_to_cpu: true
   },
 
   // Daily score storage.
