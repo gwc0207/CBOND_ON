@@ -113,7 +113,8 @@ def _compute_from_shared_context(
     windowsize_plan: list[int],
 ) -> pd.Series:
     t0 = perf_counter()
-    print(f"[factor:{spec.name}] start", flush=True)
+    build_day = str(base_ctx.panel.attrs.get("__build_day__", "unknown_day"))
+    print(f"[factor:{build_day}:{spec.name}] start", flush=True)
     factor = spec.build()
     ctx = _spawn_spec_context(base_ctx, spec, windowsize_plan=windowsize_plan)
     series = factor.compute(ctx)
@@ -122,7 +123,7 @@ def _compute_from_shared_context(
     series.name = build_factor_col(spec)
     non_na = int(series.notna().sum()) if hasattr(series, "notna") else -1
     print(
-        f"[factor:{spec.name}] done elapsed={perf_counter() - t0:.2f}s non_na={non_na}",
+        f"[factor:{build_day}:{spec.name}] done elapsed={perf_counter() - t0:.2f}s non_na={non_na}",
         flush=True,
     )
     return series

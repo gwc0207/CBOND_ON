@@ -14,7 +14,7 @@
     fallback_cpu: true,
     dataframe_backend: "pandas", // auto | cudf | pandas
     fallback_pandas: true,
-    debug_log_each_record: true
+    debug_log_each_record: false
   },
   factor_files: [
     "factor/lgbm_factor_MSE.json5"

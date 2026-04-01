@@ -220,6 +220,7 @@ def _build_factor_for_day(
     if panel is None or panel.empty:
         _log_day(day, f"skip reason=missing_panel t_panel={t_panel:.2f}s")
         return _FactorDayOutcome()
+    panel.attrs["__build_day__"] = str(day)
     _log_day(day, f"panel_loaded rows={len(panel)} t_panel={t_panel:.2f}s")
 
     t_existing = perf_counter()
