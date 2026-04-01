@@ -82,3 +82,8 @@ source ~/venv/cbond/bin/activate && cd ~/cbond_on && python cbond_on/run/model_e
 ## 9. 本阶段约束
 - 当前服务器用途：训练模型、测试因子、跑评估。
 - 不启动 live scheduler（除非你明确要求）。
+
+## 10. 仅构建因子（不跑因子回测）
+```bash
+source ~/venv/cbond/bin/activate && cd ~/cbond_on && python cbond_on/run/build_factors.py
+```
