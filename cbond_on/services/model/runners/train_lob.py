@@ -125,7 +125,7 @@ def _empty_day_samples(seq_len: int, depth_levels: int) -> tuple[np.ndarray, np.
 
 
 def _resolve_preprocess_backend(train_cfg: dict) -> tuple[str, str, bool]:
-    requested = str(train_cfg.get("preprocess_backend", "auto")).strip().lower()
+    requested = str(train_cfg.get("preprocess_backend", "cpu")).strip().lower()
     fallback_to_cpu = bool(train_cfg.get("preprocess_fallback_to_cpu", True))
     if requested not in {"auto", "cpu", "gpu"}:
         raise ValueError(
@@ -973,7 +973,7 @@ def main(
     )
     log_data_prep_progress = bool(train_cfg.get("log_data_prep_progress", True))
     data_prep_progress_every = max(1, int(train_cfg.get("data_prep_progress_every", 5)))
-    requested_preprocess = str(train_cfg.get("preprocess_backend", "auto")).strip().lower()
+    requested_preprocess = str(train_cfg.get("preprocess_backend", "cpu")).strip().lower()
     print(
         "lob preprocess backend:",
         f"requested={requested_preprocess}",

@@ -48,7 +48,7 @@
     checkpoint_corr_weight: 0.3,
     device: "gpu",
     num_workers: 12,
-    preprocess_backend: "gpu",
+    preprocess_backend: "cpu",
     preprocess_fallback_to_cpu: true,
     log_data_prep_progress: true,
     data_prep_progress_every: 5,

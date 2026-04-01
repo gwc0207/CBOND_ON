@@ -55,13 +55,13 @@ def _parse_requested_dataframe_backend(cfg: dict[str, Any]) -> str:
     requested = str(
         cfg.get(
             "dataframe_backend",
-            cfg.get("frame_backend", cfg.get("table_backend", "auto")),
+            cfg.get("frame_backend", cfg.get("table_backend", "pandas")),
         )
     ).strip().lower()
     if requested in {"", "none"}:
         return "pandas"
     if requested in {"gpu"}:
-        return "auto"
+        return "pandas"
     return requested
 
 

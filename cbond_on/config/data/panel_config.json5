@@ -25,7 +25,7 @@
   max_lookback_days: 4,
   snapshot_columns: null,
   compute: {
-    dataframe_backend: "cudf",
+    dataframe_backend: "pandas",
     fallback_pandas: true
   }
 }

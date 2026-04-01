@@ -9,7 +9,7 @@
     backend: "auto",      // auto | torch | cpu
     torch_device: "cuda", // e.g. "cuda", "cuda:0"
     fallback_cpu: true,
-    dataframe_backend: "auto", // auto | cudf | pandas
+    dataframe_backend: "pandas", // auto | cudf | pandas
     fallback_pandas: true
   },
   factors: [

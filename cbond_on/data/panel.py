@@ -53,11 +53,11 @@ def _normalize_asset(asset: str | None) -> str:
 
 def _resolve_panel_dataframe_backend(cfg: dict[str, Any] | None = None) -> _PanelDataFrameBackendState:
     runtime = dict(cfg or {})
-    requested = str(runtime.get("dataframe_backend", "auto")).strip().lower()
+    requested = str(runtime.get("dataframe_backend", "pandas")).strip().lower()
     if requested in {"", "none"}:
-        requested = "auto"
+        requested = "pandas"
     if requested == "gpu":
-        requested = "auto"
+        requested = "pandas"
     fallback_pandas = bool(runtime.get("fallback_pandas", True))
 
     if requested == "pandas":
