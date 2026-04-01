@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import time as dt_time
+import threading
 from typing import Any, Callable
 
 import numpy as np
@@ -23,6 +24,7 @@ REBUILD_TRIGGER_COLS = REBUILD_PRICE_COLS + REBUILD_VALUE_COLS + REBUILD_PREV_CO
     "ask_price1",
     "bid_price1",
 )
+_RECORD_LOG_LOCK = threading.Lock()
 
 
 def _compute_backend_runtime(params: dict) -> tuple[str, str]:
@@ -47,6 +49,68 @@ def _panel_compute_backend_runtime(panel: pd.DataFrame) -> tuple[str, str]:
             backend = str(raw_col.get("active", backend)).strip().lower() or backend
             device = str(raw_col.get("torch_device", device)).strip() or device
     return backend, device
+
+
+def _panel_debug_log_each_record(panel: pd.DataFrame) -> bool:
+    raw_attr = panel.attrs.get("__compute_backend__")
+    if isinstance(raw_attr, dict):
+        if bool(raw_attr.get("debug_log_each_record", False)):
+            return True
+    if "__compute_backend__" in panel.columns and not panel.empty:
+        raw_col = panel["__compute_backend__"].iloc[0]
+        if isinstance(raw_col, dict):
+            return bool(raw_col.get("debug_log_each_record", False))
+    return False
+
+
+def _panel_factor_spec_name(panel: pd.DataFrame) -> str:
+    raw_attr = panel.attrs.get("__factor_spec_name__")
+    if isinstance(raw_attr, str) and raw_attr.strip():
+        return raw_attr.strip()
+    if "__factor_spec_name__" in panel.columns and not panel.empty:
+        raw_col = panel["__factor_spec_name__"].iloc[0]
+        if isinstance(raw_col, str) and raw_col.strip():
+            return raw_col.strip()
+    raw_kernel = panel.attrs.get("__factor_kernel_name__")
+    if isinstance(raw_kernel, str) and raw_kernel.strip():
+        return raw_kernel.strip()
+    if "__factor_kernel_name__" in panel.columns and not panel.empty:
+        raw_col_kernel = panel["__factor_kernel_name__"].iloc[0]
+        if isinstance(raw_col_kernel, str) and raw_col_kernel.strip():
+            return raw_col_kernel.strip()
+    return "unknown_factor"
+
+
+def _record_log_context(panel: pd.DataFrame) -> tuple[bool, str]:
+    return _panel_debug_log_each_record(panel), _panel_factor_spec_name(panel)
+
+
+def _emit_record_log(
+    enabled: bool,
+    factor_name: str,
+    *,
+    stage: str,
+    dt: Any,
+    code: Any,
+    value: Any,
+    rows: int | None = None,
+) -> None:
+    if not enabled:
+        return
+    try:
+        if value is None:
+            value_text = "None"
+        else:
+            value_text = f"{float(value):.10g}"
+    except Exception:
+        value_text = str(value)
+    msg = (
+        f"[factor-record] factor={factor_name} stage={stage} dt={dt} code={code} value={value_text}"
+    )
+    if rows is not None:
+        msg += f" rows={int(rows)}"
+    with _RECORD_LOG_LOCK:
+        print(msg, flush=True)
 
 
 def _dataframe_backend_runtime(params: dict) -> str:
@@ -575,13 +639,20 @@ def _prepare_panel(ctx: FactorComputeContext, required: list[str]) -> pd.DataFra
     frame["__compute_backend__"] = {
         "active": backend_mode,
         "torch_device": torch_device,
+        "debug_log_each_record": bool(
+            dict(ctx.params.get("__compute_backend__", {})).get("debug_log_each_record", False)
+        ),
     }
+    frame["__factor_spec_name__"] = str(ctx.params.get("__factor_spec_name__", "")).strip()
     frame["__factor_kernel_name__"] = str(ctx.params.get("__factor_kernel_name__", "")).strip()
     frame["__factor_kernel_params__"] = (
         dict(ctx.params.get("__factor_kernel_params__", {}))
         if isinstance(ctx.params.get("__factor_kernel_params__", {}), dict)
         else {}
     )
+    frame.attrs["__compute_backend__"] = frame["__compute_backend__"].iloc[0]
+    frame.attrs["__factor_spec_name__"] = frame["__factor_spec_name__"].iloc[0]
+    frame.attrs["__factor_kernel_name__"] = frame["__factor_kernel_name__"].iloc[0]
     return frame
 
 
@@ -1330,11 +1401,34 @@ def _kernel_alpha010(g: pd.DataFrame, params: dict[str, Any], device: str) -> fl
 
 
 def _group_apply_scalar_cpu(panel: pd.DataFrame, func: Callable[[pd.DataFrame], float]) -> pd.Series:
-    grouped = panel.groupby(level=["dt", "code"], sort=False)
-    out = grouped.apply(func)
-    if isinstance(out.index, pd.MultiIndex) and out.index.nlevels > 2:
-        out = out.droplevel(-1)
-    return out
+    log_enabled, factor_name = _record_log_context(panel)
+    if not log_enabled:
+        grouped = panel.groupby(level=["dt", "code"], sort=False)
+        out = grouped.apply(func)
+        if isinstance(out.index, pd.MultiIndex) and out.index.nlevels > 2:
+            out = out.droplevel(-1)
+        return out
+    rows: list[tuple[pd.Timestamp, str, float]] = []
+    for (dt, code), g in panel.groupby(level=["dt", "code"], sort=False):
+        try:
+            val = float(func(g))
+        except Exception:
+            val = np.nan
+        rows.append((dt, str(code), val))
+        _emit_record_log(
+            log_enabled,
+            factor_name,
+            stage="group_apply_cpu",
+            dt=dt,
+            code=code,
+            value=val,
+            rows=len(g),
+        )
+    if not rows:
+        return pd.Series(dtype="float64")
+    idx = pd.MultiIndex.from_tuples([(dt, code) for dt, code, _ in rows], names=["dt", "code"])
+    out = pd.Series([v for _, _, v in rows], index=idx, dtype="float64")
+    return out.replace([np.inf, -np.inf], np.nan)
 
 
 def _group_apply_scalar_torch_proxy(
@@ -1343,6 +1437,7 @@ def _group_apply_scalar_torch_proxy(
     *,
     torch_device: str,
 ) -> pd.Series:
+    log_enabled, factor_name = _record_log_context(panel)
     rows: list[tuple[pd.Timestamp, str, float]] = []
     for (dt, code), g in panel.groupby(level=["dt", "code"], sort=False):
         proxy = _TorchGroupProxy(g, device=torch_device)
@@ -1354,6 +1449,15 @@ def _group_apply_scalar_torch_proxy(
         else:
             val = float(raw)
         rows.append((dt, str(code), val))
+        _emit_record_log(
+            log_enabled,
+            factor_name,
+            stage="group_apply_torch_proxy",
+            dt=dt,
+            code=code,
+            value=val,
+            rows=len(g),
+        )
     if not rows:
         return pd.Series(dtype="float64")
     idx = pd.MultiIndex.from_tuples([(dt, code) for dt, code, _ in rows], names=["dt", "code"])
@@ -1362,6 +1466,7 @@ def _group_apply_scalar_torch_proxy(
 
 
 def _group_scalar_cpu(frame: pd.DataFrame, func: Callable[[pd.DataFrame], float]) -> pd.Series:
+    log_enabled, factor_name = _record_log_context(frame)
     rows: list[tuple[pd.Timestamp, str, float]] = []
     for (dt, code), g in frame.groupby(["dt", "code"], sort=False):
         try:
@@ -1369,6 +1474,15 @@ def _group_scalar_cpu(frame: pd.DataFrame, func: Callable[[pd.DataFrame], float]
         except Exception:
             val = np.nan
         rows.append((dt, str(code), val))
+        _emit_record_log(
+            log_enabled,
+            factor_name,
+            stage="group_scalar_cpu",
+            dt=dt,
+            code=code,
+            value=val,
+            rows=len(g),
+        )
     if not rows:
         return pd.Series(dtype="float64")
     idx = pd.MultiIndex.from_tuples([(dt, code) for dt, code, _ in rows], names=["dt", "code"])
@@ -1384,6 +1498,7 @@ def _group_scalar_torch_kernel(
     kernel_params: dict[str, Any],
     torch_device: str,
 ) -> pd.Series:
+    log_enabled, factor_name = _record_log_context(frame)
     kernel = _TORCH_SCALAR_KERNELS.get(str(kernel_name).strip())
     if kernel is None:
         raise KeyError(f"unknown torch kernel: {kernel_name}")
@@ -1394,6 +1509,15 @@ def _group_scalar_torch_kernel(
         except Exception:
             val = np.nan
         rows.append((dt, str(code), val))
+        _emit_record_log(
+            log_enabled,
+            factor_name,
+            stage="group_scalar_torch_kernel",
+            dt=dt,
+            code=code,
+            value=val,
+            rows=len(g),
+        )
     if not rows:
         return pd.Series(dtype="float64")
     idx = pd.MultiIndex.from_tuples([(dt, code) for dt, code, _ in rows], names=["dt", "code"])
@@ -1407,6 +1531,7 @@ def _group_scalar_torch_proxy(
     *,
     torch_device: str,
 ) -> pd.Series:
+    log_enabled, factor_name = _record_log_context(frame)
     rows: list[tuple[pd.Timestamp, str, float]] = []
     for (dt, code), g in frame.groupby(["dt", "code"], sort=False):
         proxy = _TorchGroupProxy(g, device=torch_device)
@@ -1418,6 +1543,15 @@ def _group_scalar_torch_proxy(
         else:
             val = float(raw)
         rows.append((dt, str(code), val))
+        _emit_record_log(
+            log_enabled,
+            factor_name,
+            stage="group_scalar_torch_proxy",
+            dt=dt,
+            code=code,
+            value=val,
+            rows=len(g),
+        )
     if not rows:
         return pd.Series(dtype="float64")
     idx = pd.MultiIndex.from_tuples([(dt, code) for dt, code, _ in rows], names=["dt", "code"])

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from time import perf_counter
 from typing import Iterable
 
 import pandas as pd
@@ -86,12 +87,17 @@ def _spawn_spec_context(
     params = dict(base_ctx.params) if isinstance(base_ctx.params, dict) else {}
     if isinstance(spec.params, dict):
         params.update(spec.params)
+    panel = base_ctx.panel.copy(deep=False)
+    panel.attrs = dict(getattr(base_ctx.panel, "attrs", {}) or {})
+    panel.attrs["__factor_spec_name__"] = str(spec.name)
+    panel.attrs["__factor_kernel_name__"] = str(spec.factor)
     params["__factor_kernel_name__"] = str(spec.factor)
+    params["__factor_spec_name__"] = str(spec.name)
     params["__factor_kernel_params__"] = dict(spec.params) if isinstance(spec.params, dict) else {}
     if windowsize_plan:
         params["__ohlc_windows_plan__"] = list(windowsize_plan)
     return FactorComputeContext(
-        panel=base_ctx.panel,
+        panel=panel,
         stock_panel=base_ctx.stock_panel,
         bond_stock_map=base_ctx.bond_stock_map,
         params=params,
@@ -106,12 +112,19 @@ def _compute_from_shared_context(
     *,
     windowsize_plan: list[int],
 ) -> pd.Series:
+    t0 = perf_counter()
+    print(f"[factor:{spec.name}] start", flush=True)
     factor = spec.build()
     ctx = _spawn_spec_context(base_ctx, spec, windowsize_plan=windowsize_plan)
     series = factor.compute(ctx)
     if not isinstance(series, pd.Series):
         raise ValueError(f"factor {spec.name} must return a Series")
     series.name = build_factor_col(spec)
+    non_na = int(series.notna().sum()) if hasattr(series, "notna") else -1
+    print(
+        f"[factor:{spec.name}] done elapsed={perf_counter() - t0:.2f}s non_na={non_na}",
+        flush=True,
+    )
     return series
 
 

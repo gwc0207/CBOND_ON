@@ -220,12 +220,14 @@ def _build_factor_for_day(
     if panel is None or panel.empty:
         _log_day(day, f"skip reason=missing_panel t_panel={t_panel:.2f}s")
         return _FactorDayOutcome()
+    _log_day(day, f"panel_loaded rows={len(panel)} t_panel={t_panel:.2f}s")
 
     t_existing = perf_counter()
     existing = pd.DataFrame()
     if not refresh:
         existing = store.read_day(day)
     t_existing = perf_counter() - t_existing
+    _log_day(day, f"existing_loaded rows={len(existing)} t_existing={t_existing:.2f}s")
 
     if refresh:
         to_compute = specs
@@ -273,8 +275,19 @@ def _build_factor_for_day(
         if not bond_stock_map_df.empty:
             bond_stock_map = bond_stock_map_df
     t_context = perf_counter() - t_context
+    _log_day(
+        day,
+        (
+            f"context_loaded stock_rows={0 if stock_panel is None else len(stock_panel)} "
+            f"map_rows={0 if bond_stock_map is None else len(bond_stock_map)} t_context={t_context:.2f}s"
+        ),
+    )
 
     t_compute = perf_counter()
+    _log_day(
+        day,
+        f"compute_start factors={len(to_compute)} factor_workers={factor_workers}",
+    )
     new_frame = build_factor_frame(
         panel,
         to_compute,
@@ -342,6 +355,10 @@ def run_factor_pipeline(
     compute_backend_params = backend_state.to_params()
     compute_backend_params["__compute_backend__"].update(
         dataframe_state.to_params()["__compute_backend__"]
+    )
+    runtime_compute_cfg = dict(compute_cfg or {})
+    compute_backend_params["__compute_backend__"]["debug_log_each_record"] = bool(
+        runtime_compute_cfg.get("debug_log_each_record", False)
     )
     print(
         "factor compute backend:",

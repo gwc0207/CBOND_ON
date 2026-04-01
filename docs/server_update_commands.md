@@ -85,5 +85,5 @@ source ~/venv/cbond/bin/activate && cd ~/cbond_on && python cbond_on/run/model_e
 
 ## 10. 仅构建因子（不跑因子回测）
 ```bash
-source ~/venv/cbond/bin/activate && cd ~/cbond_on && python cbond_on/run/build_factors.py
+source ~/venv/cbond/bin/activate && cd ~/cbond_on && python cbond_on/run/factor_batch.py
 ```

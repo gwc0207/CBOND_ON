@@ -13,7 +13,8 @@
     torch_device: "cuda", // e.g. "cuda", "cuda:0"
     fallback_cpu: true,
     dataframe_backend: "pandas", // auto | cudf | pandas
-    fallback_pandas: true
+    fallback_pandas: true,
+    debug_log_each_record: true
   },
   factor_files: [
     "factor/lgbm_factor_MSE.json5"
