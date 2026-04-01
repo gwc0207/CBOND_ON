@@ -283,6 +283,8 @@ def _train_one_model(
     lr = float(train_cfg.get("lr", 1e-3))
     weight_decay = float(train_cfg.get("weight_decay", 1e-4))
     grad_clip_norm = float(train_cfg.get("grad_clip_norm", 1.0))
+    log_batch_progress = bool(train_cfg.get("log_batch_progress", False))
+    batch_log_every = max(1, int(train_cfg.get("batch_log_every", 50)))
     normalize_x = bool(train_cfg.get("normalize_x", False))
     normalize_y = bool(train_cfg.get("normalize_y", False))
     x_norm_method = str(train_cfg.get("x_norm_method", "zscore_sample"))
@@ -318,8 +320,9 @@ def _train_one_model(
         model.train()
         train_loss_sum = 0.0
         train_count = 0
+        total_batches = len(train_loader)
 
-        for x_batch, y_batch in train_loader:
+        for batch_idx, (x_batch, y_batch) in enumerate(train_loader, start=1):
             x_batch = x_batch.to(device)
             y_batch = y_batch.to(device)
             if normalize_x:
@@ -336,6 +339,16 @@ def _train_one_model(
             batch_n = int(y_batch.numel())
             train_loss_sum += float(loss.item()) * batch_n
             train_count += batch_n
+
+            if log_batch_progress and (
+                batch_idx == 1 or batch_idx == total_batches or (batch_idx % batch_log_every) == 0
+            ):
+                mean_loss = float(train_loss_sum / train_count) if train_count > 0 else float("nan")
+                print(
+                    f"epoch {epoch:03d} batch {batch_idx}/{total_batches} "
+                    f"loss={float(loss.item()):.6f} mean_loss={mean_loss:.6f} "
+                    f"samples={train_count}"
+                )
 
         train_loss = float(train_loss_sum / train_count) if train_count > 0 else float("nan")
         train_pred = _predict_numpy(
