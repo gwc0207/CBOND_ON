@@ -16,6 +16,7 @@
     fallback_pandas: true
   },
   factor_files: [
+    "factor/lgbm_factor_MSE.json5",
     "factor/factors_patch_ohlc_windowsize_20260327.json5",
     "factor/factors_20260327.json5"
   ],
