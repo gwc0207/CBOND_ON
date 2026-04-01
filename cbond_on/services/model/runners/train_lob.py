@@ -16,7 +16,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[4]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from cbond_on.core.config import load_config_file, parse_date
+from cbond_on.core.config import load_config_file, parse_date, resolve_output_path
 from cbond_on.core.naming import make_window_label
 from cbond_on.models.impl.lgbm.trainer import _iter_existing_label_days, _read_label_day, _split_days
 from cbond_on.models.impl.lob.lob_st import LOBSpatioTemporalModel
@@ -1006,14 +1006,22 @@ def main(
     if not rolling_enabled and abs((train_ratio + val_ratio + test_ratio) - 1.0) > 1e-6:
         raise ValueError("train/val/test ratios must sum to 1.0")
 
-    results_root = Path(str(cfg.get("results_root") or paths_cfg["results_root"]))
+    results_root = resolve_output_path(
+        cfg.get("results_root"),
+        default_path=paths_cfg["results_root"],
+        results_root=paths_cfg["results_root"],
+    )
     model_name = str(cfg.get("model_name", "lob_st_default"))
     date_label = f"{desired_start:%Y-%m-%d}_{desired_end:%Y-%m-%d}"
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     out_dir = results_root / "models" / model_name / date_label / ts
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    score_output = Path(cfg.get("score_output", results_root / "scores" / model_name))
+    score_output = resolve_output_path(
+        cfg.get("score_output"),
+        default_path=results_root / "scores" / model_name,
+        results_root=results_root,
+    )
     score_overwrite = bool(cfg.get("score_overwrite", False))
     score_dedupe = bool(cfg.get("score_dedupe", True))
     incremental_cfg = dict(cfg.get("incremental", {}))
@@ -1386,7 +1394,11 @@ def main(
         torch.save(last_model.state_dict(), model_path)
         weights_path_text = str(cfg.get("weights_path", "")).strip()
         if weights_path_text:
-            weights_path = Path(weights_path_text)
+            weights_path = resolve_output_path(
+                weights_path_text,
+                default_path=results_root / "models" / model_name / "model.pt",
+                results_root=results_root,
+            )
             weights_path.parent.mkdir(parents=True, exist_ok=True)
             torch.save(last_model.state_dict(), weights_path)
 

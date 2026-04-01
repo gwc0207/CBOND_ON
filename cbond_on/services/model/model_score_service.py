@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from datetime import date
+from pathlib import Path
 
-from cbond_on.core.config import load_config_file, parse_date
+from cbond_on.core.config import load_config_file, parse_date, resolve_output_path
 from cbond_on.services.common import load_json_like, resolve_config_path
 from cbond_on.services.model.adapters import build_adapter
 
@@ -31,6 +32,7 @@ def run(
 
     model_config_path = resolve_config_path(model_config_key)
     model_cfg = load_json_like(model_config_path)
+    paths_cfg = load_config_file("paths")
 
     start_day = parse_date(start or score_cfg.get("start") or model_cfg.get("start"))
     end_day = parse_date(end or score_cfg.get("end") or model_cfg.get("end"))
@@ -56,11 +58,22 @@ def run(
         label_cutoff=str(cutoff_day) if cutoff_day else None,
         execution=execution_cfg,
     )
+    score_output_resolved = None
+    score_output_raw = model_cfg.get("score_output")
+    if score_output_raw:
+        score_output_resolved = str(
+            resolve_output_path(
+                score_output_raw,
+                default_path=Path(paths_cfg["results_root"]) / "scores" / str(model_cfg.get("model_name", model_id)),
+                results_root=paths_cfg["results_root"],
+            )
+        )
+
     return {
         "model_id": model_id,
         "model_type": model_type,
         "model_config_path": str(model_config_path),
-        "score_output": model_cfg.get("score_output"),
+        "score_output": score_output_resolved,
         "start": start_day,
         "end": end_day,
     }

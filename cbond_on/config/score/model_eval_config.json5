@@ -1,0 +1,45 @@
+{
+  // Experiment identity.
+  experiment_name: "model_eval_v1",
+
+  // Reuse model registry from model_score config.
+  model_score_config: "score/model_score",
+  model_id: "lgbm_factor_MSE",
+
+  // Evaluation window (trading-day filtering follows existing score pipeline behavior).
+  start: "2025-12-01",
+  end: "2026-03-30",
+  label_cutoff: null,
+
+  // If true, run model_score first, then evaluate scores.
+  run_model_before_eval: true,
+
+  // Optional runtime override passed into model runners.
+  execution: {
+    refit_every_n_days: 15
+  },
+
+  // Evaluation settings.
+  eval: {
+    bins: 20,
+    objective: {
+      metric: "rank_ic_mean",
+      higher_is_better: true
+    }
+  },
+
+  // Hyperparameter tuning settings.
+  tuning: {
+    enabled: false,
+    search_type: "grid", // grid or random
+    max_trials: 16,
+    random_seed: 42,
+    parameter_space: {
+      // Dot-path keys in model config.
+      "lgbm_params.num_leaves": [31, 63, 127],
+      "lgbm_params.max_depth": [8, 12, 16],
+      "lgbm_params.reg_alpha": [0.01, 0.1],
+      "lgbm_params.reg_lambda": [0.1, 1.0]
+    }
+  }
+}

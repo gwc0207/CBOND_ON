@@ -34,7 +34,7 @@
     train_ratio: 0.7,
     val_ratio: 0.3,
     test_ratio: 0.0,
-    batch_size: 8,
+    batch_size: 32,
     num_epochs: 80,
     lr: 0.001,
     weight_decay: 0.0001,
@@ -47,13 +47,13 @@
     checkpoint_dir_weight: 1.0,
     checkpoint_corr_weight: 0.3,
     device: "gpu",
-    num_workers: 0,
+    num_workers: 12,
     preprocess_backend: "gpu",
     preprocess_fallback_to_cpu: true,
     log_data_prep_progress: true,
-    data_prep_progress_every: 1,
-    log_batch_progress: true,
-    batch_log_every: 50
+    data_prep_progress_every: 5,
+    log_batch_progress: false,
+    batch_log_every: 200
   },
 
   // Daily score storage.

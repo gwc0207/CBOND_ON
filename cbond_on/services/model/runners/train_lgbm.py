@@ -13,7 +13,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[4]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from cbond_on.core.config import load_config_file, parse_date
+from cbond_on.core.config import load_config_file, parse_date, resolve_output_path
 from cbond_on.core.naming import make_window_label
 from cbond_on.core.trading_days import list_trading_days_from_raw, prev_trading_days_from_raw
 from cbond_on.factors.storage import FactorStore
@@ -227,7 +227,11 @@ def main(
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     out_dir = results_root / "models" / model_name / date_label / ts
     out_dir.mkdir(parents=True, exist_ok=True)
-    score_output = Path(cfg.get("score_output", results_root / "scores" / model_name))
+    score_output = resolve_output_path(
+        cfg.get("score_output"),
+        default_path=results_root / "scores" / model_name,
+        results_root=results_root,
+    )
     score_overwrite = bool(cfg.get("score_overwrite", False))
     score_dedupe = bool(cfg.get("score_dedupe", True))
     incremental_cfg = dict(cfg.get("incremental", {}))
@@ -236,7 +240,11 @@ def main(
     incremental_warm_start = bool(incremental_cfg.get("warm_start", True))
     incremental_save_state = bool(incremental_cfg.get("save_state", True))
     state_dir_raw = str(incremental_cfg.get("state_dir", "")).strip()
-    state_dir = Path(state_dir_raw) if state_dir_raw else (results_root / "model_state" / model_name)
+    state_dir = resolve_output_path(
+        state_dir_raw if state_dir_raw else None,
+        default_path=results_root / "model_state" / model_name,
+        results_root=results_root,
+    )
     if incremental_enabled and (incremental_warm_start or incremental_save_state):
         state_dir.mkdir(parents=True, exist_ok=True)
 

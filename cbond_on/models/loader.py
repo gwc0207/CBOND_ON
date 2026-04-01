@@ -3,6 +3,8 @@ from __future__ import annotations
 import pandas as pd
 import torch
 
+from cbond_on.core.config import load_config_file, resolve_output_path
+
 from .base import BaseModel
 from .score_io import load_scores_by_date
 from .impl.lob.lob_st import LOBSpatioTemporalModel
@@ -24,17 +26,29 @@ class FileScoreModel(BaseModel):
 
 
 def build_model(cfg: dict) -> BaseModel:
+    paths_cfg = load_config_file("paths")
+    results_root = paths_cfg["results_root"]
     model_type = str(cfg.get("model_type", "custom")).lower()
     if model_type == "file":
         score_path = cfg.get("score_output")
         if not score_path:
             raise ValueError("model_type=file requires score_output path")
-        return FileScoreModel(score_path)
+        resolved_score_path = resolve_output_path(
+            score_path,
+            default_path=f"{results_root}/scores/file_model",
+            results_root=results_root,
+        )
+        return FileScoreModel(str(resolved_score_path))
     if model_type == "lob_st":
         params = cfg.get("params") or {}
         weights_path = cfg.get("weights_path")
         if not weights_path:
             raise ValueError("model_type=lob_st requires weights_path")
+        resolved_weights_path = resolve_output_path(
+            weights_path,
+            default_path=f"{results_root}/models/lob_st_default/model.pt",
+            results_root=results_root,
+        )
         model = LOBSpatioTemporalModel(
             depth_levels=int(params.get("depth_levels", 10)),
             rbf_num_bases=int(params.get("rbf_num_bases", 16)),
@@ -42,7 +56,7 @@ def build_model(cfg: dict) -> BaseModel:
             lstm_hidden_size=int(params.get("lstm_hidden_size", 256)),
             lstm_num_layers=int(params.get("lstm_num_layers", 1)),
         )
-        state = torch.load(weights_path, map_location="cpu")
+        state = torch.load(str(resolved_weights_path), map_location="cpu")
         if isinstance(state, dict) and "state_dict" in state:
             state = state["state_dict"]
         model.load_state_dict(state)

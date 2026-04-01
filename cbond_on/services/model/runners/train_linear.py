@@ -12,7 +12,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[4]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from cbond_on.core.config import load_config_file, parse_date
+from cbond_on.core.config import load_config_file, parse_date, resolve_output_path
 from cbond_on.factors.storage import FactorStore
 from cbond_on.models.impl.lgbm.trainer import (
     _iter_existing_label_days,
@@ -215,11 +215,34 @@ def main(
     # also write to configured score outputs (used by backtest/live)
     score_output = cfg.get("score_output")
     if score_output:
+        score_path = resolve_output_path(
+            score_output,
+            default_path=results_root / "scores" / model_name / "scores.csv",
+            results_root=results_root,
+        )
+        weights_path = (
+            resolve_output_path(
+                cfg.get("weights_output"),
+                default_path=results_root / "scores" / model_name / "weights.csv",
+                results_root=results_root,
+            )
+            if cfg.get("weights_output")
+            else None
+        )
+        meta_path = (
+            resolve_output_path(
+                cfg.get("meta_output"),
+                default_path=results_root / "scores" / model_name / "meta.json",
+                results_root=results_root,
+            )
+            if cfg.get("meta_output")
+            else None
+        )
         write_linear_outputs(
             result=result,
-            score_path=Path(score_output),
-            weights_path=Path(cfg.get("weights_output")) if cfg.get("weights_output") else None,
-            meta_path=Path(cfg.get("meta_output")) if cfg.get("meta_output") else None,
+            score_path=score_path,
+            weights_path=weights_path,
+            meta_path=meta_path,
             meta_payload={"config": cfg},
             overwrite=True,
         )

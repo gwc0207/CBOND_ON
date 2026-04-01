@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 from datetime import date, time
 from pathlib import Path
@@ -12,6 +13,7 @@ import pandas as pd
 CONFIG_DIR = Path(__file__).resolve().parents[1] / "config"
 _CONFIG_EXTS: tuple[str, ...] = (".json5", ".yaml", ".yml", ".json")
 _PATHS_PROFILE_PRINTED = False
+_WINDOWS_ABS_RE = re.compile(r"^[A-Za-z]:[\\/]")
 
 
 def _normalize_key(name: str | Path) -> str:
@@ -91,6 +93,53 @@ def _path_exists(value: str | Path | None) -> bool:
         return Path(text).expanduser().exists()
     except Exception:
         return False
+
+
+def _extract_results_relative(raw_path: str) -> str | None:
+    norm = raw_path.replace("\\", "/")
+    low = norm.lower()
+    token = "/results/"
+    idx = low.find(token)
+    if idx < 0:
+        return None
+    rel = norm[idx + len(token):].strip("/")
+    return rel or None
+
+
+def resolve_output_path(
+    value: str | Path | None,
+    *,
+    default_path: str | Path,
+    results_root: str | Path | None = None,
+) -> Path:
+    default = Path(default_path).expanduser()
+    if value is None:
+        return default
+    raw = str(value).strip()
+    if not raw:
+        return default
+
+    is_windows_style = bool(_WINDOWS_ABS_RE.match(raw))
+    is_posix_style = raw.startswith("/")
+    running_on_windows = sys.platform.startswith("win")
+
+    # Compatible absolute path for current platform.
+    if (running_on_windows and is_windows_style) or (not running_on_windows and is_posix_style):
+        return Path(raw).expanduser()
+
+    # Incompatible absolute path: map by /results/... suffix when possible.
+    if (running_on_windows and is_posix_style) or (not running_on_windows and is_windows_style):
+        rel = _extract_results_relative(raw)
+        if rel:
+            base = Path(results_root).expanduser() if results_root is not None else default.parent
+            mapped = base / Path(rel)
+            print(f"path remap: {raw} -> {mapped}")
+            return mapped
+        print(f"path remap fallback: {raw} -> {default}")
+        return default
+
+    # Relative path.
+    return Path(raw).expanduser()
 
 
 def _detect_data_hub_mount() -> Path | None:

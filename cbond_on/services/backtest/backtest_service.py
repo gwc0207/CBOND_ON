@@ -7,7 +7,7 @@ from pathlib import Path
 import pandas as pd
 
 from cbond_on.backtest.execution import apply_twap_bps
-from cbond_on.core.config import load_config_file, parse_date
+from cbond_on.core.config import load_config_file, parse_date, resolve_output_path
 from cbond_on.core.trading_days import list_trading_days_from_raw, next_trading_days_from_raw
 from cbond_on.core.universe import filter_tradable
 from cbond_on.data.io import read_table_range
@@ -42,7 +42,11 @@ def _resolve_score_path(cfg: dict, paths_cfg: dict) -> Path:
     score_root = score_source.get("score_root")
     model_id = score_source.get("model_id")
     if score_root:
-        return Path(str(score_root))
+        return resolve_output_path(
+            score_root,
+            default_path=Path(paths_cfg["results_root"]) / "scores" / str(model_id or "model_score"),
+            results_root=paths_cfg["results_root"],
+        )
     if model_id:
         return Path(paths_cfg["results_root"]) / "scores" / str(model_id)
     raise ValueError("backtest_config.score_source requires score_root or model_id")

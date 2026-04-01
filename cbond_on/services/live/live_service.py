@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from cbond_on.core.config import load_config_file, parse_date
+from cbond_on.core.config import load_config_file, parse_date, resolve_output_path
 from cbond_on.core.trading_days import list_available_trading_days_from_raw
 from cbond_on.core.universe import filter_tradable
 from cbond_on.data.io import read_clean_daily
@@ -542,7 +542,11 @@ def run_once(
         label_cutoff=model_label_cutoff,
         cfg=live_model_score_cfg,
     )
-    score_path = Path(model_result.get("score_output") or (Path(paths_cfg["results_root"]) / "scores" / model_id))
+    score_path = resolve_output_path(
+        model_result.get("score_output"),
+        default_path=Path(paths_cfg["results_root"]) / "scores" / model_id,
+        results_root=paths_cfg["results_root"],
+    )
     score_cache = load_scores_by_date(score_path)
     score_df = _resolve_score_df_for_target(score_cache, score_day, score_path)
 

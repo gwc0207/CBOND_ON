@@ -7,7 +7,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[5]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from cbond_on.core.config import load_config_file, parse_date
+from cbond_on.core.config import load_config_file, parse_date, resolve_output_path
 from cbond_on.models.impl.lob.score_builder import ScoreConfig, build_scores
 
 
@@ -22,8 +22,17 @@ def main() -> None:
 
     clean_root = Path(paths_cfg["clean_data_root"])
     output_dir = clean_root / str(ds_cfg.get("output_dir", "LOBDS"))
-    weights_path = Path(model_cfg["weights_path"])
-    score_path = Path(model_cfg["score_output"])
+    results_root = paths_cfg["results_root"]
+    weights_path = resolve_output_path(
+        model_cfg.get("weights_path"),
+        default_path=Path(results_root) / "models" / "lob_st_default" / "model.pt",
+        results_root=results_root,
+    )
+    score_path = resolve_output_path(
+        model_cfg.get("score_output"),
+        default_path=Path(results_root) / "scores" / "lob_st_default",
+        results_root=results_root,
+    )
 
     train_cfg = model_cfg.get("train", {})
     score_cfg = ScoreConfig(

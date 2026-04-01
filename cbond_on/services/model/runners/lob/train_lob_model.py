@@ -13,7 +13,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[5]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from cbond_on.core.config import load_config_file, parse_date
+from cbond_on.core.config import load_config_file, parse_date, resolve_output_path
 from cbond_on.models.impl.lob.lob_st import LOBSpatioTemporalModel
 
 try:
@@ -440,7 +440,12 @@ def main() -> None:
     best_epoch = None
     dir_weight = float(train_cfg.get("checkpoint_dir_weight", 1.0))
     corr_weight = float(train_cfg.get("checkpoint_corr_weight", 0.3))
-    weights_path = Path(model_cfg.get("weights_path", "results/models/lob_st_default/model.pt"))
+    results_root = paths_cfg["results_root"]
+    weights_path = resolve_output_path(
+        model_cfg.get("weights_path"),
+        default_path=Path(results_root) / "models" / "lob_st_default" / "model.pt",
+        results_root=results_root,
+    )
     weights_path.parent.mkdir(parents=True, exist_ok=True)
     history = []
 
