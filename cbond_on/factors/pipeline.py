@@ -5,6 +5,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
+import threading
+from time import perf_counter
 from typing import Sequence
 
 import pandas as pd
@@ -17,6 +19,8 @@ from cbond_on.factors.builder import build_factor_frame
 from cbond_on.factors.compute_backend import resolve_compute_backend, resolve_dataframe_backend
 from cbond_on.factors.spec import FactorSpec, build_factor_col
 from cbond_on.factors.storage import FactorStore
+
+_LOG_LOCK = threading.Lock()
 
 
 @dataclass
@@ -41,6 +45,11 @@ class _DailyTableIndex:
         if idx < 0:
             return None
         return self.paths[idx]
+
+
+def _log_day(day: date, message: str) -> None:
+    with _LOG_LOCK:
+        print(f"[build_factors:{day}] {message}", flush=True)
 
 
 def _iter_existing_panel_days(
@@ -197,18 +206,26 @@ def _build_factor_for_day(
     factor_workers: int,
     compute_backend_params: dict,
 ) -> _FactorDayOutcome:
+    t_total = perf_counter()
+    _log_day(day, "start")
+
+    t_panel = perf_counter()
     panel = read_panel_data(
         panel_data_root,
         day,
         window_minutes=window_minutes,
         panel_name=panel_name,
     ).data
+    t_panel = perf_counter() - t_panel
     if panel is None or panel.empty:
+        _log_day(day, f"skip reason=missing_panel t_panel={t_panel:.2f}s")
         return _FactorDayOutcome()
 
+    t_existing = perf_counter()
     existing = pd.DataFrame()
     if not refresh:
         existing = store.read_day(day)
+    t_existing = perf_counter() - t_existing
 
     if refresh:
         to_compute = specs
@@ -221,8 +238,13 @@ def _build_factor_for_day(
         to_compute = [s for s in specs if build_factor_col(s) not in existing_cols]
 
     if not to_compute:
+        _log_day(
+            day,
+            f"skip reason=no_pending specs_total={len(specs)} t_panel={t_panel:.2f}s t_existing={t_existing:.2f}s total={perf_counter() - t_total:.2f}s",
+        )
         return _FactorDayOutcome(skipped=1)
 
+    t_context = perf_counter()
     stock_panel: pd.DataFrame | None = None
     if bool(context_cfg.get("stock_enabled", False)):
         stock_panel_df = read_panel_data(
@@ -250,7 +272,9 @@ def _build_factor_for_day(
             raise RuntimeError(f"bond-stock mapping missing on {day}")
         if not bond_stock_map_df.empty:
             bond_stock_map = bond_stock_map_df
+    t_context = perf_counter() - t_context
 
+    t_compute = perf_counter()
     new_frame = build_factor_frame(
         panel,
         to_compute,
@@ -259,9 +283,15 @@ def _build_factor_for_day(
         workers=factor_workers,
         compute_backend_params=compute_backend_params,
     )
+    t_compute = perf_counter() - t_compute
     if new_frame.empty:
+        _log_day(
+            day,
+            f"skip reason=empty_factor_frame to_compute={len(to_compute)} t_panel={t_panel:.2f}s t_existing={t_existing:.2f}s t_context={t_context:.2f}s t_compute={t_compute:.2f}s total={perf_counter() - t_total:.2f}s",
+        )
         return _FactorDayOutcome()
 
+    t_merge_write = perf_counter()
     if refresh or existing.empty:
         merged = new_frame
     elif overwrite:
@@ -273,6 +303,16 @@ def _build_factor_for_day(
     else:
         merged = existing.join(new_frame, how="outer")
     store.write_day(day, merged)
+    t_merge_write = perf_counter() - t_merge_write
+    _log_day(
+        day,
+        (
+            f"done wrote=1 panel_rows={len(panel)} existing_rows={len(existing)} "
+            f"to_compute={len(to_compute)} out_cols={len(merged.columns)} "
+            f"t_panel={t_panel:.2f}s t_existing={t_existing:.2f}s t_context={t_context:.2f}s "
+            f"t_compute={t_compute:.2f}s t_write={t_merge_write:.2f}s total={perf_counter() - t_total:.2f}s"
+        ),
+    )
     return _FactorDayOutcome(written=1)
 
 
@@ -329,6 +369,19 @@ def run_factor_pipeline(
     )
     workers = max(1, int(workers))
     factor_workers = max(1, int(factor_workers))
+    print(
+        "factor pipeline plan:",
+        f"start={start}",
+        f"end={end}",
+        f"days={len(panel_days)}",
+        f"specs={len(specs)}",
+        f"workers={workers}",
+        f"factor_workers={factor_workers}",
+        f"refresh={bool(refresh)}",
+        f"overwrite={bool(overwrite)}",
+        f"context_stock={bool(context.get('stock_enabled', False))}",
+        f"context_map={bool(context.get('map_enabled', False))}",
+    )
     if workers <= 1:
         for day in progress(panel_days, desc="build_factors", unit="day", total=len(panel_days)):
             outcome = _build_factor_for_day(
