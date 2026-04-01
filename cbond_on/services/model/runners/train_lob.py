@@ -590,12 +590,28 @@ def _build_day_base_samples_gpu(
     if not panel_path.exists():
         return _empty_day_samples(seq_len, depth_levels)
 
-    gdf = cudf.read_parquet(panel_path)
+    try:
+        gdf = cudf.read_parquet(panel_path, use_pandas_metadata=True)
+    except TypeError:
+        gdf = cudf.read_parquet(panel_path)
     if len(gdf) == 0:
         return _empty_day_samples(seq_len, depth_levels)
 
+    if "code" not in gdf.columns or "seq" not in gdf.columns:
+        try:
+            idx = gdf.index
+            idx_names = list(getattr(idx, "names", []) or [])
+            if not idx_names:
+                idx_name = getattr(idx, "name", None)
+                if idx_name is not None:
+                    idx_names = [idx_name]
+            if ("code" in idx_names) or ("seq" in idx_names) or ("dt" in idx_names):
+                gdf = gdf.reset_index()
+        except Exception:
+            pass
+
     if "code" not in gdf.columns:
-        raise RuntimeError(f"panel missing code column: {panel_path}")
+        raise RuntimeError(f"panel missing code column after gpu reset_index: {panel_path}")
     if "seq" not in gdf.columns:
         if "trade_time" in gdf.columns:
             try:
