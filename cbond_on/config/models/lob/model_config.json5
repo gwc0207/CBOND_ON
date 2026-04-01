@@ -49,7 +49,9 @@
     device: "gpu",
     num_workers: 0,
     preprocess_backend: "gpu",
-    preprocess_fallback_to_cpu: true
+    preprocess_fallback_to_cpu: true,
+    log_data_prep_progress: true,
+    data_prep_progress_every: 1
   },
 
   // Daily score storage.

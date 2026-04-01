@@ -755,13 +755,24 @@ def _build_split_data(
     label_cache: dict[date, dict[str, float]],
     preprocess_backend: str,
     preprocess_gpu_fallback_to_cpu: bool,
+    progress_label: str | None = None,
+    log_progress: bool = False,
+    progress_every: int = 5,
 ) -> SplitData:
     x_list: list[np.ndarray] = []
     y_list: list[np.ndarray] = []
     dt_list: list[np.ndarray] = []
     code_list: list[np.ndarray] = []
+    total_samples = 0
+    total_days = len(days)
+    every = max(1, int(progress_every))
 
-    for day in days:
+    if log_progress:
+        print(f"[prep:{progress_label or 'split'}] start days={total_days} backend={preprocess_backend}")
+
+    for day_idx, day in enumerate(days, start=1):
+        if log_progress:
+            print(f"[prep:{progress_label or 'split'}] day {day_idx}/{total_days} start day={day}")
         x_day, code_day = _build_day_base_samples(
             panel_root=panel_root,
             day=day,
@@ -773,6 +784,11 @@ def _build_split_data(
             preprocess_gpu_fallback_to_cpu=preprocess_gpu_fallback_to_cpu,
         )
         if x_day.size == 0 or code_day.size == 0:
+            if log_progress and (day_idx == 1 or day_idx == total_days or (day_idx % every) == 0):
+                print(
+                    f"[prep:{progress_label or 'split'}] day {day_idx}/{total_days} "
+                    f"done day={day} samples=0 cumulative={total_samples}"
+                )
             continue
 
         y_map = _label_map_for_day(
@@ -802,6 +818,13 @@ def _build_split_data(
         y_list.append(y_keep)
         dt_list.append(np.asarray([day] * len(code_keep), dtype=object))
         code_list.append(code_keep.astype(object))
+        total_samples += int(len(code_keep))
+
+        if log_progress and (day_idx == 1 or day_idx == total_days or (day_idx % every) == 0):
+            print(
+                f"[prep:{progress_label or 'split'}] day {day_idx}/{total_days} "
+                f"done day={day} samples={len(code_keep)} cumulative={total_samples}"
+            )
 
     if not x_list:
         return SplitData(
@@ -935,6 +958,8 @@ def main(
     preprocess_backend, preprocess_reason, preprocess_gpu_fallback_to_cpu = _resolve_preprocess_backend(
         train_cfg
     )
+    log_data_prep_progress = bool(train_cfg.get("log_data_prep_progress", True))
+    data_prep_progress_every = max(1, int(train_cfg.get("data_prep_progress_every", 5)))
     requested_preprocess = str(train_cfg.get("preprocess_backend", "auto")).strip().lower()
     print(
         "lob preprocess backend:",
@@ -957,6 +982,10 @@ def main(
         "active": preprocess_backend,
         "fallback_to_cpu": preprocess_gpu_fallback_to_cpu,
         "reason": preprocess_reason,
+    }
+    cfg_out["prep_progress"] = {
+        "enabled": log_data_prep_progress,
+        "every_days": data_prep_progress_every,
     }
     train_ratio = float(train_cfg.get("train_ratio", 0.7))
     val_ratio = float(train_cfg.get("val_ratio", 0.15))
@@ -1051,6 +1080,9 @@ def main(
                 label_cache=label_cache,
                 preprocess_backend=preprocess_backend,
                 preprocess_gpu_fallback_to_cpu=preprocess_gpu_fallback_to_cpu,
+                progress_label=f"test:{test_day}",
+                log_progress=log_data_prep_progress,
+                progress_every=data_prep_progress_every,
             )
             if test_data.x.size == 0:
                 print(f"[rolling] skip test_day={test_day}: empty test samples")
@@ -1089,6 +1121,9 @@ def main(
                         label_cache=label_cache,
                         preprocess_backend=preprocess_backend,
                         preprocess_gpu_fallback_to_cpu=preprocess_gpu_fallback_to_cpu,
+                        progress_label=f"train:{test_day}",
+                        log_progress=log_data_prep_progress,
+                        progress_every=data_prep_progress_every,
                     )
                     val_data = _build_split_data(
                         days=roll_val_days,
@@ -1104,6 +1139,9 @@ def main(
                         label_cache=label_cache,
                         preprocess_backend=preprocess_backend,
                         preprocess_gpu_fallback_to_cpu=preprocess_gpu_fallback_to_cpu,
+                        progress_label=f"val:{test_day}",
+                        log_progress=log_data_prep_progress,
+                        progress_every=data_prep_progress_every,
                     )
                     if train_data.x.size == 0:
                         if last_model is None:
@@ -1210,6 +1248,9 @@ def main(
             label_cache=label_cache,
             preprocess_backend=preprocess_backend,
             preprocess_gpu_fallback_to_cpu=preprocess_gpu_fallback_to_cpu,
+            progress_label="train_full",
+            log_progress=log_data_prep_progress,
+            progress_every=data_prep_progress_every,
         )
         val_data = _build_split_data(
             days=va_days,
@@ -1225,6 +1266,9 @@ def main(
             label_cache=label_cache,
             preprocess_backend=preprocess_backend,
             preprocess_gpu_fallback_to_cpu=preprocess_gpu_fallback_to_cpu,
+            progress_label="val_full",
+            log_progress=log_data_prep_progress,
+            progress_every=data_prep_progress_every,
         )
         model, hist = _train_one_model(
             train_data=train_data,
@@ -1250,6 +1294,9 @@ def main(
                 label_cache=label_cache,
                 preprocess_backend=preprocess_backend,
                 preprocess_gpu_fallback_to_cpu=preprocess_gpu_fallback_to_cpu,
+                progress_label=f"score:{day}",
+                log_progress=log_data_prep_progress,
+                progress_every=data_prep_progress_every,
             )
             if test_data.x.size == 0:
                 continue
