@@ -7,19 +7,21 @@
   refresh: false,
   overwrite: false,
   workers: 4,
-  factor_workers: 2,
+  factor_workers: 1,
   compute: {
     backend: "auto",      // auto | torch | cpu
     torch_device: "cuda", // e.g. "cuda", "cuda:0"
     fallback_cpu: true,
-    dataframe_backend: "auto", // auto | cudf | pandas
+    dataframe_backend: "pandas", // auto | cudf | pandas
     fallback_pandas: true
   },
   factor_files: [
-    "factor/lgbm_factor_MSE.json5",
-    "factor/factors_patch_ohlc_windowsize_20260327.json5",
-    "factor/factors_20260327.json5"
+    "factor/lgbm_factor_MSE.json5"
   ],
+  context: {
+    stock_panel: { enabled: false, strict: false },
+    bond_stock_map: { enabled: false, strict: false }
+  },
   backtest_enabled: true,
   factors: [],
   backtest: {
