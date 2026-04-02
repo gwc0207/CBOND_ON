@@ -14,7 +14,12 @@
     fallback_pandas: true,
     // used by engine=rust_shm_exp
     shm_mp_start_method: "spawn", // spawn | fork | forkserver
-    shm_fallback_to_rust: true
+    shm_fallback_to_rust: true,
+    // used by rust/rust_shm_exp unified planning
+    plan_max_windows: 8,
+    plan_max_levels: 8,
+    plan_max_time_ranges: 8,
+    plan_log_summary: true
   },
   factors: [
     { name: "order_flow_imbalance_v1", factor: "order_flow_imbalance_v1", params: {} },

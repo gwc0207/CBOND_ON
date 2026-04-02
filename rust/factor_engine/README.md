@@ -31,6 +31,23 @@ python -m maturin develop --release
   - `factor_config.compute.engine = "rust"` and `live_factors_config.compute.engine = "rust"` are both supported.
   - factor packs beyond the covered set remain fail-fast until kernels are added.
 
+## Unified planning (windows / levels / time-ranges)
+
+Rust runtime now builds a per-run factor plan from `specs` before computing:
+
+- unique `window_minutes` set
+- unique book `levels` set
+- unique `ret_open_to_time` ranges (`start_time`, `end_time`)
+
+Limits are configurable via compute config (both factor and live):
+
+- `plan_max_windows` (default `8`)
+- `plan_max_levels` (default `8`)
+- `plan_max_time_ranges` (default `8`)
+- `plan_log_summary` (default `true`)
+
+If a run exceeds a configured limit, Rust fails fast with explicit error.
+
 Coverage tracker:
 
 - `factor_manifest.json` lists all registered factors (`total_factors=97`) and Rust implementation status.

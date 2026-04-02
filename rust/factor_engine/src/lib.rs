@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+﻿use std::collections::{BTreeSet, HashMap};
 
 use chrono::NaiveDate;
 use numpy::{PyArray1, PyArrayMethods};
@@ -47,6 +47,37 @@ struct FactorSpec {
 }
 
 #[derive(Clone, Debug)]
+struct PlanLimits {
+    max_windows: usize,
+    max_levels: usize,
+    max_time_ranges: usize,
+    log_summary: bool,
+}
+
+impl Default for PlanLimits {
+    fn default() -> Self {
+        Self {
+            max_windows: 8,
+            max_levels: 8,
+            max_time_ranges: 8,
+            log_summary: true,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+struct FactorPlan {
+    windows: Vec<i64>,
+    levels: Vec<usize>,
+    time_ranges: Vec<(String, String)>,
+}
+
+#[derive(Clone, Debug, Default)]
+struct WindowStartCache {
+    starts_by_window: HashMap<i64, Vec<usize>>,
+}
+
+#[derive(Clone, Debug)]
 struct LatestQuote {
     last: f64,
     open: f64,
@@ -72,6 +103,25 @@ enum ParamValue {
 }
 
 impl FactorSpec {
+    fn get_i64(&self, key: &str) -> Option<i64> {
+        match self.params.get(key) {
+            Some(ParamValue::Int(v)) => Some(*v),
+            Some(ParamValue::Float(v)) => Some(*v as i64),
+            Some(ParamValue::Str(v)) => v.parse::<i64>().ok(),
+            _ => None,
+        }
+    }
+
+    fn get_str(&self, key: &str) -> Option<String> {
+        match self.params.get(key) {
+            Some(ParamValue::Str(v)) => Some(v.clone()),
+            Some(ParamValue::Int(v)) => Some(v.to_string()),
+            Some(ParamValue::Float(v)) => Some(v.to_string()),
+            Some(ParamValue::Bool(v)) => Some(v.to_string()),
+            _ => None,
+        }
+    }
+
     fn param_i64(&self, key: &str, default: i64) -> i64 {
         match self.params.get(key) {
             Some(ParamValue::Int(v)) => *v,
@@ -134,14 +184,39 @@ fn compute_factor_frame(
 ) -> PyResult<PyObject> {
     let mut panel = parse_panel(py, panel_df)?;
     let specs = parse_specs(specs_payload)?;
+    let plan_limits = parse_plan_limits(_compute_params)?;
+    let plan = extract_factor_plan(&specs, &plan_limits)?;
+    let window_cache = build_window_start_cache(&panel, &plan.windows);
     let aux = parse_aux_data(py, stock_df, map_df)?;
     if panel.groups.is_empty() {
         return empty_df(py);
     }
 
+    if plan_limits.log_summary {
+        println!(
+            "rust factor plan: windows={} levels={} ranges={} max_windows={} max_levels={} max_ranges={} window_set={:?} level_set={:?} range_set={:?}",
+            plan.windows.len(),
+            plan.levels.len(),
+            plan.time_ranges.len(),
+            plan_limits.max_windows,
+            plan_limits.max_levels,
+            plan_limits.max_time_ranges,
+            plan.windows,
+            plan.levels,
+            plan.time_ranges
+        );
+    }
+
     let mut out_cols: HashMap<String, Vec<f64>> = HashMap::new();
     for spec in &specs {
-        let values = compute_factor_values(py, &mut panel, panel_df, &aux, spec)?;
+        let values = compute_factor_values(
+            py,
+            &mut panel,
+            panel_df,
+            &aux,
+            &window_cache,
+            spec,
+        )?;
         out_cols.insert(spec.output_col.clone(), values);
     }
 
@@ -346,6 +421,175 @@ fn parse_specs(specs_payload: &Bound<'_, PyAny>) -> PyResult<Vec<FactorSpec>> {
         });
     }
     Ok(out)
+}
+
+fn dict_get_i64_opt(d: &Bound<'_, PyDict>, key: &str) -> PyResult<Option<i64>> {
+    let Some(v) = d.get_item(key)? else {
+        return Ok(None);
+    };
+    if v.is_none() {
+        return Ok(None);
+    }
+    if let Ok(x) = v.extract::<i64>() {
+        return Ok(Some(x));
+    }
+    if let Ok(x) = v.extract::<f64>() {
+        return Ok(Some(x as i64));
+    }
+    if let Ok(x) = v.extract::<String>() {
+        return Ok(x.parse::<i64>().ok());
+    }
+    Ok(None)
+}
+
+fn dict_get_bool_opt(d: &Bound<'_, PyDict>, key: &str) -> PyResult<Option<bool>> {
+    let Some(v) = d.get_item(key)? else {
+        return Ok(None);
+    };
+    if v.is_none() {
+        return Ok(None);
+    }
+    if let Ok(x) = v.extract::<bool>() {
+        return Ok(Some(x));
+    }
+    if let Ok(x) = v.extract::<i64>() {
+        return Ok(Some(x != 0));
+    }
+    if let Ok(x) = v.extract::<String>() {
+        let t = x.trim().to_ascii_lowercase();
+        if matches!(t.as_str(), "1" | "true" | "yes" | "y" | "on") {
+            return Ok(Some(true));
+        }
+        if matches!(t.as_str(), "0" | "false" | "no" | "n" | "off") {
+            return Ok(Some(false));
+        }
+    }
+    Ok(None)
+}
+
+fn parse_plan_limits(compute_params: Option<&Bound<'_, PyAny>>) -> PyResult<PlanLimits> {
+    let mut out = PlanLimits::default();
+    let Some(any_params) = compute_params else {
+        return Ok(out);
+    };
+    let Ok(root_dict) = any_params.downcast::<PyDict>() else {
+        return Ok(out);
+    };
+    let Some(raw_backend) = root_dict.get_item("__compute_backend__")? else {
+        return Ok(out);
+    };
+    let Ok(backend_dict) = raw_backend.downcast::<PyDict>() else {
+        return Ok(out);
+    };
+
+    if let Some(v) = dict_get_i64_opt(&backend_dict, "plan_max_windows")? {
+        if v > 0 {
+            out.max_windows = v as usize;
+        }
+    }
+    if let Some(v) = dict_get_i64_opt(&backend_dict, "plan_max_levels")? {
+        if v > 0 {
+            out.max_levels = v as usize;
+        }
+    }
+    if let Some(v) = dict_get_i64_opt(&backend_dict, "plan_max_time_ranges")? {
+        if v > 0 {
+            out.max_time_ranges = v as usize;
+        }
+    }
+    if let Some(v) = dict_get_bool_opt(&backend_dict, "plan_log_summary")? {
+        out.log_summary = v;
+    }
+    Ok(out)
+}
+
+fn extract_factor_plan(specs: &[FactorSpec], limits: &PlanLimits) -> PyResult<FactorPlan> {
+    let mut windows = BTreeSet::<i64>::new();
+    let mut levels = BTreeSet::<usize>::new();
+    let mut ranges = BTreeSet::<(String, String)>::new();
+
+    for spec in specs {
+        if let Some(w) = spec.get_i64("window_minutes") {
+            if w > 0 {
+                windows.insert(w);
+            }
+        }
+
+        for key in ["levels", "depth_levels"] {
+            if let Some(level) = spec.get_i64(key) {
+                if level > 0 {
+                    levels.insert(level as usize);
+                }
+            }
+        }
+
+        if spec.factor == "ret_open_to_time" {
+            let st = spec
+                .get_str("start_time")
+                .unwrap_or_else(|| "09:30".to_string());
+            let et = spec
+                .get_str("end_time")
+                .unwrap_or_else(|| "14:30".to_string());
+            let _ = parse_hhmm(&st);
+            let _ = parse_hhmm(&et);
+            ranges.insert((st, et));
+        }
+    }
+
+    if windows.len() > limits.max_windows {
+        return Err(PyErr::new::<PyValueError, _>(format!(
+            "factor plan windows exceed limit: {} > {}",
+            windows.len(),
+            limits.max_windows
+        )));
+    }
+    if levels.len() > limits.max_levels {
+        return Err(PyErr::new::<PyValueError, _>(format!(
+            "factor plan levels exceed limit: {} > {}",
+            levels.len(),
+            limits.max_levels
+        )));
+    }
+    if ranges.len() > limits.max_time_ranges {
+        return Err(PyErr::new::<PyValueError, _>(format!(
+            "factor plan time_ranges exceed limit: {} > {}",
+            ranges.len(),
+            limits.max_time_ranges
+        )));
+    }
+
+    Ok(FactorPlan {
+        windows: windows.into_iter().collect(),
+        levels: levels.into_iter().collect(),
+        time_ranges: ranges.into_iter().collect(),
+    })
+}
+
+fn build_window_start_cache(panel: &PanelData, windows: &[i64]) -> WindowStartCache {
+    let mut starts_by_window = HashMap::<i64, Vec<usize>>::new();
+    for &w in windows {
+        let mut starts = Vec::<usize>::with_capacity(panel.groups.len());
+        for g in &panel.groups {
+            starts.push(window_start_ns(&panel.trade_time_ns, g.start, g.end, w));
+        }
+        starts_by_window.insert(w, starts);
+    }
+    WindowStartCache { starts_by_window }
+}
+
+fn cached_window_start(
+    cache: &WindowStartCache,
+    panel: &PanelData,
+    group_idx: usize,
+    g: &Group,
+    window_minutes: i64,
+) -> usize {
+    if let Some(starts) = cache.starts_by_window.get(&window_minutes) {
+        if group_idx < starts.len() {
+            return starts[group_idx];
+        }
+    }
+    window_start_ns(&panel.trade_time_ns, g.start, g.end, window_minutes)
 }
 
 fn dict_get_str(d: &Bound<'_, PyDict>, key: &str) -> PyResult<String> {
@@ -805,6 +1049,7 @@ fn compute_factor_values(
     panel: &mut PanelData,
     panel_df: &Bound<'_, PyAny>,
     aux: &AuxData,
+    window_cache: &WindowStartCache,
     spec: &FactorSpec,
 ) -> PyResult<Vec<f64>> {
     let mut out = vec![0.0; panel.groups.len()];
@@ -910,7 +1155,7 @@ fn compute_factor_values(
             let price_col = spec.param_str("price_col", "last");
             ensure_col(py, panel, panel_df, &price_col)?;
             for (gi, g) in panel.groups.iter().enumerate() {
-                let ws = window_start_ns(&panel.trade_time_ns, g.start, g.end, window_minutes);
+                let ws = cached_window_start(window_cache, panel, gi, g, window_minutes);
                 let p = &panel.col(&price_col)?[ws..g.end];
                 let first = first_valid(p);
                 let last = last_valid(p);
@@ -961,7 +1206,7 @@ fn compute_factor_values(
             let price_col = spec.param_str("price_col", "last");
             ensure_col(py, panel, panel_df, &price_col)?;
             for (gi, g) in panel.groups.iter().enumerate() {
-                let ws = window_start_ns(&panel.trade_time_ns, g.start, g.end, window_minutes);
+                let ws = cached_window_start(window_cache, panel, gi, g, window_minutes);
                 let px = &panel.col(&price_col)?[ws..g.end];
                 let ts = &panel.trade_time_ns[ws..g.end];
                 if px.len() < 2 {
@@ -998,7 +1243,7 @@ fn compute_factor_values(
             let use_log = spec.param_bool("use_log_return", true);
             ensure_col(py, panel, panel_df, &price_col)?;
             for (gi, g) in panel.groups.iter().enumerate() {
-                let ws = window_start_ns(&panel.trade_time_ns, g.start, g.end, window_minutes);
+                let ws = cached_window_start(window_cache, panel, gi, g, window_minutes);
                 let p = &panel.col(&price_col)?[ws..g.end];
                 let ret = if use_log { log_diff(p) } else { pct_change(p) };
                 let s = std_sample(&ret);
@@ -1010,7 +1255,7 @@ fn compute_factor_values(
             let price_col = spec.param_str("price_col", "last");
             ensure_col(py, panel, panel_df, &price_col)?;
             for (gi, g) in panel.groups.iter().enumerate() {
-                let ws = window_start_ns(&panel.trade_time_ns, g.start, g.end, window_minutes);
+                let ws = cached_window_start(window_cache, panel, gi, g, window_minutes);
                 let p = &panel.col(&price_col)?[ws..g.end];
                 let lo = min_valid(p);
                 let hi = max_valid(p);
@@ -1027,7 +1272,7 @@ fn compute_factor_values(
             let price_col = spec.param_str("price_col", "last");
             ensure_col(py, panel, panel_df, &price_col)?;
             for (gi, g) in panel.groups.iter().enumerate() {
-                let ws = window_start_ns(&panel.trade_time_ns, g.start, g.end, window_minutes);
+                let ws = cached_window_start(window_cache, panel, gi, g, window_minutes);
                 let p = &panel.col(&price_col)?[ws..g.end];
                 let lo = min_valid(p);
                 let hi = max_valid(p);
@@ -1045,7 +1290,7 @@ fn compute_factor_values(
             let volume_col = spec.param_str("volume_col", "volume");
             ensure_col(py, panel, panel_df, &volume_col)?;
             for (gi, g) in panel.groups.iter().enumerate() {
-                let ws = window_start_ns(&panel.trade_time_ns, g.start, g.end, window_minutes);
+                let ws = cached_window_start(window_cache, panel, gi, g, window_minutes);
                 out[gi] = sum_valid(&panel.col(&volume_col)?[ws..g.end]);
             }
         }
@@ -1054,7 +1299,7 @@ fn compute_factor_values(
             let amount_col = spec.param_str("amount_col", "amount");
             ensure_col(py, panel, panel_df, &amount_col)?;
             for (gi, g) in panel.groups.iter().enumerate() {
-                let ws = window_start_ns(&panel.trade_time_ns, g.start, g.end, window_minutes);
+                let ws = cached_window_start(window_cache, panel, gi, g, window_minutes);
                 out[gi] = sum_valid(&panel.col(&amount_col)?[ws..g.end]);
             }
         }
@@ -1065,7 +1310,7 @@ fn compute_factor_values(
             ensure_col(py, panel, panel_df, &volume_col)?;
             ensure_col(py, panel, panel_df, &amount_col)?;
             for (gi, g) in panel.groups.iter().enumerate() {
-                let ws = window_start_ns(&panel.trade_time_ns, g.start, g.end, window_minutes);
+                let ws = cached_window_start(window_cache, panel, gi, g, window_minutes);
                 let vol = sum_valid(&panel.col(&volume_col)?[ws..g.end]);
                 let amt = sum_valid(&panel.col(&amount_col)?[ws..g.end]);
                 out[gi] = if vol > EPS { amt / vol } else { 0.0 };
@@ -1079,7 +1324,7 @@ fn compute_factor_values(
                 ensure_col(py, panel, panel_df, &format!("ask_volume{}", i))?;
             }
             for (gi, g) in panel.groups.iter().enumerate() {
-                let ws = window_start_ns(&panel.trade_time_ns, g.start, g.end, window_minutes);
+                let ws = cached_window_start(window_cache, panel, gi, g, window_minutes);
                 let mut bid = 0.0;
                 let mut ask = 0.0;
                 for r in ws..g.end {
@@ -1146,7 +1391,7 @@ fn compute_factor_values(
             ensure_col(py, panel, panel_df, &bid_col)?;
             ensure_col(py, panel, panel_df, &ask_col)?;
             for (gi, g) in panel.groups.iter().enumerate() {
-                let ws = window_start_ns(&panel.trade_time_ns, g.start, g.end, window_minutes);
+                let ws = cached_window_start(window_cache, panel, gi, g, window_minutes);
                 let mut mids: Vec<f64> = Vec::new();
                 for r in ws..g.end {
                     let b = panel.col(&bid_col)?[r];
@@ -1172,7 +1417,7 @@ fn compute_factor_values(
             ensure_col(py, panel, panel_df, &volume_col)?;
             ensure_col(py, panel, panel_df, &shares_col)?;
             for (gi, g) in panel.groups.iter().enumerate() {
-                let ws = window_start_ns(&panel.trade_time_ns, g.start, g.end, window_minutes);
+                let ws = cached_window_start(window_cache, panel, gi, g, window_minutes);
                 let vol = sum_valid(&panel.col(&volume_col)?[ws..g.end]);
                 let shares = panel.col(&shares_col)?[g.end - 1];
                 out[gi] = if shares.is_finite() && shares > EPS {
@@ -1189,7 +1434,7 @@ fn compute_factor_values(
             ensure_col(py, panel, panel_df, &price_col)?;
             ensure_col(py, panel, panel_df, &amount_col)?;
             for (gi, g) in panel.groups.iter().enumerate() {
-                let ws = window_start_ns(&panel.trade_time_ns, g.start, g.end, window_minutes);
+                let ws = cached_window_start(window_cache, panel, gi, g, window_minutes);
                 let p = &panel.col(&price_col)?[ws..g.end];
                 let first = first_valid(p);
                 let last = last_valid(p);
@@ -1276,7 +1521,7 @@ fn compute_factor_values(
             let use_log = spec.param_bool("use_log_return", true);
             ensure_col(py, panel, panel_df, &price_col)?;
             for (gi, g) in panel.groups.iter().enumerate() {
-                let ws = window_start_ns(&panel.trade_time_ns, g.start, g.end, window_minutes);
+                let ws = cached_window_start(window_cache, panel, gi, g, window_minutes);
                 let p = &panel.col(&price_col)?[ws..g.end];
                 let ret = if use_log { log_diff(p) } else { pct_change(p) };
                 out[gi] = skew_unbiased(&ret);
@@ -1291,7 +1536,7 @@ fn compute_factor_values(
             ensure_col(py, panel, panel_df, &volume_col)?;
             ensure_col(py, panel, panel_df, &amount_col)?;
             for (gi, g) in panel.groups.iter().enumerate() {
-                let ws = window_start_ns(&panel.trade_time_ns, g.start, g.end, window_minutes);
+                let ws = cached_window_start(window_cache, panel, gi, g, window_minutes);
                 let last = last_valid(&panel.col(&price_col)?[ws..g.end]);
                 let vol = sum_valid(&panel.col(&volume_col)?[ws..g.end]);
                 let amt = sum_valid(&panel.col(&amount_col)?[ws..g.end]);
@@ -1871,3 +2116,4 @@ fn compute_factor_values(
     }
     Ok(out)
 }
+

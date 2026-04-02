@@ -386,6 +386,14 @@ def run_factor_pipeline(
     compute_backend_params["__compute_backend__"]["debug_log_each_record"] = bool(
         runtime_compute_cfg.get("debug_log_each_record", False)
     )
+    for key in (
+        "plan_max_windows",
+        "plan_max_levels",
+        "plan_max_time_ranges",
+        "plan_log_summary",
+    ):
+        if key in runtime_compute_cfg:
+            compute_backend_params["__compute_backend__"][key] = runtime_compute_cfg.get(key)
     print(
         "factor engine:",
         f"requested={engine_state.requested}",

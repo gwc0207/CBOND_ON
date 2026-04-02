@@ -18,6 +18,11 @@
     // used by engine=rust_shm_exp
     shm_mp_start_method: "auto", // auto=>linux:fork, windows:spawn
     shm_fallback_to_rust: true,
+    // used by rust/rust_shm_exp unified planning
+    plan_max_windows: 8,
+    plan_max_levels: 8,
+    plan_max_time_ranges: 8,
+    plan_log_summary: true,
     debug_log_each_record: false
   },
   factor_files: [
