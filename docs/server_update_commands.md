@@ -113,3 +113,20 @@ source ~/venv/cbond/bin/activate && cd ~/cbond_on && python cbond_on/run/factor_
 Current Rust kernel coverage: full `lgbm_factor_MSE` + `live_factors_config` factor sets.  
 If a factor is not ported yet, runtime will fail-fast with:
 `rust factor kernel not implemented: <factor_name>`.
+
+## 12. Rust shared-memory experiment engine (optional)
+Use this only for throughput experiments:
+
+1. Set `cbond_on/config/factor/factor_config.json5`:
+   - `compute.engine = "rust_shm_exp"`
+   - `factor_workers = 2` (or 4 for A/B)
+   - `compute.shm_mp_start_method = "fork"` on Linux (recommended)
+2. Run:
+
+```bash
+source ~/venv/cbond/bin/activate && cd ~/cbond_on && python cbond_on/run/factor_batch.py
+```
+
+Runtime prints extra profiling lines:
+- `rust_shm_exp: ... t_shm_publish=...`
+- `rust_shm_exp: ... t_mp_compute=... t_merge=...`

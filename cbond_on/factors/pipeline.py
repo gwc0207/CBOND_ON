@@ -22,6 +22,7 @@ from cbond_on.factors.compute_backend import (
     resolve_factor_engine,
 )
 from cbond_on.factors.rust_backend import build_factor_frame_rust
+from cbond_on.factors.rust_shm_backend import build_factor_frame_rust_shm
 from cbond_on.factors.spec import FactorSpec, build_factor_col
 from cbond_on.factors.storage import FactorStore
 
@@ -302,6 +303,15 @@ def _build_factor_for_day(
             stock_panel=stock_panel,
             bond_stock_map=bond_stock_map,
             compute_backend_params=compute_backend_params,
+        )
+    elif factor_engine == "rust_shm_exp":
+        new_frame = build_factor_frame_rust_shm(
+            panel,
+            to_compute,
+            stock_panel=stock_panel,
+            bond_stock_map=bond_stock_map,
+            compute_backend_params=compute_backend_params,
+            workers=factor_workers,
         )
     else:
         new_frame = build_factor_frame(

@@ -7,14 +7,17 @@
   refresh: true,
   overwrite: false,
   workers: 1,
-  factor_workers: 1,
+  factor_workers: 2,
   compute: {
-    engine: "rust",       // rust | python (no automatic fallback)
+    engine: "rust_shm_exp", // rust | rust_shm_exp | python (no automatic fallback)
     backend: "cpu",       // auto | torch | cpu
     torch_device: "cuda", // e.g. "cuda", "cuda:0"
     fallback_cpu: true,
     dataframe_backend: "pandas", // auto | cudf | pandas
     fallback_pandas: true,
+    // used by engine=rust_shm_exp
+    shm_mp_start_method: "auto", // auto=>linux:fork, windows:spawn
+    shm_fallback_to_rust: true,
     debug_log_each_record: false
   },
   factor_files: [

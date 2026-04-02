@@ -165,13 +165,15 @@ def resolve_compute_backend(cfg: dict[str, Any] | None = None) -> ComputeBackend
 def resolve_factor_engine(cfg: dict[str, Any] | None = None) -> FactorEngineState:
     runtime = dict(cfg or {})
     requested = _parse_requested_engine(runtime)
-    if requested in {"python", "rust"}:
+    if requested in {"python", "rust", "rust_shm_exp"}:
         return FactorEngineState(
             requested=requested,
             active=requested,
             reason=f"forced_{requested}",
         )
-    raise ValueError(f"unsupported factor engine: {requested}; expected python|rust|auto")
+    raise ValueError(
+        f"unsupported factor engine: {requested}; expected python|rust|rust_shm_exp|auto"
+    )
 
 
 def resolve_dataframe_backend(cfg: dict[str, Any] | None = None) -> DataFrameBackendState:
