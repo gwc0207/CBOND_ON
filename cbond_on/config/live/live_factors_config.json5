@@ -6,6 +6,7 @@
   overwrite: false,
   workers: 6,
   compute: {
+    engine: "rust",       // rust | python (no automatic fallback)
     backend: "auto",      // auto | torch | cpu
     torch_device: "cuda", // e.g. "cuda", "cuda:0"
     fallback_cpu: true,

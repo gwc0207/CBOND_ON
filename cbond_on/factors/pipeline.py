@@ -16,7 +16,12 @@ from cbond_on.core.naming import make_window_label
 from cbond_on.data.io import read_table_range
 from cbond_on.data.panel import read_panel_data
 from cbond_on.factors.builder import build_factor_frame
-from cbond_on.factors.compute_backend import resolve_compute_backend, resolve_dataframe_backend
+from cbond_on.factors.compute_backend import (
+    resolve_compute_backend,
+    resolve_dataframe_backend,
+    resolve_factor_engine,
+)
+from cbond_on.factors.rust_backend import build_factor_frame_rust
 from cbond_on.factors.spec import FactorSpec, build_factor_col
 from cbond_on.factors.storage import FactorStore
 
@@ -205,6 +210,7 @@ def _build_factor_for_day(
     map_index: _DailyTableIndex | None,
     factor_workers: int,
     compute_backend_params: dict,
+    factor_engine: str,
 ) -> _FactorDayOutcome:
     t_total = perf_counter()
     _log_day(day, "start")
@@ -289,14 +295,23 @@ def _build_factor_for_day(
         day,
         f"compute_start factors={len(to_compute)} factor_workers={factor_workers}",
     )
-    new_frame = build_factor_frame(
-        panel,
-        to_compute,
-        stock_panel=stock_panel,
-        bond_stock_map=bond_stock_map,
-        workers=factor_workers,
-        compute_backend_params=compute_backend_params,
-    )
+    if factor_engine == "rust":
+        new_frame = build_factor_frame_rust(
+            panel,
+            to_compute,
+            stock_panel=stock_panel,
+            bond_stock_map=bond_stock_map,
+            compute_backend_params=compute_backend_params,
+        )
+    else:
+        new_frame = build_factor_frame(
+            panel,
+            to_compute,
+            stock_panel=stock_panel,
+            bond_stock_map=bond_stock_map,
+            workers=factor_workers,
+            compute_backend_params=compute_backend_params,
+        )
     t_compute = perf_counter() - t_compute
     if new_frame.empty:
         _log_day(
@@ -351,15 +366,21 @@ def run_factor_pipeline(
     panel_data_root = Path(panel_data_root)
     raw_data_root_path = Path(raw_data_root) if raw_data_root else None
     context = _build_context_config(context_cfg)
+    engine_state = resolve_factor_engine(compute_cfg)
     backend_state = resolve_compute_backend(compute_cfg)
     dataframe_state = resolve_dataframe_backend(compute_cfg)
-    compute_backend_params = backend_state.to_params()
-    compute_backend_params["__compute_backend__"].update(
-        dataframe_state.to_params()["__compute_backend__"]
-    )
+    compute_backend_params = engine_state.to_params()
+    compute_backend_params["__compute_backend__"].update(backend_state.to_params()["__compute_backend__"])
+    compute_backend_params["__compute_backend__"].update(dataframe_state.to_params()["__compute_backend__"])
     runtime_compute_cfg = dict(compute_cfg or {})
     compute_backend_params["__compute_backend__"]["debug_log_each_record"] = bool(
         runtime_compute_cfg.get("debug_log_each_record", False)
+    )
+    print(
+        "factor engine:",
+        f"requested={engine_state.requested}",
+        f"active={engine_state.active}",
+        f"reason={engine_state.reason}",
     )
     print(
         "factor compute backend:",
@@ -395,6 +416,7 @@ def run_factor_pipeline(
         f"specs={len(specs)}",
         f"workers={workers}",
         f"factor_workers={factor_workers}",
+        f"engine={engine_state.active}",
         f"refresh={bool(refresh)}",
         f"overwrite={bool(overwrite)}",
         f"context_stock={bool(context.get('stock_enabled', False))}",
@@ -416,6 +438,7 @@ def run_factor_pipeline(
                 map_index=map_index,
                 factor_workers=factor_workers,
                 compute_backend_params=compute_backend_params,
+                factor_engine=engine_state.active,
             )
             result.written += outcome.written
             result.skipped += outcome.skipped
@@ -438,6 +461,7 @@ def run_factor_pipeline(
                 map_index=map_index,
                 factor_workers=factor_workers,
                 compute_backend_params=compute_backend_params,
+                factor_engine=engine_state.active,
             ): day
             for day in panel_days
         }

@@ -1,0 +1,491 @@
+{
+  "total_factors": 97,
+  "module": "cbond_on_rust",
+  "factors": [
+    {
+      "factor": "aacb",
+      "python_file": "aacb.py",
+      "rust_status": "implemented"
+    },
+    {
+      "factor": "alpha001_signed_power_v1",
+      "python_file": "alpha001_signed_power_v1.py",
+      "rust_status": "implemented"
+    },
+    {
+      "factor": "alpha002_corr_volume_return_v1",
+      "python_file": "alpha002_corr_volume_return_v1.py",
+      "rust_status": "implemented"
+    },
+    {
+      "factor": "alpha003_corr_open_volume_v1",
+      "python_file": "alpha003_corr_open_volume_v1.py",
+      "rust_status": "implemented"
+    },
+    {
+      "factor": "alpha004_ts_rank_low_v1",
+      "python_file": "alpha004_ts_rank_low_v1.py",
+      "rust_status": "implemented"
+    },
+    {
+      "factor": "alpha005_vwap_gap_v1",
+      "python_file": "alpha005_vwap_gap_v1.py",
+      "rust_status": "implemented"
+    },
+    {
+      "factor": "alpha006_corr_open_volume_neg_v1",
+      "python_file": "alpha006_corr_open_volume_neg_v1.py",
+      "rust_status": "implemented"
+    },
+    {
+      "factor": "alpha007_volume_breakout_v1",
+      "python_file": "alpha007_volume_breakout_v1.py",
+      "rust_status": "implemented"
+    },
+    {
+      "factor": "alpha008_open_return_momentum_v1",
+      "python_file": "alpha008_open_return_momentum_v1.py",
+      "rust_status": "implemented"
+    },
+    {
+      "factor": "alpha009_close_change_filter_v1",
+      "python_file": "alpha009_close_change_filter_v1.py",
+      "rust_status": "implemented"
+    },
+    {
+      "factor": "alpha010_close_change_rank_v1",
+      "python_file": "alpha010_close_change_rank_v1.py",
+      "rust_status": "implemented"
+    },
+    {
+      "factor": "alpha011_vwap_close_volume_v1",
+      "python_file": "alpha011_vwap_close_volume_v1.py",
+      "rust_status": "pending"
+    },
+    {
+      "factor": "alpha012_volume_close_reversal_v1",
+      "python_file": "alpha012_volume_close_reversal_v1.py",
+      "rust_status": "pending"
+    },
+    {
+      "factor": "alpha013_cov_close_volume_v1",
+      "python_file": "alpha013_cov_close_volume_v1.py",
+      "rust_status": "pending"
+    },
+    {
+      "factor": "alpha014_return_open_volume_v1",
+      "python_file": "alpha014_return_open_volume_v1.py",
+      "rust_status": "pending"
+    },
+    {
+      "factor": "alpha015_high_volume_corr_v1",
+      "python_file": "alpha015_high_volume_corr_v1.py",
+      "rust_status": "pending"
+    },
+    {
+      "factor": "alpha016_cov_high_volume_v1",
+      "python_file": "alpha016_cov_high_volume_v1.py",
+      "rust_status": "pending"
+    },
+    {
+      "factor": "alpha017_close_rank_volume_v1",
+      "python_file": "alpha017_close_rank_volume_v1.py",
+      "rust_status": "pending"
+    },
+    {
+      "factor": "alpha018_close_open_vol_v1",
+      "python_file": "alpha018_close_open_vol_v1.py",
+      "rust_status": "pending"
+    },
+    {
+      "factor": "alpha019_close_momentum_sign_v1",
+      "python_file": "alpha019_close_momentum_sign_v1.py",
+      "rust_status": "pending"
+    },
+    {
+      "factor": "alpha020_open_delay_range_v1",
+      "python_file": "alpha020_open_delay_range_v1.py",
+      "rust_status": "pending"
+    },
+    {
+      "factor": "alpha021_close_volatility_breakout_v1",
+      "python_file": "alpha021_close_volatility_breakout_v1.py",
+      "rust_status": "pending"
+    },
+    {
+      "factor": "alpha022_high_volume_corr_change_v1",
+      "python_file": "alpha022_high_volume_corr_change_v1.py",
+      "rust_status": "pending"
+    },
+    {
+      "factor": "alpha023_high_momentum_v1",
+      "python_file": "alpha023_high_momentum_v1.py",
+      "rust_status": "pending"
+    },
+    {
+      "factor": "alpha024_close_trend_filter_v1",
+      "python_file": "alpha024_close_trend_filter_v1.py",
+      "rust_status": "pending"
+    },
+    {
+      "factor": "alpha025_return_volume_vwap_range_v1",
+      "python_file": "alpha025_return_volume_vwap_range_v1.py",
+      "rust_status": "pending"
+    },
+    {
+      "factor": "alpha026_volume_high_rank_corr_v1",
+      "python_file": "alpha026_volume_high_rank_corr_v1.py",
+      "rust_status": "pending"
+    },
+    {
+      "factor": "alpha027_volume_vwap_corr_signal_v1",
+      "python_file": "alpha027_volume_vwap_corr_signal_v1.py",
+      "rust_status": "pending"
+    },
+    {
+      "factor": "alpha028_adv_low_close_signal_v1",
+      "python_file": "alpha028_adv_low_close_signal_v1.py",
+      "rust_status": "pending"
+    },
+    {
+      "factor": "alpha029_complex_rank_signal_v1",
+      "python_file": "alpha029_complex_rank_signal_v1.py",
+      "rust_status": "pending"
+    },
+    {
+      "factor": "alpha030_close_sign_volume_v1",
+      "python_file": "alpha030_close_sign_volume_v1.py",
+      "rust_status": "pending"
+    },
+    {
+      "factor": "alpha031_close_decay_momentum_v1",
+      "python_file": "alpha031_close_decay_momentum_v1.py",
+      "rust_status": "pending"
+    },
+    {
+      "factor": "alpha032_vwap_close_mean_reversion_v1",
+      "python_file": "alpha032_vwap_close_mean_reversion_v1.py",
+      "rust_status": "pending"
+    },
+    {
+      "factor": "alpha033_open_close_ratio_v1",
+      "python_file": "alpha033_open_close_ratio_v1.py",
+      "rust_status": "pending"
+    },
+    {
+      "factor": "alpha034_return_volatility_rank_v1",
+      "python_file": "alpha034_return_volatility_rank_v1.py",
+      "rust_status": "pending"
+    },
+    {
+      "factor": "alpha035_volume_price_momentum_v1",
+      "python_file": "alpha035_volume_price_momentum_v1.py",
+      "rust_status": "pending"
+    },
+    {
+      "factor": "alpha036_complex_correlation_signal_v1",
+      "python_file": "alpha036_complex_correlation_signal_v1.py",
+      "rust_status": "pending"
+    },
+    {
+      "factor": "alpha037_open_close_correlation_v1",
+      "python_file": "alpha037_open_close_correlation_v1.py",
+      "rust_status": "pending"
+    },
+    {
+      "factor": "alpha038_close_rank_ratio_v1",
+      "python_file": "alpha038_close_rank_ratio_v1.py",
+      "rust_status": "pending"
+    },
+    {
+      "factor": "alpha039_volume_decay_momentum_v1",
+      "python_file": "alpha039_volume_decay_momentum_v1.py",
+      "rust_status": "pending"
+    },
+    {
+      "factor": "alpha040_high_volatility_corr_v1",
+      "python_file": "alpha040_high_volatility_corr_v1.py",
+      "rust_status": "pending"
+    },
+    {
+      "factor": "alpha041_geometric_mean_vwap_v1",
+      "python_file": "alpha041_geometric_mean_vwap_v1.py",
+      "rust_status": "pending"
+    },
+    {
+      "factor": "alpha042_vwap_close_rank_ratio_v1",
+      "python_file": "alpha042_vwap_close_rank_ratio_v1.py",
+      "rust_status": "pending"
+    },
+    {
+      "factor": "alpha043_volume_delay_momentum_v1",
+      "python_file": "alpha043_volume_delay_momentum_v1.py",
+      "rust_status": "pending"
+    },
+    {
+      "factor": "alpha044_high_volume_rank_corr_v1",
+      "python_file": "alpha044_high_volume_rank_corr_v1.py",
+      "rust_status": "pending"
+    },
+    {
+      "factor": "alpha045_close_sum_corr_v1",
+      "python_file": "alpha045_close_sum_corr_v1.py",
+      "rust_status": "pending"
+    },
+    {
+      "factor": "alpha046_close_delay_trend_v1",
+      "python_file": "alpha046_close_delay_trend_v1.py",
+      "rust_status": "pending"
+    },
+    {
+      "factor": "alpha047_inverse_close_volume_v1",
+      "python_file": "alpha047_inverse_close_volume_v1.py",
+      "rust_status": "pending"
+    },
+    {
+      "factor": "alpha049_close_delay_threshold_v1",
+      "python_file": "alpha049_close_delay_threshold_v1.py",
+      "rust_status": "pending"
+    },
+    {
+      "factor": "alpha050_volume_vwap_corr_max_v1",
+      "python_file": "alpha050_volume_vwap_corr_max_v1.py",
+      "rust_status": "pending"
+    },
+    {
+      "factor": "alpha051_close_delay_threshold_v2_v1",
+      "python_file": "alpha051_close_delay_threshold_v2_v1.py",
+      "rust_status": "pending"
+    },
+    {
+      "factor": "alpha052_low_momentum_volume_v1",
+      "python_file": "alpha052_low_momentum_volume_v1.py",
+      "rust_status": "pending"
+    },
+    {
+      "factor": "alpha053_price_position_delta_v1",
+      "python_file": "alpha053_price_position_delta_v1.py",
+      "rust_status": "pending"
+    },
+    {
+      "factor": "alpha054_price_power_ratio_v1",
+      "python_file": "alpha054_price_power_ratio_v1.py",
+      "rust_status": "pending"
+    },
+    {
+      "factor": "alpha055_close_range_volume_corr_v1",
+      "python_file": "alpha055_close_range_volume_corr_v1.py",
+      "rust_status": "pending"
+    },
+    {
+      "factor": "alpha057_close_vwap_decay_v1",
+      "python_file": "alpha057_close_vwap_decay_v1.py",
+      "rust_status": "pending"
+    },
+    {
+      "factor": "alpha060_price_range_volume_scale_v1",
+      "python_file": "alpha060_price_range_volume_scale_v1.py",
+      "rust_status": "pending"
+    },
+    {
+      "factor": "alpha062_vwap_open_rank_compare_v1",
+      "python_file": "alpha062_vwap_open_rank_compare_v1.py",
+      "rust_status": "pending"
+    },
+    {
+      "factor": "alpha065_open_vwap_min_signal_v1",
+      "python_file": "alpha065_open_vwap_min_signal_v1.py",
+      "rust_status": "pending"
+    },
+    {
+      "factor": "alpha066_vwap_low_decay_v1",
+      "python_file": "alpha066_vwap_low_decay_v1.py",
+      "rust_status": "pending"
+    },
+    {
+      "factor": "alpha068_high_adv_rank_signal_v1",
+      "python_file": "alpha068_high_adv_rank_signal_v1.py",
+      "rust_status": "pending"
+    },
+    {
+      "factor": "alpha072_vwap_volume_decay_ratio_v1",
+      "python_file": "alpha072_vwap_volume_decay_ratio_v1.py",
+      "rust_status": "pending"
+    },
+    {
+      "factor": "alpha073_vwap_open_decay_max_v1",
+      "python_file": "alpha073_vwap_open_decay_max_v1.py",
+      "rust_status": "pending"
+    },
+    {
+      "factor": "alpha074_close_adv_rank_corr_v1",
+      "python_file": "alpha074_close_adv_rank_corr_v1.py",
+      "rust_status": "pending"
+    },
+    {
+      "factor": "alpha075_vwap_volume_low_adv_corr_v1",
+      "python_file": "alpha075_vwap_volume_low_adv_corr_v1.py",
+      "rust_status": "pending"
+    },
+    {
+      "factor": "alpha077_mid_price_adv_decay_min_v1",
+      "python_file": "alpha077_mid_price_adv_decay_min_v1.py",
+      "rust_status": "pending"
+    },
+    {
+      "factor": "alpha078_low_vwap_adv_corr_v1",
+      "python_file": "alpha078_low_vwap_adv_corr_v1.py",
+      "rust_status": "pending"
+    },
+    {
+      "factor": "amihud_illiq",
+      "python_file": "amihud_illiq.py",
+      "rust_status": "implemented"
+    },
+    {
+      "factor": "amount_sum",
+      "python_file": "amount_sum.py",
+      "rust_status": "implemented"
+    },
+    {
+      "factor": "bid_ask_spread_v1",
+      "python_file": "bid_ask_spread_v1.py",
+      "rust_status": "implemented"
+    },
+    {
+      "factor": "depth_imbalance",
+      "python_file": "depth_imbalance.py",
+      "rust_status": "implemented"
+    },
+    {
+      "factor": "depth_slope",
+      "python_file": "depth_slope.py",
+      "rust_status": "implemented"
+    },
+    {
+      "factor": "depth_weighted_imbalance_v1",
+      "python_file": "depth_weighted_imbalance_v1.py",
+      "rust_status": "implemented"
+    },
+    {
+      "factor": "intraday_momentum_v1",
+      "python_file": "intraday_momentum_v1.py",
+      "rust_status": "implemented"
+    },
+    {
+      "factor": "microprice_bias",
+      "python_file": "microprice_bias.py",
+      "rust_status": "implemented"
+    },
+    {
+      "factor": "midprice_move",
+      "python_file": "midprice_move.py",
+      "rust_status": "implemented"
+    },
+    {
+      "factor": "mom_slope",
+      "python_file": "mom_slope.py",
+      "rust_status": "implemented"
+    },
+    {
+      "factor": "order_flow_imbalance_v1",
+      "python_file": "order_flow_imbalance_v1.py",
+      "rust_status": "implemented"
+    },
+    {
+      "factor": "premium_momentum_proxy_v1",
+      "python_file": "premium_momentum_proxy_v1.py",
+      "rust_status": "implemented"
+    },
+    {
+      "factor": "price_level_position_v1",
+      "python_file": "price_level_position_v1.py",
+      "rust_status": "implemented"
+    },
+    {
+      "factor": "price_position",
+      "python_file": "price_position.py",
+      "rust_status": "implemented"
+    },
+    {
+      "factor": "range_ratio",
+      "python_file": "range_ratio.py",
+      "rust_status": "implemented"
+    },
+    {
+      "factor": "ret_open_to_time",
+      "python_file": "ret_open_to_time.py",
+      "rust_status": "implemented"
+    },
+    {
+      "factor": "ret_window",
+      "python_file": "ret_window.py",
+      "rust_status": "implemented"
+    },
+    {
+      "factor": "return_skew",
+      "python_file": "return_skew.py",
+      "rust_status": "implemented"
+    },
+    {
+      "factor": "spread",
+      "python_file": "spread.py",
+      "rust_status": "implemented"
+    },
+    {
+      "factor": "stock_bond_momentum_gap_v1",
+      "python_file": "stock_bond_momentum_gap_v1.py",
+      "rust_status": "implemented"
+    },
+    {
+      "factor": "trade_intensity_v1",
+      "python_file": "trade_intensity_v1.py",
+      "rust_status": "implemented"
+    },
+    {
+      "factor": "turnover_rate",
+      "python_file": "turnover_rate.py",
+      "rust_status": "implemented"
+    },
+    {
+      "factor": "volatility",
+      "python_file": "volatility.py",
+      "rust_status": "implemented"
+    },
+    {
+      "factor": "volatility_scaled_return_v1",
+      "python_file": "volatility_scaled_return_v1.py",
+      "rust_status": "implemented"
+    },
+    {
+      "factor": "volen",
+      "python_file": "volen.py",
+      "rust_status": "implemented"
+    },
+    {
+      "factor": "volume_imbalance",
+      "python_file": "volume_imbalance.py",
+      "rust_status": "implemented"
+    },
+    {
+      "factor": "volume_price_trend_v1",
+      "python_file": "volume_price_trend_v1.py",
+      "rust_status": "implemented"
+    },
+    {
+      "factor": "volume_sum",
+      "python_file": "volume_sum.py",
+      "rust_status": "implemented"
+    },
+    {
+      "factor": "vwap",
+      "python_file": "vwap.py",
+      "rust_status": "implemented"
+    },
+    {
+      "factor": "vwap_gap",
+      "python_file": "vwap_gap.py",
+      "rust_status": "implemented"
+    }
+  ]
+}

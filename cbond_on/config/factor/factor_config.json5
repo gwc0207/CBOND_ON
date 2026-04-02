@@ -9,6 +9,7 @@
   workers: 1,
   factor_workers: 1,
   compute: {
+    engine: "rust",       // rust | python (no automatic fallback)
     backend: "cpu",       // auto | torch | cpu
     torch_device: "cuda", // e.g. "cuda", "cuda:0"
     fallback_cpu: true,

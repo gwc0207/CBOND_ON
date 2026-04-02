@@ -1,0 +1,14 @@
+[build-system]
+requires = ["maturin>=1.5,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "cbond_on_rust"
+version = "0.1.0"
+description = "Rust factor engine for CBOND_ON"
+requires-python = ">=3.11"
+
+[tool.maturin]
+module-name = "cbond_on_rust"
+bindings = "pyo3"
+

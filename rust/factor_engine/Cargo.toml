@@ -1,0 +1,13 @@
+[package]
+name = "cbond_on_rust"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "cbond_on_rust"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.22", features = ["extension-module"] }
+numpy = "0.22"
+chrono = "0.4"

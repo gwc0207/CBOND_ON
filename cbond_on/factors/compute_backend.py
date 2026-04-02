@@ -42,12 +42,37 @@ class DataFrameBackendState:
         }
 
 
+@dataclass(frozen=True)
+class FactorEngineState:
+    requested: str
+    active: str
+    reason: str
+
+    def to_params(self) -> dict[str, Any]:
+        return {
+            "__compute_backend__": {
+                "engine_requested": self.requested,
+                "engine_active": self.active,
+                "engine_reason": self.reason,
+            }
+        }
+
+
 def _parse_requested_backend(cfg: dict[str, Any]) -> str:
     requested = str(cfg.get("backend", "auto")).strip().lower()
     if requested in {"", "none"}:
         return "cpu"
     if requested in {"gpu"}:
         return "auto"
+    return requested
+
+
+def _parse_requested_engine(cfg: dict[str, Any]) -> str:
+    requested = str(cfg.get("engine", cfg.get("factor_engine", "python"))).strip().lower()
+    if requested in {"", "none"}:
+        return "python"
+    if requested == "auto":
+        return "python"
     return requested
 
 
@@ -135,6 +160,18 @@ def resolve_compute_backend(cfg: dict[str, Any] | None = None) -> ComputeBackend
         fallback_cpu=fallback_cpu,
         reason="cuda_ready",
     )
+
+
+def resolve_factor_engine(cfg: dict[str, Any] | None = None) -> FactorEngineState:
+    runtime = dict(cfg or {})
+    requested = _parse_requested_engine(runtime)
+    if requested in {"python", "rust"}:
+        return FactorEngineState(
+            requested=requested,
+            active=requested,
+            reason=f"forced_{requested}",
+        )
+    raise ValueError(f"unsupported factor engine: {requested}; expected python|rust|auto")
 
 
 def resolve_dataframe_backend(cfg: dict[str, Any] | None = None) -> DataFrameBackendState:

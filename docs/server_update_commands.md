@@ -87,3 +87,29 @@ source ~/venv/cbond/bin/activate && cd ~/cbond_on && python cbond_on/run/model_e
 ```bash
 source ~/venv/cbond/bin/activate && cd ~/cbond_on && python cbond_on/run/factor_batch.py
 ```
+
+## 11. Rust factor engine (required now, no Python fallback)
+Build and install Rust extension before running factor jobs:
+
+```bash
+source ~/venv/cbond/bin/activate
+cd ~/cbond_on/rust/factor_engine
+python -m pip install maturin
+python -m maturin develop --release
+```
+
+Verify module import:
+
+```bash
+source ~/venv/cbond/bin/activate && python -c "import cbond_on_rust; print('cbond_on_rust OK')"
+```
+
+Then run factor pipeline:
+
+```bash
+source ~/venv/cbond/bin/activate && cd ~/cbond_on && python cbond_on/run/factor_batch.py
+```
+
+Current Rust kernel coverage: full `lgbm_factor_MSE` + `live_factors_config` factor sets.  
+If a factor is not ported yet, runtime will fail-fast with:
+`rust factor kernel not implemented: <factor_name>`.
