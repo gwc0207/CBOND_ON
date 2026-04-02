@@ -1,15 +1,15 @@
 ﻿{
   start: "2025-01-03",
-  end: "2025-01-10",
+  end: "2025-01-03",
   panel_name: "T1430",
   factor_time: "14:30",
   label_time: "14:42",
   refresh: true,
   overwrite: false,
-  workers: 4,
+  workers: 1,
   factor_workers: 1,
   compute: {
-    backend: "auto",      // auto | torch | cpu
+    backend: "cpu",       // auto | torch | cpu
     torch_device: "cuda", // e.g. "cuda", "cuda:0"
     fallback_cpu: true,
     dataframe_backend: "pandas", // auto | cudf | pandas

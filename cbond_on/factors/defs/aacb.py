@@ -4,7 +4,7 @@ import pandas as pd
 
 from cbond_on.core.registry import FactorRegistry
 from cbond_on.factors.base import Factor, FactorComputeContext
-from cbond_on.factors.defs._intraday_utils import EPS, ensure_trade_time, group_apply_scalar
+from cbond_on.factors.defs._intraday_utils import EPS, ensure_trade_time, _group_scalar
 
 
 @FactorRegistry.register("aacb")
@@ -37,6 +37,6 @@ class AacbFactor(Factor):
             value = (spread / base).fillna(0.0)
             return float(value.mean())
 
-        out = group_apply_scalar(panel, _calc).fillna(0.0)
+        out = _group_scalar(panel, _calc).fillna(0.0)
         out.name = self.output_name(self.name)
         return out

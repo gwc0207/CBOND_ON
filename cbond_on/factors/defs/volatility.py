@@ -5,7 +5,7 @@ import pandas as pd
 
 from cbond_on.core.registry import FactorRegistry
 from cbond_on.factors.base import Factor, FactorComputeContext
-from cbond_on.factors.defs._intraday_utils import ensure_trade_time, group_apply_scalar, slice_window
+from cbond_on.factors.defs._intraday_utils import ensure_trade_time, _group_scalar, slice_window
 
 
 @FactorRegistry.register("volatility")
@@ -35,7 +35,7 @@ class VolatilityFactor(Factor):
                 return 0.0
             return float(ret.std())
 
-        out = group_apply_scalar(panel, _calc)
+        out = _group_scalar(panel, _calc)
         out = out.fillna(0.0)
         out.name = self.output_name(self.name)
         return out
