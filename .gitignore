@@ -35,3 +35,10 @@ pnpm-debug.log*
 .idea/
 .DS_Store
 Thumbs.db
+
+# Rust build artifacts
+rust/factor_engine/target/
+rust/factor_engine/*.so
+rust/factor_engine/*.dll
+rust/factor_engine/*.dylib
+rust/factor_engine/*.pyd
