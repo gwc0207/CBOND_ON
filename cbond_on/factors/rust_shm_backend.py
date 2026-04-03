@@ -21,6 +21,12 @@ class _ShmArrayMeta:
     dtype: str
 
 
+# Linux fork zero-copy path:
+# parent prepares one pandas frame, children inherit it via fork (COW),
+# avoiding explicit shared_memory publish copy.
+_FORK_PANEL_DF: pd.DataFrame | None = None
+
+
 def _import_rust_module():
     from importlib import import_module
 
@@ -219,6 +225,23 @@ def _rust_shm_worker(task: dict[str, Any]) -> pd.DataFrame:
         _close_shm_refs(refs)
 
 
+def _rust_fork_worker(task: dict[str, Any]) -> pd.DataFrame:
+    module = _import_rust_module()
+    panel_df = _FORK_PANEL_DF
+    if panel_df is None:
+        raise RuntimeError("fork_zero_copy panel is not initialized in worker")
+    out = module.compute_factor_frame(
+        panel_df,
+        list(task.get("spec_payload") or []),
+        None,
+        None,
+        dict(task.get("compute_backend_params") or {}),
+    )
+    if not isinstance(out, pd.DataFrame):
+        raise RuntimeError("cbond_on_rust.compute_factor_frame must return pandas.DataFrame")
+    return out
+
+
 def build_factor_frame_rust_shm(
     panel: pd.DataFrame,
     specs: Sequence[FactorSpec],
@@ -259,49 +282,78 @@ def build_factor_frame_rust_shm(
         str(backend_cfg.get("shm_mp_start_method", "auto") or "auto")
     )
     fallback_to_rust = bool(backend_cfg.get("shm_fallback_to_rust", True))
+    fork_zero_copy = bool(backend_cfg.get("shm_fork_zero_copy", True))
 
     panel_df = _normalize_panel_for_rust(panel)
-    t_share = perf_counter()
-    package, owned = _build_shm_package(panel_df)
-    t_share = perf_counter() - t_share
-    print(
-        "rust_shm_exp:",
-        f"mp_start_method={mp_start_method}",
-        f"shared_arrays={len(package['arrays'])}",
-        f"rows={package['row_count']}",
-        f"t_shm_publish={t_share:.2f}s",
-        flush=True,
-    )
-
     chunks = _chunk_specs(specs, workers)
-    tasks = [
-        {
-            "package": {
-                "row_count": package["row_count"],
-                "numeric_cols": list(package["numeric_cols"]),
-                "arrays": {
-                    col: {
-                        "name": meta.name,
-                        "shape": list(meta.shape),
-                        "dtype": meta.dtype,
-                    }
-                    for col, meta in package["arrays"].items()
+    use_fork_zero_copy = mp_start_method == "fork" and fork_zero_copy
+
+    t_share = perf_counter()
+    tasks: list[dict[str, Any]]
+    owned: list[shared_memory.SharedMemory] = []
+    worker_fn = _rust_shm_worker
+    if use_fork_zero_copy:
+        tasks = [
+            {
+                "spec_payload": _specs_payload(chunk),
+                "compute_backend_params": dict(compute_backend_params or {}),
+            }
+            for chunk in chunks
+        ]
+        t_share = perf_counter() - t_share
+        print(
+            "rust_shm_exp:",
+            f"mp_start_method={mp_start_method}",
+            "fork_zero_copy=True",
+            "shared_arrays=0",
+            f"rows={len(panel_df)}",
+            f"t_shm_publish={t_share:.2f}s",
+            flush=True,
+        )
+        worker_fn = _rust_fork_worker
+    else:
+        package, owned = _build_shm_package(panel_df)
+        tasks = [
+            {
+                "package": {
+                    "row_count": package["row_count"],
+                    "numeric_cols": list(package["numeric_cols"]),
+                    "arrays": {
+                        col: {
+                            "name": meta.name,
+                            "shape": list(meta.shape),
+                            "dtype": meta.dtype,
+                        }
+                        for col, meta in package["arrays"].items()
+                    },
                 },
-            },
-            "spec_payload": _specs_payload(chunk),
-            "compute_backend_params": dict(compute_backend_params or {}),
-        }
-        for chunk in chunks
-    ]
+                "spec_payload": _specs_payload(chunk),
+                "compute_backend_params": dict(compute_backend_params or {}),
+            }
+            for chunk in chunks
+        ]
+        t_share = perf_counter() - t_share
+        print(
+            "rust_shm_exp:",
+            f"mp_start_method={mp_start_method}",
+            "fork_zero_copy=False",
+            f"shared_arrays={len(package['arrays'])}",
+            f"rows={package['row_count']}",
+            f"t_shm_publish={t_share:.2f}s",
+            flush=True,
+        )
 
     ctx = get_context(mp_start_method)
     t_compute = perf_counter()
     out_frames: list[pd.DataFrame] = []
+    global _FORK_PANEL_DF
+    if use_fork_zero_copy:
+        _FORK_PANEL_DF = panel_df
     try:
         try:
             with ProcessPoolExecutor(max_workers=len(tasks), mp_context=ctx) as executor:
                 future_map = {
-                    executor.submit(_rust_shm_worker, task): idx for idx, task in enumerate(tasks)
+                    executor.submit(worker_fn, task): idx for idx, task in enumerate(tasks)
                 }
                 ordered: dict[int, pd.DataFrame] = {}
                 for future in as_completed(future_map):
@@ -325,7 +377,9 @@ def build_factor_frame_rust_shm(
                 compute_backend_params=compute_backend_params,
             )
     finally:
-        _cleanup_owned_shm(owned)
+        _FORK_PANEL_DF = None
+        if owned:
+            _cleanup_owned_shm(owned)
     t_compute = perf_counter() - t_compute
 
     t_merge = perf_counter()
