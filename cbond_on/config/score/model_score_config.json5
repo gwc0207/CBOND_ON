@@ -10,7 +10,16 @@
     // Throughput mode: split rolling target days across shards.
     // Use 1/0 for single-process default.
     parallel_shards: 1,
-    parallel_shard_index: 0
+    parallel_shard_index: 0,
+    // Threading controls applied in model_score_service (all model types).
+    threading: {
+      omp_num_threads: 12,
+      mkl_num_threads: 12,
+      openblas_num_threads: 1,
+      numexpr_num_threads: 1,
+      pyarrow_num_threads: 12,
+      pyarrow_io_threads: 4
+    }
   },
   models: {
     linear_factor_default: {
