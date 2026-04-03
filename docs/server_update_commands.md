@@ -124,7 +124,7 @@ Use this only for throughput experiments:
 2. Run:
 
 ```bash
-source ~/venv/cbond/bin/activate && cd ~/cbond_on && python cbond_on/run/factor_batch.py
+source ~/venv/cbond/bin/activate && cd ~/cbond_on &&  
 ```
 
 Runtime prints extra profiling lines:

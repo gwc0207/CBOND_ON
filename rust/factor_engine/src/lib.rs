@@ -1,5 +1,5 @@
-﻿use std::collections::{BTreeSet, HashMap};
-
+use std::collections::{BTreeSet, HashMap};
+use std::time::Instant;
 use chrono::NaiveDate;
 use numpy::{PyArray1, PyArrayMethods};
 use pyo3::exceptions::{PyKeyError, PyRuntimeError, PyValueError};
@@ -208,7 +208,10 @@ fn compute_factor_frame(
     }
 
     let mut out_cols: HashMap<String, Vec<f64>> = HashMap::new();
+    let mut factor_timings: Vec<(String, f64)> = Vec::with_capacity(specs.len());
+    let t_all_factors = Instant::now();
     for spec in &specs {
+        let t_factor = Instant::now();
         let values = compute_factor_values(
             py,
             &mut panel,
@@ -217,7 +220,37 @@ fn compute_factor_frame(
             &window_cache,
             spec,
         )?;
+        let elapsed = t_factor.elapsed().as_secs_f64();
+        factor_timings.push((spec.output_col.clone(), elapsed));
         out_cols.insert(spec.output_col.clone(), values);
+    }
+    if plan_limits.log_summary && !factor_timings.is_empty() {
+        let mut values: Vec<f64> = factor_timings.iter().map(|(_, v)| *v).collect();
+        values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let n = values.len();
+        let idx50 = n / 2;
+        let idx90 = (((n - 1) as f64) * 0.9).round() as usize;
+        let min_v = values[0];
+        let p50 = values[idx50];
+        let p90 = values[idx90.min(n - 1)];
+        let max_v = values[n - 1];
+        let mut slow = factor_timings.clone();
+        slow.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        let topn = slow
+            .iter()
+            .take(5)
+            .map(|(name, sec)| format!("{}:{:.3}s", name, sec))
+            .collect::<Vec<_>>();
+        println!(
+            "rust factor timing dist: n={} total={:.2}s min={:.3}s p50={:.3}s p90={:.3}s max={:.3}s top={:?}",
+            n,
+            t_all_factors.elapsed().as_secs_f64(),
+            min_v,
+            p50,
+            p90,
+            max_v,
+            topn
+        );
     }
 
     build_output_df(py, &panel.groups, &out_cols)
