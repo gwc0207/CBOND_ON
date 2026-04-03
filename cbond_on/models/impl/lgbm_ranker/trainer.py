@@ -12,10 +12,12 @@ except Exception:  # pragma: no cover
 
 from cbond_on.models.impl.lgbm.trainer import (
     SplitData,
+    _build_day_group_indices,
     _iter_existing_label_days,
     _lgbm_cpu_params,
     _lgbm_gpu_requested,
     _looks_like_lgbm_gpu_error,
+    _mean_rank_ic_by_groups,
     _split_days,
     build_dataset,
     evaluate_metrics,
@@ -30,16 +32,6 @@ class RankerSplitData:
     code: pd.Series
     relevance: pd.Series
     group: list[int]
-
-
-def _rank_ic_by_day(df: pd.DataFrame, factor_col: str) -> pd.Series:
-    def _calc(group: pd.DataFrame) -> float:
-        g = group[[factor_col, "y"]].dropna()
-        if len(g) < 2:
-            return np.nan
-        return g[factor_col].corr(g["y"], method="spearman")
-
-    return df.groupby("dt").apply(_calc, include_groups=False)
 
 
 def build_ranker_split_data(
@@ -109,18 +101,20 @@ def train_lgbm_ranker(
     params = dict(lgbm_ranker_params)
     params.setdefault("objective", "lambdarank")
     params.setdefault("metric", "ndcg")
+    log_eval_period = max(1, int(params.pop("log_eval_period", 10)))
     gpu_requested = _lgbm_gpu_requested(params)
     model = lgb.LGBMRanker(**params)
     history: list[dict] = []
+    train_groups = _build_day_group_indices(train.dt)
+    val_groups = _build_day_group_indices(val.dt)
 
     def _mean_rank_ic(split_data: RankerSplitData, pred: np.ndarray) -> float:
         if split_data.x.empty:
             return float("nan")
-        frame = pd.DataFrame({"dt": split_data.dt, "y": split_data.y, "pred": pred})
-        rank_ic = _rank_ic_by_day(frame, "pred").dropna()
-        if rank_ic.empty:
-            return float("nan")
-        return float(rank_ic.mean())
+        y_true = np.asarray(split_data.y, dtype=float)
+        y_pred = np.asarray(pred, dtype=float)
+        groups = train_groups if split_data is train else val_groups
+        return _mean_rank_ic_by_groups(y_true, y_pred, groups)
 
     def _eval_rank_ic(y_true, y_pred):
         y_pred_arr = np.asarray(y_pred)
@@ -138,40 +132,41 @@ def train_lgbm_ranker(
         iteration = env.iteration + 1
         train_ndcg: list[float] = []
         val_ndcg: list[float] = []
+        train_rank_ic: list[float] = []
+        val_rank_ic: list[float] = []
         for data_name, metric_name, value, _ in env.evaluation_result_list:
-            if not str(metric_name).startswith("ndcg"):
+            metric_name = str(metric_name)
+            if metric_name.startswith("ndcg"):
+                if data_name == "training":
+                    train_ndcg.append(float(value))
+                elif data_name in {"valid_0", "valid_1", "valid"}:
+                    val_ndcg.append(float(value))
+                continue
+            if metric_name != "rank_ic":
                 continue
             if data_name == "training":
-                train_ndcg.append(float(value))
+                train_rank_ic.append(float(value))
             elif data_name in {"valid_0", "valid_1", "valid"}:
-                val_ndcg.append(float(value))
+                val_rank_ic.append(float(value))
         train_ndcg_mean = float(np.mean(train_ndcg)) if train_ndcg else float("nan")
         val_ndcg_mean = float(np.mean(val_ndcg)) if val_ndcg else float("nan")
-
-        train_rank_ic = float("nan")
-        val_rank_ic = float("nan")
-        try:
-            current_it = env.model.current_iteration()
-            train_pred = env.model.predict(train.x, num_iteration=current_it)
-            train_rank_ic = _mean_rank_ic(train, train_pred)
-            if not val.x.empty:
-                val_pred = env.model.predict(val.x, num_iteration=current_it)
-                val_rank_ic = _mean_rank_ic(val, val_pred)
-        except Exception:
-            pass
+        train_rank_ic_val = float(np.mean(train_rank_ic)) if train_rank_ic else float("nan")
+        val_rank_ic_val = float(np.mean(val_rank_ic)) if val_rank_ic else float("nan")
 
         history.append(
             {
                 "iteration": iteration,
-                "train_rank_ic": train_rank_ic,
-                "val_rank_ic": val_rank_ic,
+                "train_rank_ic": train_rank_ic_val,
+                "val_rank_ic": val_rank_ic_val,
                 "train_ndcg": train_ndcg_mean,
                 "val_ndcg": val_ndcg_mean,
             }
         )
+        if iteration % log_eval_period != 0:
+            return
         print(
             f"iter {iteration:03d} "
-            f"train_rank_ic={train_rank_ic:.4f} val_rank_ic={val_rank_ic:.4f} "
+            f"train_rank_ic={train_rank_ic_val:.4f} val_rank_ic={val_rank_ic_val:.4f} "
             f"train_ndcg={train_ndcg_mean:.4f} val_ndcg={val_ndcg_mean:.4f}"
         )
 

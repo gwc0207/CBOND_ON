@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from datetime import date, datetime
 from pathlib import Path
@@ -139,7 +140,39 @@ def main(
     label_cutoff: str | None = None,
     execution: dict | None = None,
 ) -> None:
-    _ = execution
+    execution_cfg = dict(execution or {})
+    env_refit = os.getenv("CBOND_REFIT_EVERY_N_DAYS")
+    env_shards = os.getenv("CBOND_SCORE_PARALLEL_SHARDS")
+    env_shard_index = os.getenv("CBOND_SCORE_PARALLEL_SHARD_INDEX")
+    refit_every_n_days = max(
+        1,
+        int(
+            execution_cfg.get(
+                "refit_every_n_days",
+                env_refit if env_refit is not None else 1,
+            )
+        ),
+    )
+    parallel_shards = max(
+        1,
+        int(
+            execution_cfg.get(
+                "parallel_shards",
+                env_shards if env_shards is not None else 1,
+            )
+        ),
+    )
+    parallel_shard_index = int(
+        execution_cfg.get(
+            "parallel_shard_index",
+            env_shard_index if env_shard_index is not None else 0,
+        )
+    )
+    if parallel_shard_index < 0 or parallel_shard_index >= parallel_shards:
+        raise ValueError(
+            f"parallel_shard_index must be in [0, {parallel_shards - 1}], "
+            f"got {parallel_shard_index}"
+        )
     paths_cfg = load_config_file("paths")
     cfg_file = Path(config_path) if config_path else None
     if cfg_file is None and len(sys.argv) > 1:
@@ -270,6 +303,9 @@ def main(
     incremental_skip_existing = bool(incremental_cfg.get("skip_existing_scores", True))
     incremental_warm_start = bool(incremental_cfg.get("warm_start", True))
     incremental_save_state = bool(incremental_cfg.get("save_state", True))
+    if parallel_shards > 1 and incremental_warm_start:
+        print("[rolling] parallel_shards>1: disable warm_start to avoid cross-shard dependency")
+        incremental_warm_start = False
     state_dir_raw = str(incremental_cfg.get("state_dir", "")).strip()
     state_dir = resolve_output_path(
         state_dir_raw if state_dir_raw else None,
@@ -314,15 +350,41 @@ def main(
             )
         if not valid_indices:
             raise RuntimeError("rolling has no valid target day after incremental filtering")
+        print(
+            f"[rolling] execution refit_every_n_days={refit_every_n_days} "
+            f"parallel_shards={parallel_shards} parallel_shard_index={parallel_shard_index}"
+        )
+        if parallel_shards > 1:
+            all_count = len(valid_indices)
+            valid_indices = [
+                idx
+                for seq, idx in enumerate(valid_indices)
+                if (seq % parallel_shards) == parallel_shard_index
+            ]
+            print(
+                f"[rolling] shard assignment {parallel_shard_index + 1}/{parallel_shards}: "
+                f"{len(valid_indices)}/{all_count} target day(s)"
+            )
+        if not valid_indices:
+            print("[rolling] no target day assigned for this shard, skip training")
+            (out_dir / "config.json").write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+            (out_dir / "features.json").write_text(json.dumps(factor_cols, ensure_ascii=False, indent=2), encoding="utf-8")
+            print(f"saved rolling: {out_dir}")
+            print(f"saved scores: {score_output}")
+            return
         total_rolls = len(valid_indices)
 
         rolling_rows: list[dict] = []
         score_rows: list[pd.DataFrame] = []
+        active_model = None
+        active_best_iter: int | None = None
+        active_best_val_ic: float = float("nan")
+        last_refit_pos: int | None = None
+        last_refit_day: date | None = None
         for roll_idx, idx in enumerate(valid_indices, start=1):
             window = days[idx - window_days + 1: idx + 1]
             train_pool = window[:-1]
             test_day = window[-1]
-            print(f"[rolling] {roll_idx}/{total_rolls} test_day={test_day}")
             if len(train_pool) < 2:
                 continue
 
@@ -334,30 +396,15 @@ def main(
                 n_train = max(1, n_pool - n_val)
             roll_train_days = list(train_pool[:n_train])
             roll_val_days = list(train_pool[n_train:n_train + n_val])
-
-            train_data = build_dataset(
-                factor_store=store,
-                label_root=label_root,
-                days=roll_train_days,
-                factor_cols=factor_cols,
-                min_count=min_count,
-                winsor_lower=winsor_lower,
-                winsor_upper=winsor_upper,
-                zscore=zscore,
-                factor_time=factor_time,
-                label_time=label_time,
+            should_refit = (
+                active_model is None
+                or refit_every_n_days <= 1
+                or last_refit_pos is None
+                or (roll_idx - last_refit_pos) >= refit_every_n_days
             )
-            val_data = build_dataset(
-                factor_store=store,
-                label_root=label_root,
-                days=roll_val_days,
-                factor_cols=factor_cols,
-                min_count=min_count,
-                winsor_lower=winsor_lower,
-                winsor_upper=winsor_upper,
-                zscore=zscore,
-                factor_time=factor_time,
-                label_time=label_time,
+            print(
+                f"[rolling] {roll_idx}/{total_rolls} test_day={test_day} "
+                f"refit={'Y' if should_refit else 'N'} cadence={refit_every_n_days}"
             )
             test_data = build_dataset(
                 factor_store=store,
@@ -372,50 +419,94 @@ def main(
                 label_time=label_time,
                 require_label=False,
             )
-            if train_data.x.empty or test_data.x.empty:
+            if test_data.x.empty:
                 continue
-
-            train_ranker = build_ranker_split_data(train_data, relevance_bins=relevance_bins)
-            val_ranker = build_ranker_split_data(val_data, relevance_bins=relevance_bins)
-            if train_ranker.x.empty or not train_ranker.group:
+            refit_status = "reuse"
+            if should_refit:
+                train_data = build_dataset(
+                    factor_store=store,
+                    label_root=label_root,
+                    days=roll_train_days,
+                    factor_cols=factor_cols,
+                    min_count=min_count,
+                    winsor_lower=winsor_lower,
+                    winsor_upper=winsor_upper,
+                    zscore=zscore,
+                    factor_time=factor_time,
+                    label_time=label_time,
+                )
+                val_data = build_dataset(
+                    factor_store=store,
+                    label_root=label_root,
+                    days=roll_val_days,
+                    factor_cols=factor_cols,
+                    min_count=min_count,
+                    winsor_lower=winsor_lower,
+                    winsor_upper=winsor_upper,
+                    zscore=zscore,
+                    factor_time=factor_time,
+                    label_time=label_time,
+                )
+                if train_data.x.empty:
+                    if active_model is None:
+                        print(f"[rolling] skip {test_day}: empty train split and no reusable model")
+                        continue
+                    refit_status = "reuse_empty_train"
+                else:
+                    train_ranker = build_ranker_split_data(train_data, relevance_bins=relevance_bins)
+                    val_ranker = build_ranker_split_data(val_data, relevance_bins=relevance_bins)
+                    if train_ranker.x.empty or not train_ranker.group:
+                        if active_model is None:
+                            print(f"[rolling] skip {test_day}: empty ranker train split and no reusable model")
+                            continue
+                        refit_status = "reuse_empty_train_ranker"
+                    else:
+                        init_model = None
+                        if incremental_enabled and incremental_warm_start:
+                            prev_ckpt = _find_previous_checkpoint(state_dir, test_day)
+                            if prev_ckpt is not None:
+                                init_model = str(prev_ckpt)
+                                print(f"[rolling] warm-start from checkpoint: {prev_ckpt.name}")
+                        try:
+                            model, meta = train_lgbm_ranker(
+                                train=train_ranker,
+                                val=val_ranker,
+                                lgbm_ranker_params=ranker_params,
+                                early_stopping_rounds=int(early_rounds) if early_rounds else None,
+                                init_model=init_model,
+                            )
+                        except Exception as exc:
+                            if init_model is None:
+                                raise
+                            print(f"[rolling] warm-start failed, fallback cold-start: {type(exc).__name__}: {exc}")
+                            model, meta = train_lgbm_ranker(
+                                train=train_ranker,
+                                val=val_ranker,
+                                lgbm_ranker_params=ranker_params,
+                                early_stopping_rounds=int(early_rounds) if early_rounds else None,
+                                init_model=None,
+                            )
+                        history = meta.get("history", [])
+                        active_best_iter = _best_iter_from_hist(history)
+                        active_best_val_ic = _best_val_rank_ic(history)
+                        active_model = model
+                        last_refit_pos = roll_idx
+                        last_refit_day = test_day
+                        refit_status = "refit"
+                        if incremental_enabled and incremental_save_state:
+                            ckpt_path = _checkpoint_path(state_dir, test_day)
+                            try:
+                                model.booster_.save_model(str(ckpt_path))
+                            except Exception as exc:
+                                print(f"[rolling] failed to save checkpoint {ckpt_path}: {exc}")
+            if active_model is None:
+                print(f"[rolling] skip {test_day}: no trained model available")
                 continue
-
-            init_model = None
-            if incremental_enabled and incremental_warm_start:
-                prev_ckpt = _find_previous_checkpoint(state_dir, test_day)
-                if prev_ckpt is not None:
-                    init_model = str(prev_ckpt)
-                    print(f"[rolling] warm-start from checkpoint: {prev_ckpt.name}")
-            try:
-                model, meta = train_lgbm_ranker(
-                    train=train_ranker,
-                    val=val_ranker,
-                    lgbm_ranker_params=ranker_params,
-                    early_stopping_rounds=int(early_rounds) if early_rounds else None,
-                    init_model=init_model,
-                )
-            except Exception as exc:
-                if init_model is None:
-                    raise
-                print(f"[rolling] warm-start failed, fallback cold-start: {type(exc).__name__}: {exc}")
-                model, meta = train_lgbm_ranker(
-                    train=train_ranker,
-                    val=val_ranker,
-                    lgbm_ranker_params=ranker_params,
-                    early_stopping_rounds=int(early_rounds) if early_rounds else None,
-                    init_model=None,
-                )
-            history = meta.get("history", [])
-            best_iter = _best_iter_from_hist(history)
-            best_val_ic = _best_val_rank_ic(history)
-            pred_kwargs = {"num_iteration": best_iter} if best_iter else {}
-            test_pred = model.predict(test_data.x, **pred_kwargs)
-            if incremental_enabled and incremental_save_state:
-                ckpt_path = _checkpoint_path(state_dir, test_day)
-                try:
-                    model.booster_.save_model(str(ckpt_path))
-                except Exception as exc:
-                    print(f"[rolling] failed to save checkpoint {ckpt_path}: {exc}")
+            pred_kwargs = {"num_iteration": active_best_iter} if active_best_iter else {}
+            test_pred = active_model.predict(test_data.x, **pred_kwargs)
+            model_source_day = test_day if refit_status == "refit" else (last_refit_day or test_day)
+            best_iter = active_best_iter
+            best_val_ic = active_best_val_ic
 
             if not (desired_start <= test_day <= desired_end):
                 continue
@@ -441,6 +532,10 @@ def main(
                     "train_days": len(roll_train_days),
                     "val_days": len(roll_val_days),
                     "count": int(len(test_data.y)),
+                    "refit": bool(refit_status == "refit"),
+                    "refit_status": refit_status,
+                    "model_source_day": model_source_day,
+                    "refit_every_n_days": refit_every_n_days,
                     "best_iteration": best_iter,
                     "best_val_rank_ic": best_val_ic,
                     "rank_ic": test_metrics["rank_ic_mean"],
@@ -451,8 +546,9 @@ def main(
                 }
             )
             print(
-                f"rolling {test_day} train_days={len(roll_train_days)} val_days={len(roll_val_days)} "
-                f"count={len(test_data.y)} rank_ic={test_metrics['rank_ic_mean']:.4f}"
+                f"rolling {test_day} refit={refit_status} train_days={len(roll_train_days)} "
+                f"val_days={len(roll_val_days)} count={len(test_data.y)} "
+                f"rank_ic={test_metrics['rank_ic_mean']:.4f}"
             )
 
         if not score_rows:

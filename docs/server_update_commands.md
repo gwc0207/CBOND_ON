@@ -32,6 +32,12 @@ source ~/venv/cbond/bin/activate && cd ~/cbond_on && python cbond_on/run/factor_
 source ~/venv/cbond/bin/activate && cd ~/cbond_on && python cbond_on/run/model_score.py
 ```
 
+可选：并发分片（吞吐模式，开启 2 个进程）
+```bash
+source ~/venv/cbond/bin/activate && cd ~/cbond_on && python cbond_on/run/model_score.py --parallel-shards 2 --parallel-shard-index 0
+source ~/venv/cbond/bin/activate && cd ~/cbond_on && python cbond_on/run/model_score.py --parallel-shards 2 --parallel-shard-index 1
+```
+
 ### 4.4 回测
 ```bash
 source ~/venv/cbond/bin/activate && cd ~/cbond_on && python cbond_on/run/backtest.py

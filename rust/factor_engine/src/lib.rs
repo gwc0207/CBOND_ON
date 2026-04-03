@@ -991,6 +991,171 @@ fn ts_rank_last(values: &[f64], window: usize) -> f64 {
     }
 }
 
+fn rolling_last_rank_pct_series(values: &[f64], window: usize) -> Vec<f64> {
+    let n = values.len();
+    let w = window.max(1);
+    let mut out = vec![f64::NAN; n];
+    if n == 0 {
+        return out;
+    }
+    for i in 0..n {
+        let s = i + 1usize - (i + 1).min(w);
+        let last = values[i];
+        if !last.is_finite() {
+            continue;
+        }
+        let mut lt = 0usize;
+        let mut eq = 0usize;
+        let mut cnt = 0usize;
+        for &v in &values[s..=i] {
+            if v.is_finite() {
+                cnt += 1;
+                if v < last {
+                    lt += 1;
+                } else if v == last {
+                    eq += 1;
+                }
+            }
+        }
+        if cnt > 0 {
+            out[i] = (lt as f64 + (eq as f64 + 1.0) / 2.0) / cnt as f64;
+        }
+    }
+    out
+}
+
+fn rolling_linear_decay_series(values: &[f64], window: usize) -> Vec<f64> {
+    let n = values.len();
+    let w = window.max(1);
+    let mut out = vec![f64::NAN; n];
+    for i in 0..n {
+        let s = i + 1usize - (i + 1).min(w);
+        let mut num = 0.0;
+        let mut den = 0.0;
+        let mut k = 1usize;
+        for &v in &values[s..=i] {
+            let wt = k as f64;
+            den += wt;
+            if v.is_finite() {
+                num += v * wt;
+            }
+            k += 1;
+        }
+        if den > 0.0 {
+            out[i] = num / (den + EPS);
+        }
+    }
+    out
+}
+
+fn argmax_pos_last(values: &[f64], window: usize) -> f64 {
+    let n = values.len();
+    if n == 0 {
+        return 0.0;
+    }
+    let w = window.max(1).min(n);
+    let s = n - w;
+    let mut best_idx = 0usize;
+    let mut best = f64::NEG_INFINITY;
+    let mut has = false;
+    for i in 0..w {
+        let v = values[s + i];
+        if v.is_finite() {
+            if !has || v > best {
+                has = true;
+                best = v;
+                best_idx = i;
+            }
+        }
+    }
+    if has {
+        (best_idx + 1) as f64
+    } else {
+        0.0
+    }
+}
+
+fn rolling_argmax_position_series(values: &[f64], window: usize) -> Vec<f64> {
+    let n = values.len();
+    let w = window.max(1);
+    let mut out = vec![f64::NAN; n];
+    for i in 0..n {
+        let s = i + 1usize - (i + 1).min(w);
+        let mut best_idx = 0usize;
+        let mut best = f64::NEG_INFINITY;
+        let mut has = false;
+        for (k, &v) in values[s..=i].iter().enumerate() {
+            if v.is_finite() {
+                if !has || v > best {
+                    has = true;
+                    best = v;
+                    best_idx = k;
+                }
+            }
+        }
+        if has {
+            out[i] = (best_idx + 1) as f64;
+        }
+    }
+    out
+}
+
+fn cs_scale_by_dt(groups: &[Group], raw: &[f64]) -> Vec<f64> {
+    let mut out = vec![0.0; raw.len()];
+    let mut dt_to_idx: HashMap<&str, Vec<usize>> = HashMap::new();
+    for (i, g) in groups.iter().enumerate() {
+        dt_to_idx.entry(g.dt.as_str()).or_default().push(i);
+    }
+    for idxs in dt_to_idx.values() {
+        let mut denom = 0.0;
+        for &i in idxs {
+            let v = raw[i];
+            if v.is_finite() {
+                denom += v.abs();
+            }
+        }
+        if denom <= EPS {
+            for &i in idxs {
+                out[i] = 0.0;
+            }
+        } else {
+            for &i in idxs {
+                let v = raw[i];
+                out[i] = if v.is_finite() { v / denom } else { 0.0 };
+            }
+        }
+    }
+    out
+}
+
+fn delta_last_from_slice(values: &[f64], periods: usize) -> f64 {
+    let p = periods.max(1);
+    if values.len() <= p {
+        return 0.0;
+    }
+    values[values.len() - 1] - values[values.len() - 1 - p]
+}
+
+fn delay_last_from_slice(values: &[f64], periods: usize) -> f64 {
+    let p = periods.max(1);
+    if values.is_empty() {
+        return 0.0;
+    }
+    if values.len() <= p {
+        return values[0];
+    }
+    values[values.len() - 1 - p]
+}
+
+fn delay_value_or_nan(values: &[f64], periods: usize) -> f64 {
+    let p = periods.max(1);
+    if values.len() <= p {
+        f64::NAN
+    } else {
+        values[values.len() - 1 - p]
+    }
+}
+
 fn diff(values: &[f64], lag: usize) -> Vec<f64> {
     let mut out = vec![f64::NAN; values.len()];
     if lag == 0 {
@@ -2166,6 +2331,2486 @@ fn compute_factor_values(
                 };
             }
             out = cs_rank_by_dt(&panel.groups, &raw);
+        }
+        "alpha011_vwap_close_volume_v1" => {
+            let ts_window = spec.param_i64("ts_window", 3).max(1) as usize;
+            ensure_col(py, panel, panel_df, "amount")?;
+            ensure_col(py, panel, panel_df, "volume")?;
+            ensure_col(py, panel, panel_df, "last")?;
+            let amount_col = panel.col("amount")?;
+            let volume_col = panel.col("volume")?;
+            let last_col = panel.col("last")?;
+            let mut max_raw = vec![f64::NAN; panel.groups.len()];
+            let mut min_raw = vec![f64::NAN; panel.groups.len()];
+            let mut delta_raw = vec![0.0; panel.groups.len()];
+            for (gi, g) in panel.groups.iter().enumerate() {
+                let amount = &amount_col[g.start..g.end];
+                let volume = &volume_col[g.start..g.end];
+                let last = &last_col[g.start..g.end];
+                let n = amount.len();
+                if n == 0 {
+                    max_raw[gi] = f64::NAN;
+                    min_raw[gi] = f64::NAN;
+                    delta_raw[gi] = 0.0;
+                    continue;
+                }
+                let mut diff = vec![f64::NAN; n];
+                for i in 0..n {
+                    let amt = amount[i];
+                    let vol = volume[i];
+                    let px = last[i];
+                    if amt.is_finite() && vol.is_finite() && px.is_finite() {
+                        let vwap = amt / (vol + EPS);
+                        diff[i] = vwap - px;
+                    }
+                }
+                max_raw[gi] = rolling_max_last(&diff, ts_window);
+                min_raw[gi] = rolling_min_last(&diff, ts_window);
+                delta_raw[gi] = delta_last_from_slice(volume, ts_window);
+            }
+            let rank_max = cs_rank_by_dt(&panel.groups, &max_raw);
+            let rank_min = cs_rank_by_dt(&panel.groups, &min_raw);
+            let rank_delta = cs_rank_by_dt(&panel.groups, &delta_raw);
+            for i in 0..out.len() {
+                out[i] = (rank_max[i] + rank_min[i]) * rank_delta[i];
+            }
+        }
+        "alpha012_volume_close_reversal_v1" => {
+            ensure_col(py, panel, panel_df, "volume")?;
+            ensure_col(py, panel, panel_df, "last")?;
+            let volume_col = panel.col("volume")?;
+            let last_col = panel.col("last")?;
+            for (gi, g) in panel.groups.iter().enumerate() {
+                let volume = &volume_col[g.start..g.end];
+                let last = &last_col[g.start..g.end];
+                let d_vol = delta_last_from_slice(volume, 1);
+                let d_last = delta_last_from_slice(last, 1);
+                out[gi] = if d_vol.is_finite() && d_last.is_finite() {
+                    d_vol.signum() * (-d_last)
+                } else {
+                    0.0
+                };
+            }
+        }
+        "alpha013_cov_close_volume_v1" => {
+            let cov_window = spec.param_i64("cov_window", 5).max(2) as usize;
+            ensure_col(py, panel, panel_df, "last")?;
+            ensure_col(py, panel, panel_df, "volume")?;
+            let close_col = panel.col("last")?;
+            let volume_col = panel.col("volume")?;
+            let mut raw = vec![0.0; panel.groups.len()];
+            for (gi, g) in panel.groups.iter().enumerate() {
+                let close_rank = pct_rank(&close_col[g.start..g.end]);
+                let vol_rank = pct_rank(&volume_col[g.start..g.end]);
+                raw[gi] = cov_last_window(&close_rank, &vol_rank, cov_window);
+            }
+            let ranks = cs_rank_by_dt(&panel.groups, &raw);
+            for i in 0..out.len() {
+                out[i] = -ranks[i];
+            }
+        }
+        "alpha014_return_open_volume_v1" => {
+            let delta_window = spec.param_i64("delta_window", 3).max(1) as usize;
+            let corr_window = spec.param_i64("corr_window", 10).max(2) as usize;
+            ensure_col(py, panel, panel_df, "last")?;
+            ensure_col(py, panel, panel_df, "open")?;
+            ensure_col(py, panel, panel_df, "ask_price1")?;
+            ensure_col(py, panel, panel_df, "bid_price1")?;
+            ensure_col(py, panel, panel_df, "volume")?;
+            let has_prev = has_col(py, panel_df, "prev_bar_close")?;
+            let has_pre_close = has_col(py, panel_df, "pre_close")?;
+            if has_prev {
+                ensure_col(py, panel, panel_df, "prev_bar_close")?;
+            } else if has_pre_close {
+                ensure_col(py, panel, panel_df, "pre_close")?;
+            }
+            let last_col = panel.col("last")?;
+            let open_col = panel.col("open")?;
+            let ask_col = panel.col("ask_price1")?;
+            let bid_col = panel.col("bid_price1")?;
+            let volume_col = panel.col("volume")?;
+            let mut delta_raw = vec![0.0; panel.groups.len()];
+            let mut corr_raw = vec![0.0; panel.groups.len()];
+            for (gi, g) in panel.groups.iter().enumerate() {
+                let last = &last_col[g.start..g.end];
+                let open = &open_col[g.start..g.end];
+                let ask = &ask_col[g.start..g.end];
+                let bid = &bid_col[g.start..g.end];
+                let volume = &volume_col[g.start..g.end];
+                let n = g.end - g.start;
+                let mut ret = vec![f64::NAN; n];
+                let mut open_like = vec![f64::NAN; n];
+                for i in 0..n {
+                    let pre = if has_prev {
+                        panel.col("prev_bar_close")?[g.start + i]
+                    } else if has_pre_close {
+                        panel.col("pre_close")?[g.start + i]
+                    } else if i > 0 {
+                        last[i - 1]
+                    } else {
+                        f64::NAN
+                    };
+                    let l = last[i];
+                    ret[i] = if l.is_finite() && pre.is_finite() && pre.abs() > EPS {
+                        (l - pre) / (pre + EPS)
+                    } else {
+                        f64::NAN
+                    };
+                    open_like[i] = open_like_at(open[i], ask[i], bid[i]);
+                }
+                delta_raw[gi] = delta_last_from_slice(&ret, delta_window);
+                corr_raw[gi] = corr_last_window(&open_like, volume, corr_window);
+            }
+            let delta_rank = cs_rank_by_dt(&panel.groups, &delta_raw);
+            for i in 0..out.len() {
+                out[i] = (-delta_rank[i]) * corr_raw[i];
+            }
+        }
+        "alpha015_high_volume_corr_v1" => {
+            let corr_window = spec.param_i64("corr_window", 3).max(2) as usize;
+            let sum_window = spec.param_i64("sum_window", 3).max(1) as usize;
+            ensure_col(py, panel, panel_df, "high")?;
+            ensure_col(py, panel, panel_df, "volume")?;
+            let high_col = panel.col("high")?;
+            let volume_col = panel.col("volume")?;
+            for (gi, g) in panel.groups.iter().enumerate() {
+                let high_rank = pct_rank(&high_col[g.start..g.end]);
+                let vol_rank = pct_rank(&volume_col[g.start..g.end]);
+                let n = high_rank.len();
+                if n == 0 {
+                    out[gi] = 0.0;
+                    continue;
+                }
+                let mut corr_series = vec![0.0; n];
+                for i in 0..n {
+                    let s = i + 1usize - (i + 1).min(corr_window);
+                    let c = corr_slice(&high_rank[s..=i], &vol_rank[s..=i]);
+                    corr_series[i] = if c.is_finite() { c } else { 0.0 };
+                }
+                let ranked_corr = pct_rank(&corr_series);
+                let start = n.saturating_sub(sum_window);
+                let mut acc = 0.0;
+                for v in &ranked_corr[start..n] {
+                    if v.is_finite() {
+                        acc += *v;
+                    }
+                }
+                out[gi] = -acc;
+            }
+        }
+        "alpha016_cov_high_volume_v1" => {
+            let cov_window = spec.param_i64("cov_window", 5).max(2) as usize;
+            ensure_col(py, panel, panel_df, "high")?;
+            ensure_col(py, panel, panel_df, "volume")?;
+            let high_col = panel.col("high")?;
+            let volume_col = panel.col("volume")?;
+            let mut raw = vec![0.0; panel.groups.len()];
+            for (gi, g) in panel.groups.iter().enumerate() {
+                let high_rank = pct_rank(&high_col[g.start..g.end]);
+                let vol_rank = pct_rank(&volume_col[g.start..g.end]);
+                raw[gi] = cov_last_window(&high_rank, &vol_rank, cov_window);
+            }
+            let ranks = cs_rank_by_dt(&panel.groups, &raw);
+            for i in 0..out.len() {
+                out[i] = -ranks[i];
+            }
+        }
+        "alpha017_close_rank_volume_v1" => {
+            let adv_window = spec.param_i64("adv_window", 20).max(1) as usize;
+            let ts_rank_close_window = spec.param_i64("ts_rank_close_window", 10).max(1) as usize;
+            let ts_rank_vol_window = spec.param_i64("ts_rank_vol_window", 5).max(1) as usize;
+            ensure_col(py, panel, panel_df, "last")?;
+            ensure_col(py, panel, panel_df, "amount")?;
+            ensure_col(py, panel, panel_df, "volume")?;
+            let last_col = panel.col("last")?;
+            let amount_col = panel.col("amount")?;
+            let volume_col = panel.col("volume")?;
+            let mut t1_raw = vec![0.0; panel.groups.len()];
+            let mut t2_raw = vec![0.0; panel.groups.len()];
+            let mut t3_raw = vec![0.0; panel.groups.len()];
+            for (gi, g) in panel.groups.iter().enumerate() {
+                let last = &last_col[g.start..g.end];
+                let amount = &amount_col[g.start..g.end];
+                let volume = &volume_col[g.start..g.end];
+                let n = last.len();
+                t1_raw[gi] = ts_rank_last(last, ts_rank_close_window);
+                if n >= 3 {
+                    let a = last[n - 1];
+                    let b = last[n - 2];
+                    let c = last[n - 3];
+                    t2_raw[gi] = if a.is_finite() && b.is_finite() && c.is_finite() {
+                        a - 2.0 * b + c
+                    } else {
+                        0.0
+                    };
+                } else {
+                    t2_raw[gi] = 0.0;
+                }
+                let mut ratio = vec![f64::NAN; n];
+                for i in 0..n {
+                    let s = i + 1usize - (i + 1).min(adv_window);
+                    let adv = mean_valid(&amount[s..=i]);
+                    ratio[i] = if adv.is_finite() && volume[i].is_finite() {
+                        volume[i] / (adv + EPS)
+                    } else {
+                        f64::NAN
+                    };
+                }
+                t3_raw[gi] = ts_rank_last(&ratio, ts_rank_vol_window);
+            }
+            let t1_rank = cs_rank_by_dt(&panel.groups, &t1_raw);
+            let t2_rank = cs_rank_by_dt(&panel.groups, &t2_raw);
+            let t3_rank = cs_rank_by_dt(&panel.groups, &t3_raw);
+            for i in 0..out.len() {
+                out[i] = (-t1_rank[i]) * t2_rank[i] * t3_rank[i];
+            }
+        }
+        "alpha018_close_open_vol_v1" => {
+            let stddev_window = spec.param_i64("stddev_window", 5).max(2) as usize;
+            let corr_window = spec.param_i64("corr_window", 10).max(2) as usize;
+            ensure_col(py, panel, panel_df, "last")?;
+            ensure_col(py, panel, panel_df, "open")?;
+            ensure_col(py, panel, panel_df, "ask_price1")?;
+            ensure_col(py, panel, panel_df, "bid_price1")?;
+            let last_col = panel.col("last")?;
+            let open_col = panel.col("open")?;
+            let ask_col = panel.col("ask_price1")?;
+            let bid_col = panel.col("bid_price1")?;
+            let mut raw = vec![f64::NAN; panel.groups.len()];
+            for (gi, g) in panel.groups.iter().enumerate() {
+                let last = &last_col[g.start..g.end];
+                let open = &open_col[g.start..g.end];
+                let ask = &ask_col[g.start..g.end];
+                let bid = &bid_col[g.start..g.end];
+                let n = last.len();
+                if n == 0 {
+                    raw[gi] = f64::NAN;
+                    continue;
+                }
+                let mut open_like = vec![f64::NAN; n];
+                let mut diff = vec![f64::NAN; n];
+                for i in 0..n {
+                    open_like[i] = open_like_at(open[i], ask[i], bid[i]);
+                    diff[i] = if last[i].is_finite() && open_like[i].is_finite() {
+                        last[i] - open_like[i]
+                    } else {
+                        f64::NAN
+                    };
+                }
+                let s = n.saturating_sub(stddev_window);
+                let mut abs_tail = Vec::with_capacity(n - s);
+                for &v in &diff[s..n] {
+                    if v.is_finite() {
+                        abs_tail.push(v.abs());
+                    }
+                }
+                let std_diff = if abs_tail.len() >= 2 {
+                    let v = std_sample(&abs_tail);
+                    if v.is_finite() { v } else { 0.0 }
+                } else {
+                    0.0
+                };
+                let corr_co = corr_last_window(last, &open_like, corr_window);
+                let diff_last = diff[n - 1];
+                raw[gi] = if diff_last.is_finite() {
+                    std_diff + diff_last + corr_co
+                } else {
+                    f64::NAN
+                };
+            }
+            let ranks = cs_rank_by_dt(&panel.groups, &raw);
+            for i in 0..out.len() {
+                out[i] = -ranks[i];
+            }
+        }
+        "alpha019_close_momentum_sign_v1" => {
+            let delta_window = spec.param_i64("delta_window", 7).max(1) as usize;
+            let sum_window = spec.param_i64("sum_window", 250).max(1) as usize;
+            ensure_col(py, panel, panel_df, "last")?;
+            let has_prev = has_col(py, panel_df, "prev_bar_close")?;
+            let has_pre_close = has_col(py, panel_df, "pre_close")?;
+            if has_prev {
+                ensure_col(py, panel, panel_df, "prev_bar_close")?;
+            } else if has_pre_close {
+                ensure_col(py, panel, panel_df, "pre_close")?;
+            }
+            let last_col = panel.col("last")?;
+            let mut sign_raw = vec![0.0; panel.groups.len()];
+            let mut sum_raw = vec![0.0; panel.groups.len()];
+            for (gi, g) in panel.groups.iter().enumerate() {
+                let last = &last_col[g.start..g.end];
+                let n = last.len();
+                if n == 0 {
+                    sign_raw[gi] = 0.0;
+                    sum_raw[gi] = 0.0;
+                    continue;
+                }
+                let delayed = delay_last_from_slice(last, delta_window);
+                let last_change = last[n - 1] - delayed;
+                let delta_last = delta_last_from_slice(last, delta_window);
+                let delta_value = if delta_last.is_finite() { delta_last } else { 0.0 };
+                let sign_term = (last_change + delta_value).signum();
+                sign_raw[gi] = if sign_term.is_finite() { sign_term } else { 0.0 };
+
+                let mut ret = vec![f64::NAN; n];
+                for i in 0..n {
+                    let pre = if has_prev {
+                        panel.col("prev_bar_close")?[g.start + i]
+                    } else if has_pre_close {
+                        panel.col("pre_close")?[g.start + i]
+                    } else if i > 0 {
+                        last[i - 1]
+                    } else {
+                        f64::NAN
+                    };
+                    ret[i] = if last[i].is_finite() && pre.is_finite() && pre.abs() > EPS {
+                        (last[i] - pre) / (pre + EPS)
+                    } else {
+                        f64::NAN
+                    };
+                }
+                let start = n.saturating_sub(sum_window);
+                sum_raw[gi] = sum_valid(&ret[start..n]);
+            }
+            let one_plus_sum: Vec<f64> = sum_raw.iter().map(|v| 1.0 + *v).collect();
+            let sum_rank = cs_rank_by_dt(&panel.groups, &one_plus_sum);
+            for i in 0..out.len() {
+                out[i] = (-sign_raw[i]) * (1.0 + sum_rank[i]);
+            }
+        }
+        "alpha020_open_delay_range_v1" => {
+            let delay_window = spec.param_i64("delay_window", 1).max(1) as usize;
+            ensure_col(py, panel, panel_df, "open")?;
+            ensure_col(py, panel, panel_df, "ask_price1")?;
+            ensure_col(py, panel, panel_df, "bid_price1")?;
+            ensure_col(py, panel, panel_df, "high")?;
+            ensure_col(py, panel, panel_df, "low")?;
+            ensure_col(py, panel, panel_df, "last")?;
+            let open_col = panel.col("open")?;
+            let ask_col = panel.col("ask_price1")?;
+            let bid_col = panel.col("bid_price1")?;
+            let high_col = panel.col("high")?;
+            let low_col = panel.col("low")?;
+            let last_col = panel.col("last")?;
+            let mut d1_raw = vec![0.0; panel.groups.len()];
+            let mut d2_raw = vec![0.0; panel.groups.len()];
+            let mut d3_raw = vec![0.0; panel.groups.len()];
+            for (gi, g) in panel.groups.iter().enumerate() {
+                let open = &open_col[g.start..g.end];
+                let ask = &ask_col[g.start..g.end];
+                let bid = &bid_col[g.start..g.end];
+                let high = &high_col[g.start..g.end];
+                let low = &low_col[g.start..g.end];
+                let last = &last_col[g.start..g.end];
+                let n = open.len();
+                if n == 0 {
+                    d1_raw[gi] = 0.0;
+                    d2_raw[gi] = 0.0;
+                    d3_raw[gi] = 0.0;
+                    continue;
+                }
+                let open_last = open_like_at(open[n - 1], ask[n - 1], bid[n - 1]);
+                d1_raw[gi] = open_last - delay_last_from_slice(high, delay_window);
+                d2_raw[gi] = open_last - delay_last_from_slice(last, delay_window);
+                d3_raw[gi] = open_last - delay_last_from_slice(low, delay_window);
+            }
+            let d1_rank = cs_rank_by_dt(&panel.groups, &d1_raw);
+            let d2_rank = cs_rank_by_dt(&panel.groups, &d2_raw);
+            let d3_rank = cs_rank_by_dt(&panel.groups, &d3_raw);
+            for i in 0..out.len() {
+                out[i] = (-d1_rank[i]) * d2_rank[i] * d3_rank[i];
+            }
+        }
+        "alpha021_close_volatility_breakout_v1" => {
+            let sum_window_long = spec.param_i64("sum_window_long", 5).max(1) as usize;
+            let sum_window_short = spec.param_i64("sum_window_short", 2).max(1) as usize;
+            let adv_window = spec.param_i64("adv_window", 10).max(1) as usize;
+            ensure_col(py, panel, panel_df, "last")?;
+            ensure_col(py, panel, panel_df, "volume")?;
+            ensure_col(py, panel, panel_df, "amount")?;
+            let last_col = panel.col("last")?;
+            let volume_col = panel.col("volume")?;
+            let amount_col = panel.col("amount")?;
+            for (gi, g) in panel.groups.iter().enumerate() {
+                let last = &last_col[g.start..g.end];
+                let volume = &volume_col[g.start..g.end];
+                let amount = &amount_col[g.start..g.end];
+                if last.is_empty() {
+                    out[gi] = 0.0;
+                    continue;
+                }
+                let avg_long = rolling_mean_last(last, sum_window_long);
+                let s_long = last.len().saturating_sub(sum_window_long);
+                let std_long = {
+                    let v = std_sample(&last[s_long..]);
+                    if v.is_finite() { v } else { 0.0 }
+                };
+                let avg_short = rolling_mean_last(last, sum_window_short);
+                let upper = avg_long + std_long;
+                let lower = avg_long - std_long;
+                let adv = rolling_mean_last(amount, adv_window);
+                let vol_ratio = volume[volume.len() - 1] / (adv + EPS);
+                out[gi] = if upper < avg_short {
+                    -1.0
+                } else if avg_short < lower {
+                    1.0
+                } else if vol_ratio >= 1.0 {
+                    1.0
+                } else {
+                    -1.0
+                };
+            }
+        }
+        "alpha022_high_volume_corr_change_v1" => {
+            let corr_window = spec.param_i64("corr_window", 5).max(2) as usize;
+            let delta_window = spec.param_i64("delta_window", 5).max(1) as usize;
+            let stddev_window = spec.param_i64("stddev_window", 10).max(2) as usize;
+            ensure_col(py, panel, panel_df, "high")?;
+            ensure_col(py, panel, panel_df, "volume")?;
+            ensure_col(py, panel, panel_df, "last")?;
+            let high_col = panel.col("high")?;
+            let volume_col = panel.col("volume")?;
+            let last_col = panel.col("last")?;
+            let mut delta_corr_raw = vec![0.0; panel.groups.len()];
+            let mut std_close_raw = vec![0.0; panel.groups.len()];
+            for (gi, g) in panel.groups.iter().enumerate() {
+                let high = &high_col[g.start..g.end];
+                let volume = &volume_col[g.start..g.end];
+                let last = &last_col[g.start..g.end];
+                let n = high.len();
+                if n == 0 {
+                    delta_corr_raw[gi] = 0.0;
+                    std_close_raw[gi] = 0.0;
+                    continue;
+                }
+                let mut corr_series = vec![f64::NAN; n];
+                for i in 0..n {
+                    let s = i + 1usize - (i + 1).min(corr_window);
+                    let c = corr_slice(&high[s..=i], &volume[s..=i]);
+                    corr_series[i] = if c.is_finite() { c } else { f64::NAN };
+                }
+                let c_last = corr_series[n - 1];
+                let c_prev = if n > delta_window {
+                    corr_series[n - 1 - delta_window]
+                } else {
+                    f64::NAN
+                };
+                delta_corr_raw[gi] = if c_last.is_finite() && c_prev.is_finite() {
+                    c_last - c_prev
+                } else {
+                    0.0
+                };
+                let s = n.saturating_sub(stddev_window);
+                let stdc = std_sample(&last[s..n]);
+                std_close_raw[gi] = if stdc.is_finite() { stdc } else { 0.0 };
+            }
+            let rank_std = cs_rank_by_dt(&panel.groups, &std_close_raw);
+            for i in 0..out.len() {
+                out[i] = -(delta_corr_raw[i] * rank_std[i]);
+            }
+        }
+        "alpha023_high_momentum_v1" => {
+            let sum_window = spec.param_i64("sum_window", 10).max(1) as usize;
+            let delta_window = spec.param_i64("delta_window", 2).max(1) as usize;
+            ensure_col(py, panel, panel_df, "high")?;
+            let high_col = panel.col("high")?;
+            for (gi, g) in panel.groups.iter().enumerate() {
+                let high = &high_col[g.start..g.end];
+                if high.is_empty() {
+                    out[gi] = 0.0;
+                    continue;
+                }
+                let avg_high = rolling_mean_last(high, sum_window);
+                if avg_high < high[high.len() - 1] {
+                    out[gi] = -delta_last_from_slice(high, delta_window);
+                } else {
+                    out[gi] = 0.0;
+                }
+            }
+        }
+        "alpha024_close_trend_filter_v1" => {
+            let sum_window = spec.param_i64("sum_window", 20).max(1) as usize;
+            let delta_window = spec.param_i64("delta_window", 20).max(1) as usize;
+            let ts_min_window = spec.param_i64("ts_min_window", 20).max(1) as usize;
+            let short_delta_window = spec.param_i64("short_delta_window", 3).max(1) as usize;
+            let trend_threshold = spec.param_f64("trend_threshold", 0.05);
+            ensure_col(py, panel, panel_df, "last")?;
+            let last_col = panel.col("last")?;
+            for (gi, g) in panel.groups.iter().enumerate() {
+                let last = &last_col[g.start..g.end];
+                let n = last.len();
+                if n == 0 {
+                    out[gi] = 0.0;
+                    continue;
+                }
+                let mut avg_close = vec![f64::NAN; n];
+                for i in 0..n {
+                    let s = i + 1usize - (i + 1).min(sum_window);
+                    avg_close[i] = mean_valid(&last[s..=i]);
+                }
+                let rate = if n > delta_window {
+                    let cur = avg_close[n - 1];
+                    let base = avg_close[n - 1 - delta_window];
+                    if cur.is_finite() && base.is_finite() {
+                        (cur - base) / (base + EPS)
+                    } else {
+                        0.0
+                    }
+                } else {
+                    0.0
+                };
+                if rate <= trend_threshold {
+                    let ts_min = rolling_min_last(last, ts_min_window);
+                    out[gi] = -(last[n - 1] - ts_min);
+                } else {
+                    out[gi] = -delta_last_from_slice(last, short_delta_window);
+                }
+            }
+        }
+        "alpha025_return_volume_vwap_range_v1" => {
+            let adv_window = spec.param_i64("adv_window", 10).max(1) as usize;
+            ensure_col(py, panel, panel_df, "last")?;
+            ensure_col(py, panel, panel_df, "amount")?;
+            ensure_col(py, panel, panel_df, "volume")?;
+            ensure_col(py, panel, panel_df, "high")?;
+            let has_prev = has_col(py, panel_df, "prev_bar_close")?;
+            let has_pre_close = has_col(py, panel_df, "pre_close")?;
+            if has_prev {
+                ensure_col(py, panel, panel_df, "prev_bar_close")?;
+            } else if has_pre_close {
+                ensure_col(py, panel, panel_df, "pre_close")?;
+            }
+            let last_col = panel.col("last")?;
+            let amount_col = panel.col("amount")?;
+            let volume_col = panel.col("volume")?;
+            let high_col = panel.col("high")?;
+            let mut raw = vec![0.0; panel.groups.len()];
+            for (gi, g) in panel.groups.iter().enumerate() {
+                let n = g.end - g.start;
+                if n == 0 {
+                    raw[gi] = 0.0;
+                    continue;
+                }
+                let last = last_col[g.end - 1];
+                let pre = if has_prev {
+                    panel.col("prev_bar_close")?[g.end - 1]
+                } else if has_pre_close {
+                    panel.col("pre_close")?[g.end - 1]
+                } else if n > 1 {
+                    last_col[g.end - 2]
+                } else {
+                    f64::NAN
+                };
+                let returns = if last.is_finite() && pre.is_finite() && pre.abs() > EPS {
+                    (last - pre) / (pre + EPS)
+                } else {
+                    0.0
+                };
+                let amount = &amount_col[g.start..g.end];
+                let volume = &volume_col[g.start..g.end];
+                let adv = rolling_mean_last(amount, adv_window);
+                let vwap = amount[n - 1] / (volume[n - 1] + EPS);
+                let high = high_col[g.end - 1];
+                let price_range = high - last;
+                raw[gi] = ((-returns) * adv) * vwap * price_range;
+            }
+            out = cs_rank_by_dt(&panel.groups, &raw);
+        }
+        "alpha026_volume_high_rank_corr_v1" => {
+            let ts_rank_window = spec.param_i64("ts_rank_window", 5).max(1) as usize;
+            let corr_window = spec.param_i64("corr_window", 5).max(2) as usize;
+            let ts_max_window = spec.param_i64("ts_max_window", 3).max(1) as usize;
+            ensure_col(py, panel, panel_df, "volume")?;
+            ensure_col(py, panel, panel_df, "high")?;
+            let volume_col = panel.col("volume")?;
+            let high_col = panel.col("high")?;
+            for (gi, g) in panel.groups.iter().enumerate() {
+                let volume = &volume_col[g.start..g.end];
+                let high = &high_col[g.start..g.end];
+                let ts_rank_vol = rolling_last_rank_pct_series(volume, ts_rank_window);
+                let ts_rank_high = rolling_last_rank_pct_series(high, ts_rank_window);
+                let n = volume.len();
+                let mut corr_series = vec![f64::NAN; n];
+                for i in 0..n {
+                    let s = i + 1usize - (i + 1).min(corr_window);
+                    let c = corr_slice(&ts_rank_vol[s..=i], &ts_rank_high[s..=i]);
+                    corr_series[i] = if c.is_finite() { c } else { f64::NAN };
+                }
+                let ts_max = rolling_max_last(&corr_series, ts_max_window);
+                out[gi] = if ts_max.is_finite() { -ts_max } else { 0.0 };
+            }
+        }
+        "alpha027_volume_vwap_corr_signal_v1" => {
+            let corr_window = spec.param_i64("corr_window", 6).max(2) as usize;
+            let sum_window = spec.param_i64("sum_window", 2).max(1) as usize;
+            ensure_col(py, panel, panel_df, "amount")?;
+            ensure_col(py, panel, panel_df, "volume")?;
+            let amount_col = panel.col("amount")?;
+            let volume_col = panel.col("volume")?;
+            let mut avg_corr = vec![0.0; panel.groups.len()];
+            for (gi, g) in panel.groups.iter().enumerate() {
+                let amount = &amount_col[g.start..g.end];
+                let volume = &volume_col[g.start..g.end];
+                let n = volume.len();
+                if n == 0 {
+                    avg_corr[gi] = 0.0;
+                    continue;
+                }
+                let mut vwap = vec![f64::NAN; n];
+                for i in 0..n {
+                    vwap[i] = amount[i] / (volume[i] + EPS);
+                }
+                let r1 = pct_rank(volume);
+                let r2 = pct_rank(&vwap);
+                let mut corr = vec![f64::NAN; n];
+                for i in 0..n {
+                    let s = i + 1usize - (i + 1).min(corr_window);
+                    let c = corr_slice(&r1[s..=i], &r2[s..=i]);
+                    corr[i] = if c.is_finite() { c } else { f64::NAN };
+                }
+                let m = rolling_mean_last(&corr, sum_window);
+                avg_corr[gi] = if m.is_finite() { m } else { 0.0 };
+            }
+            let rank_avg = cs_rank_by_dt(&panel.groups, &avg_corr);
+            for i in 0..out.len() {
+                out[i] = if rank_avg[i] > 0.5 { -1.0 } else { 1.0 };
+            }
+        }
+        "alpha028_adv_low_close_signal_v1" => {
+            let adv_window = spec.param_i64("adv_window", 10).max(1) as usize;
+            let corr_window = spec.param_i64("corr_window", 5).max(2) as usize;
+            ensure_col(py, panel, panel_df, "amount")?;
+            ensure_col(py, panel, panel_df, "high")?;
+            ensure_col(py, panel, panel_df, "low")?;
+            ensure_col(py, panel, panel_df, "last")?;
+            let amount_col = panel.col("amount")?;
+            let high_col = panel.col("high")?;
+            let low_col = panel.col("low")?;
+            let last_col = panel.col("last")?;
+            let mut raw = vec![0.0; panel.groups.len()];
+            for (gi, g) in panel.groups.iter().enumerate() {
+                let amount = &amount_col[g.start..g.end];
+                let low = &low_col[g.start..g.end];
+                let high = &high_col[g.start..g.end];
+                let last = &last_col[g.start..g.end];
+                let n = amount.len();
+                if n == 0 {
+                    raw[gi] = 0.0;
+                    continue;
+                }
+                let mut adv = vec![f64::NAN; n];
+                for i in 0..n {
+                    let s = i + 1usize - (i + 1).min(adv_window);
+                    adv[i] = mean_valid(&amount[s..=i]);
+                }
+                let corr = corr_last_window(&adv, low, corr_window);
+                let mid_price = (high[n - 1] + low[n - 1]) / 2.0;
+                raw[gi] = (corr + mid_price) - last[n - 1];
+            }
+            out = cs_rank_by_dt(&panel.groups, &raw);
+        }
+        "alpha029_complex_rank_signal_v1" => {
+            let ts_min_window = spec.param_i64("ts_min_window", 2).max(1) as usize;
+            let ts_rank_window = spec.param_i64("ts_rank_window", 5).max(1) as usize;
+            let delay_window = spec.param_i64("delay_window", 3).max(1) as usize;
+            let min_window = spec.param_i64("min_window", 5).max(1) as usize;
+            ensure_col(py, panel, panel_df, "last")?;
+            let has_prev = has_col(py, panel_df, "prev_bar_close")?;
+            let has_pre_close = has_col(py, panel_df, "pre_close")?;
+            if has_prev {
+                ensure_col(py, panel, panel_df, "prev_bar_close")?;
+            } else if has_pre_close {
+                ensure_col(py, panel, panel_df, "pre_close")?;
+            }
+            let last_col = panel.col("last")?;
+            for (gi, g) in panel.groups.iter().enumerate() {
+                let last = &last_col[g.start..g.end];
+                let n = last.len();
+                if n == 0 {
+                    out[gi] = 0.0;
+                    continue;
+                }
+                let mut pre = vec![f64::NAN; n];
+                for i in 0..n {
+                    pre[i] = if has_prev {
+                        panel.col("prev_bar_close")?[g.start + i]
+                    } else if has_pre_close {
+                        panel.col("pre_close")?[g.start + i]
+                    } else if i > 0 {
+                        last[i - 1]
+                    } else {
+                        f64::NAN
+                    };
+                }
+                let mut returns = vec![f64::NAN; n];
+                for i in 0..n {
+                    returns[i] = if last[i].is_finite() && pre[i].is_finite() && pre[i].abs() > EPS {
+                        (last[i] - pre[i]) / (pre[i] + EPS)
+                    } else {
+                        f64::NAN
+                    };
+                }
+                let delta_close = diff(last, 1);
+                let mut neg_delta = vec![f64::NAN; n];
+                for i in 0..n {
+                    neg_delta[i] = if delta_close[i].is_finite() { -delta_close[i] } else { f64::NAN };
+                }
+                let rank_delta = pct_rank(&neg_delta);
+                let mut ts_min_rank = vec![f64::NAN; n];
+                for i in 0..n {
+                    let s = i + 1usize - (i + 1).min(ts_min_window);
+                    ts_min_rank[i] = rolling_min_last(&rank_delta[s..=i], ts_min_window);
+                }
+                let mut log_sum = vec![f64::NAN; n];
+                for i in 0..n {
+                    if ts_min_rank[i].is_finite() {
+                        log_sum[i] = (ts_min_rank[i].abs() + EPS).ln();
+                    }
+                }
+                let finite: Vec<f64> = log_sum.iter().copied().filter(|v| v.is_finite()).collect();
+                let mean_log = if finite.is_empty() {
+                    0.0
+                } else {
+                    finite.iter().sum::<f64>() / finite.len() as f64
+                };
+                let denom = finite.iter().map(|v| (v - mean_log).abs()).sum::<f64>() + EPS;
+                let mut scaled = vec![f64::NAN; n];
+                for i in 0..n {
+                    if log_sum[i].is_finite() {
+                        scaled[i] = (log_sum[i] - mean_log) / denom;
+                    }
+                }
+                let rank_scaled = pct_rank(&scaled);
+                let min_rank = rolling_min_last(&rank_scaled, min_window);
+                let mut delay_ret = vec![f64::NAN; n];
+                for i in 0..n {
+                    let x = if returns[i].is_finite() { -returns[i] } else { f64::NAN };
+                    delay_ret[i] = x;
+                }
+                if delay_window > 0 {
+                    for i in (0..n).rev() {
+                        delay_ret[i] = if i >= delay_window { delay_ret[i - delay_window] } else { f64::NAN };
+                    }
+                }
+                let ts_rank_ret = ts_rank_last(&delay_ret, ts_rank_window);
+                out[gi] = min_rank + ts_rank_ret;
+            }
+        }
+        "alpha030_close_sign_volume_v1" => {
+            let delay1 = spec.param_i64("delay1", 1).max(1) as usize;
+            let delay2 = spec.param_i64("delay2", 2).max(1) as usize;
+            let delay3 = spec.param_i64("delay3", 3).max(1) as usize;
+            let sum_window_short = spec.param_i64("sum_window_short", 5).max(1) as usize;
+            let sum_window_long = spec.param_i64("sum_window_long", 10).max(1) as usize;
+            ensure_col(py, panel, panel_df, "last")?;
+            ensure_col(py, panel, panel_df, "volume")?;
+            let last_col = panel.col("last")?;
+            let volume_col = panel.col("volume")?;
+            let mut sign_sum = vec![0.0; panel.groups.len()];
+            let mut vol_ratio = vec![0.0; panel.groups.len()];
+            for (gi, g) in panel.groups.iter().enumerate() {
+                let last = &last_col[g.start..g.end];
+                let volume = &volume_col[g.start..g.end];
+                let n = last.len();
+                if n == 0 {
+                    continue;
+                }
+                let l0 = last[n - 1];
+                let l1 = delay_value_or_nan(last, delay1);
+                let l2 = delay_value_or_nan(last, delay2);
+                let l3 = delay_value_or_nan(last, delay3);
+                let s1 = if l0.is_finite() && l1.is_finite() { (l0 - l1).signum() } else { 0.0 };
+                let s2 = if l1.is_finite() && l2.is_finite() { (l1 - l2).signum() } else { 0.0 };
+                let s3 = if l2.is_finite() && l3.is_finite() { (l2 - l3).signum() } else { 0.0 };
+                sign_sum[gi] = s1 + s2 + s3;
+                let s_short = {
+                    let s = n.saturating_sub(sum_window_short);
+                    sum_valid(&volume[s..n])
+                };
+                let s_long = {
+                    let s = n.saturating_sub(sum_window_long);
+                    sum_valid(&volume[s..n])
+                };
+                vol_ratio[gi] = s_short / (s_long + EPS);
+            }
+            let rank_sign = cs_rank_by_dt(&panel.groups, &sign_sum);
+            for i in 0..out.len() {
+                out[i] = (1.0 - rank_sign[i]) * vol_ratio[i];
+            }
+        }
+        "alpha031_close_decay_momentum_v1" => {
+            let delta_window = spec.param_i64("delta_window", 10).max(1) as usize;
+            let decay_window = spec.param_i64("decay_window", 10).max(1) as usize;
+            let delta_short_window = spec.param_i64("delta_short_window", 3).max(1) as usize;
+            let corr_window = spec.param_i64("corr_window", 12).max(2) as usize;
+            let adv_window = spec.param_i64("adv_window", 10).max(1) as usize;
+            ensure_col(py, panel, panel_df, "last")?;
+            ensure_col(py, panel, panel_df, "amount")?;
+            ensure_col(py, panel, panel_df, "low")?;
+            let last_col = panel.col("last")?;
+            let amount_col = panel.col("amount")?;
+            let low_col = panel.col("low")?;
+            let mut decay_raw = vec![0.0; panel.groups.len()];
+            let mut short_raw = vec![0.0; panel.groups.len()];
+            let mut corr_raw = vec![0.0; panel.groups.len()];
+            for (gi, g) in panel.groups.iter().enumerate() {
+                let last = &last_col[g.start..g.end];
+                let amount = &amount_col[g.start..g.end];
+                let low = &low_col[g.start..g.end];
+                let n = last.len();
+                if n == 0 {
+                    continue;
+                }
+                let delta_close = diff(last, delta_window);
+                let rank_delta = pct_rank(&delta_close);
+                let tail_s = n.saturating_sub(decay_window);
+                let mut num = 0.0;
+                let mut den = 0.0;
+                let mut w = 1.0;
+                for &v in &rank_delta[tail_s..n] {
+                    if v.is_finite() {
+                        num += (-v) * w;
+                    }
+                    den += w;
+                    w += 1.0;
+                }
+                decay_raw[gi] = if den > 0.0 { num / den } else { 0.0 };
+                short_raw[gi] = -delta_last_from_slice(last, delta_short_window);
+                let mut adv = vec![f64::NAN; n];
+                for i in 0..n {
+                    let s = i + 1usize - (i + 1).min(adv_window);
+                    adv[i] = mean_valid(&amount[s..=i]);
+                }
+                corr_raw[gi] = corr_last_window(&adv, low, corr_window);
+            }
+            let rank_decay = cs_rank_by_dt(&panel.groups, &decay_raw);
+            let rank_short = cs_rank_by_dt(&panel.groups, &short_raw);
+            let rank_corr = cs_rank_by_dt(&panel.groups, &corr_raw);
+            for i in 0..out.len() {
+                let corr_sign = (rank_corr[i] - 0.5).signum();
+                out[i] = rank_decay[i] + rank_short[i] + corr_sign;
+            }
+        }
+        "alpha032_vwap_close_mean_reversion_v1" => {
+            let sum_window = spec.param_i64("sum_window", 7).max(1) as usize;
+            let corr_window = spec.param_i64("corr_window", 60).max(2) as usize;
+            let delay_window = spec.param_i64("delay_window", 5).max(1) as usize;
+            let corr_scale = spec.param_f64("corr_scale", 20.0);
+            ensure_col(py, panel, panel_df, "last")?;
+            ensure_col(py, panel, panel_df, "amount")?;
+            ensure_col(py, panel, panel_df, "volume")?;
+            let last_col = panel.col("last")?;
+            let amount_col = panel.col("amount")?;
+            let volume_col = panel.col("volume")?;
+            let mut raw = vec![0.0; panel.groups.len()];
+            for (gi, g) in panel.groups.iter().enumerate() {
+                let last = &last_col[g.start..g.end];
+                let amount = &amount_col[g.start..g.end];
+                let volume = &volume_col[g.start..g.end];
+                let n = last.len();
+                if n == 0 {
+                    continue;
+                }
+                let avg_close = rolling_mean_last(last, sum_window);
+                let diff1 = avg_close - last[n - 1];
+                let mut vwap = vec![f64::NAN; n];
+                for i in 0..n {
+                    vwap[i] = amount[i] / (volume[i] + EPS);
+                }
+                let mut delayed_last = vec![f64::NAN; n];
+                for i in 0..n {
+                    delayed_last[i] = if i >= delay_window { last[i - delay_window] } else { f64::NAN };
+                }
+                let corr = corr_last_window(&vwap, &delayed_last, corr_window);
+                raw[gi] = diff1 + corr_scale * corr;
+            }
+            out = cs_rank_by_dt(&panel.groups, &raw);
+        }
+        "alpha033_open_close_ratio_v1" => {
+            ensure_col(py, panel, panel_df, "last")?;
+            ensure_col(py, panel, panel_df, "open")?;
+            ensure_col(py, panel, panel_df, "ask_price1")?;
+            ensure_col(py, panel, panel_df, "bid_price1")?;
+            let last_col = panel.col("last")?;
+            let open_col = panel.col("open")?;
+            let ask_col = panel.col("ask_price1")?;
+            let bid_col = panel.col("bid_price1")?;
+            let mut raw = vec![0.0; panel.groups.len()];
+            for (gi, g) in panel.groups.iter().enumerate() {
+                let r = g.end - 1;
+                let last = last_col[r];
+                let open_like = open_like_at(open_col[r], ask_col[r], bid_col[r]);
+                let ratio = 1.0 - open_like / (last + EPS);
+                raw[gi] = -ratio;
+            }
+            out = cs_rank_by_dt(&panel.groups, &raw);
+        }
+        "alpha034_return_volatility_rank_v1" => {
+            let stddev_window_short = spec.param_i64("stddev_window_short", 2).max(2) as usize;
+            let stddev_window_long = spec.param_i64("stddev_window_long", 5).max(2) as usize;
+            let delta_window = spec.param_i64("delta_window", 1).max(1) as usize;
+            ensure_col(py, panel, panel_df, "last")?;
+            let has_prev = has_col(py, panel_df, "prev_bar_close")?;
+            let has_pre_close = has_col(py, panel_df, "pre_close")?;
+            if has_prev {
+                ensure_col(py, panel, panel_df, "prev_bar_close")?;
+            } else if has_pre_close {
+                ensure_col(py, panel, panel_df, "pre_close")?;
+            }
+            let last_col = panel.col("last")?;
+            let mut vol_ratio = vec![0.0; panel.groups.len()];
+            let mut delta_close = vec![0.0; panel.groups.len()];
+            for (gi, g) in panel.groups.iter().enumerate() {
+                let last = &last_col[g.start..g.end];
+                let n = last.len();
+                if n == 0 {
+                    continue;
+                }
+                let mut pre = vec![f64::NAN; n];
+                for i in 0..n {
+                    pre[i] = if has_prev {
+                        panel.col("prev_bar_close")?[g.start + i]
+                    } else if has_pre_close {
+                        panel.col("pre_close")?[g.start + i]
+                    } else if i > 0 {
+                        last[i - 1]
+                    } else {
+                        f64::NAN
+                    };
+                }
+                let mut ret = vec![f64::NAN; n];
+                for i in 0..n {
+                    ret[i] = if last[i].is_finite() && pre[i].is_finite() && pre[i].abs() > EPS {
+                        (last[i] - pre[i]) / (pre[i] + EPS)
+                    } else {
+                        f64::NAN
+                    };
+                }
+                let s1 = n.saturating_sub(stddev_window_short);
+                let s2 = n.saturating_sub(stddev_window_long);
+                let std_short = {
+                    let v = std_sample(&ret[s1..n]);
+                    if v.is_finite() { v } else { 0.0 }
+                };
+                let std_long = {
+                    let v = std_sample(&ret[s2..n]);
+                    if v.is_finite() { v } else { 0.0 }
+                };
+                vol_ratio[gi] = std_short / (std_long + EPS);
+                delta_close[gi] = delta_last_from_slice(last, delta_window);
+            }
+            let rank_vol = cs_rank_by_dt(&panel.groups, &vol_ratio);
+            let rank_delta = cs_rank_by_dt(&panel.groups, &delta_close);
+            for i in 0..out.len() {
+                out[i] = (1.0 - rank_vol[i]) + (1.0 - rank_delta[i]);
+            }
+        }
+        "alpha035_volume_price_momentum_v1" => {
+            let ts_rank_window_long = spec.param_i64("ts_rank_window_long", 20).max(1) as usize;
+            let ts_rank_window_short = spec.param_i64("ts_rank_window_short", 16).max(1) as usize;
+            ensure_col(py, panel, panel_df, "volume")?;
+            ensure_col(py, panel, panel_df, "last")?;
+            ensure_col(py, panel, panel_df, "high")?;
+            ensure_col(py, panel, panel_df, "low")?;
+            let has_prev = has_col(py, panel_df, "prev_bar_close")?;
+            let has_pre_close = has_col(py, panel_df, "pre_close")?;
+            if has_prev {
+                ensure_col(py, panel, panel_df, "prev_bar_close")?;
+            } else if has_pre_close {
+                ensure_col(py, panel, panel_df, "pre_close")?;
+            }
+            let volume_col = panel.col("volume")?;
+            let last_col = panel.col("last")?;
+            let high_col = panel.col("high")?;
+            let low_col = panel.col("low")?;
+            for (gi, g) in panel.groups.iter().enumerate() {
+                let volume = &volume_col[g.start..g.end];
+                let last = &last_col[g.start..g.end];
+                let high = &high_col[g.start..g.end];
+                let low = &low_col[g.start..g.end];
+                let n = last.len();
+                if n == 0 {
+                    out[gi] = 0.0;
+                    continue;
+                }
+                let ts_rank_vol = ts_rank_last(volume, ts_rank_window_long);
+                let mut price_range = vec![f64::NAN; n];
+                for i in 0..n {
+                    price_range[i] = (last[i] + high[i]) - low[i];
+                }
+                let ts_rank_price = 1.0 - ts_rank_last(&price_range, ts_rank_window_short);
+                let mut pre = vec![f64::NAN; n];
+                for i in 0..n {
+                    pre[i] = if has_prev {
+                        panel.col("prev_bar_close")?[g.start + i]
+                    } else if has_pre_close {
+                        panel.col("pre_close")?[g.start + i]
+                    } else if i > 0 {
+                        last[i - 1]
+                    } else {
+                        f64::NAN
+                    };
+                }
+                let mut ret = vec![f64::NAN; n];
+                for i in 0..n {
+                    ret[i] = if last[i].is_finite() && pre[i].is_finite() && pre[i].abs() > EPS {
+                        (last[i] - pre[i]) / (pre[i] + EPS)
+                    } else {
+                        f64::NAN
+                    };
+                }
+                let ts_rank_ret = 1.0 - ts_rank_last(&ret, ts_rank_window_long);
+                out[gi] = ts_rank_vol * ts_rank_price * ts_rank_ret;
+            }
+        }
+        "alpha036_complex_correlation_signal_v1" => {
+            let corr_window_1 = spec.param_i64("corr_window_1", 15).max(2) as usize;
+            let corr_window_2 = spec.param_i64("corr_window_2", 6).max(2) as usize;
+            let sum_window = spec.param_i64("sum_window", 60).max(1) as usize;
+            let ts_rank_window = spec.param_i64("ts_rank_window", 5).max(1) as usize;
+            let delay_window = spec.param_i64("delay_window", 6).max(1) as usize;
+            let adv_window = spec.param_i64("adv_window", 10).max(1) as usize;
+            ensure_col(py, panel, panel_df, "last")?;
+            ensure_col(py, panel, panel_df, "open")?;
+            ensure_col(py, panel, panel_df, "ask_price1")?;
+            ensure_col(py, panel, panel_df, "bid_price1")?;
+            ensure_col(py, panel, panel_df, "volume")?;
+            ensure_col(py, panel, panel_df, "amount")?;
+            let has_prev = has_col(py, panel_df, "prev_bar_close")?;
+            let has_pre_close = has_col(py, panel_df, "pre_close")?;
+            if has_prev {
+                ensure_col(py, panel, panel_df, "prev_bar_close")?;
+            } else if has_pre_close {
+                ensure_col(py, panel, panel_df, "pre_close")?;
+            }
+            let last_col = panel.col("last")?;
+            let open_col = panel.col("open")?;
+            let ask_col = panel.col("ask_price1")?;
+            let bid_col = panel.col("bid_price1")?;
+            let volume_col = panel.col("volume")?;
+            let amount_col = panel.col("amount")?;
+            let mut t1 = vec![0.0; panel.groups.len()];
+            let mut t2 = vec![0.0; panel.groups.len()];
+            let mut t3 = vec![0.0; panel.groups.len()];
+            let mut t4 = vec![0.0; panel.groups.len()];
+            let mut t5 = vec![0.0; panel.groups.len()];
+            for (gi, g) in panel.groups.iter().enumerate() {
+                let last = &last_col[g.start..g.end];
+                let open = &open_col[g.start..g.end];
+                let ask = &ask_col[g.start..g.end];
+                let bid = &bid_col[g.start..g.end];
+                let volume = &volume_col[g.start..g.end];
+                let amount = &amount_col[g.start..g.end];
+                let n = last.len();
+                if n == 0 {
+                    continue;
+                }
+                let mut open_like = vec![f64::NAN; n];
+                let mut diff1 = vec![f64::NAN; n];
+                for i in 0..n {
+                    open_like[i] = open_like_at(open[i], ask[i], bid[i]);
+                    diff1[i] = if last[i].is_finite() && open_like[i].is_finite() {
+                        last[i] - open_like[i]
+                    } else {
+                        f64::NAN
+                    };
+                }
+                let mut delay_vol = vec![f64::NAN; n];
+                for i in 0..n {
+                    delay_vol[i] = if i >= 1 { volume[i - 1] } else { f64::NAN };
+                }
+                t1[gi] = corr_last_window(&diff1, &delay_vol, corr_window_1);
+                t2[gi] = open_like[n - 1] - last[n - 1];
+
+                let mut pre = vec![f64::NAN; n];
+                for i in 0..n {
+                    pre[i] = if has_prev {
+                        panel.col("prev_bar_close")?[g.start + i]
+                    } else if has_pre_close {
+                        panel.col("pre_close")?[g.start + i]
+                    } else if i > 0 {
+                        last[i - 1]
+                    } else {
+                        f64::NAN
+                    };
+                }
+                let mut ret = vec![f64::NAN; n];
+                for i in 0..n {
+                    ret[i] = if last[i].is_finite() && pre[i].is_finite() && pre[i].abs() > EPS {
+                        (last[i] - pre[i]) / (pre[i] + EPS)
+                    } else {
+                        f64::NAN
+                    };
+                }
+                let mut delay_ret = vec![f64::NAN; n];
+                for i in 0..n {
+                    let x = if ret[i].is_finite() { -ret[i] } else { f64::NAN };
+                    delay_ret[i] = if i >= delay_window { x } else { f64::NAN };
+                }
+                if delay_window > 0 {
+                    for i in (0..n).rev() {
+                        delay_ret[i] = if i >= delay_window { delay_ret[i - delay_window] } else { f64::NAN };
+                    }
+                }
+                t3[gi] = ts_rank_last(&delay_ret, ts_rank_window);
+
+                let mut vwap = vec![f64::NAN; n];
+                let mut adv = vec![f64::NAN; n];
+                for i in 0..n {
+                    vwap[i] = amount[i] / (volume[i] + EPS);
+                    let s = i + 1usize - (i + 1).min(adv_window);
+                    adv[i] = mean_valid(&amount[s..=i]);
+                }
+                t4[gi] = corr_last_window(&vwap, &adv, corr_window_2).abs();
+                let avg_close = rolling_mean_last(last, sum_window);
+                t5[gi] = (avg_close - open_like[n - 1]) * (last[n - 1] - open_like[n - 1]);
+            }
+            let r1 = cs_rank_by_dt(&panel.groups, &t1);
+            let r2 = cs_rank_by_dt(&panel.groups, &t2);
+            let r3 = cs_rank_by_dt(&panel.groups, &t3);
+            let r4 = cs_rank_by_dt(&panel.groups, &t4);
+            let r5 = cs_rank_by_dt(&panel.groups, &t5);
+            for i in 0..out.len() {
+                out[i] = 2.21 * r1[i] + 0.70 * r2[i] + 0.73 * r3[i] + r4[i] + 0.60 * r5[i];
+            }
+        }
+        "alpha037_open_close_correlation_v1" => {
+            let corr_window = spec.param_i64("corr_window", 30).max(2) as usize;
+            let delay_window = spec.param_i64("delay_window", 1).max(1) as usize;
+            ensure_col(py, panel, panel_df, "last")?;
+            ensure_col(py, panel, panel_df, "open")?;
+            ensure_col(py, panel, panel_df, "ask_price1")?;
+            ensure_col(py, panel, panel_df, "bid_price1")?;
+            let last_col = panel.col("last")?;
+            let open_col = panel.col("open")?;
+            let ask_col = panel.col("ask_price1")?;
+            let bid_col = panel.col("bid_price1")?;
+            let mut corr_term = vec![0.0; panel.groups.len()];
+            let mut diff_term = vec![0.0; panel.groups.len()];
+            for (gi, g) in panel.groups.iter().enumerate() {
+                let last = &last_col[g.start..g.end];
+                let open = &open_col[g.start..g.end];
+                let ask = &ask_col[g.start..g.end];
+                let bid = &bid_col[g.start..g.end];
+                let n = last.len();
+                if n == 0 {
+                    continue;
+                }
+                let mut diff = vec![f64::NAN; n];
+                for i in 0..n {
+                    let o = open_like_at(open[i], ask[i], bid[i]);
+                    diff[i] = o - last[i];
+                }
+                let mut delay_diff = vec![f64::NAN; n];
+                for i in 0..n {
+                    delay_diff[i] = if i >= delay_window { diff[i - delay_window] } else { f64::NAN };
+                }
+                corr_term[gi] = corr_last_window(&delay_diff, last, corr_window);
+                diff_term[gi] = diff[n - 1];
+            }
+            let rc = cs_rank_by_dt(&panel.groups, &corr_term);
+            let rd = cs_rank_by_dt(&panel.groups, &diff_term);
+            for i in 0..out.len() {
+                out[i] = rc[i] + rd[i];
+            }
+        }
+        "alpha038_close_rank_ratio_v1" => {
+            let ts_rank_window = spec.param_i64("ts_rank_window", 10).max(1) as usize;
+            ensure_col(py, panel, panel_df, "last")?;
+            ensure_col(py, panel, panel_df, "open")?;
+            ensure_col(py, panel, panel_df, "ask_price1")?;
+            ensure_col(py, panel, panel_df, "bid_price1")?;
+            let last_col = panel.col("last")?;
+            let open_col = panel.col("open")?;
+            let ask_col = panel.col("ask_price1")?;
+            let bid_col = panel.col("bid_price1")?;
+            let mut rank_close = vec![0.0; panel.groups.len()];
+            let mut ratio = vec![0.0; panel.groups.len()];
+            for (gi, g) in panel.groups.iter().enumerate() {
+                let last = &last_col[g.start..g.end];
+                let n = last.len();
+                if n == 0 {
+                    continue;
+                }
+                rank_close[gi] = ts_rank_last(last, ts_rank_window);
+                let r = g.end - 1;
+                let open_like = open_like_at(open_col[r], ask_col[r], bid_col[r]);
+                ratio[gi] = last[n - 1] / (open_like + EPS);
+            }
+            let rc = cs_rank_by_dt(&panel.groups, &rank_close);
+            let rr = cs_rank_by_dt(&panel.groups, &ratio);
+            for i in 0..out.len() {
+                out[i] = (-rc[i]) * rr[i];
+            }
+        }
+        "alpha039_volume_decay_momentum_v1" => {
+            let adv_window = spec.param_i64("adv_window", 10).max(1) as usize;
+            let decay_window = spec.param_i64("decay_window", 9).max(1) as usize;
+            let delta_window = spec.param_i64("delta_window", 7).max(1) as usize;
+            let sum_window = spec.param_i64("sum_window", 60).max(1) as usize;
+            ensure_col(py, panel, panel_df, "amount")?;
+            ensure_col(py, panel, panel_df, "volume")?;
+            ensure_col(py, panel, panel_df, "last")?;
+            let has_prev = has_col(py, panel_df, "prev_bar_close")?;
+            let has_pre_close = has_col(py, panel_df, "pre_close")?;
+            if has_prev {
+                ensure_col(py, panel, panel_df, "prev_bar_close")?;
+            } else if has_pre_close {
+                ensure_col(py, panel, panel_df, "pre_close")?;
+            }
+            let amount_col = panel.col("amount")?;
+            let volume_col = panel.col("volume")?;
+            let last_col = panel.col("last")?;
+            let mut term = vec![0.0; panel.groups.len()];
+            let mut sum_ret = vec![0.0; panel.groups.len()];
+            for (gi, g) in panel.groups.iter().enumerate() {
+                let amount = &amount_col[g.start..g.end];
+                let volume = &volume_col[g.start..g.end];
+                let last = &last_col[g.start..g.end];
+                let n = last.len();
+                if n == 0 {
+                    continue;
+                }
+                let mut vol_ratio = vec![f64::NAN; n];
+                for i in 0..n {
+                    let s = i + 1usize - (i + 1).min(adv_window);
+                    let adv = mean_valid(&amount[s..=i]);
+                    vol_ratio[i] = volume[i] / (adv + EPS);
+                }
+                let vol_decay_rank = ts_rank_last(&vol_ratio, decay_window);
+                let delta_close = delta_last_from_slice(last, delta_window);
+                term[gi] = delta_close * (1.0 - vol_decay_rank);
+                let mut pre = vec![f64::NAN; n];
+                for i in 0..n {
+                    pre[i] = if has_prev {
+                        panel.col("prev_bar_close")?[g.start + i]
+                    } else if has_pre_close {
+                        panel.col("pre_close")?[g.start + i]
+                    } else if i > 0 {
+                        last[i - 1]
+                    } else {
+                        f64::NAN
+                    };
+                }
+                let mut ret = vec![f64::NAN; n];
+                for i in 0..n {
+                    ret[i] = if last[i].is_finite() && pre[i].is_finite() && pre[i].abs() > EPS {
+                        (last[i] - pre[i]) / (pre[i] + EPS)
+                    } else {
+                        f64::NAN
+                    };
+                }
+                let s = n.saturating_sub(sum_window);
+                sum_ret[gi] = sum_valid(&ret[s..n]);
+            }
+            let r_term = cs_rank_by_dt(&panel.groups, &term);
+            let sum_plus_one: Vec<f64> = sum_ret.iter().map(|v| v + 1.0).collect();
+            let r_sum = cs_rank_by_dt(&panel.groups, &sum_plus_one);
+            for i in 0..out.len() {
+                out[i] = (-r_term[i]) * (1.0 + r_sum[i]);
+            }
+        }
+        "alpha040_high_volatility_corr_v1" => {
+            let stddev_window = spec.param_i64("stddev_window", 10).max(2) as usize;
+            let corr_window = spec.param_i64("corr_window", 10).max(2) as usize;
+            ensure_col(py, panel, panel_df, "high")?;
+            ensure_col(py, panel, panel_df, "volume")?;
+            let high_col = panel.col("high")?;
+            let volume_col = panel.col("volume")?;
+            let mut std_high = vec![0.0; panel.groups.len()];
+            let mut corr_hv = vec![0.0; panel.groups.len()];
+            for (gi, g) in panel.groups.iter().enumerate() {
+                let high = &high_col[g.start..g.end];
+                let volume = &volume_col[g.start..g.end];
+                let n = high.len();
+                if n == 0 {
+                    continue;
+                }
+                let s = n.saturating_sub(stddev_window);
+                let v = std_sample(&high[s..n]);
+                std_high[gi] = if v.is_finite() { v } else { 0.0 };
+                corr_hv[gi] = corr_last_window(high, volume, corr_window);
+            }
+            let rank_std = cs_rank_by_dt(&panel.groups, &std_high);
+            for i in 0..out.len() {
+                out[i] = (-rank_std[i]) * corr_hv[i];
+            }
+        }
+        "alpha041_geometric_mean_vwap_v1" => {
+            ensure_col(py, panel, panel_df, "high")?;
+            ensure_col(py, panel, panel_df, "low")?;
+            ensure_col(py, panel, panel_df, "amount")?;
+            ensure_col(py, panel, panel_df, "volume")?;
+            let high_col = panel.col("high")?;
+            let low_col = panel.col("low")?;
+            let amount_col = panel.col("amount")?;
+            let volume_col = panel.col("volume")?;
+            for (gi, g) in panel.groups.iter().enumerate() {
+                let r = g.end - 1;
+                let high = high_col[r].max(0.0);
+                let low = low_col[r].max(0.0);
+                let geo = (high * low).sqrt();
+                let vwap = amount_col[r] / (volume_col[r] + EPS);
+                out[gi] = geo - vwap;
+            }
+        }
+        "alpha042_vwap_close_rank_ratio_v1" => {
+            ensure_col(py, panel, panel_df, "amount")?;
+            ensure_col(py, panel, panel_df, "volume")?;
+            ensure_col(py, panel, panel_df, "last")?;
+            let amount_col = panel.col("amount")?;
+            let volume_col = panel.col("volume")?;
+            let last_col = panel.col("last")?;
+            let mut diff_raw = vec![0.0; panel.groups.len()];
+            let mut sum_raw = vec![0.0; panel.groups.len()];
+            for (gi, g) in panel.groups.iter().enumerate() {
+                let r = g.end - 1;
+                let vwap = amount_col[r] / (volume_col[r] + EPS);
+                let last = last_col[r];
+                diff_raw[gi] = vwap - last;
+                sum_raw[gi] = vwap + last;
+            }
+            let rd = cs_rank_by_dt(&panel.groups, &diff_raw);
+            let rs = cs_rank_by_dt(&panel.groups, &sum_raw);
+            for i in 0..out.len() {
+                out[i] = rd[i] / (rs[i] + EPS);
+            }
+        }
+        "alpha043_volume_delay_momentum_v1" => {
+            let adv_window = spec.param_i64("adv_window", 10).max(1) as usize;
+            let ts_rank_window_1 = spec.param_i64("ts_rank_window_1", 10).max(1) as usize;
+            let delta_window = spec.param_i64("delta_window", 5).max(1) as usize;
+            let ts_rank_window_2 = spec.param_i64("ts_rank_window_2", 5).max(1) as usize;
+            ensure_col(py, panel, panel_df, "amount")?;
+            ensure_col(py, panel, panel_df, "volume")?;
+            ensure_col(py, panel, panel_df, "last")?;
+            let amount_col = panel.col("amount")?;
+            let volume_col = panel.col("volume")?;
+            let last_col = panel.col("last")?;
+            for (gi, g) in panel.groups.iter().enumerate() {
+                let amount = &amount_col[g.start..g.end];
+                let volume = &volume_col[g.start..g.end];
+                let last = &last_col[g.start..g.end];
+                let n = last.len();
+                if n == 0 {
+                    out[gi] = 0.0;
+                    continue;
+                }
+                let mut vol_ratio = vec![f64::NAN; n];
+                for i in 0..n {
+                    let s = i + 1usize - (i + 1).min(adv_window);
+                    let adv = mean_valid(&amount[s..=i]);
+                    vol_ratio[i] = volume[i] / (adv + EPS);
+                }
+                let ts_rank_vol = ts_rank_last(&vol_ratio, ts_rank_window_1);
+                let delta_close = diff(last, delta_window);
+                let mut neg_delta = vec![f64::NAN; n];
+                for i in 0..n {
+                    neg_delta[i] = if delta_close[i].is_finite() { -delta_close[i] } else { f64::NAN };
+                }
+                let ts_rank_delta = ts_rank_last(&neg_delta, ts_rank_window_2);
+                out[gi] = ts_rank_vol * ts_rank_delta;
+            }
+        }
+        "alpha044_high_volume_rank_corr_v1" => {
+            let corr_window = spec.param_i64("corr_window", 5).max(2) as usize;
+            ensure_col(py, panel, panel_df, "high")?;
+            ensure_col(py, panel, panel_df, "volume")?;
+            let high_col = panel.col("high")?;
+            let volume_col = panel.col("volume")?;
+            for (gi, g) in panel.groups.iter().enumerate() {
+                let high = &high_col[g.start..g.end];
+                let volume = &volume_col[g.start..g.end];
+                let rank_vol = pct_rank(volume);
+                out[gi] = -corr_last_window(high, &rank_vol, corr_window);
+            }
+        }
+        "alpha045_close_sum_corr_v1" => {
+            let delay_window = spec.param_i64("delay_window", 5).max(1) as usize;
+            let sum_window_long = spec.param_i64("sum_window_long", 20).max(1) as usize;
+            let corr_window_1 = spec.param_i64("corr_window_1", 2).max(2) as usize;
+            let sum_window_short = spec.param_i64("sum_window_short", 5).max(1) as usize;
+            let corr_window_2 = spec.param_i64("corr_window_2", 2).max(2) as usize;
+            ensure_col(py, panel, panel_df, "last")?;
+            ensure_col(py, panel, panel_df, "volume")?;
+            let last_col = panel.col("last")?;
+            let volume_col = panel.col("volume")?;
+            let mut avg_delay = vec![0.0; panel.groups.len()];
+            let mut corr1 = vec![0.0; panel.groups.len()];
+            let mut corr2 = vec![0.0; panel.groups.len()];
+            for (gi, g) in panel.groups.iter().enumerate() {
+                let last = &last_col[g.start..g.end];
+                let volume = &volume_col[g.start..g.end];
+                let n = last.len();
+                if n == 0 {
+                    continue;
+                }
+                let mut delayed = vec![f64::NAN; n];
+                for i in 0..n {
+                    delayed[i] = if i >= delay_window { last[i - delay_window] } else { f64::NAN };
+                }
+                avg_delay[gi] = rolling_mean_last(&delayed, sum_window_long);
+                corr1[gi] = corr_last_window(last, volume, corr_window_1);
+                let mut sum_short = vec![f64::NAN; n];
+                let mut sum_long = vec![f64::NAN; n];
+                for i in 0..n {
+                    let s1 = i + 1usize - (i + 1).min(sum_window_short);
+                    let s2 = i + 1usize - (i + 1).min(sum_window_long);
+                    sum_short[i] = sum_valid(&last[s1..=i]);
+                    sum_long[i] = sum_valid(&last[s2..=i]);
+                }
+                corr2[gi] = corr_last_window(&sum_short, &sum_long, corr_window_2);
+            }
+            let rank_avg = cs_rank_by_dt(&panel.groups, &avg_delay);
+            let rank_c2 = cs_rank_by_dt(&panel.groups, &corr2);
+            for i in 0..out.len() {
+                out[i] = -(rank_avg[i] * corr1[i] * rank_c2[i]);
+            }
+        }
+        "alpha046_close_delay_trend_v1" => {
+            let delay_window_long = spec.param_i64("delay_window_long", 10).max(1) as usize;
+            let delay_window_short = spec.param_i64("delay_window_short", 5).max(1) as usize;
+            let trend_scale = spec.param_f64("trend_scale", 10.0);
+            let threshold_up = spec.param_f64("threshold_up", 0.25);
+            let threshold_down = spec.param_f64("threshold_down", 0.0);
+            ensure_col(py, panel, panel_df, "last")?;
+            let last_col = panel.col("last")?;
+            for (gi, g) in panel.groups.iter().enumerate() {
+                let last = &last_col[g.start..g.end];
+                let n = last.len();
+                if n == 0 {
+                    out[gi] = 0.0;
+                    continue;
+                }
+                let d_long = delay_value_or_nan(last, delay_window_long);
+                let d_short = delay_value_or_nan(last, delay_window_short);
+                let diff1 = (d_long - d_short) / trend_scale;
+                let diff2 = (d_short - last[n - 1]) / trend_scale;
+                let trend = if diff1.is_finite() && diff2.is_finite() {
+                    diff1 - diff2
+                } else {
+                    0.0
+                };
+                let delta_close = if n >= 2 { last[n - 1] - last[n - 2] } else { 0.0 };
+                out[gi] = if trend > threshold_up {
+                    -1.0
+                } else if trend < threshold_down {
+                    1.0
+                } else {
+                    -delta_close
+                };
+            }
+        }
+        "alpha047_inverse_close_volume_v1" => {
+            let adv_window = spec.param_i64("adv_window", 10).max(1) as usize;
+            let sum_window = spec.param_i64("sum_window", 5).max(1) as usize;
+            let delay_window = spec.param_i64("delay_window", 5).max(1) as usize;
+            ensure_col(py, panel, panel_df, "last")?;
+            ensure_col(py, panel, panel_df, "amount")?;
+            ensure_col(py, panel, panel_df, "volume")?;
+            ensure_col(py, panel, panel_df, "high")?;
+            let last_col = panel.col("last")?;
+            let amount_col = panel.col("amount")?;
+            let volume_col = panel.col("volume")?;
+            let high_col = panel.col("high")?;
+            for (gi, g) in panel.groups.iter().enumerate() {
+                let last = &last_col[g.start..g.end];
+                let amount = &amount_col[g.start..g.end];
+                let volume = &volume_col[g.start..g.end];
+                let high = &high_col[g.start..g.end];
+                let n = last.len();
+                if n == 0 {
+                    out[gi] = 0.0;
+                    continue;
+                }
+                let mut inv_close = vec![f64::NAN; n];
+                for i in 0..n {
+                    inv_close[i] = 1.0 / (last[i] + EPS);
+                }
+                let rank_inv = pct_rank(&inv_close);
+                let mut vol_ratio = vec![f64::NAN; n];
+                for i in 0..n {
+                    let s = i + 1usize - (i + 1).min(adv_window);
+                    let adv = mean_valid(&amount[s..=i]);
+                    vol_ratio[i] = (rank_inv[i] * volume[i]) / (adv + EPS);
+                }
+                let mut high_diff = vec![f64::NAN; n];
+                for i in 0..n {
+                    high_diff[i] = high[i] - last[i];
+                }
+                let rank_high_diff = pct_rank(&high_diff);
+                let mut high_factor = vec![f64::NAN; n];
+                for i in 0..n {
+                    let s = i + 1usize - (i + 1).min(sum_window);
+                    let avg_high = mean_valid(&high[s..=i]);
+                    high_factor[i] = (high[i] * rank_high_diff[i]) / (avg_high + EPS);
+                }
+                let mut vwap = vec![f64::NAN; n];
+                for i in 0..n {
+                    vwap[i] = amount[i] / (volume[i] + EPS);
+                }
+                let mut delay_vwap = vec![f64::NAN; n];
+                for i in 0..n {
+                    delay_vwap[i] = if i >= delay_window { vwap[i - delay_window] } else { f64::NAN };
+                }
+                let mut vwap_diff = vec![f64::NAN; n];
+                for i in 0..n {
+                    vwap_diff[i] = if vwap[i].is_finite() && delay_vwap[i].is_finite() {
+                        vwap[i] - delay_vwap[i]
+                    } else {
+                        f64::NAN
+                    };
+                }
+                let rank_diff = pct_rank(&vwap_diff);
+                let val = vol_ratio[n - 1] * high_factor[n - 1] - rank_diff[n - 1];
+                out[gi] = if val.is_finite() { val } else { 0.0 };
+            }
+        }
+        "alpha049_close_delay_threshold_v1" => {
+            let delay_window_long = spec.param_i64("delay_window_long", 10).max(1) as usize;
+            let delay_window_short = spec.param_i64("delay_window_short", 5).max(1) as usize;
+            let trend_scale = spec.param_f64("trend_scale", 10.0);
+            let threshold = spec.param_f64("threshold", -0.1);
+            ensure_col(py, panel, panel_df, "last")?;
+            let last_col = panel.col("last")?;
+            for (gi, g) in panel.groups.iter().enumerate() {
+                let last = &last_col[g.start..g.end];
+                let n = last.len();
+                if n == 0 {
+                    out[gi] = 0.0;
+                    continue;
+                }
+                let d_long = delay_value_or_nan(last, delay_window_long);
+                let d_short = delay_value_or_nan(last, delay_window_short);
+                let diff1 = (d_long - d_short) / trend_scale;
+                let diff2 = (d_short - last[n - 1]) / trend_scale;
+                let trend = if diff1.is_finite() && diff2.is_finite() {
+                    diff1 - diff2
+                } else {
+                    0.0
+                };
+                let delta_close = if n >= 2 { last[n - 1] - last[n - 2] } else { 0.0 };
+                out[gi] = if trend < threshold { 1.0 } else { -delta_close };
+            }
+        }
+        "alpha050_volume_vwap_corr_max_v1" => {
+            let corr_window = spec.param_i64("corr_window", 5).max(2) as usize;
+            let ts_max_window = spec.param_i64("ts_max_window", 5).max(1) as usize;
+            ensure_col(py, panel, panel_df, "amount")?;
+            ensure_col(py, panel, panel_df, "volume")?;
+            let amount_col = panel.col("amount")?;
+            let volume_col = panel.col("volume")?;
+            for (gi, g) in panel.groups.iter().enumerate() {
+                let amount = &amount_col[g.start..g.end];
+                let volume = &volume_col[g.start..g.end];
+                let n = volume.len();
+                if n == 0 {
+                    out[gi] = 0.0;
+                    continue;
+                }
+                let mut vwap = vec![f64::NAN; n];
+                for i in 0..n {
+                    vwap[i] = amount[i] / (volume[i] + EPS);
+                }
+                let rank_vol = pct_rank(volume);
+                let rank_vwap = pct_rank(&vwap);
+                let mut corr = vec![f64::NAN; n];
+                for i in 0..n {
+                    let s = i + 1usize - (i + 1).min(corr_window);
+                    corr[i] = corr_slice(&rank_vol[s..=i], &rank_vwap[s..=i]);
+                }
+                let rank_corr = pct_rank(&corr);
+                let ts_max = rolling_max_last(&rank_corr, ts_max_window);
+                out[gi] = if ts_max.is_finite() { -ts_max } else { 0.0 };
+            }
+        }
+        "alpha051_close_delay_threshold_v2_v1" => {
+            let delay_window_long = spec.param_i64("delay_window_long", 10).max(1) as usize;
+            let delay_window_short = spec.param_i64("delay_window_short", 5).max(1) as usize;
+            let trend_scale = spec.param_f64("trend_scale", 10.0);
+            let threshold = spec.param_f64("threshold", -0.05);
+            ensure_col(py, panel, panel_df, "last")?;
+            let last_col = panel.col("last")?;
+            for (gi, g) in panel.groups.iter().enumerate() {
+                let last = &last_col[g.start..g.end];
+                let n = last.len();
+                if n == 0 {
+                    out[gi] = 0.0;
+                    continue;
+                }
+                let d_long = delay_value_or_nan(last, delay_window_long);
+                let d_short = delay_value_or_nan(last, delay_window_short);
+                let diff1 = (d_long - d_short) / trend_scale;
+                let diff2 = (d_short - last[n - 1]) / trend_scale;
+                let trend = if diff1.is_finite() && diff2.is_finite() {
+                    diff1 - diff2
+                } else {
+                    0.0
+                };
+                let delta_close = if n >= 2 { last[n - 1] - last[n - 2] } else { 0.0 };
+                out[gi] = if trend < threshold { 1.0 } else { -delta_close };
+            }
+        }
+        "alpha052_low_momentum_volume_v1" => {
+            let ts_min_window = spec.param_i64("ts_min_window", 5).max(1) as usize;
+            let delay_window = spec.param_i64("delay_window", 5).max(1) as usize;
+            let sum_window_long = spec.param_i64("sum_window_long", 60).max(1) as usize;
+            let sum_window_short = spec.param_i64("sum_window_short", 20).max(1) as usize;
+            let ts_rank_window = spec.param_i64("ts_rank_window", 5).max(1) as usize;
+            ensure_col(py, panel, panel_df, "low")?;
+            ensure_col(py, panel, panel_df, "volume")?;
+            ensure_col(py, panel, panel_df, "last")?;
+            let has_prev = has_col(py, panel_df, "prev_bar_close")?;
+            let has_pre_close = has_col(py, panel_df, "pre_close")?;
+            if has_prev {
+                ensure_col(py, panel, panel_df, "prev_bar_close")?;
+            } else if has_pre_close {
+                ensure_col(py, panel, panel_df, "pre_close")?;
+            }
+            let low_col = panel.col("low")?;
+            let volume_col = panel.col("volume")?;
+            let last_col = panel.col("last")?;
+            for (gi, g) in panel.groups.iter().enumerate() {
+                let low = &low_col[g.start..g.end];
+                let volume = &volume_col[g.start..g.end];
+                let last = &last_col[g.start..g.end];
+                let n = low.len();
+                if n == 0 {
+                    out[gi] = 0.0;
+                    continue;
+                }
+                let mut ts_min_low = vec![f64::NAN; n];
+                for i in 0..n {
+                    let s = i + 1usize - (i + 1).min(ts_min_window);
+                    ts_min_low[i] = min_valid(&low[s..=i]);
+                }
+                let mut delay_min = vec![f64::NAN; n];
+                for i in 0..n {
+                    delay_min[i] = if i >= delay_window { ts_min_low[i - delay_window] } else { f64::NAN };
+                }
+                let mut low_diff = vec![f64::NAN; n];
+                for i in 0..n {
+                    low_diff[i] = -ts_min_low[i] + delay_min[i];
+                }
+                let mut pre = vec![f64::NAN; n];
+                for i in 0..n {
+                    pre[i] = if has_prev {
+                        panel.col("prev_bar_close")?[g.start + i]
+                    } else if has_pre_close {
+                        panel.col("pre_close")?[g.start + i]
+                    } else if i > 0 {
+                        last[i - 1]
+                    } else {
+                        f64::NAN
+                    };
+                }
+                let mut ret = vec![f64::NAN; n];
+                for i in 0..n {
+                    ret[i] = if last[i].is_finite() && pre[i].is_finite() && pre[i].abs() > EPS {
+                        (last[i] - pre[i]) / (pre[i] + EPS)
+                    } else {
+                        f64::NAN
+                    };
+                }
+                let mut sum_long = vec![f64::NAN; n];
+                let mut sum_short = vec![f64::NAN; n];
+                for i in 0..n {
+                    let s1 = i + 1usize - (i + 1).min(sum_window_long);
+                    let s2 = i + 1usize - (i + 1).min(sum_window_short);
+                    sum_long[i] = sum_valid(&ret[s1..=i]);
+                    sum_short[i] = sum_valid(&ret[s2..=i]);
+                }
+                let denom = (sum_window_long.saturating_sub(sum_window_short)).max(1) as f64;
+                let mut ret_diff = vec![f64::NAN; n];
+                for i in 0..n {
+                    ret_diff[i] = (sum_long[i] - sum_short[i]) / denom;
+                }
+                let rank_ret = pct_rank(&ret_diff);
+                let ts_rank_vol = ts_rank_last(volume, ts_rank_window);
+                let alpha_last = low_diff[n - 1] * rank_ret[n - 1] * ts_rank_vol;
+                out[gi] = if alpha_last.is_finite() { alpha_last } else { 0.0 };
+            }
+        }
+        "alpha053_price_position_delta_v1" => {
+            let delta_window = spec.param_i64("delta_window", 9).max(1) as usize;
+            ensure_col(py, panel, panel_df, "last")?;
+            ensure_col(py, panel, panel_df, "high")?;
+            ensure_col(py, panel, panel_df, "low")?;
+            let last_col = panel.col("last")?;
+            let high_col = panel.col("high")?;
+            let low_col = panel.col("low")?;
+            for (gi, g) in panel.groups.iter().enumerate() {
+                let last = &last_col[g.start..g.end];
+                let high = &high_col[g.start..g.end];
+                let low = &low_col[g.start..g.end];
+                let n = last.len();
+                if n == 0 {
+                    out[gi] = 0.0;
+                    continue;
+                }
+                let mut position = vec![f64::NAN; n];
+                for i in 0..n {
+                    let numerator = (last[i] - low[i]) - (high[i] - last[i]);
+                    let denominator = last[i] - low[i];
+                    position[i] = numerator / (denominator + EPS);
+                }
+                let delta_val = if n > delta_window {
+                    position[n - 1] - position[n - 1 - delta_window]
+                } else {
+                    f64::NAN
+                };
+                out[gi] = if delta_val.is_finite() { -delta_val } else { 0.0 };
+            }
+        }
+        "alpha054_price_power_ratio_v1" => {
+            let power = spec.param_i64("power", 5);
+            ensure_col(py, panel, panel_df, "low")?;
+            ensure_col(py, panel, panel_df, "high")?;
+            ensure_col(py, panel, panel_df, "last")?;
+            ensure_col(py, panel, panel_df, "open")?;
+            ensure_col(py, panel, panel_df, "ask_price1")?;
+            ensure_col(py, panel, panel_df, "bid_price1")?;
+            let low_col = panel.col("low")?;
+            let high_col = panel.col("high")?;
+            let last_col = panel.col("last")?;
+            let open_col = panel.col("open")?;
+            let ask_col = panel.col("ask_price1")?;
+            let bid_col = panel.col("bid_price1")?;
+            for (gi, g) in panel.groups.iter().enumerate() {
+                let r = g.end - 1;
+                let low = low_col[r];
+                let high = high_col[r];
+                let last = last_col[r];
+                let mid = open_like_at(open_col[r], ask_col[r], bid_col[r]);
+                let numerator = -(low - last) * mid.powf(power as f64);
+                let denominator = (low - high) * last.powf(power as f64);
+                let alpha = numerator / (denominator + EPS);
+                out[gi] = if alpha.is_finite() { alpha } else { 0.0 };
+            }
+        }
+        "alpha055_close_range_volume_corr_v1" => {
+            let ts_window = spec.param_i64("ts_window", 12).max(1) as usize;
+            let corr_window = spec.param_i64("corr_window", 6).max(2) as usize;
+            ensure_col(py, panel, panel_df, "last")?;
+            ensure_col(py, panel, panel_df, "low")?;
+            ensure_col(py, panel, panel_df, "high")?;
+            ensure_col(py, panel, panel_df, "volume")?;
+            let last_col = panel.col("last")?;
+            let low_col = panel.col("low")?;
+            let high_col = panel.col("high")?;
+            let volume_col = panel.col("volume")?;
+            for (gi, g) in panel.groups.iter().enumerate() {
+                let last = &last_col[g.start..g.end];
+                let low = &low_col[g.start..g.end];
+                let high = &high_col[g.start..g.end];
+                let volume = &volume_col[g.start..g.end];
+                let n = last.len();
+                if n == 0 {
+                    out[gi] = 0.0;
+                    continue;
+                }
+                let mut range_pos = vec![f64::NAN; n];
+                for i in 0..n {
+                    let s = i + 1usize - (i + 1).min(ts_window);
+                    let ts_min_low = min_valid(&low[s..=i]);
+                    let ts_max_high = max_valid(&high[s..=i]);
+                    range_pos[i] = (last[i] - ts_min_low) / (ts_max_high - ts_min_low + EPS);
+                }
+                let rank_range = pct_rank(&range_pos);
+                let rank_volume = pct_rank(volume);
+                out[gi] = -corr_last_window(&rank_range, &rank_volume, corr_window);
+            }
+        }
+        "alpha057_close_vwap_decay_v1" => {
+            let ts_argmax_window = spec.param_i64("ts_argmax_window", 10).max(1) as usize;
+            let decay_window = spec.param_i64("decay_window", 2).max(1) as usize;
+            ensure_col(py, panel, panel_df, "last")?;
+            ensure_col(py, panel, panel_df, "amount")?;
+            ensure_col(py, panel, panel_df, "volume")?;
+            let last_col = panel.col("last")?;
+            let amount_col = panel.col("amount")?;
+            let volume_col = panel.col("volume")?;
+            for (gi, g) in panel.groups.iter().enumerate() {
+                let last = &last_col[g.start..g.end];
+                let amount = &amount_col[g.start..g.end];
+                let volume = &volume_col[g.start..g.end];
+                let n = last.len();
+                if n == 0 {
+                    out[gi] = 0.0;
+                    continue;
+                }
+                let mut vwap = vec![f64::NAN; n];
+                let mut diff = vec![f64::NAN; n];
+                for i in 0..n {
+                    vwap[i] = amount[i] / (volume[i] + EPS);
+                    diff[i] = if last[i].is_finite() && vwap[i].is_finite() {
+                        last[i] - vwap[i]
+                    } else {
+                        f64::NAN
+                    };
+                }
+                let ts_argmax = rolling_argmax_position_series(last, ts_argmax_window);
+                let rank_max = pct_rank(&ts_argmax);
+                let decay = rolling_linear_decay_series(&rank_max, decay_window);
+                let alpha_last = -(diff[n - 1] / (decay[n - 1] + EPS));
+                out[gi] = if alpha_last.is_finite() { alpha_last } else { 0.0 };
+            }
+        }
+        "alpha060_price_range_volume_scale_v1" => {
+            let ts_argmax_window = spec.param_i64("ts_argmax_window", 10).max(1) as usize;
+            ensure_col(py, panel, panel_df, "last")?;
+            ensure_col(py, panel, panel_df, "high")?;
+            ensure_col(py, panel, panel_df, "low")?;
+            ensure_col(py, panel, panel_df, "volume")?;
+            let last_col = panel.col("last")?;
+            let high_col = panel.col("high")?;
+            let low_col = panel.col("low")?;
+            let volume_col = panel.col("volume")?;
+            let mut pos_vol = vec![0.0; panel.groups.len()];
+            let mut ts_arg = vec![0.0; panel.groups.len()];
+            for (gi, g) in panel.groups.iter().enumerate() {
+                let last = &last_col[g.start..g.end];
+                let high = &high_col[g.start..g.end];
+                let low = &low_col[g.start..g.end];
+                let volume = &volume_col[g.start..g.end];
+                let n = last.len();
+                if n == 0 {
+                    continue;
+                }
+                let i = n - 1;
+                let numerator = (last[i] - low[i]) - (high[i] - last[i]);
+                let denominator = high[i] - low[i];
+                let position = numerator / (denominator + EPS);
+                pos_vol[gi] = position * volume[i];
+                ts_arg[gi] = argmax_pos_last(last, ts_argmax_window);
+            }
+            let rank_pos = cs_rank_by_dt(&panel.groups, &pos_vol);
+            let scale_pos = cs_scale_by_dt(&panel.groups, &rank_pos);
+            let rank_scaled = cs_rank_by_dt(&panel.groups, &scale_pos);
+            let rank_arg = cs_rank_by_dt(&panel.groups, &ts_arg);
+            let scale_max = cs_scale_by_dt(&panel.groups, &rank_arg);
+            for i in 0..out.len() {
+                out[i] = -((2.0 * rank_scaled[i]) - scale_max[i]);
+            }
+        }
+        "alpha062_vwap_open_rank_compare_v1" => {
+            let adv_window = spec.param_i64("adv_window", 20).max(1) as usize;
+            let sum_window = spec.param_i64("sum_window", 22).max(1) as usize;
+            let corr_window = spec.param_i64("corr_window", 10).max(2) as usize;
+            ensure_col(py, panel, panel_df, "amount")?;
+            ensure_col(py, panel, panel_df, "volume")?;
+            ensure_col(py, panel, panel_df, "high")?;
+            ensure_col(py, panel, panel_df, "low")?;
+            ensure_col(py, panel, panel_df, "ask_price1")?;
+            ensure_col(py, panel, panel_df, "bid_price1")?;
+            let amount_col = panel.col("amount")?;
+            let volume_col = panel.col("volume")?;
+            let high_col = panel.col("high")?;
+            let low_col = panel.col("low")?;
+            let ask_col = panel.col("ask_price1")?;
+            let bid_col = panel.col("bid_price1")?;
+            for (gi, g) in panel.groups.iter().enumerate() {
+                let amount = &amount_col[g.start..g.end];
+                let volume = &volume_col[g.start..g.end];
+                let high = &high_col[g.start..g.end];
+                let low = &low_col[g.start..g.end];
+                let ask = &ask_col[g.start..g.end];
+                let bid = &bid_col[g.start..g.end];
+                let n = amount.len();
+                if n == 0 {
+                    out[gi] = 0.0;
+                    continue;
+                }
+                let mut vwap = vec![f64::NAN; n];
+                let mut mid1 = vec![f64::NAN; n];
+                let mut adv = vec![f64::NAN; n];
+                let mut sum_adv = vec![f64::NAN; n];
+                for i in 0..n {
+                    vwap[i] = amount[i] / (volume[i] + EPS);
+                    mid1[i] = if ask[i].is_finite() && bid[i].is_finite() {
+                        (ask[i] + bid[i]) / 2.0
+                    } else {
+                        f64::NAN
+                    };
+                    let s = i + 1usize - (i + 1).min(adv_window);
+                    adv[i] = mean_valid(&amount[s..=i]);
+                    let s2 = i + 1usize - (i + 1).min(sum_window);
+                    sum_adv[i] = sum_valid(&adv[s2..=i]);
+                }
+                let mut corr = vec![f64::NAN; n];
+                for i in 0..n {
+                    let s = i + 1usize - (i + 1).min(corr_window);
+                    corr[i] = corr_slice(&vwap[s..=i], &sum_adv[s..=i]);
+                }
+                let rank_corr = pct_rank(&corr);
+                let rc = rank_corr[n - 1];
+                let rank_open = pct_rank(&mid1);
+                let mut mid_price = vec![f64::NAN; n];
+                for i in 0..n {
+                    mid_price[i] = (high[i] + low[i]) / 2.0;
+                }
+                let rank_mid = pct_rank(&mid_price);
+                let rank_high = pct_rank(high);
+                let mut compare = vec![0.0; n];
+                for i in 0..n {
+                    let left = rank_open[i] * 2.0;
+                    let right = rank_mid[i] + rank_high[i];
+                    compare[i] = if left.is_finite() && right.is_finite() && left < right {
+                        1.0
+                    } else {
+                        0.0
+                    };
+                }
+                let rank_compare = pct_rank(&compare);
+                let rp = rank_compare[n - 1];
+                out[gi] = if rc.is_finite() && rp.is_finite() {
+                    if rc < rp { -1.0 } else { 0.0 }
+                } else {
+                    0.0
+                };
+            }
+        }
+        "alpha065_open_vwap_min_signal_v1" => {
+            let weight = spec.param_f64("weight", 0.008);
+            let adv_window = spec.param_i64("adv_window", 30).max(1) as usize;
+            let sum_window = spec.param_i64("sum_window", 9).max(1) as usize;
+            let corr_window = spec.param_i64("corr_window", 6).max(2) as usize;
+            let ts_min_window = spec.param_i64("ts_min_window", 14).max(1) as usize;
+            ensure_col(py, panel, panel_df, "amount")?;
+            ensure_col(py, panel, panel_df, "volume")?;
+            ensure_col(py, panel, panel_df, "ask_price1")?;
+            ensure_col(py, panel, panel_df, "bid_price1")?;
+            let amount_col = panel.col("amount")?;
+            let volume_col = panel.col("volume")?;
+            let ask_col = panel.col("ask_price1")?;
+            let bid_col = panel.col("bid_price1")?;
+            for (gi, g) in panel.groups.iter().enumerate() {
+                let amount = &amount_col[g.start..g.end];
+                let volume = &volume_col[g.start..g.end];
+                let ask = &ask_col[g.start..g.end];
+                let bid = &bid_col[g.start..g.end];
+                let n = amount.len();
+                if n == 0 {
+                    out[gi] = 0.0;
+                    continue;
+                }
+                let mut mid1 = vec![f64::NAN; n];
+                let mut vwap = vec![f64::NAN; n];
+                let mut weighted = vec![f64::NAN; n];
+                let mut adv = vec![f64::NAN; n];
+                let mut sum_adv = vec![f64::NAN; n];
+                for i in 0..n {
+                    mid1[i] = if ask[i].is_finite() && bid[i].is_finite() {
+                        (ask[i] + bid[i]) / 2.0
+                    } else {
+                        f64::NAN
+                    };
+                    vwap[i] = amount[i] / (volume[i] + EPS);
+                    weighted[i] = mid1[i] * weight + vwap[i] * (1.0 - weight);
+                    let s = i + 1usize - (i + 1).min(adv_window);
+                    adv[i] = mean_valid(&amount[s..=i]);
+                    let s2 = i + 1usize - (i + 1).min(sum_window);
+                    sum_adv[i] = sum_valid(&adv[s2..=i]);
+                }
+                let mut corr = vec![f64::NAN; n];
+                for i in 0..n {
+                    let s = i + 1usize - (i + 1).min(corr_window);
+                    corr[i] = corr_slice(&weighted[s..=i], &sum_adv[s..=i]);
+                }
+                let rank_corr = pct_rank(&corr);
+                let rc = rank_corr[n - 1];
+                let mut ts_min_open = vec![f64::NAN; n];
+                for i in 0..n {
+                    let s = i + 1usize - (i + 1).min(ts_min_window);
+                    ts_min_open[i] = min_valid(&mid1[s..=i]);
+                }
+                let mut diff = vec![f64::NAN; n];
+                for i in 0..n {
+                    diff[i] = mid1[i] - ts_min_open[i];
+                }
+                let rank_diff = pct_rank(&diff);
+                let rd = rank_diff[n - 1];
+                out[gi] = if rc.is_finite() && rd.is_finite() {
+                    if rc < rd { -1.0 } else { 0.0 }
+                } else {
+                    0.0
+                };
+            }
+        }
+        "alpha066_vwap_low_decay_v1" => {
+            let delta_window = spec.param_i64("delta_window", 4).max(1) as usize;
+            let decay_window_1 = spec.param_i64("decay_window_1", 7).max(1) as usize;
+            let weight = spec.param_f64("weight", 0.966);
+            let decay_window_2 = spec.param_i64("decay_window_2", 11).max(1) as usize;
+            let ts_rank_window = spec.param_i64("ts_rank_window", 7).max(1) as usize;
+            ensure_col(py, panel, panel_df, "amount")?;
+            ensure_col(py, panel, panel_df, "volume")?;
+            ensure_col(py, panel, panel_df, "low")?;
+            ensure_col(py, panel, panel_df, "high")?;
+            ensure_col(py, panel, panel_df, "ask_price1")?;
+            ensure_col(py, panel, panel_df, "bid_price1")?;
+            let amount_col = panel.col("amount")?;
+            let volume_col = panel.col("volume")?;
+            let low_col = panel.col("low")?;
+            let high_col = panel.col("high")?;
+            let ask_col = panel.col("ask_price1")?;
+            let bid_col = panel.col("bid_price1")?;
+            for (gi, g) in panel.groups.iter().enumerate() {
+                let amount = &amount_col[g.start..g.end];
+                let volume = &volume_col[g.start..g.end];
+                let low = &low_col[g.start..g.end];
+                let high = &high_col[g.start..g.end];
+                let ask = &ask_col[g.start..g.end];
+                let bid = &bid_col[g.start..g.end];
+                let n = amount.len();
+                if n == 0 {
+                    out[gi] = 0.0;
+                    continue;
+                }
+                let mut vwap = vec![f64::NAN; n];
+                let mut mid1 = vec![f64::NAN; n];
+                for i in 0..n {
+                    vwap[i] = amount[i] / (volume[i] + EPS);
+                    mid1[i] = if ask[i].is_finite() && bid[i].is_finite() {
+                        (ask[i] + bid[i]) / 2.0
+                    } else {
+                        f64::NAN
+                    };
+                }
+                let delta_vwap = diff(&vwap, delta_window);
+                let decay1 = rolling_linear_decay_series(&delta_vwap, decay_window_1);
+                let rank_decay1 = pct_rank(&decay1);
+                let mut weighted_low = vec![f64::NAN; n];
+                let mut mid_price = vec![f64::NAN; n];
+                let mut ratio = vec![f64::NAN; n];
+                for i in 0..n {
+                    weighted_low[i] = low[i] * weight + low[i] * (1.0 - weight);
+                    mid_price[i] = (high[i] + low[i]) / 2.0;
+                    ratio[i] = (weighted_low[i] - vwap[i]) / (mid1[i] - mid_price[i] + EPS);
+                }
+                let decay2 = rolling_linear_decay_series(&ratio, decay_window_2);
+                let ts_rank = ts_rank_last(&decay2, ts_rank_window);
+                let mut r1 = rank_decay1[n - 1];
+                if !r1.is_finite() {
+                    r1 = 0.0;
+                }
+                let r2 = if ts_rank.is_finite() { ts_rank } else { 0.0 };
+                out[gi] = -(r1 + r2);
+            }
+        }
+        "alpha068_high_adv_rank_signal_v1" => {
+            let adv_window = spec.param_i64("adv_window", 15).max(1) as usize;
+            let corr_window = spec.param_i64("corr_window", 9).max(2) as usize;
+            let ts_rank_window = spec.param_i64("ts_rank_window", 14).max(1) as usize;
+            let weight = spec.param_f64("weight", 0.518);
+            let delta_window = spec.param_i64("delta_window", 1).max(1) as usize;
+            ensure_col(py, panel, panel_df, "amount")?;
+            ensure_col(py, panel, panel_df, "high")?;
+            ensure_col(py, panel, panel_df, "last")?;
+            ensure_col(py, panel, panel_df, "low")?;
+            let amount_col = panel.col("amount")?;
+            let high_col = panel.col("high")?;
+            let last_col = panel.col("last")?;
+            let low_col = panel.col("low")?;
+            for (gi, g) in panel.groups.iter().enumerate() {
+                let amount = &amount_col[g.start..g.end];
+                let high = &high_col[g.start..g.end];
+                let last = &last_col[g.start..g.end];
+                let low = &low_col[g.start..g.end];
+                let n = amount.len();
+                if n == 0 {
+                    out[gi] = 0.0;
+                    continue;
+                }
+                let mut adv = vec![f64::NAN; n];
+                for i in 0..n {
+                    let s = i + 1usize - (i + 1).min(adv_window);
+                    adv[i] = mean_valid(&amount[s..=i]);
+                }
+                let rank_high = pct_rank(high);
+                let rank_adv = pct_rank(&adv);
+                let mut corr = vec![f64::NAN; n];
+                for i in 0..n {
+                    let s = i + 1usize - (i + 1).min(corr_window);
+                    corr[i] = corr_slice(&rank_high[s..=i], &rank_adv[s..=i]);
+                }
+                let ts_rank_corr = rolling_last_rank_pct_series(&corr, ts_rank_window);
+                let rank_ts = pct_rank(&ts_rank_corr);
+                let mut weighted = vec![f64::NAN; n];
+                for i in 0..n {
+                    weighted[i] = last[i] * weight + low[i] * (1.0 - weight);
+                }
+                let delta_weighted = diff(&weighted, delta_window);
+                let rank_delta = pct_rank(&delta_weighted);
+                let rts = rank_ts[n - 1];
+                let rd = rank_delta[n - 1];
+                out[gi] = if rts.is_finite() && rd.is_finite() {
+                    if rts < rd { -1.0 } else { 0.0 }
+                } else {
+                    0.0
+                };
+            }
+        }
+        "alpha072_vwap_volume_decay_ratio_v1" => {
+            let adv_window = spec.param_i64("adv_window", 20).max(1) as usize;
+            let corr_window_1 = spec.param_i64("corr_window_1", 9).max(2) as usize;
+            let decay_window_1 = spec.param_i64("decay_window_1", 10).max(1) as usize;
+            let ts_rank_window_1 = spec.param_i64("ts_rank_window_1", 4).max(1) as usize;
+            let ts_rank_window_2 = spec.param_i64("ts_rank_window_2", 19).max(1) as usize;
+            let corr_window_2 = spec.param_i64("corr_window_2", 7).max(2) as usize;
+            let decay_window_2 = spec.param_i64("decay_window_2", 3).max(1) as usize;
+            ensure_col(py, panel, panel_df, "amount")?;
+            ensure_col(py, panel, panel_df, "volume")?;
+            ensure_col(py, panel, panel_df, "high")?;
+            ensure_col(py, panel, panel_df, "low")?;
+            let amount_col = panel.col("amount")?;
+            let volume_col = panel.col("volume")?;
+            let high_col = panel.col("high")?;
+            let low_col = panel.col("low")?;
+            for (gi, g) in panel.groups.iter().enumerate() {
+                let amount = &amount_col[g.start..g.end];
+                let volume = &volume_col[g.start..g.end];
+                let high = &high_col[g.start..g.end];
+                let low = &low_col[g.start..g.end];
+                let n = amount.len();
+                if n == 0 {
+                    out[gi] = 0.0;
+                    continue;
+                }
+                let mut vwap = vec![f64::NAN; n];
+                let mut adv = vec![f64::NAN; n];
+                let mut mid = vec![f64::NAN; n];
+                for i in 0..n {
+                    vwap[i] = amount[i] / (volume[i] + EPS);
+                    let s = i + 1usize - (i + 1).min(adv_window);
+                    adv[i] = mean_valid(&amount[s..=i]);
+                    mid[i] = (high[i] + low[i]) / 2.0;
+                }
+                let mut corr1 = vec![f64::NAN; n];
+                for i in 0..n {
+                    let s = i + 1usize - (i + 1).min(corr_window_1);
+                    corr1[i] = corr_slice(&mid[s..=i], &adv[s..=i]);
+                }
+                let decay1 = rolling_linear_decay_series(&corr1, decay_window_1);
+                let rank_decay1 = pct_rank(&decay1);
+                let ts_rank_vwap = rolling_last_rank_pct_series(&vwap, ts_rank_window_1);
+                let ts_rank_vol = rolling_last_rank_pct_series(volume, ts_rank_window_2);
+                let mut corr2 = vec![f64::NAN; n];
+                for i in 0..n {
+                    let s = i + 1usize - (i + 1).min(corr_window_2);
+                    corr2[i] = corr_slice(&ts_rank_vwap[s..=i], &ts_rank_vol[s..=i]);
+                }
+                let decay2 = rolling_linear_decay_series(&corr2, decay_window_2);
+                let rank_decay2 = pct_rank(&decay2);
+                let mut r1 = rank_decay1[n - 1];
+                let mut r2 = rank_decay2[n - 1];
+                if !r1.is_finite() {
+                    r1 = 0.0;
+                }
+                if !r2.is_finite() {
+                    r2 = 0.0;
+                }
+                out[gi] = r1 / (r2 + EPS);
+            }
+        }
+        "alpha073_vwap_open_decay_max_v1" => {
+            let delta_window_1 = spec.param_i64("delta_window_1", 5).max(1) as usize;
+            let decay_window_1 = spec.param_i64("decay_window_1", 3).max(1) as usize;
+            let weight = spec.param_f64("weight", 0.147);
+            let delta_window_2 = spec.param_i64("delta_window_2", 2).max(1) as usize;
+            let decay_window_2 = spec.param_i64("decay_window_2", 3).max(1) as usize;
+            let ts_rank_window = spec.param_i64("ts_rank_window", 17).max(1) as usize;
+            ensure_col(py, panel, panel_df, "amount")?;
+            ensure_col(py, panel, panel_df, "volume")?;
+            ensure_col(py, panel, panel_df, "low")?;
+            ensure_col(py, panel, panel_df, "ask_price1")?;
+            ensure_col(py, panel, panel_df, "bid_price1")?;
+            let amount_col = panel.col("amount")?;
+            let volume_col = panel.col("volume")?;
+            let low_col = panel.col("low")?;
+            let ask_col = panel.col("ask_price1")?;
+            let bid_col = panel.col("bid_price1")?;
+            for (gi, g) in panel.groups.iter().enumerate() {
+                let amount = &amount_col[g.start..g.end];
+                let volume = &volume_col[g.start..g.end];
+                let low = &low_col[g.start..g.end];
+                let ask = &ask_col[g.start..g.end];
+                let bid = &bid_col[g.start..g.end];
+                let n = amount.len();
+                if n == 0 {
+                    out[gi] = 0.0;
+                    continue;
+                }
+                let mut vwap = vec![f64::NAN; n];
+                let mut mid1 = vec![f64::NAN; n];
+                for i in 0..n {
+                    vwap[i] = amount[i] / (volume[i] + EPS);
+                    mid1[i] = if ask[i].is_finite() && bid[i].is_finite() {
+                        (ask[i] + bid[i]) / 2.0
+                    } else {
+                        f64::NAN
+                    };
+                }
+                let delta_vwap = diff(&vwap, delta_window_1);
+                let decay1 = rolling_linear_decay_series(&delta_vwap, decay_window_1);
+                let rank_decay1 = pct_rank(&decay1);
+                let mut weighted = vec![f64::NAN; n];
+                for i in 0..n {
+                    weighted[i] = mid1[i] * weight + low[i] * (1.0 - weight);
+                }
+                let delta_weighted = diff(&weighted, delta_window_2);
+                let mut ratio = vec![f64::NAN; n];
+                for i in 0..n {
+                    ratio[i] = delta_weighted[i] / (weighted[i] + EPS);
+                }
+                let neg_ratio: Vec<f64> = ratio.iter().map(|v| if v.is_finite() { -*v } else { f64::NAN }).collect();
+                let decay2 = rolling_linear_decay_series(&neg_ratio, decay_window_2);
+                let ts_rank = ts_rank_last(&decay2, ts_rank_window);
+                let mut r1 = rank_decay1[n - 1];
+                if !r1.is_finite() {
+                    r1 = 0.0;
+                }
+                let r2 = if ts_rank.is_finite() { ts_rank } else { 0.0 };
+                out[gi] = -r1.max(r2);
+            }
+        }
+        "alpha074_close_adv_rank_corr_v1" => {
+            let adv_window = spec.param_i64("adv_window", 20).max(1) as usize;
+            let sum_window = spec.param_i64("sum_window", 37).max(1) as usize;
+            let corr_window_1 = spec.param_i64("corr_window_1", 15).max(2) as usize;
+            let weight = spec.param_f64("weight", 0.026);
+            let corr_window_2 = spec.param_i64("corr_window_2", 11).max(2) as usize;
+            ensure_col(py, panel, panel_df, "amount")?;
+            ensure_col(py, panel, panel_df, "volume")?;
+            ensure_col(py, panel, panel_df, "last")?;
+            ensure_col(py, panel, panel_df, "high")?;
+            let amount_col = panel.col("amount")?;
+            let volume_col = panel.col("volume")?;
+            let last_col = panel.col("last")?;
+            let high_col = panel.col("high")?;
+            for (gi, g) in panel.groups.iter().enumerate() {
+                let amount = &amount_col[g.start..g.end];
+                let volume = &volume_col[g.start..g.end];
+                let last = &last_col[g.start..g.end];
+                let high = &high_col[g.start..g.end];
+                let n = amount.len();
+                if n == 0 {
+                    out[gi] = 0.0;
+                    continue;
+                }
+                let mut adv = vec![f64::NAN; n];
+                let mut sum_adv = vec![f64::NAN; n];
+                for i in 0..n {
+                    let s = i + 1usize - (i + 1).min(adv_window);
+                    adv[i] = mean_valid(&amount[s..=i]);
+                    let s2 = i + 1usize - (i + 1).min(sum_window);
+                    sum_adv[i] = sum_valid(&adv[s2..=i]);
+                }
+                let mut corr1 = vec![f64::NAN; n];
+                for i in 0..n {
+                    let s = i + 1usize - (i + 1).min(corr_window_1);
+                    corr1[i] = corr_slice(&last[s..=i], &sum_adv[s..=i]);
+                }
+                let rank_corr1 = pct_rank(&corr1);
+                let mut vwap = vec![f64::NAN; n];
+                let mut weighted = vec![f64::NAN; n];
+                for i in 0..n {
+                    vwap[i] = amount[i] / (volume[i] + EPS);
+                    weighted[i] = high[i] * weight + vwap[i] * (1.0 - weight);
+                }
+                let rank_weighted = pct_rank(&weighted);
+                let rank_vol = pct_rank(volume);
+                let mut corr2 = vec![f64::NAN; n];
+                for i in 0..n {
+                    let s = i + 1usize - (i + 1).min(corr_window_2);
+                    corr2[i] = corr_slice(&rank_weighted[s..=i], &rank_vol[s..=i]);
+                }
+                let rank_corr2 = pct_rank(&corr2);
+                let r1 = rank_corr1[n - 1];
+                let r2 = rank_corr2[n - 1];
+                out[gi] = if r1.is_finite() && r2.is_finite() {
+                    if r1 < r2 { -1.0 } else { 0.0 }
+                } else {
+                    0.0
+                };
+            }
+        }
+        "alpha075_vwap_volume_low_adv_corr_v1" => {
+            let corr_window_1 = spec.param_i64("corr_window_1", 4).max(2) as usize;
+            let adv_window = spec.param_i64("adv_window", 30).max(1) as usize;
+            let corr_window_2 = spec.param_i64("corr_window_2", 12).max(2) as usize;
+            ensure_col(py, panel, panel_df, "amount")?;
+            ensure_col(py, panel, panel_df, "volume")?;
+            ensure_col(py, panel, panel_df, "low")?;
+            let amount_col = panel.col("amount")?;
+            let volume_col = panel.col("volume")?;
+            let low_col = panel.col("low")?;
+            for (gi, g) in panel.groups.iter().enumerate() {
+                let amount = &amount_col[g.start..g.end];
+                let volume = &volume_col[g.start..g.end];
+                let low = &low_col[g.start..g.end];
+                let n = amount.len();
+                if n == 0 {
+                    out[gi] = 0.0;
+                    continue;
+                }
+                let mut vwap = vec![f64::NAN; n];
+                for i in 0..n {
+                    vwap[i] = amount[i] / (volume[i] + EPS);
+                }
+                let mut corr1 = vec![f64::NAN; n];
+                for i in 0..n {
+                    let s = i + 1usize - (i + 1).min(corr_window_1);
+                    corr1[i] = corr_slice(&vwap[s..=i], &volume[s..=i]);
+                }
+                let rank_corr1 = pct_rank(&corr1);
+                let mut adv = vec![f64::NAN; n];
+                for i in 0..n {
+                    let s = i + 1usize - (i + 1).min(adv_window);
+                    adv[i] = mean_valid(&amount[s..=i]);
+                }
+                let rank_low = pct_rank(low);
+                let rank_adv = pct_rank(&adv);
+                let mut corr2 = vec![f64::NAN; n];
+                for i in 0..n {
+                    let s = i + 1usize - (i + 1).min(corr_window_2);
+                    corr2[i] = corr_slice(&rank_low[s..=i], &rank_adv[s..=i]);
+                }
+                let rank_corr2 = pct_rank(&corr2);
+                let r1 = rank_corr1[n - 1];
+                let r2 = rank_corr2[n - 1];
+                out[gi] = if r1.is_finite() && r2.is_finite() {
+                    if r1 < r2 { 1.0 } else { 0.0 }
+                } else {
+                    0.0
+                };
+            }
+        }
+        "alpha077_mid_price_adv_decay_min_v1" => {
+            let decay_window_1 = spec.param_i64("decay_window_1", 10).max(1) as usize;
+            let adv_window = spec.param_i64("adv_window", 20).max(1) as usize;
+            let corr_window = spec.param_i64("corr_window", 3).max(2) as usize;
+            let decay_window_2 = spec.param_i64("decay_window_2", 6).max(1) as usize;
+            ensure_col(py, panel, panel_df, "amount")?;
+            ensure_col(py, panel, panel_df, "volume")?;
+            ensure_col(py, panel, panel_df, "high")?;
+            ensure_col(py, panel, panel_df, "low")?;
+            let amount_col = panel.col("amount")?;
+            let volume_col = panel.col("volume")?;
+            let high_col = panel.col("high")?;
+            let low_col = panel.col("low")?;
+            for (gi, g) in panel.groups.iter().enumerate() {
+                let amount = &amount_col[g.start..g.end];
+                let volume = &volume_col[g.start..g.end];
+                let high = &high_col[g.start..g.end];
+                let low = &low_col[g.start..g.end];
+                let n = amount.len();
+                if n == 0 {
+                    out[gi] = 0.0;
+                    continue;
+                }
+                let mut vwap = vec![f64::NAN; n];
+                let mut mid = vec![f64::NAN; n];
+                for i in 0..n {
+                    vwap[i] = amount[i] / (volume[i] + EPS);
+                    mid[i] = (high[i] + low[i]) / 2.0;
+                }
+                let mut diff1 = vec![f64::NAN; n];
+                for i in 0..n {
+                    diff1[i] = mid[i] - vwap[i];
+                }
+                let decay1 = rolling_linear_decay_series(&diff1, decay_window_1);
+                let rank_decay1 = pct_rank(&decay1);
+                let mut adv = vec![f64::NAN; n];
+                for i in 0..n {
+                    let s = i + 1usize - (i + 1).min(adv_window);
+                    adv[i] = mean_valid(&amount[s..=i]);
+                }
+                let mut corr = vec![f64::NAN; n];
+                for i in 0..n {
+                    let s = i + 1usize - (i + 1).min(corr_window);
+                    corr[i] = corr_slice(&mid[s..=i], &adv[s..=i]);
+                }
+                let decay2 = rolling_linear_decay_series(&corr, decay_window_2);
+                let rank_decay2 = pct_rank(&decay2);
+                let mut r1 = rank_decay1[n - 1];
+                let mut r2 = rank_decay2[n - 1];
+                if !r1.is_finite() {
+                    r1 = 0.0;
+                }
+                if !r2.is_finite() {
+                    r2 = 0.0;
+                }
+                out[gi] = r1.min(r2);
+            }
+        }
+        "alpha078_low_vwap_adv_corr_v1" => {
+            let weight = spec.param_f64("weight", 0.352);
+            let sum_window_1 = spec.param_i64("sum_window_1", 20).max(1) as usize;
+            let adv_window = spec.param_i64("adv_window", 20).max(1) as usize;
+            let sum_window_2 = spec.param_i64("sum_window_2", 20).max(1) as usize;
+            let corr_window_1 = spec.param_i64("corr_window_1", 7).max(2) as usize;
+            let corr_window_2 = spec.param_i64("corr_window_2", 6).max(2) as usize;
+            ensure_col(py, panel, panel_df, "amount")?;
+            ensure_col(py, panel, panel_df, "volume")?;
+            ensure_col(py, panel, panel_df, "low")?;
+            let amount_col = panel.col("amount")?;
+            let volume_col = panel.col("volume")?;
+            let low_col = panel.col("low")?;
+            for (gi, g) in panel.groups.iter().enumerate() {
+                let amount = &amount_col[g.start..g.end];
+                let volume = &volume_col[g.start..g.end];
+                let low = &low_col[g.start..g.end];
+                let n = amount.len();
+                if n == 0 {
+                    out[gi] = 0.0;
+                    continue;
+                }
+                let mut vwap = vec![f64::NAN; n];
+                let mut weighted = vec![f64::NAN; n];
+                for i in 0..n {
+                    vwap[i] = amount[i] / (volume[i] + EPS);
+                    weighted[i] = low[i] * weight + vwap[i] * (1.0 - weight);
+                }
+                let mut sum_weighted = vec![f64::NAN; n];
+                for i in 0..n {
+                    let s = i + 1usize - (i + 1).min(sum_window_1);
+                    sum_weighted[i] = sum_valid(&weighted[s..=i]);
+                }
+                let mut adv = vec![f64::NAN; n];
+                for i in 0..n {
+                    let s = i + 1usize - (i + 1).min(adv_window);
+                    adv[i] = mean_valid(&amount[s..=i]);
+                }
+                let mut sum_adv = vec![f64::NAN; n];
+                for i in 0..n {
+                    let s = i + 1usize - (i + 1).min(sum_window_2);
+                    sum_adv[i] = sum_valid(&adv[s..=i]);
+                }
+                let mut corr1 = vec![f64::NAN; n];
+                for i in 0..n {
+                    let s = i + 1usize - (i + 1).min(corr_window_1);
+                    corr1[i] = corr_slice(&sum_weighted[s..=i], &sum_adv[s..=i]);
+                }
+                let rank_corr1 = pct_rank(&corr1);
+                let rank_vwap = pct_rank(&vwap);
+                let rank_vol = pct_rank(volume);
+                let mut corr2 = vec![f64::NAN; n];
+                for i in 0..n {
+                    let s = i + 1usize - (i + 1).min(corr_window_2);
+                    corr2[i] = corr_slice(&rank_vwap[s..=i], &rank_vol[s..=i]);
+                }
+                let rank_corr2 = pct_rank(&corr2);
+                let mut r1 = rank_corr1[n - 1];
+                let mut r2 = rank_corr2[n - 1];
+                if !r1.is_finite() {
+                    r1 = 0.0;
+                }
+                if !r2.is_finite() {
+                    r2 = 0.0;
+                }
+                out[gi] = r1.powf(r2);
+            }
         }
         _ => {
             return Err(PyErr::new::<PyRuntimeError, _>(format!(

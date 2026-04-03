@@ -297,6 +297,58 @@ def _mean_abs_ic_by_groups(
     return float(np.mean(vals))
 
 
+def _average_ranks(values: np.ndarray) -> np.ndarray:
+    """Average-tie ranks, equivalent to pandas rank(method='average')."""
+    arr = np.asarray(values, dtype=float)
+    n = int(arr.size)
+    if n == 0:
+        return np.asarray([], dtype=float)
+    order = np.argsort(arr, kind="mergesort")
+    sorted_arr = arr[order]
+    ranks = np.empty(n, dtype=float)
+    i = 0
+    while i < n:
+        j = i + 1
+        while j < n and sorted_arr[j] == sorted_arr[i]:
+            j += 1
+        rank = 0.5 * (i + j - 1) + 1.0
+        ranks[order[i:j]] = rank
+        i = j
+    return ranks
+
+
+def _mean_rank_ic_by_groups(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    groups: list[np.ndarray],
+    *,
+    eps: float = 1e-12,
+) -> float:
+    if not groups:
+        return float("nan")
+    vals: list[float] = []
+    for idx in groups:
+        y = y_true[idx]
+        p = y_pred[idx]
+        if y.size < 2:
+            continue
+        yr = _average_ranks(y)
+        pr = _average_ranks(p)
+        yc = yr - np.mean(yr)
+        pc = pr - np.mean(pr)
+        b = float(np.dot(yc, yc))
+        c = float(np.dot(pc, pc))
+        if b <= eps or c <= eps:
+            continue
+        a = float(np.dot(yc, pc))
+        r = a / np.sqrt(b * c + eps)
+        if np.isfinite(r):
+            vals.append(float(r))
+    if not vals:
+        return float("nan")
+    return float(np.mean(vals))
+
+
 def _make_abs_ic_objective(
     dt: pd.Series,
     *,
@@ -447,8 +499,11 @@ def train_lgbm(
     params = dict(lgbm_params)
     mode = str(loss_mode or "mse").lower()
     eval_metric_name = "rank_ic"
+    log_eval_period = max(1, int(params.pop("log_eval_period", 10)))
     train_groups: list[np.ndarray] = []
     val_groups: list[np.ndarray] = []
+    train_rank_groups = _build_day_group_indices(train.dt)
+    val_rank_groups = _build_day_group_indices(val.dt)
     if mode in {"ic_abs", "abs_ic", "icabs"}:
         objective_fn, train_groups = _make_abs_ic_objective(train.dt)
         params["objective"] = objective_fn
@@ -461,15 +516,15 @@ def train_lgbm(
     def _eval_rank_ic(y_true, y_pred):
         if y_true is None or y_pred is None:
             return ("rank_ic", 0.0, True)
-        y_true = np.asarray(y_true)
-        y_pred = np.asarray(y_pred)
+        y_true = np.asarray(y_true, dtype=float)
+        y_pred = np.asarray(y_pred, dtype=float)
         if y_true.shape[0] == train.y.shape[0]:
-            dt_series = train.dt.reset_index(drop=True)
+            groups = train_rank_groups
         else:
-            dt_series = val.dt.reset_index(drop=True)
-        df = pd.DataFrame({"dt": dt_series, "y": y_true, "pred": y_pred})
-        rank_ic = _rank_ic_by_day(df, "pred").dropna()
-        val_ic = float(rank_ic.mean()) if not rank_ic.empty else 0.0
+            groups = val_rank_groups
+        val_ic = _mean_rank_ic_by_groups(y_true, y_pred, groups)
+        if not np.isfinite(val_ic):
+            val_ic = 0.0
         return ("rank_ic", val_ic, True)
 
     def _eval_abs_ic(y_true, y_pred):
@@ -492,8 +547,6 @@ def train_lgbm(
         iteration = env.iteration + 1
         train_scores = []
         val_scores = []
-        train_r2 = float("nan")
-        val_r2 = float("nan")
         for data_name, metric_name, value, _ in env.evaluation_result_list:
             if metric_name != eval_metric_name:
                 continue
@@ -503,17 +556,6 @@ def train_lgbm(
                 val_scores.append(value)
         train_metric = float(train_scores[-1]) if train_scores else float("nan")
         val_metric = float(val_scores[-1]) if val_scores else float("nan")
-        try:
-            if env.model is not None:
-                if env.model.current_iteration() >= 0:
-                    train_pred = env.model.predict(train.x, num_iteration=env.model.current_iteration())
-                    val_pred = env.model.predict(val.x, num_iteration=env.model.current_iteration())
-                    from sklearn.metrics import r2_score
-                    train_r2 = float(r2_score(train.y, train_pred)) if len(train.y) else float("nan")
-                    val_r2 = float(r2_score(val.y, val_pred)) if len(val.y) else float("nan")
-        except Exception:
-            train_r2 = float("nan")
-            val_r2 = float("nan")
         history.append(
             {
                 "iteration": iteration,
@@ -521,15 +563,16 @@ def train_lgbm(
                 "val_rank_ic": val_metric if eval_metric_name == "rank_ic" else float("nan"),
                 "train_abs_ic": train_metric if eval_metric_name == "abs_ic" else float("nan"),
                 "val_abs_ic": val_metric if eval_metric_name == "abs_ic" else float("nan"),
-                "train_r2": train_r2,
-                "val_r2": val_r2,
+                "train_r2": float("nan"),
+                "val_r2": float("nan"),
             }
         )
+        if iteration % log_eval_period != 0:
+            return
         metric_label = "rank_ic" if eval_metric_name == "rank_ic" else "abs_ic"
         print(
             f"iter {iteration:03d} "
-            f"train_{metric_label}={train_metric:.4f} val_{metric_label}={val_metric:.4f} "
-            f"train_r2={train_r2:.4f} val_r2={val_r2:.4f}"
+            f"train_{metric_label}={train_metric:.4f} val_{metric_label}={val_metric:.4f}"
         )
     def _fit_once(estimator) -> None:
         base_fit_kwargs = {}
