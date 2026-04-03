@@ -9,7 +9,7 @@
   workers: 1,
   factor_workers: 2,
   compute: {
-    engine: "rust_shm_exp", // rust | rust_shm_exp | python (no automatic fallback)
+    engine: "rust", // rust | rust_shm_exp | python (no automatic fallback)
     backend: "cpu",       // auto | torch | cpu
     torch_device: "cuda", // e.g. "cuda", "cuda:0"
     fallback_cpu: true,
@@ -32,7 +32,7 @@
     stock_panel: { enabled: false, strict: false },
     bond_stock_map: { enabled: false, strict: false }
   },
-  backtest_enabled: true,
+  backtest_enabled: false,
   factors: [],
   backtest: {
     workers: 6,
