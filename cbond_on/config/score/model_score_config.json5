@@ -7,10 +7,8 @@
   execution: {
     // Refit cadence in trading-day steps (1 = refit every target day).
     refit_every_n_days: 1,
-    // Throughput mode: split rolling target days across shards.
-    // Use 1/0 for single-process default.
-    parallel_shards: 1,
-    parallel_shard_index: 0,
+    // Number of training processes. model_score.py will auto split shards.
+    train_processes: 8,
     // Threading controls applied in model_score_service (all model types).
     threading: {
       omp_num_threads: 12,

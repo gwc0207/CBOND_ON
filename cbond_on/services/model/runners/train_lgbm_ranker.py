@@ -21,6 +21,7 @@ from cbond_on.models.score_io import load_scores_by_date, write_scores_by_date
 from cbond_on.models.impl.lgbm_ranker.trainer import (
     _iter_existing_label_days,
     _split_days,
+    SplitData,
     build_dataset,
     build_ranker_split_data,
     evaluate_metrics,
@@ -132,6 +133,61 @@ def _best_val_rank_ic(hist: list[dict]) -> float:
     return float(np.max(vals)) if vals else float("nan")
 
 
+def _concat_split_data(parts: list[SplitData], factor_cols: list[str]) -> SplitData:
+    valid_parts = [p for p in parts if p is not None and not p.x.empty]
+    if not valid_parts:
+        empty = pd.DataFrame(columns=factor_cols)
+        return SplitData(
+            x=empty.copy(),
+            y=pd.Series(dtype=float),
+            dt=pd.Series(dtype="datetime64[ns]"),
+            code=pd.Series(dtype=str),
+        )
+    x = pd.concat([p.x for p in valid_parts], ignore_index=True)
+    y = pd.concat([p.y for p in valid_parts], ignore_index=True)
+    dt = pd.concat([p.dt for p in valid_parts], ignore_index=True)
+    code = pd.concat([p.code for p in valid_parts], ignore_index=True)
+    return SplitData(x=x, y=y, dt=dt, code=code)
+
+
+def _build_daily_split_cache(
+    *,
+    days: list[date],
+    factor_store: FactorStore,
+    label_root: Path,
+    factor_cols: list[str],
+    min_count: int,
+    winsor_lower: float,
+    winsor_upper: float,
+    zscore: bool,
+    factor_time: str,
+    label_time: str,
+    require_label: bool,
+) -> dict[date, SplitData]:
+    cache: dict[date, SplitData] = {}
+    total = len(days)
+    for i, day in enumerate(days, start=1):
+        split = build_dataset(
+            factor_store=factor_store,
+            label_root=label_root,
+            days=[day],
+            factor_cols=factor_cols,
+            min_count=min_count,
+            winsor_lower=winsor_lower,
+            winsor_upper=winsor_upper,
+            zscore=zscore,
+            factor_time=factor_time,
+            label_time=label_time,
+            require_label=require_label,
+        )
+        if not split.x.empty:
+            cache[day] = split
+        if i == total or i % 50 == 0:
+            tag = "label" if require_label else "test"
+            print(f"[rolling] cache_build {tag}: {i}/{total}")
+    return cache
+
+
 def main(
     *,
     config_path: str | Path | None = None,
@@ -142,6 +198,7 @@ def main(
 ) -> None:
     execution_cfg = dict(execution or {})
     env_refit = os.getenv("CBOND_REFIT_EVERY_N_DAYS")
+    env_train_processes = os.getenv("CBOND_TRAIN_PROCESSES")
     env_shards = os.getenv("CBOND_SCORE_PARALLEL_SHARDS")
     env_shard_index = os.getenv("CBOND_SCORE_PARALLEL_SHARD_INDEX")
     refit_every_n_days = max(
@@ -153,12 +210,21 @@ def main(
             )
         ),
     )
+    train_processes = max(
+        1,
+        int(
+            execution_cfg.get(
+                "train_processes",
+                env_train_processes if env_train_processes is not None else 1,
+            )
+        ),
+    )
     parallel_shards = max(
         1,
         int(
             execution_cfg.get(
                 "parallel_shards",
-                env_shards if env_shards is not None else 1,
+                env_shards if env_shards is not None else train_processes,
             )
         ),
     )
@@ -352,6 +418,7 @@ def main(
             raise RuntimeError("rolling has no valid target day after incremental filtering")
         print(
             f"[rolling] execution refit_every_n_days={refit_every_n_days} "
+            f"train_processes={train_processes} "
             f"parallel_shards={parallel_shards} parallel_shard_index={parallel_shard_index}"
         )
         if parallel_shards > 1:
@@ -372,6 +439,48 @@ def main(
             print(f"saved rolling: {out_dir}")
             print(f"saved scores: {score_output}")
             return
+        train_cache_days = sorted(
+            {
+                d
+                for idx in valid_indices
+                for d in days[idx - window_days + 1: idx]
+            }
+        )
+        test_cache_days = sorted({days[idx] for idx in valid_indices})
+        print(
+            f"[rolling] prebuild caches: train_days={len(train_cache_days)} "
+            f"test_days={len(test_cache_days)}"
+        )
+        train_day_cache = _build_daily_split_cache(
+            days=train_cache_days,
+            factor_store=store,
+            label_root=label_root,
+            factor_cols=factor_cols,
+            min_count=min_count,
+            winsor_lower=winsor_lower,
+            winsor_upper=winsor_upper,
+            zscore=zscore,
+            factor_time=factor_time,
+            label_time=label_time,
+            require_label=True,
+        )
+        test_day_cache = _build_daily_split_cache(
+            days=test_cache_days,
+            factor_store=store,
+            label_root=label_root,
+            factor_cols=factor_cols,
+            min_count=min_count,
+            winsor_lower=winsor_lower,
+            winsor_upper=winsor_upper,
+            zscore=zscore,
+            factor_time=factor_time,
+            label_time=label_time,
+            require_label=False,
+        )
+        print(
+            f"[rolling] cache_ready train_cached={len(train_day_cache)} "
+            f"test_cached={len(test_day_cache)}"
+        )
         total_rolls = len(valid_indices)
 
         rolling_rows: list[dict] = []
@@ -406,46 +515,21 @@ def main(
                 f"[rolling] {roll_idx}/{total_rolls} test_day={test_day} "
                 f"refit={'Y' if should_refit else 'N'} cadence={refit_every_n_days}"
             )
-            test_data = build_dataset(
-                factor_store=store,
-                label_root=label_root,
-                days=[test_day],
-                factor_cols=factor_cols,
-                min_count=min_count,
-                winsor_lower=winsor_lower,
-                winsor_upper=winsor_upper,
-                zscore=zscore,
-                factor_time=factor_time,
-                label_time=label_time,
-                require_label=False,
+            test_data = _concat_split_data(
+                [test_day_cache[d] for d in [test_day] if d in test_day_cache],
+                factor_cols,
             )
             if test_data.x.empty:
                 continue
             refit_status = "reuse"
             if should_refit:
-                train_data = build_dataset(
-                    factor_store=store,
-                    label_root=label_root,
-                    days=roll_train_days,
-                    factor_cols=factor_cols,
-                    min_count=min_count,
-                    winsor_lower=winsor_lower,
-                    winsor_upper=winsor_upper,
-                    zscore=zscore,
-                    factor_time=factor_time,
-                    label_time=label_time,
+                train_data = _concat_split_data(
+                    [train_day_cache[d] for d in roll_train_days if d in train_day_cache],
+                    factor_cols,
                 )
-                val_data = build_dataset(
-                    factor_store=store,
-                    label_root=label_root,
-                    days=roll_val_days,
-                    factor_cols=factor_cols,
-                    min_count=min_count,
-                    winsor_lower=winsor_lower,
-                    winsor_upper=winsor_upper,
-                    zscore=zscore,
-                    factor_time=factor_time,
-                    label_time=label_time,
+                val_data = _concat_split_data(
+                    [train_day_cache[d] for d in roll_val_days if d in train_day_cache],
+                    factor_cols,
                 )
                 if train_data.x.empty:
                     if active_model is None:
