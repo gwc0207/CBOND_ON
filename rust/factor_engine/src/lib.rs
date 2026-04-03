@@ -1095,15 +1095,26 @@ fn compute_factor_values(
             }
             ensure_col(py, panel, panel_df, "ask_price1")?;
             ensure_col(py, panel, panel_df, "bid_price1")?;
+            let mut ask_cols: Vec<&Vec<f64>> = Vec::with_capacity(levels);
+            let mut bid_cols: Vec<&Vec<f64>> = Vec::with_capacity(levels);
+            for i in 1..=levels {
+                let ask_name = format!("ask_price{}", i);
+                let bid_name = format!("bid_price{}", i);
+                ask_cols.push(panel.col(&ask_name)?);
+                bid_cols.push(panel.col(&bid_name)?);
+            }
+            let ask1_col = panel.col("ask_price1")?;
+            let bid1_col = panel.col("bid_price1")?;
             for (gi, g) in panel.groups.iter().enumerate() {
-                let mut vals = Vec::<f64>::new();
+                let mut acc = 0.0f64;
+                let mut cnt = 0usize;
                 for r in g.start..g.end {
                     let mut ask_sum = 0.0;
                     let mut bid_sum = 0.0;
                     let mut ok = true;
-                    for i in 1..=levels {
-                        let ap = panel.col(&format!("ask_price{}", i))?[r];
-                        let bp = panel.col(&format!("bid_price{}", i))?[r];
+                    for i in 0..levels {
+                        let ap = ask_cols[i][r];
+                        let bp = bid_cols[i][r];
                         if !ap.is_finite() || !bp.is_finite() {
                             ok = false;
                             break;
@@ -1116,18 +1127,18 @@ fn compute_factor_values(
                     }
                     let ask_avg = ask_sum / levels as f64;
                     let bid_avg = bid_sum / levels as f64;
-                    let ask1 = panel.col("ask_price1")?[r];
-                    let bid1 = panel.col("bid_price1")?[r];
+                    let ask1 = ask1_col[r];
+                    let bid1 = bid1_col[r];
                     let mid = (ask1 + bid1) * 0.5;
                     if mid.abs() > EPS {
                         let v = (ask_avg - bid_avg) / mid;
                         if v.is_finite() {
-                            vals.push(v);
+                            acc += v;
+                            cnt += 1;
                         }
                     }
                 }
-                let m = mean_valid(&vals);
-                out[gi] = if m.is_finite() { m } else { 0.0 };
+                out[gi] = if cnt > 0 { acc / cnt as f64 } else { 0.0 };
             }
         }
         "volen" => {
@@ -1138,45 +1149,61 @@ fn compute_factor_values(
                 ensure_col(py, panel, panel_df, &format!("ask_volume{}", i))?;
                 ensure_col(py, panel, panel_df, &format!("bid_volume{}", i))?;
             }
+            let mut ask_cols: Vec<&Vec<f64>> = Vec::with_capacity(levels);
+            let mut bid_cols: Vec<&Vec<f64>> = Vec::with_capacity(levels);
+            for i in 1..=levels {
+                let ask_name = format!("ask_volume{}", i);
+                let bid_name = format!("bid_volume{}", i);
+                ask_cols.push(panel.col(&ask_name)?);
+                bid_cols.push(panel.col(&bid_name)?);
+            }
             for (gi, g) in panel.groups.iter().enumerate() {
                 let n = g.end - g.start;
-                if n == 0 {
+                if n == 0 || n < fast || n < slow {
                     out[gi] = 0.0;
                     continue;
                 }
-                let mut total = vec![f64::NAN; n];
-                for k in 0..n {
+                let max_w = fast.max(slow);
+                let start_k = n - max_w;
+                let fast_start = n - fast;
+                let slow_start = n - slow;
+                let mut fast_sum = 0.0f64;
+                let mut slow_sum = 0.0f64;
+                let mut fast_ok = true;
+                let mut slow_ok = true;
+                for k in start_k..n {
                     let r = g.start + k;
                     let mut s = 0.0;
                     let mut ok = true;
-                    for i in 1..=levels {
-                        let a = panel.col(&format!("ask_volume{}", i))?[r];
-                        let b = panel.col(&format!("bid_volume{}", i))?[r];
+                    for i in 0..levels {
+                        let a = ask_cols[i][r];
+                        let b = bid_cols[i][r];
                         if !a.is_finite() || !b.is_finite() {
                             ok = false;
                             break;
                         }
                         s += a + b;
                     }
-                    if ok {
-                        total[k] = s;
+                    let v = if ok { s } else { f64::NAN };
+                    if k >= fast_start {
+                        if v.is_finite() {
+                            fast_sum += v;
+                        } else {
+                            fast_ok = false;
+                        }
+                    }
+                    if k >= slow_start {
+                        if v.is_finite() {
+                            slow_sum += v;
+                        } else {
+                            slow_ok = false;
+                        }
                     }
                 }
-                let tail_mean = |w: usize| -> f64 {
-                    if n < w {
-                        return f64::NAN;
-                    }
-                    let slice = &total[n - w..n];
-                    if slice.iter().all(|v| v.is_finite()) {
-                        sum_valid(slice) / w as f64
-                    } else {
-                        f64::NAN
-                    }
-                };
-                let f = tail_mean(fast);
-                let s = tail_mean(slow);
-                if f.is_finite() && s.is_finite() && s.abs() > EPS {
-                    let v = f / s;
+                if fast_ok && slow_ok {
+                    let f = fast_sum / fast as f64;
+                    let s = slow_sum / slow as f64;
+                    let v = if s.abs() > EPS { f / s } else { 0.0 };
                     out[gi] = if v.is_finite() { v } else { 0.0 };
                 } else {
                     out[gi] = 0.0;
