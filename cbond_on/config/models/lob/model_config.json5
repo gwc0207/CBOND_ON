@@ -13,11 +13,11 @@
   label_time: "14:42",
 
   // Minimum sequence requirement per code.
-  min_seq_len: 1000,
+  min_seq_len: 800,
 
   params: {
     depth_levels: 10,
-    input_length: 1000,
+    input_length: 800,
     rbf_num_bases: 16,
     rbf_sigma: 0.5,
     lstm_hidden_size: 256,
@@ -47,7 +47,7 @@
     checkpoint_dir_weight: 1.0,
     checkpoint_corr_weight: 0.3,
     device: "gpu",
-    num_workers: 12,
+    num_workers: 32,
     preprocess_backend: "cpu",
     preprocess_fallback_to_cpu: true,
     log_data_prep_progress: true,
