@@ -31,6 +31,7 @@ source ~/venv/cbond/bin/activate && cd ~/cbond_on && python cbond_on/run/factor_
 ```bash
 source ~/venv/cbond/bin/activate && cd ~/cbond_on && python cbond_on/run/model_score.py
 ```
+说明：并行与预取在 `cbond_on/config/score/model_score_config.json5` 的 `execution` 中配置（`train_processes / prep_workers / prefetch_windows`）。
 
 ### 4.4 回测
 ```bash

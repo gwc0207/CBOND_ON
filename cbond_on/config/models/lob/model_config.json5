@@ -3,7 +3,7 @@
   model_type: "lob",
 
   // Default window; can be overridden by model_score start/end.
-  start: "2025-12-01",
+  start: "2025-06-01",
   end: "2026-03-30",
 
   // Input source: panel + label (no standalone LOBDS dependency).
@@ -58,11 +58,11 @@
 
   // Daily score storage.
   score_output: "D:/cbond_on/results/scores/lob_st_default",
-  score_overwrite: false,
+  score_overwrite: true,
   score_dedupe: true,
   incremental: {
     enabled: true,
-    skip_existing_scores: true
+    skip_existing_scores: false
   },
 
   // Save the latest checkpoint of the current run.

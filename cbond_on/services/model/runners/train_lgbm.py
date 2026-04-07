@@ -4,6 +4,8 @@ from __future__ import annotations
 import json
 import os
 import sys
+from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime
 from pathlib import Path
 
@@ -153,6 +155,53 @@ def _build_daily_split_cache(
     return cache
 
 
+def _prepare_rolling_payload(
+    *,
+    idx: int,
+    days: list[date],
+    window_days: int,
+    train_ratio: float,
+    factor_cols: list[str],
+    train_day_cache: dict[date, SplitData],
+    test_day_cache: dict[date, SplitData],
+) -> dict | None:
+    window = days[idx - window_days + 1: idx + 1]
+    train_pool = window[:-1]
+    test_day = window[-1]
+    if len(train_pool) < 2:
+        return None
+    n_pool = len(train_pool)
+    n_train = max(1, int(n_pool * train_ratio))
+    n_val = n_pool - n_train
+    if n_val <= 0:
+        n_val = 1
+        n_train = max(1, n_pool - n_val)
+    train_days = list(train_pool[:n_train])
+    val_days = list(train_pool[n_train:n_train + n_val])
+    test_data = _concat_split_data(
+        [test_day_cache[d] for d in [test_day] if d in test_day_cache],
+        factor_cols,
+    )
+    if test_data.x.empty:
+        return None
+    train_data = _concat_split_data(
+        [train_day_cache[d] for d in train_days if d in train_day_cache],
+        factor_cols,
+    )
+    val_data = _concat_split_data(
+        [train_day_cache[d] for d in val_days if d in train_day_cache],
+        factor_cols,
+    )
+    return {
+        "test_day": test_day,
+        "train_days": train_days,
+        "val_days": val_days,
+        "train_data": train_data,
+        "val_data": val_data,
+        "test_data": test_data,
+    }
+
+
 def main(
     *,
     config_path: str | Path | None = None,
@@ -164,6 +213,8 @@ def main(
     execution_cfg = dict(execution or {})
     env_refit = os.getenv("CBOND_REFIT_EVERY_N_DAYS")
     env_train_processes = os.getenv("CBOND_TRAIN_PROCESSES")
+    env_prep_workers = os.getenv("CBOND_PREP_WORKERS")
+    env_prefetch_windows = os.getenv("CBOND_PREFETCH_WINDOWS")
     env_shards = os.getenv("CBOND_SCORE_PARALLEL_SHARDS")
     env_shard_index = os.getenv("CBOND_SCORE_PARALLEL_SHARD_INDEX")
     refit_every_n_days = max(
@@ -181,6 +232,24 @@ def main(
             execution_cfg.get(
                 "train_processes",
                 env_train_processes if env_train_processes is not None else 1,
+            )
+        ),
+    )
+    prep_workers = max(
+        1,
+        int(
+            execution_cfg.get(
+                "prep_workers",
+                env_prep_workers if env_prep_workers is not None else 1,
+            )
+        ),
+    )
+    prefetch_windows = max(
+        1,
+        int(
+            execution_cfg.get(
+                "prefetch_windows",
+                env_prefetch_windows if env_prefetch_windows is not None else 2,
             )
         ),
     )
@@ -424,6 +493,7 @@ def main(
         if rolling_enabled:
             print(
                 f"[rolling] execution refit_every_n_days={refit_every_n_days} "
+                f"prep_workers={prep_workers} prefetch_windows={prefetch_windows} "
                 f"train_processes={train_processes} "
                 f"parallel_shards={parallel_shards} parallel_shard_index={parallel_shard_index}"
             )
@@ -491,137 +561,149 @@ def main(
         active_model = None
         last_refit_pos: int | None = None
         last_refit_day: date | None = None
-        for roll_idx, idx in enumerate(valid_indices, start=1):
-            window = days[idx - window_days + 1: idx + 1]
-            train_pool = window[:-1]
-            test_day = window[-1]
-            if len(train_pool) < 2:
-                continue
-            n_pool = len(train_pool)
-            n_train = max(1, int(n_pool * train_ratio))
-            n_val = n_pool - n_train
-            if n_val <= 0:
-                n_val = 1
-                n_train = max(1, n_pool - n_val)
-            train_days = list(train_pool[:n_train])
-            val_days = list(train_pool[n_train:n_train + n_val])
-            should_refit = (
-                active_model is None
-                or refit_every_n_days <= 1
-                or last_refit_pos is None
-                or (roll_idx - last_refit_pos) >= refit_every_n_days
-            )
-            print(
-                f"[rolling] {roll_idx}/{total_rolls} test_day={test_day} "
-                f"refit={'Y' if should_refit else 'N'} cadence={refit_every_n_days}"
-            )
-            test_data = _concat_split_data(
-                [test_day_cache[d] for d in [test_day] if d in test_day_cache],
-                factor_cols,
-            )
-            if test_data.x.empty:
-                continue
-            refit_status = "reuse"
-            if should_refit:
-                train_data = _concat_split_data(
-                    [train_day_cache[d] for d in train_days if d in train_day_cache],
-                    factor_cols,
+        with ThreadPoolExecutor(max_workers=prep_workers, thread_name_prefix="roll_prep") as prep_pool:
+            inflight: deque[tuple[int, int, object]] = deque()
+            next_pos = 0
+
+            def _enqueue() -> bool:
+                nonlocal next_pos
+                if next_pos >= total_rolls:
+                    return False
+                roll_pos = next_pos + 1
+                idx = valid_indices[next_pos]
+                fut = prep_pool.submit(
+                    _prepare_rolling_payload,
+                    idx=idx,
+                    days=days,
+                    window_days=window_days,
+                    train_ratio=train_ratio,
+                    factor_cols=factor_cols,
+                    train_day_cache=train_day_cache,
+                    test_day_cache=test_day_cache,
                 )
-                val_data = _concat_split_data(
-                    [train_day_cache[d] for d in val_days if d in train_day_cache],
-                    factor_cols,
+                inflight.append((roll_pos, idx, fut))
+                next_pos += 1
+                return True
+
+            for _ in range(min(prefetch_windows, total_rolls)):
+                if not _enqueue():
+                    break
+
+            while inflight:
+                roll_idx, idx, fut = inflight.popleft()
+                _enqueue()
+                payload = fut.result()
+                if payload is None:
+                    continue
+                test_day = payload["test_day"]
+                train_days = payload["train_days"]
+                val_days = payload["val_days"]
+                train_data = payload["train_data"]
+                val_data = payload["val_data"]
+                test_data = payload["test_data"]
+                should_refit = (
+                    active_model is None
+                    or refit_every_n_days <= 1
+                    or last_refit_pos is None
+                    or (roll_idx - last_refit_pos) >= refit_every_n_days
                 )
-                if train_data.x.empty:
-                    if active_model is None:
-                        print(f"[rolling] skip {test_day}: empty train split and no reusable model")
-                        continue
-                    refit_status = "reuse_empty_train"
-                else:
-                    init_model = None
-                    if incremental_enabled and incremental_warm_start:
-                        prev_ckpt = _find_previous_checkpoint(state_dir, test_day)
-                        if prev_ckpt is not None:
-                            init_model = str(prev_ckpt)
-                            print(f"[rolling] warm-start from checkpoint: {prev_ckpt.name}")
-                    try:
-                        model, params = train_lgbm(
-                            train=train_data,
-                            val=val_data,
-                            lgbm_params=lgbm_params,
-                            early_stopping_rounds=int(early_rounds) if early_rounds else None,
-                            loss_mode=loss_mode,
-                            init_model=init_model,
-                        )
-                    except Exception as exc:
-                        if init_model is None:
-                            raise
-                        print(f"[rolling] warm-start failed, fallback cold-start: {type(exc).__name__}: {exc}")
-                        model, params = train_lgbm(
-                            train=train_data,
-                            val=val_data,
-                            lgbm_params=lgbm_params,
-                            early_stopping_rounds=int(early_rounds) if early_rounds else None,
-                            loss_mode=loss_mode,
-                            init_model=None,
-                        )
-                    active_model = model
-                    last_refit_pos = roll_idx
-                    last_refit_day = test_day
-                    refit_status = "refit"
-                    if incremental_enabled and incremental_save_state:
-                        ckpt_path = _checkpoint_path(state_dir, test_day)
+                print(
+                    f"[rolling] {roll_idx}/{total_rolls} test_day={test_day} "
+                    f"refit={'Y' if should_refit else 'N'} cadence={refit_every_n_days}"
+                )
+                refit_status = "reuse"
+                if should_refit:
+                    if train_data.x.empty:
+                        if active_model is None:
+                            print(f"[rolling] skip {test_day}: empty train split and no reusable model")
+                            continue
+                        refit_status = "reuse_empty_train"
+                    else:
+                        init_model = None
+                        if incremental_enabled and incremental_warm_start:
+                            prev_ckpt = _find_previous_checkpoint(state_dir, test_day)
+                            if prev_ckpt is not None:
+                                init_model = str(prev_ckpt)
+                                print(f"[rolling] warm-start from checkpoint: {prev_ckpt.name}")
                         try:
-                            model.booster_.save_model(str(ckpt_path))
+                            model, params = train_lgbm(
+                                train=train_data,
+                                val=val_data,
+                                lgbm_params=lgbm_params,
+                                early_stopping_rounds=int(early_rounds) if early_rounds else None,
+                                loss_mode=loss_mode,
+                                init_model=init_model,
+                            )
                         except Exception as exc:
-                            print(f"[rolling] failed to save checkpoint {ckpt_path}: {exc}")
-            if active_model is None:
-                print(f"[rolling] skip {test_day}: no trained model available")
-                continue
-            test_pred = active_model.predict(test_data.x)
-            model_source_day = test_day if refit_status == "refit" else (last_refit_day or test_day)
-            if not (desired_start <= test_day <= desired_end):
-                continue
-            score_df = pd.DataFrame(
-                {"trade_date": test_day, "code": test_data.code, "score": test_pred}
-            )
-            score_rows.append(score_df)
-            if np.isfinite(test_data.y).any():
-                test_metrics = evaluate_metrics(
-                    test_data.x, test_data.y, test_data.dt, test_pred, bins=bins
+                            if init_model is None:
+                                raise
+                            print(f"[rolling] warm-start failed, fallback cold-start: {type(exc).__name__}: {exc}")
+                            model, params = train_lgbm(
+                                train=train_data,
+                                val=val_data,
+                                lgbm_params=lgbm_params,
+                                early_stopping_rounds=int(early_rounds) if early_rounds else None,
+                                loss_mode=loss_mode,
+                                init_model=None,
+                            )
+                        active_model = model
+                        last_refit_pos = roll_idx
+                        last_refit_day = test_day
+                        refit_status = "refit"
+                        if incremental_enabled and incremental_save_state:
+                            ckpt_path = _checkpoint_path(state_dir, test_day)
+                            try:
+                                model.booster_.save_model(str(ckpt_path))
+                            except Exception as exc:
+                                print(f"[rolling] failed to save checkpoint {ckpt_path}: {exc}")
+                if active_model is None:
+                    print(f"[rolling] skip {test_day}: no trained model available")
+                    continue
+                test_pred = active_model.predict(test_data.x)
+                model_source_day = test_day if refit_status == "refit" else (last_refit_day or test_day)
+                if not (desired_start <= test_day <= desired_end):
+                    continue
+                score_df = pd.DataFrame(
+                    {"trade_date": test_day, "code": test_data.code, "score": test_pred}
                 )
-            else:
-                test_metrics = {
-                    "mse": float("nan"),
-                    "r2": float("nan"),
-                    "dir": float("nan"),
-                    "ic_mean": float("nan"),
-                    "ic_ir": float("nan"),
-                    "rank_ic_mean": float("nan"),
-                    "rank_ic_ir": float("nan"),
-                    "bins": [],
-                }
-            rolling_rows.append(
-                {
-                    "trade_date": test_day,
-                    "train_days": len(train_days),
-                    "val_days": len(val_days),
-                    "count": int(len(test_data.y)),
-                    "refit": bool(refit_status == "refit"),
-                    "refit_status": refit_status,
-                    "model_source_day": model_source_day,
-                    "refit_every_n_days": refit_every_n_days,
-                    "rank_ic": test_metrics["rank_ic_mean"],
-                    "ic": test_metrics["ic_mean"],
-                    "dir": test_metrics["dir"],
-                    "mse": test_metrics["mse"],
-                    "r2": test_metrics["r2"],
-                }
-            )
-            print(
-                f"rolling {test_day} refit={refit_status} train_days={len(train_days)} "
-                f"val_days={len(val_days)} count={len(test_data.y)} "
-                f"rank_ic={test_metrics['rank_ic_mean']:.4f}"
-            )
+                score_rows.append(score_df)
+                if np.isfinite(test_data.y).any():
+                    test_metrics = evaluate_metrics(
+                        test_data.x, test_data.y, test_data.dt, test_pred, bins=bins
+                    )
+                else:
+                    test_metrics = {
+                        "mse": float("nan"),
+                        "r2": float("nan"),
+                        "dir": float("nan"),
+                        "ic_mean": float("nan"),
+                        "ic_ir": float("nan"),
+                        "rank_ic_mean": float("nan"),
+                        "rank_ic_ir": float("nan"),
+                        "bins": [],
+                    }
+                rolling_rows.append(
+                    {
+                        "trade_date": test_day,
+                        "train_days": len(train_days),
+                        "val_days": len(val_days),
+                        "count": int(len(test_data.y)),
+                        "refit": bool(refit_status == "refit"),
+                        "refit_status": refit_status,
+                        "model_source_day": model_source_day,
+                        "refit_every_n_days": refit_every_n_days,
+                        "rank_ic": test_metrics["rank_ic_mean"],
+                        "ic": test_metrics["ic_mean"],
+                        "dir": test_metrics["dir"],
+                        "mse": test_metrics["mse"],
+                        "r2": test_metrics["r2"],
+                    }
+                )
+                print(
+                    f"rolling {test_day} refit={refit_status} train_days={len(train_days)} "
+                    f"val_days={len(val_days)} count={len(test_data.y)} "
+                    f"rank_ic={test_metrics['rank_ic_mean']:.4f}"
+                )
 
         if score_rows:
             all_scores = pd.concat(score_rows, ignore_index=True)

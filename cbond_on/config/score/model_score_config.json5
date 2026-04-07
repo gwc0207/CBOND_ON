@@ -7,15 +7,19 @@
   execution: {
     // Refit cadence in trading-day steps (1 = refit every target day).
     refit_every_n_days: 1,
-    // Number of training processes. model_score.py will auto split shards.
-    train_processes: 8,
+    // Number of training processes (single GPU recommends 1~2).
+    train_processes: 1,
+    // CPU workers for rolling data preparation (window concat / dataset prep).
+    prep_workers: 8,
+    // How many rolling windows are prepared ahead of training.
+    prefetch_windows: 4,
     // Threading controls applied in model_score_service (all model types).
     threading: {
-      omp_num_threads: 12,
-      mkl_num_threads: 12,
+      omp_num_threads: 8,
+      mkl_num_threads: 8,
       openblas_num_threads: 1,
       numexpr_num_threads: 1,
-      pyarrow_num_threads: 12,
+      pyarrow_num_threads: 8,
       pyarrow_io_threads: 4
     }
   },
