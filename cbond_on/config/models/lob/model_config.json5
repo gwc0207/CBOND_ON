@@ -18,7 +18,7 @@
   params: {
     depth_levels: 10,
     input_length: 800,
-    rbf_num_bases: 16,
+    rbf_num_bases: 32,
     rbf_sigma: 0.5,
     lstm_hidden_size: 256,
     lstm_num_layers: 2
