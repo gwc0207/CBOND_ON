@@ -1,0 +1,1 @@
+{"is_best_so_far":1,"_step":0,"objective_value":0.019437405970137427,"param/lgbm_params.num_leaves":63,"_wandb":{"runtime":410},"status_ok":1,"param/lgbm_params.max_depth":8,"param/lgbm_params.reg_alpha":0.1,"trial_id":"trial_001_ebalqk8h","_timestamp":1.775543641362433e+09,"_runtime":410,"param/lgbm_params.reg_lambda":1,"status":"ok","objective_metric":"rank_ic_mean"}

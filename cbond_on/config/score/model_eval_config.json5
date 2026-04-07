@@ -16,7 +16,7 @@
 
   // Optional runtime override passed into model runners.
   execution: {
-    refit_every_n_days: 15
+    refit_every_n_days: 1
   },
 
   // Evaluation settings.
@@ -32,16 +32,16 @@
   tuning: {
     enabled: true,
     search_type: "wandb_sweep", // grid | random | wandb_sweep
-    max_trials: 16,
+    max_trials: 32,
     random_seed: 42,
     // Used when search_type=wandb_sweep.
     // Parameter space still uses the same dot-path keys.
     wandb: {
       project: "cbond_on_tuning",
-      entity: null,
+      entity: "1094028578-kings-college-london",
       name: "", // empty => auto-generated
       method: "random", // random | grid | bayes
-      count: 16, // number of sweep trials to run locally
+      count: 32, // number of sweep trials to run locally
       mode: "online", // online | offline | disabled
       group: "model_eval",
       job_type: "tuning",

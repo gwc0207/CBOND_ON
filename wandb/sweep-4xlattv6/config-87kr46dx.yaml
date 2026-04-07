@@ -1,0 +1,10 @@
+wandb_version: 1
+
+lgbm_params_max_depth:
+  value: 16
+lgbm_params_num_leaves:
+  value: 31
+lgbm_params_reg_alpha:
+  value: 0.01
+lgbm_params_reg_lambda:
+  value: 0.1

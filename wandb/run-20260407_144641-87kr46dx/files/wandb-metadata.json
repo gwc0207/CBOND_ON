@@ -1,0 +1,28 @@
+{
+  "os": "Windows-10-10.0.26200-SP0",
+  "python": "CPython 3.11.9",
+  "startedAt": "2026-04-07T06:46:41.410580Z",
+  "program": "c:\\Users\\BaiYang\\CBOND_ON\\cbond_on\\cbond_on\\run\\model_eval.py",
+  "codePath": "cbond_on\\run\\model_eval.py",
+  "codePathLocal": "cbond_on\\run\\model_eval.py",
+  "git": {
+    "remote": "git@10.1.30.16:JebGong/cbond_on.git",
+    "commit": "1015609bc843537f3c73cc1f74ef491ff75d133d"
+  },
+  "email": "1094028578@qq.com",
+  "root": "C:\\Users\\BaiYang\\CBOND_ON\\cbond_on",
+  "host": "gongweichen-pc",
+  "executable": "C:\\Users\\BaiYang\\AppData\\Local\\Programs\\Python\\Python311\\python.exe",
+  "cpu_count": 20,
+  "cpu_count_logical": 20,
+  "disk": {
+    "/": {
+      "total": "1023875739648",
+      "used": "214723698688"
+    }
+  },
+  "memory": {
+    "total": "33726935040"
+  },
+  "writerId": "ecgpcx15e9n5jysmxes2ifr9us1ujfyo"
+}
