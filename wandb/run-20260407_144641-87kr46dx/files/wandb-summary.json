@@ -1,0 +1,1 @@
+{"status_ok":1,"param/lgbm_params.max_depth":16,"_runtime":336,"param/lgbm_params.num_leaves":31,"param/lgbm_params.reg_lambda":0.1,"_timestamp":1.775544741419851e+09,"objective_value":-0.0027237894502373148,"_step":0,"trial_id":"trial_002_87kr46dx","status":"ok","_wandb":{"runtime":336},"param/lgbm_params.reg_alpha":0.01,"objective_metric":"rank_ic_mean"}

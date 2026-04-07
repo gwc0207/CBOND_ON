@@ -1,0 +1,1 @@
+{"_wandb":{"runtime":418},"param/lgbm_params.num_leaves":127,"_step":0,"objective_metric":"rank_ic_mean","status_ok":1,"param/lgbm_params.reg_lambda":1,"is_best_so_far":1,"objective_value":0.02052415386595514,"param/lgbm_params.max_depth":12,"_timestamp":1.775545167398908e+09,"_runtime":418,"param/lgbm_params.reg_alpha":0.01,"trial_id":"trial_003_zaxy7j17","status":"ok"}

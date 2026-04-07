@@ -72,6 +72,28 @@ def _estimate_total_combinations(space: dict[str, list[Any]]) -> int:
     return total
 
 
+def _to_loggable_number(value: Any) -> float | int | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, (int, float)):
+        try:
+            v = float(value)
+        except Exception:
+            return None
+        if pd.isna(v):
+            return None
+        return int(value) if isinstance(value, int) else v
+    try:
+        v = float(value)
+    except Exception:
+        return None
+    if pd.isna(v):
+        return None
+    return v
+
+
 def _execute_single_trial(
     *,
     idx: int,
@@ -343,15 +365,28 @@ def _run_wandb_sweep_trials(
             "objective_value": float(row.get("objective_value", float("-inf"))),
             "status_ok": 1 if str(row.get("status")) == "ok" else 0,
         }
+        eval_payload: dict[str, Any] = {}
         for key, value in row.items():
             if key.startswith("param."):
                 log_payload[key.replace("param.", "param/")] = value
+                continue
+            if key in {"trial_id", "status", "objective_metric", "objective_value", "error"}:
+                continue
+            number = _to_loggable_number(value)
+            if number is not None:
+                eval_payload[f"eval/{key}"] = number
+        log_payload.update(eval_payload)
         run.log(log_payload)
 
         run.summary["trial_id"] = trial_id
         run.summary["status"] = row.get("status")
+        run.summary["status_ok"] = 1 if str(row.get("status")) == "ok" else 0
         run.summary["objective_metric"] = objective_metric
         run.summary["objective_value"] = row.get("objective_value")
+        for key, value in eval_payload.items():
+            run.summary[key] = value
+        if row.get("error") is not None:
+            run.summary["error"] = str(row.get("error"))
 
         if candidate is not None and float(candidate.get("objective_value", float("-inf"))) > best_objective:
             best_objective = float(candidate["objective_value"])
