@@ -1,12 +1,12 @@
 {
-  default_model_id: "lgbm_factor_MSE",
-  model_id: "lgbm_factor_MSE",
+  default_model_id: "lob_st_default",
+  model_id: "lob_st_default",
   start: "2025-06-01",
   end: "2026-03-30",
   label_cutoff: null,
   execution: {
     // Refit cadence in trading-day steps (1 = refit every target day).
-    refit_every_n_days: 1,
+    refit_every_n_days: 15,
     // Number of training processes (single GPU recommends 1~2).
     train_processes: 1,
     // CPU workers for rolling data preparation (window concat / dataset prep).

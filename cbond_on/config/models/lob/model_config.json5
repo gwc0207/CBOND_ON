@@ -27,7 +27,7 @@
   // Rolling train/score (same semantics as lgbm runners).
   rolling: {
     enabled: true,
-    window_days: 125
+    window_days: 60
   },
 
   train: {
