@@ -19,6 +19,7 @@ from cbond_on.core.config import load_config_file, parse_date, resolve_output_pa
 from cbond_on.core.naming import make_window_label
 from cbond_on.core.trading_days import list_trading_days_from_raw, prev_trading_days_from_raw
 from cbond_on.factors.storage import FactorStore
+from cbond_on.services.model.wandb_utils import init_wandb_logger
 from cbond_on.models.score_io import load_scores_by_date, write_scores_by_date
 from cbond_on.models.impl.lgbm_ranker.trainer import (
     _iter_existing_label_days,
@@ -426,6 +427,31 @@ def main(
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     out_dir = results_root / "models" / model_name / date_label / ts
     out_dir.mkdir(parents=True, exist_ok=True)
+    wandb_logger = init_wandb_logger(
+        execution_cfg=execution_cfg,
+        model_cfg=cfg,
+        model_name=str(model_name),
+        model_type="lgbm_ranker",
+        start=desired_start,
+        end=desired_end,
+        extra_config={
+            "rolling_enabled": bool(rolling_enabled),
+            "window_days": int(window_days),
+        },
+    )
+    wandb_logger.log(
+        {
+            "refit_every_n_days": int(refit_every_n_days),
+            "train_processes": int(train_processes),
+            "prep_workers": int(prep_workers),
+            "prefetch_windows": int(prefetch_windows),
+            "parallel_shards": int(parallel_shards),
+            "parallel_shard_index": int(parallel_shard_index),
+            "factor_count": int(len(factor_cols)),
+            "relevance_bins": int(relevance_bins),
+        },
+        prefix="run",
+    )
     score_output = resolve_output_path(
         cfg.get("score_output"),
         default_path=results_root / "scores" / model_name,
@@ -472,6 +498,7 @@ def main(
             (out_dir / "features.json").write_text(json.dumps(factor_cols, ensure_ascii=False, indent=2), encoding="utf-8")
             print(f"saved rolling: {out_dir}")
             print(f"saved scores: {score_output}")
+            wandb_logger.finish({"status": "no_pending_target_days"})
             return
         day_to_idx = {d: i for i, d in enumerate(days)}
         target_indices = [day_to_idx[d] for d in target_days if d in day_to_idx]
@@ -508,6 +535,7 @@ def main(
             (out_dir / "features.json").write_text(json.dumps(factor_cols, ensure_ascii=False, indent=2), encoding="utf-8")
             print(f"saved rolling: {out_dir}")
             print(f"saved scores: {score_output}")
+            wandb_logger.finish({"status": "no_target_for_shard"})
             return
         train_cache_days = sorted(
             {
@@ -654,6 +682,11 @@ def main(
                             history = meta.get("history", [])
                             active_best_iter = _best_iter_from_hist(history)
                             active_best_val_ic = _best_val_rank_ic(history)
+                            wandb_logger.log_history(
+                                history,
+                                step_key="iteration",
+                                prefix="iter",
+                            )
                             active_model = model
                             last_refit_pos = roll_idx
                             last_refit_day = test_day
@@ -715,6 +748,24 @@ def main(
                     f"val_days={len(roll_val_days)} count={len(test_data.y)} "
                     f"rank_ic={test_metrics['rank_ic_mean']:.4f}"
                 )
+                wandb_logger.log(
+                    {
+                        "trade_date": test_day,
+                        "train_days": len(roll_train_days),
+                        "val_days": len(roll_val_days),
+                        "count": int(len(test_data.y)),
+                        "refit": bool(refit_status == "refit"),
+                        "best_iteration": best_iter,
+                        "best_val_rank_ic": best_val_ic,
+                        "rank_ic": test_metrics.get("rank_ic_mean"),
+                        "ic": test_metrics.get("ic_mean"),
+                        "dir": test_metrics.get("dir"),
+                        "mse": test_metrics.get("mse"),
+                        "r2": test_metrics.get("r2"),
+                    },
+                    step=int(roll_idx),
+                    prefix="rolling",
+                )
 
         if not score_rows:
             raise RuntimeError("rolling produced no scores; check window_days and data range")
@@ -731,6 +782,19 @@ def main(
         (out_dir / "features.json").write_text(json.dumps(factor_cols, ensure_ascii=False, indent=2), encoding="utf-8")
         print(f"saved rolling: {out_dir}")
         print(f"saved scores: {score_output}")
+        if rolling_rows:
+            rr = pd.DataFrame(rolling_rows)
+            wandb_logger.finish(
+                {
+                    "status": "ok",
+                    "rolling_days": int(len(rr)),
+                    "rolling_rank_ic_mean": float(pd.to_numeric(rr["rank_ic"], errors="coerce").mean()),
+                    "rolling_ic_mean": float(pd.to_numeric(rr["ic"], errors="coerce").mean()),
+                    "rolling_dir_mean": float(pd.to_numeric(rr["dir"], errors="coerce").mean()),
+                }
+            )
+        else:
+            wandb_logger.finish({"status": "ok_empty_rolling"})
         return
 
     train_data = build_dataset(
@@ -830,6 +894,7 @@ def main(
     metrics_df.to_csv(out_dir / "metrics.csv", index=False)
     if history:
         pd.DataFrame(history).to_csv(out_dir / "metrics_iter.csv", index=False)
+        wandb_logger.log_history(history, step_key="iteration", prefix="iter")
 
     def _bin_df(split: str, metrics: dict) -> pd.DataFrame:
         return pd.DataFrame(
@@ -841,6 +906,25 @@ def main(
         ignore_index=True,
     )
     bin_df.to_csv(out_dir / "bin_dir.csv", index=False)
+    wandb_logger.log(
+        {
+            "train_mse": train_metrics.get("mse"),
+            "train_r2": train_metrics.get("r2"),
+            "train_dir": train_metrics.get("dir"),
+            "train_rank_ic": train_metrics.get("rank_ic_mean"),
+            "val_mse": val_metrics.get("mse"),
+            "val_r2": val_metrics.get("r2"),
+            "val_dir": val_metrics.get("dir"),
+            "val_rank_ic": val_metrics.get("rank_ic_mean"),
+            "test_mse": test_metrics.get("mse"),
+            "test_r2": test_metrics.get("r2"),
+            "test_dir": test_metrics.get("dir"),
+            "test_rank_ic": test_metrics.get("rank_ic_mean"),
+            "best_iteration": best_iter,
+        },
+        prefix="final",
+    )
+    wandb_logger.finish({"status": "ok", "out_dir": str(out_dir)})
     print(f"saved: {out_dir}")
 
 

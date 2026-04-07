@@ -21,6 +21,22 @@
       numexpr_num_threads: 1,
       pyarrow_num_threads: 8,
       pyarrow_io_threads: 4
+    },
+    // Shared W&B config for all model runners.
+    // Per-model config can override this with its own `wandb` block.
+    wandb: {
+      enabled: false,
+      project: "cbond_on",
+      entity: null,
+      mode: "online", // online | offline | disabled
+      group: "model_score",
+      job_type: "train",
+      run_name: "", // empty => auto-generated
+      tags: ["model_score"],
+      save_code: false,
+      log_iter_metrics: true,
+      log_every_n_iter: 10,
+      max_iter_points: 0 // 0 => no limit
     }
   },
   models: {

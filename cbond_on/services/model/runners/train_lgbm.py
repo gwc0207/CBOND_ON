@@ -20,6 +20,7 @@ from cbond_on.core.config import load_config_file, parse_date, resolve_output_pa
 from cbond_on.core.naming import make_window_label
 from cbond_on.core.trading_days import list_trading_days_from_raw, prev_trading_days_from_raw
 from cbond_on.factors.storage import FactorStore
+from cbond_on.services.model.wandb_utils import init_wandb_logger
 from cbond_on.models.score_io import load_scores_by_date, write_scores_by_date
 from cbond_on.models.impl.lgbm.trainer import (
     SplitData,
@@ -387,6 +388,7 @@ def main(
     lgbm_params = cfg.get("lgbm_params", {})
     grid_cfg = cfg.get("grid_search", {})
     early_rounds = cfg.get("early_stopping_rounds")
+    loss_mode = str(cfg.get("loss_mode", "mse")).lower()
 
     # results output dir
     results_root = Path(paths_cfg["results_root"])
@@ -395,6 +397,31 @@ def main(
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     out_dir = results_root / "models" / model_name / date_label / ts
     out_dir.mkdir(parents=True, exist_ok=True)
+    wandb_logger = init_wandb_logger(
+        execution_cfg=execution_cfg,
+        model_cfg=cfg,
+        model_name=str(model_name),
+        model_type="lgbm",
+        start=desired_start,
+        end=desired_end,
+        extra_config={
+            "rolling_enabled": bool(rolling_enabled),
+            "window_days": int(window_days),
+            "loss_mode": str(loss_mode),
+        },
+    )
+    wandb_logger.log(
+        {
+            "refit_every_n_days": int(refit_every_n_days),
+            "train_processes": int(train_processes),
+            "prep_workers": int(prep_workers),
+            "prefetch_windows": int(prefetch_windows),
+            "parallel_shards": int(parallel_shards),
+            "parallel_shard_index": int(parallel_shard_index),
+            "factor_count": int(len(factor_cols)),
+        },
+        prefix="run",
+    )
     score_output = resolve_output_path(
         cfg.get("score_output"),
         default_path=results_root / "scores" / model_name,
@@ -448,7 +475,6 @@ def main(
                 best_it = int(it)
         return best_it
 
-    loss_mode = str(cfg.get("loss_mode", "mse")).lower()
     metric_name = _metric_name_for_mode(loss_mode)
 
     if rolling_enabled:
@@ -477,6 +503,7 @@ def main(
             (out_dir / "features.json").write_text(json.dumps(factor_cols, ensure_ascii=False, indent=2), encoding="utf-8")
             print(f"saved rolling: {out_dir}")
             print(f"saved scores: {score_output}")
+            wandb_logger.finish({"status": "no_pending_target_days"})
             return
         day_to_idx = {d: i for i, d in enumerate(days)}
         target_indices = [day_to_idx[d] for d in target_days if d in day_to_idx]
@@ -514,6 +541,7 @@ def main(
             (out_dir / "features.json").write_text(json.dumps(factor_cols, ensure_ascii=False, indent=2), encoding="utf-8")
             print(f"saved rolling: {out_dir}")
             print(f"saved scores: {score_output}")
+            wandb_logger.finish({"status": "no_target_for_shard"})
             return
         train_cache_days = sorted(
             {
@@ -646,6 +674,13 @@ def main(
                                 loss_mode=loss_mode,
                                 init_model=None,
                             )
+                        hist = params.get("history", []) if isinstance(params, dict) else []
+                        if hist:
+                            wandb_logger.log_history(
+                                hist,
+                                step_key="iteration",
+                                prefix="iter",
+                            )
                         active_model = model
                         last_refit_pos = roll_idx
                         last_refit_day = test_day
@@ -704,6 +739,22 @@ def main(
                     f"val_days={len(val_days)} count={len(test_data.y)} "
                     f"rank_ic={test_metrics['rank_ic_mean']:.4f}"
                 )
+                wandb_logger.log(
+                    {
+                        "trade_date": test_day,
+                        "train_days": len(train_days),
+                        "val_days": len(val_days),
+                        "count": int(len(test_data.y)),
+                        "refit": bool(refit_status == "refit"),
+                        "rank_ic": test_metrics.get("rank_ic_mean"),
+                        "ic": test_metrics.get("ic_mean"),
+                        "dir": test_metrics.get("dir"),
+                        "mse": test_metrics.get("mse"),
+                        "r2": test_metrics.get("r2"),
+                    },
+                    step=int(roll_idx),
+                    prefix="rolling",
+                )
 
         if score_rows:
             all_scores = pd.concat(score_rows, ignore_index=True)
@@ -721,6 +772,19 @@ def main(
         (out_dir / "features.json").write_text(json.dumps(factor_cols, ensure_ascii=False, indent=2), encoding="utf-8")
         print(f"saved rolling: {out_dir}")
         print(f"saved scores: {score_output}")
+        if rolling_rows:
+            rr = pd.DataFrame(rolling_rows)
+            wandb_logger.finish(
+                {
+                    "status": "ok",
+                    "rolling_days": int(len(rr)),
+                    "rolling_rank_ic_mean": float(pd.to_numeric(rr["rank_ic"], errors="coerce").mean()),
+                    "rolling_ic_mean": float(pd.to_numeric(rr["ic"], errors="coerce").mean()),
+                    "rolling_dir_mean": float(pd.to_numeric(rr["dir"], errors="coerce").mean()),
+                }
+            )
+        else:
+            wandb_logger.finish({"status": "ok_empty_rolling"})
         return
 
     train_data = build_dataset(
@@ -813,6 +877,11 @@ def main(
                                 "best_iteration": trial_best_iter,
                             }
                         )
+                        wandb_logger.log(
+                            grid_rows[-1],
+                            step=int(len(grid_rows)),
+                            prefix="grid",
+                        )
                         if not np.isnan(trial_best) and trial_best > best_score:
                             best_score = trial_best
                             best_params = trial_params
@@ -894,6 +963,7 @@ def main(
 
     if history:
         pd.DataFrame(history).to_csv(out_dir / "metrics_iter.csv", index=False)
+        wandb_logger.log_history(history, step_key="iteration", prefix="iter")
 
     # save bin dir
     def _bin_df(split, metrics):
@@ -906,6 +976,30 @@ def main(
         _bin_df("test", test_metrics),
     ], ignore_index=True)
     bin_df.to_csv(out_dir / "bin_dir.csv", index=False)
+    wandb_logger.log(
+        {
+            "train_mse": train_metrics.get("mse"),
+            "train_r2": train_metrics.get("r2"),
+            "train_dir": train_metrics.get("dir"),
+            "train_rank_ic": train_metrics.get("rank_ic_mean"),
+            "val_mse": val_metrics.get("mse"),
+            "val_r2": val_metrics.get("r2"),
+            "val_dir": val_metrics.get("dir"),
+            "val_rank_ic": val_metrics.get("rank_ic_mean"),
+            "test_mse": test_metrics.get("mse"),
+            "test_r2": test_metrics.get("r2"),
+            "test_dir": test_metrics.get("dir"),
+            "test_rank_ic": test_metrics.get("rank_ic_mean"),
+        },
+        prefix="final",
+    )
+    wandb_logger.finish(
+        {
+            "status": "ok",
+            "best_iteration": getattr(model, "best_iteration_", None),
+            "out_dir": str(out_dir),
+        }
+    )
 
     print(f"saved: {out_dir}")
 

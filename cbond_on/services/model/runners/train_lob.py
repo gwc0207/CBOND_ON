@@ -21,6 +21,7 @@ from cbond_on.core.naming import make_window_label
 from cbond_on.models.impl.lgbm.trainer import _iter_existing_label_days, _read_label_day, _split_days
 from cbond_on.models.impl.lob.lob_st import LOBSpatioTemporalModel
 from cbond_on.models.score_io import load_scores_by_date, write_scores_by_date
+from cbond_on.services.model.wandb_utils import init_wandb_logger
 
 
 @dataclass
@@ -1016,6 +1017,30 @@ def main(
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     out_dir = results_root / "models" / model_name / date_label / ts
     out_dir.mkdir(parents=True, exist_ok=True)
+    wandb_logger = init_wandb_logger(
+        execution_cfg=execution_cfg,
+        model_cfg=cfg,
+        model_name=str(model_name),
+        model_type="lob",
+        start=desired_start,
+        end=desired_end,
+        extra_config={
+            "rolling_enabled": bool(rolling_enabled),
+            "window_days": int(window_days),
+            "seq_len": int(seq_len),
+            "depth_levels": int(depth_levels),
+        },
+    )
+    wandb_logger.log(
+        {
+            "refit_every_n_days": int(refit_every_n_days),
+            "rolling_enabled": bool(rolling_enabled),
+            "window_days": int(window_days),
+            "batch_size": int(train_cfg.get("batch_size", 8)),
+            "num_epochs": int(train_cfg.get("num_epochs", 10)),
+        },
+        prefix="run",
+    )
 
     score_output = resolve_output_path(
         cfg.get("score_output"),
@@ -1046,6 +1071,7 @@ def main(
         )
         print(f"saved rolling: {out_dir}")
         print(f"saved scores: {score_output}")
+        wandb_logger.finish({"status": "no_pending_target_days"})
         return
 
     base_cache: dict[date, tuple[np.ndarray, np.ndarray]] = {}
@@ -1189,6 +1215,7 @@ def main(
                         refit_status = "refit"
                         for row in hist:
                             history_rows.append({"trade_date": test_day, **row})
+                        wandb_logger.log_history(hist, step_key="epoch", prefix="iter")
 
             if last_model is None:
                 print(f"[rolling] skip test_day={test_day}: no reusable model")
@@ -1250,6 +1277,22 @@ def main(
                 f"rolling {test_day} refit={refit_status} train_days={len(roll_train_days)} "
                 f"val_days={len(roll_val_days)} count={len(pred)} rank_ic={metrics['rank_ic']:.4f}"
             )
+            wandb_logger.log(
+                {
+                    "trade_date": test_day,
+                    "refit": bool(refit_status == "refit"),
+                    "train_days": len(roll_train_days),
+                    "val_days": len(roll_val_days),
+                    "count": int(len(pred)),
+                    "mse": metrics.get("mse"),
+                    "r2": metrics.get("r2"),
+                    "dir": metrics.get("dir"),
+                    "ic": metrics.get("ic"),
+                    "rank_ic": metrics.get("rank_ic"),
+                },
+                step=int(roll_idx),
+                prefix="rolling",
+            )
     else:
         train_days = [d for d in label_days_all if desired_start <= d <= desired_end]
         if len(train_days) < 3:
@@ -1300,6 +1343,7 @@ def main(
         last_model = model
         for row in hist:
             history_rows.append({"trade_date": "", **row})
+        wandb_logger.log_history(hist, step_key="epoch", prefix="iter")
         for day in target_days:
             test_data = _build_split_data(
                 days=[day],
@@ -1387,6 +1431,7 @@ def main(
         json.dumps(summary, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
+    wandb_logger.log(summary, prefix="final")
     _write_score_report(out_dir=out_dir, scores_df=all_scores, eval_daily=eval_daily)
 
     if last_model is not None:
@@ -1422,6 +1467,7 @@ def main(
 
     print(f"saved rolling: {out_dir}")
     print(f"saved scores: {score_output}")
+    wandb_logger.finish({"status": "ok", "out_dir": str(out_dir)})
 
 
 if __name__ == "__main__":

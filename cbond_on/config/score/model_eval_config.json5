@@ -30,10 +30,25 @@
 
   // Hyperparameter tuning settings.
   tuning: {
-    enabled: false,
-    search_type: "grid", // grid or random
+    enabled: true,
+    search_type: "wandb_sweep", // grid | random | wandb_sweep
     max_trials: 16,
     random_seed: 42,
+    // Used when search_type=wandb_sweep.
+    // Parameter space still uses the same dot-path keys.
+    wandb: {
+      project: "cbond_on_tuning",
+      entity: null,
+      name: "", // empty => auto-generated
+      method: "random", // random | grid | bayes
+      count: 16, // number of sweep trials to run locally
+      mode: "online", // online | offline | disabled
+      group: "model_eval",
+      job_type: "tuning",
+      tags: ["model_eval", "sweep"],
+      // Avoid nested W&B runs in model runners during sweep trial.
+      disable_inner_model_wandb: true
+    },
     parameter_space: {
       // Dot-path keys in model config.
       "lgbm_params.num_leaves": [31, 63, 127],

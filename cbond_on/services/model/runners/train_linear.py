@@ -14,6 +14,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from cbond_on.core.config import load_config_file, parse_date, resolve_output_path
 from cbond_on.factors.storage import FactorStore
+from cbond_on.services.model.wandb_utils import init_wandb_logger
 from cbond_on.models.impl.lgbm.trainer import (
     _iter_existing_label_days,
     _read_label_day,
@@ -113,6 +114,40 @@ def main(
     for f in factor_cols:
         manual_weights.append(float(linear_cfg.get("manual_weights", {}).get(f, 0.0)))
     manual_weights = pd.Series(manual_weights, index=factor_cols, dtype=float)
+    model_name = str(cfg.get("model_name", "linear_factor"))
+    wandb_logger = init_wandb_logger(
+        execution_cfg=execution_cfg,
+        model_cfg=cfg,
+        model_name=model_name,
+        model_type="linear",
+        start=start,
+        end=end,
+        extra_config={
+            "lookback_days": int(lookback_days),
+            "refit_freq": int(refit_freq),
+            "weight_source": str(weight_source),
+            "device": str(device),
+        },
+    )
+    wandb_logger.log(
+        {
+            "factor_count": int(len(factor_cols)),
+            "winsor_lower": float(winsor_lower),
+            "winsor_upper": float(winsor_upper),
+            "zscore": bool(zscore),
+            "min_count": int(min_count),
+            "bins": int(bins),
+            "lookback_days": int(lookback_days),
+            "refit_freq": int(refit_freq),
+            "regression_alpha": float(regression_alpha),
+            "weight_source": str(weight_source),
+            "fallback": str(fallback),
+            "max_weight": float(max_weight),
+            "normalize_weights": str(normalize_weights),
+            "device": str(device),
+        },
+        prefix="run",
+    )
 
     result = run_linear_score(
         factor_root=factor_root,
@@ -141,6 +176,7 @@ def main(
     )
 
     if result.scores.empty:
+        wandb_logger.finish({"status": "no_scores_generated"})
         raise RuntimeError("no scores generated")
 
     # evaluate metrics on full sample (cbond_day style)
@@ -197,7 +233,6 @@ def main(
     print(f"all bins: {_format_bins(full_metrics['bin_dir'])}")
 
     results_root = Path(paths_cfg["results_root"])
-    model_name = cfg.get("model_name", "linear_factor")
     date_label = f"{start.strftime('%Y-%m-%d')}_{end.strftime('%Y-%m-%d')}"
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     out_dir = results_root / "models" / model_name / date_label / ts
@@ -259,6 +294,22 @@ def main(
     bin_df = _bin_df("all", full_metrics)
     bin_df.to_csv(out_dir / "bin_dir.csv", index=False)
 
+    wandb_logger.log(
+        {
+            "rows_scored": int(len(result.scores)),
+            "weight_rows": int(len(result.weights_history)),
+            "eval_rows": int(len(full_eval)),
+            "mse": float(full_metrics.get("mse", float("nan"))),
+            "r2": float(full_metrics.get("r2", float("nan"))),
+            "dir": float(full_metrics.get("dir", float("nan"))),
+            "ic_mean": float(full_metrics.get("ic_mean", float("nan"))),
+            "ic_ir": float(full_metrics.get("ic_ir", float("nan"))),
+            "rank_ic_mean": float(full_metrics.get("rank_ic_mean", float("nan"))),
+            "rank_ic_ir": float(full_metrics.get("rank_ic_ir", float("nan"))),
+        },
+        prefix="final",
+    )
+    wandb_logger.finish({"status": "ok", "out_dir": str(out_dir)})
     print(f"saved: {out_dir}")
 
 
