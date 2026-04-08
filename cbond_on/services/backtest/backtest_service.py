@@ -11,10 +11,10 @@ from cbond_on.core.config import load_config_file, parse_date, resolve_output_pa
 from cbond_on.core.trading_days import list_trading_days_from_raw, next_trading_days_from_raw
 from cbond_on.core.universe import filter_tradable
 from cbond_on.data.io import read_table_range
+from cbond_on.domain.portfolio.service import normalize_weights, to_prev_positions
+from cbond_on.domain.signals.service import SignalSelectionRequest, select_signals
 from cbond_on.models.score_io import load_scores_by_date
 from cbond_on.services.common import load_json_like, resolve_config_path
-from cbond_on.strategies.base import StrategyContext
-from cbond_on.strategies import StrategyRegistry
 
 
 @dataclass
@@ -177,7 +177,6 @@ def run(
     if len(days) < 2:
         raise ValueError("not enough trading days for backtest")
 
-    strategy = StrategyRegistry.get(strategy_id)
     daily_rows: list[dict] = []
     pos_rows: list[dict] = []
     diag_rows: list[dict] = []
@@ -225,13 +224,14 @@ def run(
             diag_rows.append({"trade_date": day, "status": "skip", "reason": "empty_universe"})
             continue
 
-        picks = strategy.select(
-            merged[["code", "score"]],
-            ctx=StrategyContext(
+        picks = select_signals(
+            SignalSelectionRequest(
+                universe=merged[["code", "score"]],
                 trade_date=day,
                 prev_positions=prev_positions,
-                config=strategy_cfg,
-            ),
+                strategy_id=strategy_id,
+                strategy_config=strategy_cfg,
+            )
         )
         if picks.empty:
             diag_rows.append({"trade_date": day, "status": "skip", "reason": "empty_picks"})
@@ -246,12 +246,7 @@ def run(
             diag_rows.append({"trade_date": day, "status": "skip", "reason": "missing_trade_price"})
             continue
 
-        picks = picks.copy()
-        picks["weight"] = pd.to_numeric(picks["weight"], errors="coerce").fillna(0.0).clip(lower=0.0)
-        if float(picks["weight"].sum()) <= 0:
-            picks["weight"] = 1.0 / len(picks)
-        else:
-            picks["weight"] = picks["weight"] / picks["weight"].sum()
+        picks = normalize_weights(picks, weight_col="weight")
 
         buy_px = apply_twap_bps(picks[buy_col], cost_bps, side="buy")
         sell_px = apply_twap_bps(picks[f"{sell_col}_next"], cost_bps, side="sell")
@@ -294,7 +289,7 @@ def run(
                     "return": float(row["return"]),
                 }
             )
-        prev_positions = picks[["code", "weight"]].copy()
+        prev_positions = to_prev_positions(picks)
 
     if not daily_rows:
         raise RuntimeError("backtest produced no daily returns")

@@ -1,14 +1,12 @@
 from __future__ import annotations
 
 import argparse
-import sys
-from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
+from cbond_on.app.pipelines.pipeline_all import execute as run_pipeline_all
 
-from cbond_on.interfaces.cli.pipeline_all import main
+
+def main(*, config_name: str = "pipeline_all") -> None:
+    run_pipeline_all(config_name=config_name)
 
 
 if __name__ == "__main__":
@@ -20,3 +18,4 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
     main(config_name=args.config)
+

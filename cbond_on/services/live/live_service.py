@@ -11,14 +11,13 @@ from cbond_on.core.config import load_config_file, parse_date, resolve_output_pa
 from cbond_on.core.trading_days import list_available_trading_days_from_raw
 from cbond_on.core.universe import filter_tradable
 from cbond_on.data.io import read_clean_daily
+from cbond_on.domain.signals.service import SignalSelectionRequest, select_signals
 from cbond_on.models.score_io import load_scores_by_date
 from cbond_on.services.common import load_json_like, resolve_config_path
 from cbond_on.services.data.label_service import run as run_label
 from cbond_on.services.data.panel_service import run as run_panel
 from cbond_on.services.factor.factor_build_service import run as run_factor_build
 from cbond_on.services.model.model_score_service import run as run_model_score
-from cbond_on.strategies import StrategyRegistry
-from cbond_on.strategies.base import StrategyContext
 
 
 def _today_shanghai() -> date:
@@ -571,13 +570,17 @@ def run_once(
         raise ValueError("live universe is empty after filters")
 
     strategy_id = str(strategy_cfg.get("strategy_id", "strategy01_topk_turnover"))
-    strategy = StrategyRegistry.get(strategy_id)
     strategy_config = _load_strategy_config(strategy_cfg.get("strategy_config_path"))
     strategy_config = strategy_config or {k: v for k, v in strategy_cfg.items() if k != "strategy_id"}
     prev_positions = _prev_holdings(Path(paths_cfg["results_root"]) / "live", target_day)
-    picks = strategy.select(
-        universe[["code", "score"]],
-        ctx=StrategyContext(trade_date=target_day, prev_positions=prev_positions, config=strategy_config),
+    picks = select_signals(
+        SignalSelectionRequest(
+            universe=universe[["code", "score"]],
+            trade_date=target_day,
+            prev_positions=prev_positions,
+            strategy_id=strategy_id,
+            strategy_config=strategy_config,
+        )
     )
     if picks.empty:
         raise ValueError("strategy returned empty picks")
