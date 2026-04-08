@@ -1,0 +1,5 @@
+Metadata-Version: 2.4
+Name: cbond_on_rust
+Version: 0.1.0
+Summary: Rust factor engine for CBOND_ON
+Requires-Python: >=3.11

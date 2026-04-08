@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from datetime import date
 
-from cbond_on.services.backtest.backtest_service import run as run_backtest
-from cbond_on.services.backtest.backtest_service import BacktestRunResult
+from cbond_on.app.usecases.backtest_runtime import BacktestRunResult
+from cbond_on.app.usecases.backtest_runtime import run as run_backtest
 
 
 def execute(
@@ -17,4 +17,3 @@ def execute(
         end=end,
         cfg=cfg,
     )
-

@@ -1,0 +1,11 @@
+{
+  "day":"2025-01-03",
+  "panel_name":"T1430",
+  "engine_a":"python",
+  "engine_b":"rust",
+  "factor_workers":2,
+  "n_specs":25,
+  "n_common_cols":25,
+  "global_max_abs":0.0008544922,
+  "out_dir":"C:\\Users\\BaiYang\\CBOND_ON\\cbond_on\\notebook\\runtime\\diagnostics\\factor_parity\\20260408_144641"
+}

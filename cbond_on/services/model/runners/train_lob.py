@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from collections import deque
+from concurrent.futures import Future, ThreadPoolExecutor
 import json
 import sys
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
+from threading import Lock
 from typing import Sequence
 
 import numpy as np
@@ -292,6 +295,9 @@ def _train_one_model(
     y_norm_method = str(train_cfg.get("y_norm_method", "zscore_batch"))
     dir_weight = float(train_cfg.get("checkpoint_dir_weight", 1.0))
     rank_weight = float(train_cfg.get("checkpoint_corr_weight", 0.3))
+    eval_every_n_epoch = max(1, int(train_cfg.get("eval_every_n_epoch", 1)))
+    early_stopping_patience = max(0, int(train_cfg.get("early_stopping_patience", 0)))
+    early_stopping_min_delta = float(train_cfg.get("early_stopping_min_delta", 0.0))
 
     model = LOBSpatioTemporalModel(
         depth_levels=int(params.get("depth_levels", 10)),
@@ -316,6 +322,7 @@ def _train_one_model(
     history: list[dict] = []
     best_score = float("-inf")
     best_state: dict | None = None
+    stale_eval_count = 0
 
     for epoch in range(1, num_epochs + 1):
         model.train()
@@ -352,39 +359,63 @@ def _train_one_model(
                 )
 
         train_loss = float(train_loss_sum / train_count) if train_count > 0 else float("nan")
-        train_pred = _predict_numpy(
-            model=model,
-            x=train_data.x,
-            batch_size=batch_size,
-            device=device,
-            normalize_x=normalize_x,
-            x_norm_method=x_norm_method,
+        should_eval = (
+            epoch == 1
+            or epoch == num_epochs
+            or (epoch % eval_every_n_epoch) == 0
         )
-        train_metrics = _eval_metrics(train_data.dt, train_data.y, train_pred)
-
-        if val_data.x.size > 0:
-            val_pred = _predict_numpy(
+        if should_eval:
+            train_pred = _predict_numpy(
                 model=model,
-                x=val_data.x,
+                x=train_data.x,
                 batch_size=batch_size,
                 device=device,
                 normalize_x=normalize_x,
                 x_norm_method=x_norm_method,
             )
-            val_metrics = _eval_metrics(val_data.dt, val_data.y, val_pred)
+            train_metrics = _eval_metrics(train_data.dt, train_data.y, train_pred)
+
+            if val_data.x.size > 0:
+                val_pred = _predict_numpy(
+                    model=model,
+                    x=val_data.x,
+                    batch_size=batch_size,
+                    device=device,
+                    normalize_x=normalize_x,
+                    x_norm_method=x_norm_method,
+                )
+                val_metrics = _eval_metrics(val_data.dt, val_data.y, val_pred)
+            else:
+                val_metrics = {
+                    "count": 0,
+                    "mse": float("nan"),
+                    "r2": float("nan"),
+                    "dir": float("nan"),
+                    "ic": float("nan"),
+                    "rank_ic": float("nan"),
+                }
+            checkpoint_score = _score_for_checkpoint(
+                val_metrics, dir_weight=dir_weight, rank_weight=rank_weight
+            )
         else:
-            val_metrics = {
-                "count": 0,
+            train_metrics = {
+                "count": int(train_data.y.size),
                 "mse": float("nan"),
                 "r2": float("nan"),
                 "dir": float("nan"),
                 "ic": float("nan"),
                 "rank_ic": float("nan"),
             }
+            val_metrics = {
+                "count": int(val_data.y.size),
+                "mse": float("nan"),
+                "r2": float("nan"),
+                "dir": float("nan"),
+                "ic": float("nan"),
+                "rank_ic": float("nan"),
+            }
+            checkpoint_score = float("nan")
 
-        checkpoint_score = _score_for_checkpoint(
-            val_metrics, dir_weight=dir_weight, rank_weight=rank_weight
-        )
         history.append(
             {
                 "epoch": epoch,
@@ -398,18 +429,36 @@ def _train_one_model(
                 "val_dir": val_metrics["dir"],
                 "val_rank_ic": val_metrics["rank_ic"],
                 "checkpoint_score": checkpoint_score,
+                "eval_performed": bool(should_eval),
             }
         )
-        print(
-            f"epoch {epoch:03d} "
-            f"train_loss={train_loss:.6f} train_rank_ic={train_metrics['rank_ic']:.4f} "
-            f"val_rank_ic={val_metrics['rank_ic']:.4f} train_r2={train_metrics['r2']:.4f} "
-            f"val_r2={val_metrics['r2']:.4f}"
-        )
+        if should_eval:
+            print(
+                f"epoch {epoch:03d} "
+                f"train_loss={train_loss:.6f} train_rank_ic={train_metrics['rank_ic']:.4f} "
+                f"val_rank_ic={val_metrics['rank_ic']:.4f} train_r2={train_metrics['r2']:.4f} "
+                f"val_r2={val_metrics['r2']:.4f}"
+            )
+        else:
+            print(
+                f"epoch {epoch:03d} train_loss={train_loss:.6f} "
+                f"eval=skip eval_every={eval_every_n_epoch}"
+            )
 
-        if np.isfinite(checkpoint_score) and checkpoint_score > best_score:
-            best_score = checkpoint_score
-            best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
+        if should_eval and np.isfinite(checkpoint_score):
+            if checkpoint_score > (best_score + early_stopping_min_delta):
+                best_score = checkpoint_score
+                best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
+                stale_eval_count = 0
+            else:
+                stale_eval_count += 1
+                if early_stopping_patience > 0 and stale_eval_count >= early_stopping_patience:
+                    print(
+                        f"[train] early stop at epoch={epoch} "
+                        f"patience={early_stopping_patience} "
+                        f"best_score={best_score:.6f}"
+                    )
+                    break
 
     if best_state is not None:
         model.load_state_dict(best_state)
@@ -496,8 +545,13 @@ def _label_map_for_day(
     factor_time: str,
     label_time: str,
     cache: dict[date, dict[str, float]],
+    cache_lock: Lock | None = None,
 ) -> dict[str, float]:
-    cached = cache.get(day)
+    if cache_lock is not None:
+        with cache_lock:
+            cached = cache.get(day)
+    else:
+        cached = cache.get(day)
     if cached is not None:
         return cached
     label_df = _read_label_day(
@@ -507,16 +561,28 @@ def _label_map_for_day(
         label_time=label_time,
     )
     if label_df.empty:
+        if cache_lock is not None:
+            with cache_lock:
+                cache.setdefault(day, {})
+                return cache[day]
         cache[day] = {}
         return cache[day]
     work = label_df.copy()
     if "code" not in work.columns or "y" not in work.columns:
+        if cache_lock is not None:
+            with cache_lock:
+                cache.setdefault(day, {})
+                return cache[day]
         cache[day] = {}
         return cache[day]
     work["code"] = work["code"].astype(str)
     work["y"] = pd.to_numeric(work["y"], errors="coerce")
     work = work.dropna(subset=["code", "y"]).drop_duplicates(subset=["code"], keep="last")
     mapping = {str(row["code"]): float(row["y"]) for _, row in work.iterrows()}
+    if cache_lock is not None:
+        with cache_lock:
+            cache.setdefault(day, mapping)
+            return cache[day]
     cache[day] = mapping
     return mapping
 
@@ -713,10 +779,15 @@ def _build_day_base_samples(
     seq_len: int,
     min_seq_len: int,
     base_cache: dict[date, tuple[np.ndarray, np.ndarray]],
+    base_cache_lock: Lock | None,
     preprocess_backend: str,
     preprocess_gpu_fallback_to_cpu: bool,
 ) -> tuple[np.ndarray, np.ndarray]:
-    cached = base_cache.get(day)
+    if base_cache_lock is not None:
+        with base_cache_lock:
+            cached = base_cache.get(day)
+    else:
+        cached = base_cache.get(day)
     if cached is not None:
         return cached
 
@@ -731,6 +802,10 @@ def _build_day_base_samples(
                 min_seq_len=min_seq_len,
                 panel_path=panel_path,
             )
+            if base_cache_lock is not None:
+                with base_cache_lock:
+                    base_cache.setdefault(day, out)
+                    return base_cache[day]
             base_cache[day] = out
             return out
         except Exception as exc:
@@ -750,6 +825,10 @@ def _build_day_base_samples(
         panel_path=panel_path,
     )
 
+    if base_cache_lock is not None:
+        with base_cache_lock:
+            base_cache.setdefault(day, out)
+            return base_cache[day]
     base_cache[day] = out
     return out
 
@@ -767,8 +846,11 @@ def _build_split_data(
     require_label: bool,
     base_cache: dict[date, tuple[np.ndarray, np.ndarray]],
     label_cache: dict[date, dict[str, float]],
+    base_cache_lock: Lock | None,
+    label_cache_lock: Lock | None,
     preprocess_backend: str,
     preprocess_gpu_fallback_to_cpu: bool,
+    prep_workers: int = 1,
     progress_label: str | None = None,
     log_progress: bool = False,
     progress_every: int = 5,
@@ -780,13 +862,12 @@ def _build_split_data(
     total_samples = 0
     total_days = len(days)
     every = max(1, int(progress_every))
+    workers = max(1, int(prep_workers))
 
     if log_progress:
         print(f"[prep:{progress_label or 'split'}] start days={total_days} backend={preprocess_backend}")
 
-    for day_idx, day in enumerate(days, start=1):
-        if log_progress:
-            print(f"[prep:{progress_label or 'split'}] day {day_idx}/{total_days} start day={day}")
+    def _prepare_day(day: date) -> tuple[np.ndarray, np.ndarray, np.ndarray] | None:
         x_day, code_day = _build_day_base_samples(
             panel_root=panel_root,
             day=day,
@@ -794,16 +875,12 @@ def _build_split_data(
             seq_len=seq_len,
             min_seq_len=min_seq_len,
             base_cache=base_cache,
+            base_cache_lock=base_cache_lock,
             preprocess_backend=preprocess_backend,
             preprocess_gpu_fallback_to_cpu=preprocess_gpu_fallback_to_cpu,
         )
         if x_day.size == 0 or code_day.size == 0:
-            if log_progress and (day_idx == 1 or day_idx == total_days or (day_idx % every) == 0):
-                print(
-                    f"[prep:{progress_label or 'split'}] day {day_idx}/{total_days} "
-                    f"done day={day} samples=0 cumulative={total_samples}"
-                )
-            continue
+            return None
 
         y_map = _label_map_for_day(
             label_root=label_root,
@@ -811,11 +888,12 @@ def _build_split_data(
             factor_time=factor_time,
             label_time=label_time,
             cache=label_cache,
+            cache_lock=label_cache_lock,
         )
         if require_label:
             keep_idx = [i for i, code in enumerate(code_day.tolist()) if code in y_map]
             if not keep_idx:
-                continue
+                return None
             keep = np.asarray(keep_idx, dtype=np.int64)
             x_keep = x_day[keep]
             code_keep = code_day[keep]
@@ -827,11 +905,22 @@ def _build_split_data(
                 [float(y_map[c]) if c in y_map else np.nan for c in code_keep.tolist()],
                 dtype=np.float32,
             )
+        return x_keep, code_keep.astype(object), y_keep
 
+    def _consume_result(day_idx: int, day: date, prepared: tuple[np.ndarray, np.ndarray, np.ndarray] | None) -> None:
+        nonlocal total_samples
+        if prepared is None:
+            if log_progress and (day_idx == 1 or day_idx == total_days or (day_idx % every) == 0):
+                print(
+                    f"[prep:{progress_label or 'split'}] day {day_idx}/{total_days} "
+                    f"done day={day} samples=0 cumulative={total_samples}"
+                )
+            return
+        x_keep, code_keep, y_keep = prepared
         x_list.append(x_keep)
         y_list.append(y_keep)
         dt_list.append(np.asarray([day] * len(code_keep), dtype=object))
-        code_list.append(code_keep.astype(object))
+        code_list.append(code_keep)
         total_samples += int(len(code_keep))
 
         if log_progress and (day_idx == 1 or day_idx == total_days or (day_idx % every) == 0):
@@ -839,6 +928,37 @@ def _build_split_data(
                 f"[prep:{progress_label or 'split'}] day {day_idx}/{total_days} "
                 f"done day={day} samples={len(code_keep)} cumulative={total_samples}"
             )
+
+    if workers <= 1 or total_days <= 1:
+        for day_idx, day in enumerate(days, start=1):
+            if log_progress:
+                print(f"[prep:{progress_label or 'split'}] day {day_idx}/{total_days} start day={day}")
+            prepared = _prepare_day(day)
+            _consume_result(day_idx, day, prepared)
+    else:
+        max_inflight = max(workers, 1)
+        day_iter = iter(enumerate(days, start=1))
+        inflight: deque[tuple[int, date, Future[tuple[np.ndarray, np.ndarray, np.ndarray] | None]]] = deque()
+
+        def _submit_next(pool: ThreadPoolExecutor) -> bool:
+            try:
+                day_idx, day = next(day_iter)
+            except StopIteration:
+                return False
+            if log_progress:
+                print(f"[prep:{progress_label or 'split'}] day {day_idx}/{total_days} start day={day}")
+            fut = pool.submit(_prepare_day, day)
+            inflight.append((day_idx, day, fut))
+            return True
+
+        with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="lob_prep") as pool:
+            while len(inflight) < max_inflight and _submit_next(pool):
+                pass
+            while inflight:
+                day_idx, day, fut = inflight.popleft()
+                _submit_next(pool)
+                prepared = fut.result()
+                _consume_result(day_idx, day, prepared)
 
     if not x_list:
         return SplitData(
@@ -989,8 +1109,14 @@ def main(
         raise ValueError("rolling.window_days must be >= 2")
     execution_cfg = dict(execution or {})
     refit_every_n_days = max(1, int(execution_cfg.get("refit_every_n_days", 1)))
+    prep_workers = max(1, int(execution_cfg.get("prep_workers", 1)))
+    prefetch_windows = max(0, int(execution_cfg.get("prefetch_windows", 0)))
     cfg_out = dict(cfg)
-    cfg_out["execution"] = {"refit_every_n_days": refit_every_n_days}
+    cfg_out["execution"] = {
+        "refit_every_n_days": refit_every_n_days,
+        "prep_workers": prep_workers,
+        "prefetch_windows": prefetch_windows,
+    }
     cfg_out["preprocess"] = {
         "requested": requested_preprocess,
         "active": preprocess_backend,
@@ -1034,10 +1160,14 @@ def main(
     wandb_logger.log(
         {
             "refit_every_n_days": int(refit_every_n_days),
+            "prep_workers": int(prep_workers),
+            "prefetch_windows": int(prefetch_windows),
             "rolling_enabled": bool(rolling_enabled),
             "window_days": int(window_days),
             "batch_size": int(train_cfg.get("batch_size", 8)),
             "num_epochs": int(train_cfg.get("num_epochs", 10)),
+            "eval_every_n_epoch": int(train_cfg.get("eval_every_n_epoch", 1)),
+            "early_stopping_patience": int(train_cfg.get("early_stopping_patience", 0)),
         },
         prefix="run",
     )
@@ -1076,6 +1206,8 @@ def main(
 
     base_cache: dict[date, tuple[np.ndarray, np.ndarray]] = {}
     label_cache: dict[date, dict[str, float]] = {}
+    base_cache_lock = Lock()
+    label_cache_lock = Lock()
     score_rows: list[pd.DataFrame] = []
     rolling_rows: list[dict] = []
     history_rows: list[dict] = []
@@ -1096,25 +1228,19 @@ def main(
             raise RuntimeError("rolling has no valid target day after incremental filtering")
 
         total_rolls = len(valid_indices)
+        print(
+            f"[rolling] execution refit_every_n_days={refit_every_n_days} "
+            f"prep_workers={prep_workers} prefetch_windows={prefetch_windows}"
+        )
         last_refit_pos: int | None = None
         last_refit_day: date | None = None
-        for roll_pos, idx in enumerate(valid_indices):
-            roll_idx = roll_pos + 1
-            window = days[idx - window_days + 1 : idx + 1]
-            test_day = window[-1]
-            should_refit = (
-                last_model is None
-                or refit_every_n_days <= 1
-                or last_refit_pos is None
-                or (roll_pos - last_refit_pos) >= refit_every_n_days
-            )
-            print(
-                f"[rolling] {roll_idx}/{total_rolls} test_day={test_day} "
-                f"refit={'Y' if should_refit else 'N'} cadence={refit_every_n_days}"
-            )
+        prefetch_pool: ThreadPoolExecutor | None = None
+        prefetch_futures: dict[int, Future[SplitData]] = {}
+        prefetch_depth = min(max(0, prefetch_windows), total_rolls)
 
-            test_data = _build_split_data(
-                days=[test_day],
+        def _prepare_test_split(day_for_test: date) -> SplitData:
+            return _build_split_data(
+                days=[day_for_test],
                 panel_root=panel_root,
                 label_root=label_root,
                 factor_time=factor_time,
@@ -1125,174 +1251,231 @@ def main(
                 require_label=False,
                 base_cache=base_cache,
                 label_cache=label_cache,
+                base_cache_lock=base_cache_lock,
+                label_cache_lock=label_cache_lock,
                 preprocess_backend=preprocess_backend,
                 preprocess_gpu_fallback_to_cpu=preprocess_gpu_fallback_to_cpu,
-                progress_label=f"test:{test_day}",
+                prep_workers=1,
+                progress_label=f"test:{day_for_test}",
                 log_progress=log_data_prep_progress,
                 progress_every=data_prep_progress_every,
             )
-            if test_data.x.size == 0:
-                print(f"[rolling] skip test_day={test_day}: empty test samples")
-                continue
 
-            roll_train_days: list[date] = []
-            roll_val_days: list[date] = []
-            refit_status = "reuse"
-            if should_refit:
-                train_pool = [d for d in window[:-1] if d in label_days_all]
-                if len(train_pool) < 3:
-                    if last_model is None:
-                        print(
-                            f"[rolling] skip test_day={test_day}: "
-                            "insufficient train_pool and no reusable model"
-                        )
-                        continue
-                    refit_status = "reuse_insufficient_train_pool"
-                    print(
-                        f"[rolling] fallback reuse for test_day={test_day}: "
-                        f"insufficient train_pool={len(train_pool)}"
-                    )
+        def _submit_prefetch(roll_pos_to_submit: int) -> None:
+            if prefetch_pool is None:
+                return
+            if roll_pos_to_submit < 0 or roll_pos_to_submit >= total_rolls:
+                return
+            if roll_pos_to_submit in prefetch_futures:
+                return
+            idx_to_submit = valid_indices[roll_pos_to_submit]
+            day_to_submit = days[idx_to_submit]
+            prefetch_futures[roll_pos_to_submit] = prefetch_pool.submit(
+                _prepare_test_split, day_to_submit
+            )
+
+        if prefetch_depth > 0:
+            prefetch_pool = ThreadPoolExecutor(
+                max_workers=min(prefetch_depth, max(1, prep_workers)),
+                thread_name_prefix="lob_roll_prefetch",
+            )
+            for pos in range(prefetch_depth):
+                _submit_prefetch(pos)
+
+        try:
+            for roll_pos, idx in enumerate(valid_indices):
+                roll_idx = roll_pos + 1
+                window = days[idx - window_days + 1 : idx + 1]
+                test_day = window[-1]
+                should_refit = (
+                    last_model is None
+                    or refit_every_n_days <= 1
+                    or last_refit_pos is None
+                    or (roll_pos - last_refit_pos) >= refit_every_n_days
+                )
+                print(
+                    f"[rolling] {roll_idx}/{total_rolls} test_day={test_day} "
+                    f"refit={'Y' if should_refit else 'N'} cadence={refit_every_n_days}"
+                )
+
+                if prefetch_pool is not None and roll_pos in prefetch_futures:
+                    test_data = prefetch_futures.pop(roll_pos).result()
+                    _submit_prefetch(roll_pos + prefetch_depth)
                 else:
-                    roll_train_days, roll_val_days, _ = _split_days(train_pool, train_ratio, val_ratio)
-                    train_data = _build_split_data(
-                        days=roll_train_days,
-                        panel_root=panel_root,
-                        label_root=label_root,
-                        factor_time=factor_time,
-                        label_time=label_time,
-                        depth_levels=depth_levels,
-                        seq_len=seq_len,
-                        min_seq_len=min_seq_len,
-                        require_label=True,
-                        base_cache=base_cache,
-                        label_cache=label_cache,
-                        preprocess_backend=preprocess_backend,
-                        preprocess_gpu_fallback_to_cpu=preprocess_gpu_fallback_to_cpu,
-                        progress_label=f"train:{test_day}",
-                        log_progress=log_data_prep_progress,
-                        progress_every=data_prep_progress_every,
-                    )
-                    val_data = _build_split_data(
-                        days=roll_val_days,
-                        panel_root=panel_root,
-                        label_root=label_root,
-                        factor_time=factor_time,
-                        label_time=label_time,
-                        depth_levels=depth_levels,
-                        seq_len=seq_len,
-                        min_seq_len=min_seq_len,
-                        require_label=True,
-                        base_cache=base_cache,
-                        label_cache=label_cache,
-                        preprocess_backend=preprocess_backend,
-                        preprocess_gpu_fallback_to_cpu=preprocess_gpu_fallback_to_cpu,
-                        progress_label=f"val:{test_day}",
-                        log_progress=log_data_prep_progress,
-                        progress_every=data_prep_progress_every,
-                    )
-                    if train_data.x.size == 0:
+                    test_data = _prepare_test_split(test_day)
+
+                if test_data.x.size == 0:
+                    print(f"[rolling] skip test_day={test_day}: empty test samples")
+                    continue
+
+                roll_train_days: list[date] = []
+                roll_val_days: list[date] = []
+                refit_status = "reuse"
+                if should_refit:
+                    train_pool = [d for d in window[:-1] if d in label_days_all]
+                    if len(train_pool) < 3:
                         if last_model is None:
                             print(
                                 f"[rolling] skip test_day={test_day}: "
-                                "empty train samples and no reusable model"
+                                "insufficient train_pool and no reusable model"
                             )
                             continue
-                        refit_status = "reuse_empty_train"
+                        refit_status = "reuse_insufficient_train_pool"
                         print(
                             f"[rolling] fallback reuse for test_day={test_day}: "
-                            "empty train samples"
+                            f"insufficient train_pool={len(train_pool)}"
                         )
                     else:
-                        model, hist = _train_one_model(
-                            train_data=train_data,
-                            val_data=val_data,
-                            params=dict(cfg.get("params", {})),
-                            train_cfg=train_cfg,
+                        roll_train_days, roll_val_days, _ = _split_days(train_pool, train_ratio, val_ratio)
+                        train_data = _build_split_data(
+                            days=roll_train_days,
+                            panel_root=panel_root,
+                            label_root=label_root,
+                            factor_time=factor_time,
+                            label_time=label_time,
+                            depth_levels=depth_levels,
+                            seq_len=seq_len,
+                            min_seq_len=min_seq_len,
+                            require_label=True,
+                            base_cache=base_cache,
+                            label_cache=label_cache,
+                            base_cache_lock=base_cache_lock,
+                            label_cache_lock=label_cache_lock,
+                            preprocess_backend=preprocess_backend,
+                            preprocess_gpu_fallback_to_cpu=preprocess_gpu_fallback_to_cpu,
+                            prep_workers=prep_workers,
+                            progress_label=f"train:{test_day}",
+                            log_progress=log_data_prep_progress,
+                            progress_every=data_prep_progress_every,
                         )
-                        last_model = model
-                        last_refit_pos = roll_pos
-                        last_refit_day = test_day
-                        refit_status = "refit"
-                        for row in hist:
-                            history_rows.append({"trade_date": test_day, **row})
-                        wandb_logger.log_history(hist, step_key="epoch", prefix="iter")
+                        val_data = _build_split_data(
+                            days=roll_val_days,
+                            panel_root=panel_root,
+                            label_root=label_root,
+                            factor_time=factor_time,
+                            label_time=label_time,
+                            depth_levels=depth_levels,
+                            seq_len=seq_len,
+                            min_seq_len=min_seq_len,
+                            require_label=True,
+                            base_cache=base_cache,
+                            label_cache=label_cache,
+                            base_cache_lock=base_cache_lock,
+                            label_cache_lock=label_cache_lock,
+                            preprocess_backend=preprocess_backend,
+                            preprocess_gpu_fallback_to_cpu=preprocess_gpu_fallback_to_cpu,
+                            prep_workers=prep_workers,
+                            progress_label=f"val:{test_day}",
+                            log_progress=log_data_prep_progress,
+                            progress_every=data_prep_progress_every,
+                        )
+                        if train_data.x.size == 0:
+                            if last_model is None:
+                                print(
+                                    f"[rolling] skip test_day={test_day}: "
+                                    "empty train samples and no reusable model"
+                                )
+                                continue
+                            refit_status = "reuse_empty_train"
+                            print(
+                                f"[rolling] fallback reuse for test_day={test_day}: "
+                                "empty train samples"
+                            )
+                        else:
+                            model, hist = _train_one_model(
+                                train_data=train_data,
+                                val_data=val_data,
+                                params=dict(cfg.get("params", {})),
+                                train_cfg=train_cfg,
+                            )
+                            last_model = model
+                            last_refit_pos = roll_pos
+                            last_refit_day = test_day
+                            refit_status = "refit"
+                            for row in hist:
+                                history_rows.append({"trade_date": test_day, **row})
+                            wandb_logger.log_history(hist, step_key="epoch", prefix="iter")
 
-            if last_model is None:
-                print(f"[rolling] skip test_day={test_day}: no reusable model")
-                continue
+                if last_model is None:
+                    print(f"[rolling] skip test_day={test_day}: no reusable model")
+                    continue
 
-            pred = _predict_numpy(
-                model=last_model,
-                x=test_data.x,
-                batch_size=max(1, int(train_cfg.get("batch_size", 8))),
-                device=_resolve_device(train_cfg),
-                normalize_x=bool(train_cfg.get("normalize_x", False)),
-                x_norm_method=str(train_cfg.get("x_norm_method", "zscore_sample")),
-            )
-            score_rows.append(
-                pd.DataFrame(
+                pred = _predict_numpy(
+                    model=last_model,
+                    x=test_data.x,
+                    batch_size=max(1, int(train_cfg.get("batch_size", 8))),
+                    device=_resolve_device(train_cfg),
+                    normalize_x=bool(train_cfg.get("normalize_x", False)),
+                    x_norm_method=str(train_cfg.get("x_norm_method", "zscore_sample")),
+                )
+                score_rows.append(
+                    pd.DataFrame(
+                        {
+                            "trade_date": test_day,
+                            "code": test_data.code,
+                            "score": pred,
+                        }
+                    )
+                )
+                labeled_mask = np.isfinite(test_data.y)
+                if labeled_mask.any():
+                    metrics = _eval_metrics(
+                        test_data.dt[labeled_mask],
+                        test_data.y[labeled_mask].astype(float),
+                        pred[labeled_mask].astype(float),
+                    )
+                else:
+                    metrics = {
+                        "count": int(len(pred)),
+                        "mse": float("nan"),
+                        "r2": float("nan"),
+                        "dir": float("nan"),
+                        "ic": float("nan"),
+                        "rank_ic": float("nan"),
+                    }
+                model_source_day = test_day if refit_status == "refit" else (last_refit_day or test_day)
+                rolling_rows.append(
                     {
                         "trade_date": test_day,
-                        "code": test_data.code,
-                        "score": pred,
+                        "refit": bool(refit_status == "refit"),
+                        "refit_status": refit_status,
+                        "model_source_day": model_source_day,
+                        "refit_every_n_days": refit_every_n_days,
+                        "train_days": len(roll_train_days),
+                        "val_days": len(roll_val_days),
+                        "count": int(len(pred)),
+                        "mse": metrics["mse"],
+                        "r2": metrics["r2"],
+                        "dir": metrics["dir"],
+                        "ic": metrics["ic"],
+                        "rank_ic": metrics["rank_ic"],
                     }
                 )
-            )
-
-            labeled_mask = np.isfinite(test_data.y)
-            if labeled_mask.any():
-                metrics = _eval_metrics(
-                    test_data.dt[labeled_mask],
-                    test_data.y[labeled_mask].astype(float),
-                    pred[labeled_mask].astype(float),
+                print(
+                    f"rolling {test_day} refit={refit_status} train_days={len(roll_train_days)} "
+                    f"val_days={len(roll_val_days)} count={len(pred)} rank_ic={metrics['rank_ic']:.4f}"
                 )
-            else:
-                metrics = {
-                    "count": int(len(pred)),
-                    "mse": float("nan"),
-                    "r2": float("nan"),
-                    "dir": float("nan"),
-                    "ic": float("nan"),
-                    "rank_ic": float("nan"),
-                }
-            model_source_day = test_day if refit_status == "refit" else (last_refit_day or test_day)
-            rolling_rows.append(
-                {
-                    "trade_date": test_day,
-                    "refit": bool(refit_status == "refit"),
-                    "refit_status": refit_status,
-                    "model_source_day": model_source_day,
-                    "refit_every_n_days": refit_every_n_days,
-                    "train_days": len(roll_train_days),
-                    "val_days": len(roll_val_days),
-                    "count": int(len(pred)),
-                    "mse": metrics["mse"],
-                    "r2": metrics["r2"],
-                    "dir": metrics["dir"],
-                    "ic": metrics["ic"],
-                    "rank_ic": metrics["rank_ic"],
-                }
-            )
-            print(
-                f"rolling {test_day} refit={refit_status} train_days={len(roll_train_days)} "
-                f"val_days={len(roll_val_days)} count={len(pred)} rank_ic={metrics['rank_ic']:.4f}"
-            )
-            wandb_logger.log(
-                {
-                    "trade_date": test_day,
-                    "refit": bool(refit_status == "refit"),
-                    "train_days": len(roll_train_days),
-                    "val_days": len(roll_val_days),
-                    "count": int(len(pred)),
-                    "mse": metrics.get("mse"),
-                    "r2": metrics.get("r2"),
-                    "dir": metrics.get("dir"),
-                    "ic": metrics.get("ic"),
-                    "rank_ic": metrics.get("rank_ic"),
-                },
-                step=int(roll_idx),
-                prefix="rolling",
-            )
+                wandb_logger.log(
+                    {
+                        "trade_date": test_day,
+                        "refit": bool(refit_status == "refit"),
+                        "train_days": len(roll_train_days),
+                        "val_days": len(roll_val_days),
+                        "count": int(len(pred)),
+                        "mse": metrics.get("mse"),
+                        "r2": metrics.get("r2"),
+                        "dir": metrics.get("dir"),
+                        "ic": metrics.get("ic"),
+                        "rank_ic": metrics.get("rank_ic"),
+                    },
+                    step=int(roll_idx),
+                    prefix="rolling",
+                )
+        finally:
+            if prefetch_pool is not None:
+                for fut in prefetch_futures.values():
+                    fut.cancel()
+                prefetch_pool.shutdown(wait=False)
     else:
         train_days = [d for d in label_days_all if desired_start <= d <= desired_end]
         if len(train_days) < 3:
@@ -1310,8 +1493,11 @@ def main(
             require_label=True,
             base_cache=base_cache,
             label_cache=label_cache,
+            base_cache_lock=base_cache_lock,
+            label_cache_lock=label_cache_lock,
             preprocess_backend=preprocess_backend,
             preprocess_gpu_fallback_to_cpu=preprocess_gpu_fallback_to_cpu,
+            prep_workers=prep_workers,
             progress_label="train_full",
             log_progress=log_data_prep_progress,
             progress_every=data_prep_progress_every,
@@ -1328,8 +1514,11 @@ def main(
             require_label=True,
             base_cache=base_cache,
             label_cache=label_cache,
+            base_cache_lock=base_cache_lock,
+            label_cache_lock=label_cache_lock,
             preprocess_backend=preprocess_backend,
             preprocess_gpu_fallback_to_cpu=preprocess_gpu_fallback_to_cpu,
+            prep_workers=prep_workers,
             progress_label="val_full",
             log_progress=log_data_prep_progress,
             progress_every=data_prep_progress_every,
@@ -1357,8 +1546,11 @@ def main(
                 require_label=False,
                 base_cache=base_cache,
                 label_cache=label_cache,
+                base_cache_lock=base_cache_lock,
+                label_cache_lock=label_cache_lock,
                 preprocess_backend=preprocess_backend,
                 preprocess_gpu_fallback_to_cpu=preprocess_gpu_fallback_to_cpu,
+                prep_workers=1,
                 progress_label=f"score:{day}",
                 log_progress=log_data_prep_progress,
                 progress_every=data_prep_progress_every,

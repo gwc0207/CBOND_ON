@@ -947,24 +947,25 @@ fn skew_unbiased(values: &[f64]) -> f64 {
         return 0.0;
     }
     let mean = vals.iter().sum::<f64>() / n as f64;
-    let mut m2 = 0.0;
-    let mut m3 = 0.0;
+    let mut sum2 = 0.0;
+    let mut sum3 = 0.0;
     for v in &vals {
         let d = *v - mean;
-        m2 += d * d;
-        m3 += d * d * d;
+        sum2 += d * d;
+        sum3 += d * d * d;
     }
-    m2 /= n as f64;
-    m3 /= n as f64;
-    if m2 <= EPS {
+
+    // Match pandas.Series.skew() (bias-corrected sample skewness):
+    // n*sqrt(n-1)/(n-2) * (sum((x-mean)^3) / (sum((x-mean)^2)^(3/2)))
+    if sum2 <= 0.0 {
         return 0.0;
     }
-    let g1 = m3 / m2.powf(1.5);
-    if n <= 2 {
+    let denom = sum2.powf(1.5);
+    if denom <= 0.0 {
         return 0.0;
     }
-    let adj = ((n * (n - 1)) as f64).sqrt() / ((n - 2) as f64);
-    let out = adj * g1;
+    let adj = (n as f64) * ((n - 1) as f64).sqrt() / ((n - 2) as f64);
+    let out = adj * (sum3 / denom);
     if out.is_finite() { out } else { 0.0 }
 }
 

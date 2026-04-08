@@ -1,0 +1,11 @@
+{
+  "day": "2025-01-03",
+  "panel_name": "T1430",
+  "n_specs": 25,
+  "n_common_cols": 25,
+  "factor_workers": 2,
+  "engine_requested": "rust",
+  "out_dir": "C:\\Users\\BaiYang\\CBOND_ON\\cbond_on\\runtime\\diagnostics\\factor_parity\\20260408_104739",
+  "global_max_abs": 5.618277980215756,
+  "global_mae_mean": 0.0015203764816263184
+}

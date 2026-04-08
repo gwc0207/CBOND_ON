@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date
 from pathlib import Path
 
-from cbond_on.services.live.live_service import run_once
+from cbond_on.app.usecases.live_runtime import run_once
 
 
 def execute(
@@ -17,4 +17,3 @@ def execute(
         target=target,
         mode=mode,
     )
-
