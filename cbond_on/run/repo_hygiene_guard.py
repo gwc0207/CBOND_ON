@@ -9,9 +9,16 @@ import sys
 # Files/dirs that should never be tracked by git.
 BLOCK_PATTERNS = (
     "node_modules/*",
+    "*/node_modules/*",
     "wandb/*",
+    "*/wandb/*",
     "runtime/*",
+    "*/runtime/*",
     "notebook/runtime/*",
+    "*/notebook/runtime/*",
+    "cbond_on_rust/*.pyd",
+    "cbond_on_rust/__pycache__/*",
+    "cbond_on_rust-*.dist-info/*",
     "*.dist-info/*",
     "*.egg-info/*",
 )
@@ -62,6 +69,7 @@ def main() -> int:
     print("\nFix suggestion:")
     print(
         "  git rm -r --cached node_modules wandb runtime notebook/runtime "
+        "rust/factor_engine/wandb cbond_on_rust-*.dist-info cbond_on_rust/*.pyd "
         "&& git rm -r --cached *.dist-info *.egg-info"
     )
     return 1
@@ -69,4 +77,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-

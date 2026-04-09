@@ -1,6 +1,8 @@
 ﻿from __future__ import annotations
 
 from datetime import date, datetime
+import os
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -55,6 +57,31 @@ def _clean_payload(payload: dict[str, Any]) -> dict[str, Any]:
             continue
         out[key] = val
     return out
+
+
+def prepare_wandb_local_dirs(cfg: dict[str, Any] | None) -> str | None:
+    cfg = cfg or {}
+    local_dir = str(cfg.get("local_dir", "")).strip()
+    if not local_dir and os.name == "nt":
+        # Keep local W&B artifacts off repo root on Windows by default.
+        local_dir = "D:/cbond_on/results/wandb"
+    if not local_dir:
+        return None
+
+    root = Path(local_dir).expanduser().resolve()
+    data_dir = root / "data"
+    cache_dir = root / "cache"
+    config_dir = root / "config"
+    root.mkdir(parents=True, exist_ok=True)
+    data_dir.mkdir(parents=True, exist_ok=True)
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    config_dir.mkdir(parents=True, exist_ok=True)
+
+    os.environ["WANDB_DIR"] = str(root)
+    os.environ["WANDB_DATA_DIR"] = str(data_dir)
+    os.environ["WANDB_CACHE_DIR"] = str(cache_dir)
+    os.environ["WANDB_CONFIG_DIR"] = str(config_dir)
+    return str(root)
 
 
 class WandbLogger:
@@ -145,6 +172,7 @@ def init_wandb_logger(
     extra_config: dict[str, Any] | None = None,
 ) -> WandbLogger:
     cfg = _merge_wandb_cfg(execution_cfg=execution_cfg, model_cfg=model_cfg)
+    local_dir = prepare_wandb_local_dirs(cfg)
     enabled = _to_bool(cfg.get("enabled"), default=False)
     if not enabled:
         return WandbLogger(None, cfg)
@@ -181,24 +209,29 @@ def init_wandb_logger(
     if extra_config:
         run_config.update(extra_config)
 
+    init_kwargs: dict[str, Any] = {
+        "project": project,
+        "entity": entity,
+        "name": run_name,
+        "mode": mode,
+        "group": group,
+        "job_type": job_type,
+        "tags": tags,
+        "config": run_config,
+        "save_code": save_code,
+        "reinit": True,
+    }
+    if local_dir:
+        init_kwargs["dir"] = local_dir
+
     try:
-        run = wandb.init(
-            project=project,
-            entity=entity,
-            name=run_name,
-            mode=mode,
-            group=group,
-            job_type=job_type,
-            tags=tags,
-            config=run_config,
-            save_code=save_code,
-            reinit=True,
-        )
+        run = wandb.init(**init_kwargs)
         print(
             "[wandb] enabled:",
             f"project={project}",
             f"mode={mode}",
             f"run={run_name}",
+            f"dir={local_dir or 'default'}",
         )
         return WandbLogger(run, cfg)
     except Exception as exc:

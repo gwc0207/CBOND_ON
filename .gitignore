@@ -19,6 +19,7 @@ env/
 runtime/
 notebook/runtime/
 wandb/
+rust/factor_engine/wandb/
 *.log
 
 # Local secrets / machine-specific configs
@@ -49,5 +50,8 @@ rust/factor_engine/*.pyd
 # Local python build/install artifacts
 *.egg-info/
 *.dist-info/
+cbond_on_rust/*.pyd
+cbond_on_rust/__pycache__/
+cbond_on_rust-*.dist-info/
 build/
 dist/

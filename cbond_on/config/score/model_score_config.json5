@@ -29,6 +29,7 @@
       project: "cbond_on",
       entity: null,
       mode: "online", // online | offline | disabled
+      local_dir: "D:/cbond_on/results/wandb",
       group: "model_score",
       job_type: "train",
       run_name: "", // empty => auto-generated

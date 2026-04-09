@@ -7,6 +7,7 @@ from typing import Any, Callable
 
 import pandas as pd
 
+from cbond_on.infra.model.wandb_utils import prepare_wandb_local_dirs
 from cbond_on.infra.model.tuning.space import (
     estimate_total_combinations,
     sanitize_wandb_param_name,
@@ -48,6 +49,9 @@ def run_wandb_sweep_trials(
     objective_metric: str,
     execute_trial_fn: Callable[[int, int, str, dict[str, Any], dict[str, Any]], tuple[dict[str, Any], dict[str, Any] | None]],
 ) -> tuple[pd.DataFrame, dict[str, Any] | None]:
+    wandb_cfg = dict(tuning_cfg.get("wandb", {}))
+    local_dir = prepare_wandb_local_dirs(wandb_cfg)
+
     try:
         import wandb  # type: ignore
     except Exception as exc:
@@ -55,7 +59,6 @@ def run_wandb_sweep_trials(
             "search_type=wandb_sweep requires wandb. Install with `pip install wandb`."
         ) from exc
 
-    wandb_cfg = dict(tuning_cfg.get("wandb", {}))
     method = str(wandb_cfg.get("method", "random")).strip().lower() or "random"
     max_trials = int(tuning_cfg.get("max_trials", 20))
     total_combos = estimate_total_combinations(space)
@@ -105,6 +108,7 @@ def run_wandb_sweep_trials(
         f"project={project}",
         f"count={agent_count}",
         f"method={method}",
+        f"dir={local_dir or 'default'}",
     )
 
     trial_rows: list[dict[str, Any]] = []
@@ -129,6 +133,8 @@ def run_wandb_sweep_trials(
             run_kwargs["tags"] = tags
         if mode in {"online", "offline", "disabled"}:
             run_kwargs["mode"] = mode
+        if local_dir:
+            run_kwargs["dir"] = local_dir
         run = wandb.init(**run_kwargs)
         if run is None:
             raise RuntimeError("wandb.init returned None in sweep agent")
@@ -201,6 +207,7 @@ def run_wandb_sweep_trials(
         "count": int(agent_count),
         "objective_metric": objective_metric,
         "disable_inner_model_wandb": bool(disable_inner),
+        "local_dir": local_dir,
     }
     (out_dir / "wandb_sweep.json").write_text(
         json.dumps(sweep_meta, ensure_ascii=False, indent=2),

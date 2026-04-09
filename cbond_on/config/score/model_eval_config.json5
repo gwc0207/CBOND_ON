@@ -43,6 +43,7 @@
       method: "random", // random | grid | bayes
       count: 128, // number of sweep trials to run locally
       mode: "online", // online | offline | disabled
+      local_dir: "D:/cbond_on/results/wandb",
       group: "model_eval",
       job_type: "tuning",
       tags: ["model_eval", "sweep"],
