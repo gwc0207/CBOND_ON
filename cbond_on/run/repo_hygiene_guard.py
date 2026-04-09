@@ -10,6 +10,8 @@ import sys
 BLOCK_PATTERNS = (
     "node_modules/*",
     "*/node_modules/*",
+    ".runtime_logs/*",
+    "*/.runtime_logs/*",
     "wandb/*",
     "*/wandb/*",
     "runtime/*",
@@ -68,7 +70,7 @@ def main() -> int:
         print(f"... and {len(bad) - 200} more")
     print("\nFix suggestion:")
     print(
-        "  git rm -r --cached node_modules wandb runtime notebook/runtime "
+        "  git rm -r --cached node_modules .runtime_logs wandb runtime notebook/runtime "
         "rust/factor_engine/wandb cbond_on_rust-*.dist-info cbond_on_rust/*.pyd "
         "&& git rm -r --cached *.dist-info *.egg-info"
     )
