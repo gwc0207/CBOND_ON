@@ -78,6 +78,7 @@ def run(
             label_cfg,
             mode=mode,
             next_day=next_day,
+            raw_data_root=paths_cfg["raw_data_root"],
         )
         return "written" if ok else "skipped"
 

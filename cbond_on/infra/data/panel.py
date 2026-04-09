@@ -13,6 +13,7 @@ from cbond_on.core.schedule import IntradaySchedule
 from cbond_on.core.utils import progress
 from cbond_on.core.trading_days import list_trading_days_from_raw
 from cbond_on.core.naming import make_window_label
+from .io import read_table_range
 from .snapshot_loader import SnapshotLoader, SnapshotPanel
 
 DEFAULT_ASSET = "cbond"
@@ -1036,26 +1037,14 @@ def build_panels_with_labels(
             row["panel_status"] = "ok"
 
         # labels: same-day close window -> next trading day open window
+        # Use daily_twap source directly (no snapshot TWAP fallback).
         # Enforce causal cutoff when label_end is provided.
         if label_end is None or day <= label_end:
-            if snapshot_df.empty:
-                day_df = _read_snapshot_day(cleaned_data_root, day, asset=asset_name)
-            else:
-                day_df = snapshot_df.copy()
-                if "trade_time" in day_df.columns:
-                    day_df = day_df[day_df["trade_time"].dt.date == day]
-            next_df = (
-                _read_snapshot_day(cleaned_data_root, next_day, asset=asset_name)
-                if next_day
-                else pd.DataFrame()
-            )
             labels = _build_day_labels_twap(
-                day_df,
-                next_df,
                 day,
                 next_day,
-                snapshot_config,
                 label_cfg,
+                raw_data_root=raw_data_root,
             )
             _write_labels_day(
                 label_data_root,
@@ -1102,28 +1091,23 @@ def build_labels_for_day(
     *,
     mode: str = "overwrite",
     next_day: date | None = None,
+    raw_data_root: str | Path | None = None,
     asset: str = DEFAULT_ASSET,
 ) -> bool:
-    cleaned_data_root = Path(cleaned_data_root)
+    del cleaned_data_root
+    del schedule
+    del snapshot_cfg
+    del asset
     label_data_root = Path(label_data_root)
-    asset_name = _normalize_asset(asset)
-    snapshot_df = _read_snapshot_day(cleaned_data_root, day, asset=asset_name)
-    if snapshot_df.empty:
-        return False
     if next_day is None:
         return False
-    next_df = (
-        _read_snapshot_day(cleaned_data_root, next_day, asset=asset_name)
-        if next_day
-        else pd.DataFrame()
-    )
+    if raw_data_root is None:
+        return False
     labels = _build_day_labels_twap(
-        snapshot_df,
-        next_df,
         day,
         next_day,
-        snapshot_cfg,
         label_cfg,
+        raw_data_root=raw_data_root,
     )
     return _write_labels_day(label_data_root, day, labels, mode=mode)
 
@@ -1160,52 +1144,67 @@ def _write_labels_day(
 
 
 def _build_day_labels_twap(
-    day_df: pd.DataFrame,
-    next_df: pd.DataFrame,
     day: date,
     next_day: date | None,
-    snapshot_cfg: SnapshotConfig,
     label_cfg: dict,
+    *,
+    raw_data_root: str | Path | None = None,
 ) -> pd.DataFrame:
-    if day_df is None or day_df.empty or next_df is None or next_df.empty or next_day is None:
+    if next_day is None or raw_data_root is None:
         return pd.DataFrame()
-
-    if "trade_time" in day_df.columns and not pd.api.types.is_datetime64_any_dtype(
-        day_df["trade_time"]
-    ):
-        day_df = day_df.copy()
-        day_df["trade_time"] = pd.to_datetime(day_df["trade_time"])
-    if "trade_time" in next_df.columns and not pd.api.types.is_datetime64_any_dtype(
-        next_df["trade_time"]
-    ):
-        next_df = next_df.copy()
-        next_df["trade_time"] = pd.to_datetime(next_df["trade_time"])
-
-    day_df = _drop_lunch(day_df)
-    next_df = _drop_lunch(next_df)
-    if day_df.empty or next_df.empty:
-        return pd.DataFrame()
-
-    day_df = day_df.sort_values(["code", "trade_time"]).copy()
-    next_df = next_df.sort_values(["code", "trade_time"]).copy()
 
     close_window = label_cfg.get("close_window", {})
     next_open_window = label_cfg.get("next_open_window", {})
-    close_start = close_window.get("start", "14:42")
-    close_end = close_window.get("end", "14:57")
-    next_start = next_open_window.get("start", "09:30")
-    next_end = next_open_window.get("end", "09:45")
-
-    close_start_dt = datetime.combine(day, _parse_hhmm(close_start))
-    close_end_dt = datetime.combine(day, _parse_hhmm(close_end))
-    next_start_dt = datetime.combine(next_day, _parse_hhmm(next_start))
-    next_end_dt = datetime.combine(next_day, _parse_hhmm(next_end))
+    close_start_dt = datetime.combine(day, _parse_hhmm(close_window.get("start", "14:42")))
 
     buy_bps = float(label_cfg.get("buy_bps", 0.0)) + float(label_cfg.get("fee_bps", 0.0))
     sell_bps = float(label_cfg.get("sell_bps", 0.0)) + float(label_cfg.get("fee_bps", 0.0))
 
-    cost_now = _window_twap_cost(day_df, close_start_dt, close_end_dt, label_cfg)
-    cost_next = _window_twap_cost(next_df, next_start_dt, next_end_dt, label_cfg)
+    cost_source = str(label_cfg.get("cost_source", "daily_twap")).strip().lower()
+    if cost_source not in {"daily_twap", "datahub_twap", "daily"}:
+        return pd.DataFrame()
+    twap_table = str(label_cfg.get("twap_table", "market_cbond.daily_twap"))
+    close_col = str(
+        label_cfg.get("close_twap_col")
+        or _resolve_window_twap_col(
+            close_window, default_start="14:42", default_end="14:57"
+        )
+    )
+    next_col = str(
+        label_cfg.get("next_open_twap_col")
+        or _resolve_window_twap_col(
+            next_open_window, default_start="09:30", default_end="09:45"
+        )
+    )
+    cost_now = _load_daily_twap_cost(
+        raw_data_root=raw_data_root,
+        twap_table=twap_table,
+        day=day,
+        twap_col=close_col,
+    )
+    cost_next = _load_daily_twap_cost(
+        raw_data_root=raw_data_root,
+        twap_table=twap_table,
+        day=next_day,
+        twap_col=next_col,
+    )
+    return _build_labels_from_cost(
+        cost_now=cost_now,
+        cost_next=cost_next,
+        trade_time=close_start_dt,
+        buy_bps=buy_bps,
+        sell_bps=sell_bps,
+    )
+
+
+def _build_labels_from_cost(
+    *,
+    cost_now: pd.Series,
+    cost_next: pd.Series,
+    trade_time: datetime,
+    buy_bps: float,
+    sell_bps: float,
+) -> pd.DataFrame:
     if cost_now.empty or cost_next.empty:
         return pd.DataFrame()
 
@@ -1226,7 +1225,7 @@ def _build_day_labels_twap(
     rows = [
         {
             "code": code,
-            "trade_time": pd.Timestamp(close_start_dt),
+            "trade_time": pd.Timestamp(trade_time),
             "y": float(val),
         }
         for code, val in y.items()
@@ -1236,49 +1235,53 @@ def _build_day_labels_twap(
     return pd.DataFrame(rows)
 
 
+def _format_hhmm_compact(value: str) -> str:
+    parsed = _parse_hhmm(value)
+    return f"{parsed.hour:02d}{parsed.minute:02d}"
+
+
+def _resolve_window_twap_col(
+    window_cfg: dict,
+    *,
+    default_start: str,
+    default_end: str,
+) -> str:
+    start = str(window_cfg.get("start", default_start))
+    end = str(window_cfg.get("end", default_end))
+    return f"twap_{_format_hhmm_compact(start)}_{_format_hhmm_compact(end)}"
+
+
+def _load_daily_twap_cost(
+    *,
+    raw_data_root: str | Path,
+    twap_table: str,
+    day: date,
+    twap_col: str,
+) -> pd.Series:
+    twap_df = read_table_range(raw_data_root, twap_table, day, day)
+    if twap_df.empty or twap_col not in twap_df.columns:
+        return pd.Series(dtype=float)
+
+    if "code" in twap_df.columns:
+        code = twap_df["code"].astype(str)
+    elif "instrument_code" in twap_df.columns and "exchange_code" in twap_df.columns:
+        code = twap_df["instrument_code"].astype(str) + "." + twap_df["exchange_code"].astype(str)
+    else:
+        return pd.Series(dtype=float)
+
+    value = pd.to_numeric(twap_df[twap_col], errors="coerce")
+    merged = pd.DataFrame({"code": code, "value": value}).dropna(subset=["value"])
+    if merged.empty:
+        return pd.Series(dtype=float)
+    out = merged.drop_duplicates(subset=["code"], keep="last").set_index("code")["value"]
+    return out.astype(float)
+
+
 def _parse_hhmm(value: str) -> time:
     parts = str(value).split(":")
     if len(parts) < 2:
         raise ValueError(f"invalid time value: {value}")
     return time(int(parts[0]), int(parts[1]))
-
-
-def _window_twap_cost(
-    df: pd.DataFrame,
-    start_dt: datetime,
-    end_dt: datetime,
-    label_cfg: dict,
-) -> pd.Series:
-    window = df[(df["trade_time"] >= start_dt) & (df["trade_time"] <= end_dt)]
-    if window.empty:
-        return pd.Series(dtype=float)
-
-    price_col = label_cfg.get("price_col", "last")
-    if price_col not in window.columns:
-        return pd.Series(dtype=float)
-
-    window = window.sort_values(["code", "trade_time"]).copy()
-    window["next_time"] = window.groupby("code")["trade_time"].shift(-1)
-    window["next_time"] = window["next_time"].fillna(end_dt)
-    window["delta_sec"] = (
-        window["next_time"] - window["trade_time"]
-    ).dt.total_seconds()
-    window["delta_sec"] = window["delta_sec"].clip(lower=0.0)
-    weighted_sum = (
-        (window[price_col] * window["delta_sec"])
-        .groupby(window["code"], sort=False)
-        .sum()
-    )
-    weight = window["delta_sec"].groupby(window["code"], sort=False).sum()
-    twap = weighted_sum.div(weight.replace(0, pd.NA))
-
-    if twap.isna().all() and str(label_cfg.get("fallback_method", "mid")).lower() == "mid":
-        bid_col = label_cfg.get("bid_price_col", "bid_price1")
-        ask_col = label_cfg.get("ask_price_col", "ask_price1")
-        if bid_col in window.columns and ask_col in window.columns:
-            mid = (window[bid_col] + window[ask_col]) / 2.0
-            twap = mid.groupby(window["code"], sort=False).mean()
-    return twap
 
 
 def _drop_lunch(df: object) -> object:
