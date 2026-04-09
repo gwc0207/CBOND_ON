@@ -64,11 +64,11 @@ Completed:
 Use this to enforce boundaries after changes:
 
 ```bash
-python cbond_on/run/architecture_guard.py
+python -m cbond_on.common.architecture_guard
 ```
 
 Use this to enforce repository cleanliness (runtime/dependency artifacts not tracked):
 
 ```bash
-python cbond_on/run/repo_hygiene_guard.py
+python -m cbond_on.common.repo_hygiene_guard
 ```

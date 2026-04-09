@@ -59,7 +59,12 @@ python3 cbond_on/run/pipeline_all.py
 
 Repo hygiene check:
 ```bash
-python3 cbond_on/run/repo_hygiene_guard.py
+python3 -m cbond_on.common.repo_hygiene_guard
+```
+
+Architecture boundary check:
+```bash
+python3 -m cbond_on.common.architecture_guard
 ```
 
 Optional: refresh scores during backtest by setting `refresh_scores: true` in:
