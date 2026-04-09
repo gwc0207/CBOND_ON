@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 
 from cbond_on.config.loader import load_config_file, parse_date
-from cbond_on.app.usecases.build_factors import execute as build_factors
+from cbond_on.app.pipelines.factor_pipeline import execute as run_factor_pipeline
 
 
 def main(
@@ -23,13 +23,9 @@ def main(
     if overwrite is not None:
         factor_cfg["overwrite"] = bool(overwrite)
 
-    result = build_factors(
-        start=parse_date(factor_cfg.get("start")),
-        end=parse_date(factor_cfg.get("end")),
-        refresh=bool(factor_cfg.get("refresh", False)),
-        overwrite=bool(factor_cfg.get("overwrite", False)),
-        cfg=factor_cfg,
-    )
+    factor_cfg["start"] = parse_date(factor_cfg.get("start"))
+    factor_cfg["end"] = parse_date(factor_cfg.get("end"))
+    result = run_factor_pipeline(factor_cfg)
     print(result)
 
 

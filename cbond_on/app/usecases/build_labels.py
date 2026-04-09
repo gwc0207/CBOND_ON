@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from cbond_on.services.data.label_service import run as run_label
+from cbond_on.app.usecases.label_runtime import run as run_label
 
 
 def execute(

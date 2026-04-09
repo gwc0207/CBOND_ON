@@ -3,7 +3,7 @@
 from typing import Iterable, Optional
 
 import pandas as pd
-from cbond_on.data.snapshot_loader import pick_twap_column
+from cbond_on.infra.data.snapshot_loader import pick_twap_column
 
 
 def compute_mark_nav(targets: pd.DataFrame, panel) -> pd.Series:
@@ -156,3 +156,4 @@ def plot_nav(
     ax.legend(lines + lines2, labels + labels2)
 
     return fig, ax
+

@@ -16,7 +16,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from cbond_on.core.config import load_config_file, parse_time
 from cbond_on.core.trading_days import next_trading_days_from_raw
-from cbond_on.services.live.live_service import run_once
+from cbond_on.app.pipelines.live_pipeline import execute as run_once
 
 WIN_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 HEARTBEAT_LOG_INTERVAL_SECONDS = 300

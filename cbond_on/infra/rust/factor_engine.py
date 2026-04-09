@@ -1,11 +1,11 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from typing import Sequence
 
 import pandas as pd
 
-from cbond_on.factors.rust_backend import build_factor_frame_rust
-from cbond_on.factors.spec import FactorSpec
+from cbond_on.infra.factors.rust_backend import build_factor_frame_rust
+from cbond_on.domain.factors.spec import FactorSpec
 
 
 def compute(
@@ -23,4 +23,6 @@ def compute(
         bond_stock_map=bond_stock_map,
         compute_backend_params=compute_backend_params,
     )
+
+
 

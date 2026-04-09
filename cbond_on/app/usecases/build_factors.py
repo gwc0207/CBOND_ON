@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from cbond_on.services.factor.factor_build_service import run as run_factor_build
+from cbond_on.app.usecases.factor_build_runtime import run as run_factor_build
 
 
 def execute(

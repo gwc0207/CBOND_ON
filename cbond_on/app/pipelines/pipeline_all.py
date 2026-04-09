@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-from cbond_on.core.config import load_config_file, parse_date
+from cbond_on.core.config import load_config_file
 from cbond_on.core.utils import progress
-from cbond_on.app.usecases.build_panel import execute as run_panel
-from cbond_on.app.usecases.build_labels import execute as run_label
-from cbond_on.app.usecases.build_factors import execute as run_factor_build
-from cbond_on.app.usecases.train_score import execute as run_model_score
-from cbond_on.app.usecases.run_backtest import execute as run_backtest
+from cbond_on.app.pipelines.panel_pipeline import execute as run_panel_pipeline
+from cbond_on.app.pipelines.label_pipeline import execute as run_label_pipeline
+from cbond_on.app.pipelines.factor_pipeline import execute as run_factor_pipeline
+from cbond_on.app.pipelines.train_score_pipeline import execute as run_train_score_pipeline
+from cbond_on.app.pipelines.backtest_pipeline import execute as run_backtest_pipeline
 
 
 def _stage_switches(cfg: dict[str, Any], stage: str) -> dict[str, bool]:
@@ -81,52 +81,29 @@ def execute(*, config_name: str = "pipeline_all") -> None:
     stages: list[tuple[str, Callable[[], Any]]] = [
         (
             "panel",
-            lambda: run_panel(
-                start=parse_date(panel_cfg.get("start")),
-                end=parse_date(panel_cfg.get("end")),
-                refresh=bool(panel_cfg.get("refresh", False)),
-                overwrite=bool(panel_cfg.get("overwrite", False)),
-                cfg=panel_cfg,
-            ),
+            lambda: run_panel_pipeline(panel_cfg),
         ),
         (
             "label",
-            lambda: run_label(
-                start=parse_date(label_cfg.get("start")),
-                end=parse_date(label_cfg.get("end")),
-                refresh=bool(label_cfg.get("refresh", False)),
-                overwrite=bool(label_cfg.get("overwrite", False)),
-                cfg=label_cfg,
-                panel_cfg=panel_cfg,
-            ),
+            lambda: run_label_pipeline(label_cfg, panel_cfg=panel_cfg),
         ),
         (
             "factor",
-            lambda: run_factor_build(
-                start=parse_date(factor_cfg.get("start")),
-                end=parse_date(factor_cfg.get("end")),
-                refresh=bool(factor_cfg.get("refresh", False)),
-                overwrite=bool(factor_cfg.get("overwrite", False)),
-                cfg=factor_cfg,
-            ),
+            lambda: run_factor_pipeline(factor_cfg),
         ),
         (
             "model_score",
-            lambda: run_model_score(
+            lambda: run_train_score_pipeline(
+                model_cfg,
                 model_id=model_cfg.get("model_id") or model_cfg.get("default_model_id"),
                 start=model_cfg.get("start"),
                 end=model_cfg.get("end"),
                 label_cutoff=model_cfg.get("label_cutoff"),
-                cfg=model_cfg,
             ),
         ),
         (
             "backtest",
-            lambda: run_backtest(
-                start=parse_date(bt_cfg.get("start")),
-                end=parse_date(bt_cfg.get("end")),
-                cfg=bt_cfg,
-            ),
+            lambda: run_backtest_pipeline(bt_cfg),
         ),
     ]
 

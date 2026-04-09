@@ -1,0 +1,1010 @@
+﻿
+from __future__ import annotations
+
+import json
+import os
+import sys
+from collections import deque
+from concurrent.futures import ThreadPoolExecutor
+from datetime import date, datetime
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
+PROJECT_ROOT = Path(__file__).resolve().parents[4]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from cbond_on.core.config import load_config_file, parse_date, resolve_output_path
+from cbond_on.core.naming import make_window_label
+from cbond_on.core.trading_days import list_trading_days_from_raw, prev_trading_days_from_raw
+from cbond_on.domain.factors.storage import FactorStore
+from cbond_on.infra.model.wandb_utils import init_wandb_logger
+from cbond_on.infra.model.score_io import load_scores_by_date, write_scores_by_date
+from cbond_on.infra.model.impl.lgbm.trainer import (
+    SplitData,
+    build_dataset,
+    evaluate_metrics,
+    train_lgbm,
+    _iter_existing_label_days,
+    _split_days,
+)
+
+
+def _load_model_config(path: Path | None) -> dict:
+    if path is None:
+        return load_config_file("models/lgbm/lgbm_factor_MSE")
+    suffix = path.suffix.lower()
+    if suffix == ".json5":
+        import json5
+
+        with path.open("r", encoding="utf-8") as handle:
+            return json5.load(handle) or {}
+    if suffix in {".yaml", ".yml"}:
+        import yaml
+
+        with path.open("r", encoding="utf-8") as handle:
+            return yaml.safe_load(handle) or {}
+    with path.open("r", encoding="utf-8") as handle:
+        return json.load(handle) or {}
+
+
+def _select_factor_cols(sample: pd.DataFrame, cfg: dict) -> list[str]:
+    cols = cfg.get("factors")
+    if cols:
+        return [str(c) for c in cols]
+    exclude = {"dt", "code"}
+    return [c for c in sample.columns if c not in exclude]
+
+
+def _format_bins(bin_dir: list[tuple[int, float, int]]) -> str:
+    if not bin_dir:
+        return "n/a"
+    return ",".join([f"{b}:{acc:.3f}({n})" for b, acc, n in bin_dir])
+
+
+def _load_existing_score_days(score_output: Path) -> set[date]:
+    try:
+        cache = load_scores_by_date(score_output)
+    except FileNotFoundError:
+        return set()
+    except Exception as exc:
+        print(f"[rolling] failed to read existing scores for incremental mode: {exc}")
+        return set()
+    return set(cache.keys())
+
+
+def _parse_checkpoint_day(stem: str) -> date | None:
+    try:
+        return datetime.strptime(stem, "%Y-%m-%d").date()
+    except Exception:
+        return None
+
+
+def _checkpoint_path(state_dir: Path, day: date) -> Path:
+    return state_dir / f"{day:%Y-%m-%d}.txt"
+
+
+def _find_previous_checkpoint(state_dir: Path, day: date) -> Path | None:
+    if not state_dir.exists():
+        return None
+    best_day: date | None = None
+    best_path: Path | None = None
+    for path in state_dir.glob("*.txt"):
+        ckpt_day = _parse_checkpoint_day(path.stem)
+        if ckpt_day is None or ckpt_day >= day:
+            continue
+        if best_day is None or ckpt_day > best_day:
+            best_day = ckpt_day
+            best_path = path
+    return best_path
+
+
+def _concat_split_data(parts: list[SplitData], factor_cols: list[str]) -> SplitData:
+    valid_parts = [p for p in parts if p is not None and not p.x.empty]
+    if not valid_parts:
+        empty = pd.DataFrame(columns=factor_cols)
+        return SplitData(
+            x=empty.copy(),
+            y=pd.Series(dtype=float),
+            dt=pd.Series(dtype="datetime64[ns]"),
+            code=pd.Series(dtype=str),
+        )
+    x = pd.concat([p.x for p in valid_parts], ignore_index=True)
+    y = pd.concat([p.y for p in valid_parts], ignore_index=True)
+    dt = pd.concat([p.dt for p in valid_parts], ignore_index=True)
+    code = pd.concat([p.code for p in valid_parts], ignore_index=True)
+    return SplitData(x=x, y=y, dt=dt, code=code)
+
+
+def _build_daily_split_cache(
+    *,
+    days: list[date],
+    factor_store: FactorStore,
+    label_root: Path,
+    factor_cols: list[str],
+    min_count: int,
+    winsor_lower: float,
+    winsor_upper: float,
+    zscore: bool,
+    factor_time: str,
+    label_time: str,
+    require_label: bool,
+) -> dict[date, SplitData]:
+    cache: dict[date, SplitData] = {}
+    total = len(days)
+    for i, day in enumerate(days, start=1):
+        split = build_dataset(
+            factor_store=factor_store,
+            label_root=label_root,
+            days=[day],
+            factor_cols=factor_cols,
+            min_count=min_count,
+            winsor_lower=winsor_lower,
+            winsor_upper=winsor_upper,
+            zscore=zscore,
+            factor_time=factor_time,
+            label_time=label_time,
+            require_label=require_label,
+        )
+        if not split.x.empty:
+            cache[day] = split
+        if i == total or i % 50 == 0:
+            tag = "label" if require_label else "test"
+            print(f"[rolling] cache_build {tag}: {i}/{total}")
+    return cache
+
+
+def _prepare_rolling_payload(
+    *,
+    idx: int,
+    days: list[date],
+    window_days: int,
+    train_ratio: float,
+    factor_cols: list[str],
+    train_day_cache: dict[date, SplitData],
+    test_day_cache: dict[date, SplitData],
+) -> dict | None:
+    window = days[idx - window_days + 1: idx + 1]
+    train_pool = window[:-1]
+    test_day = window[-1]
+    if len(train_pool) < 2:
+        return None
+    n_pool = len(train_pool)
+    n_train = max(1, int(n_pool * train_ratio))
+    n_val = n_pool - n_train
+    if n_val <= 0:
+        n_val = 1
+        n_train = max(1, n_pool - n_val)
+    train_days = list(train_pool[:n_train])
+    val_days = list(train_pool[n_train:n_train + n_val])
+    test_data = _concat_split_data(
+        [test_day_cache[d] for d in [test_day] if d in test_day_cache],
+        factor_cols,
+    )
+    if test_data.x.empty:
+        return None
+    train_data = _concat_split_data(
+        [train_day_cache[d] for d in train_days if d in train_day_cache],
+        factor_cols,
+    )
+    val_data = _concat_split_data(
+        [train_day_cache[d] for d in val_days if d in train_day_cache],
+        factor_cols,
+    )
+    return {
+        "test_day": test_day,
+        "train_days": train_days,
+        "val_days": val_days,
+        "train_data": train_data,
+        "val_data": val_data,
+        "test_data": test_data,
+    }
+
+
+def main(
+    *,
+    config_path: str | Path | None = None,
+    start: str | None = None,
+    end: str | None = None,
+    label_cutoff: str | None = None,
+    execution: dict | None = None,
+) -> None:
+    execution_cfg = dict(execution or {})
+    env_refit = os.getenv("CBOND_REFIT_EVERY_N_DAYS")
+    env_train_processes = os.getenv("CBOND_TRAIN_PROCESSES")
+    env_prep_workers = os.getenv("CBOND_PREP_WORKERS")
+    env_prefetch_windows = os.getenv("CBOND_PREFETCH_WINDOWS")
+    env_shards = os.getenv("CBOND_SCORE_PARALLEL_SHARDS")
+    env_shard_index = os.getenv("CBOND_SCORE_PARALLEL_SHARD_INDEX")
+    refit_every_n_days = max(
+        1,
+        int(
+            execution_cfg.get(
+                "refit_every_n_days",
+                env_refit if env_refit is not None else 1,
+            )
+        ),
+    )
+    train_processes = max(
+        1,
+        int(
+            execution_cfg.get(
+                "train_processes",
+                env_train_processes if env_train_processes is not None else 1,
+            )
+        ),
+    )
+    prep_workers = max(
+        1,
+        int(
+            execution_cfg.get(
+                "prep_workers",
+                env_prep_workers if env_prep_workers is not None else 1,
+            )
+        ),
+    )
+    prefetch_windows = max(
+        1,
+        int(
+            execution_cfg.get(
+                "prefetch_windows",
+                env_prefetch_windows if env_prefetch_windows is not None else 2,
+            )
+        ),
+    )
+    parallel_shards = max(
+        1,
+        int(
+            execution_cfg.get(
+                "parallel_shards",
+                env_shards if env_shards is not None else train_processes,
+            )
+        ),
+    )
+    parallel_shard_index = int(
+        execution_cfg.get(
+            "parallel_shard_index",
+            env_shard_index if env_shard_index is not None else 0,
+        )
+    )
+    if parallel_shard_index < 0 or parallel_shard_index >= parallel_shards:
+        raise ValueError(
+            f"parallel_shard_index must be in [0, {parallel_shards - 1}], "
+            f"got {parallel_shard_index}"
+        )
+    paths_cfg = load_config_file("paths")
+    cfg_file = Path(config_path) if config_path else None
+    if cfg_file is None and len(sys.argv) > 1:
+        candidate = Path(sys.argv[1])
+        if candidate.exists():
+            cfg_file = candidate
+    cfg = _load_model_config(cfg_file)
+
+    cfg_start = parse_date(cfg.get("start"))
+    cfg_end = parse_date(cfg.get("end"))
+    desired_start = parse_date(start) if start else cfg_start
+    desired_end = parse_date(end) if end else cfg_end
+    cutoff_day = parse_date(label_cutoff) if label_cutoff else None
+    if desired_start > desired_end:
+        raise ValueError("start date must be <= end date")
+
+    factor_root = Path(paths_cfg["factor_data_root"])
+    label_root = Path(paths_cfg["label_data_root"])
+
+    panel_name = cfg.get("panel_name")
+    window_minutes = int(cfg.get("window_minutes", 15))
+    factor_time = str(cfg.get("factor_time", "14:30"))
+    label_time = str(cfg.get("label_time", "14:42"))
+    raw_root = paths_cfg["raw_data_root"]
+
+    scan_start = desired_start
+    rolling_cfg = cfg.get("rolling", {})
+    rolling_enabled = bool(rolling_cfg.get("enabled", False))
+    window_days = int(rolling_cfg.get("window_days", 301))
+    if rolling_enabled:
+        lookback_days = prev_trading_days_from_raw(
+            raw_root,
+            desired_start,
+            window_days,
+            kind="snapshot",
+            asset="cbond",
+        )
+        if lookback_days:
+            scan_start = lookback_days[0]
+    days = list(_iter_existing_label_days(label_root, scan_start, desired_end))
+    if not days:
+        raise RuntimeError("no label days found for range")
+    days = sorted(set(days))
+    if cutoff_day is not None:
+        days = [d for d in days if d <= cutoff_day]
+        if not days:
+            raise RuntimeError("no label days left after label_cutoff filter")
+
+    def _factor_exists(day: date) -> bool:
+        label = panel_name or make_window_label(window_minutes)
+        month = f"{day.year:04d}-{day.month:02d}"
+        filename = f"{day.strftime('%Y%m%d')}.parquet"
+        path = factor_root / "factors" / label / month / filename
+        return path.exists()
+
+    # allow scoring for target days without labels (e.g., latest day in live)
+    last_label_day = max(days) if days else None
+    if last_label_day and desired_end > last_label_day:
+        trade_days = list_trading_days_from_raw(
+            raw_root,
+            last_label_day,
+            desired_end,
+            kind="snapshot",
+            asset="cbond",
+        )
+        extra_days = [d for d in trade_days if d > last_label_day and _factor_exists(d)]
+        if extra_days:
+            days = sorted(set(days + extra_days))
+
+    train_cfg = cfg.get("train", {})
+    train_ratio = float(train_cfg.get("train_ratio", 0.7))
+    val_ratio = float(train_cfg.get("val_ratio", 0.15))
+    test_ratio = float(train_cfg.get("test_ratio", 0.15))
+
+    if window_days < 2:
+        raise ValueError("rolling.window_days must be >= 2")
+
+    if not rolling_enabled and abs((train_ratio + val_ratio + test_ratio) - 1.0) > 1e-6:
+        raise ValueError("train/val/test ratios must sum to 1.0")
+
+    train_days: list[date] = []
+    val_days: list[date] = []
+    test_days: list[date] = []
+    if not rolling_enabled:
+        days = [d for d in days if desired_start <= d <= desired_end]
+        if not days:
+            raise RuntimeError("no label days found for desired range")
+        train_days, val_days, test_days = _split_days(days, train_ratio, val_ratio)
+        print(f"train days: {len(train_days)}, val days: {len(val_days)}, test days: {len(test_days)}")
+
+    store = FactorStore(factor_root, panel_name=panel_name, window_minutes=window_minutes)
+    # pick factor columns from first available day
+    sample = pd.DataFrame()
+    sample_days = days if rolling_enabled else train_days
+    for day in sample_days:
+        sample = store.read_day(day)
+        if not sample.empty:
+            break
+    if sample.empty:
+        raise RuntimeError("no factor data found")
+    if isinstance(sample.index, pd.MultiIndex):
+        sample = sample.reset_index()
+    factor_cols = _select_factor_cols(sample, cfg)
+
+    winsor = cfg.get("winsor", {})
+    winsor_lower = float(winsor.get("lower", 0.01))
+    winsor_upper = float(winsor.get("upper", 0.99))
+    zscore = bool(cfg.get("zscore", True))
+    min_count = int(cfg.get("min_count", 30))
+    bins = int(cfg.get("bins", 5))
+
+    lgbm_params = cfg.get("lgbm_params", {})
+    grid_cfg = cfg.get("grid_search", {})
+    early_rounds = cfg.get("early_stopping_rounds")
+    loss_mode = str(cfg.get("loss_mode", "mse")).lower()
+
+    # results output dir
+    results_root = Path(paths_cfg["results_root"])
+    model_name = cfg.get("model_name", "lgbm_factor")
+    date_label = f"{desired_start.strftime('%Y-%m-%d')}_{desired_end.strftime('%Y-%m-%d')}"
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    out_dir = results_root / "models" / model_name / date_label / ts
+    out_dir.mkdir(parents=True, exist_ok=True)
+    wandb_logger = init_wandb_logger(
+        execution_cfg=execution_cfg,
+        model_cfg=cfg,
+        model_name=str(model_name),
+        model_type="lgbm",
+        start=desired_start,
+        end=desired_end,
+        extra_config={
+            "rolling_enabled": bool(rolling_enabled),
+            "window_days": int(window_days),
+            "loss_mode": str(loss_mode),
+        },
+    )
+    wandb_logger.log(
+        {
+            "refit_every_n_days": int(refit_every_n_days),
+            "train_processes": int(train_processes),
+            "prep_workers": int(prep_workers),
+            "prefetch_windows": int(prefetch_windows),
+            "parallel_shards": int(parallel_shards),
+            "parallel_shard_index": int(parallel_shard_index),
+            "factor_count": int(len(factor_cols)),
+        },
+        prefix="run",
+    )
+    score_output = resolve_output_path(
+        cfg.get("score_output"),
+        default_path=results_root / "scores" / model_name,
+        results_root=results_root,
+    )
+    score_overwrite = bool(cfg.get("score_overwrite", False))
+    score_dedupe = bool(cfg.get("score_dedupe", True))
+    incremental_cfg = dict(cfg.get("incremental", {}))
+    incremental_enabled = bool(incremental_cfg.get("enabled", True))
+    incremental_skip_existing = bool(incremental_cfg.get("skip_existing_scores", True))
+    incremental_warm_start = bool(incremental_cfg.get("warm_start", True))
+    incremental_save_state = bool(incremental_cfg.get("save_state", True))
+    if parallel_shards > 1 and incremental_warm_start:
+        print("[rolling] parallel_shards>1: disable warm_start to avoid cross-shard dependency")
+        incremental_warm_start = False
+    state_dir_raw = str(incremental_cfg.get("state_dir", "")).strip()
+    state_dir = resolve_output_path(
+        state_dir_raw if state_dir_raw else None,
+        default_path=results_root / "model_state" / model_name,
+        results_root=results_root,
+    )
+    if incremental_enabled and (incremental_warm_start or incremental_save_state):
+        state_dir.mkdir(parents=True, exist_ok=True)
+
+    def _metric_name_for_mode(mode: str) -> str:
+        text = str(mode or "mse").lower()
+        if text in {"ic_abs", "abs_ic", "icabs"}:
+            return "abs_ic"
+        return "rank_ic"
+
+    def _best_val_metric(hist: list[dict], metric_name: str) -> float:
+        if not hist:
+            return float("nan")
+        key = f"val_{metric_name}"
+        vals = [h.get(key) for h in hist if h.get(key) is not None]
+        if not vals:
+            return float("nan")
+        return float(np.nanmax(vals))
+
+    def _best_iter_from_hist(hist: list[dict], metric_name: str) -> int | None:
+        best_val = float("-inf")
+        best_it = None
+        key = f"val_{metric_name}"
+        for h in hist:
+            v = h.get(key)
+            it = h.get("iteration")
+            if v is None or it is None or np.isnan(v):
+                continue
+            if float(v) > best_val:
+                best_val = float(v)
+                best_it = int(it)
+        return best_it
+
+    metric_name = _metric_name_for_mode(loss_mode)
+
+    if rolling_enabled:
+        if len(days) < window_days:
+            raise ValueError(
+                f"rolling window_days={window_days} exceeds available days={len(days)}"
+            )
+        rolling_rows: list[dict] = []
+        score_rows: list[pd.DataFrame] = []
+        desired_days = [d for d in days if desired_start <= d <= desired_end]
+        if not desired_days:
+            raise RuntimeError("no label days found for desired range")
+        target_days = list(desired_days)
+        if incremental_enabled and incremental_skip_existing and not score_overwrite:
+            existing_days = _load_existing_score_days(score_output)
+            target_days = [d for d in desired_days if d not in existing_days]
+            skipped = len(desired_days) - len(target_days)
+            if skipped > 0:
+                print(
+                    f"[rolling] incremental skip_existing_scores=True, "
+                    f"skip={skipped}, pending={len(target_days)}"
+                )
+        if not target_days:
+            print("[rolling] incremental: no pending target days, skip training")
+            (out_dir / "config.json").write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+            (out_dir / "features.json").write_text(json.dumps(factor_cols, ensure_ascii=False, indent=2), encoding="utf-8")
+            print(f"saved rolling: {out_dir}")
+            print(f"saved scores: {score_output}")
+            wandb_logger.finish({"status": "no_pending_target_days"})
+            return
+        day_to_idx = {d: i for i, d in enumerate(days)}
+        target_indices = [day_to_idx[d] for d in target_days if d in day_to_idx]
+        min_idx = window_days - 1
+        valid_indices = [i for i in target_indices if i >= min_idx]
+        dropped = len(target_indices) - len(valid_indices)
+        if dropped > 0:
+            print(
+                f"[rolling] skip {dropped} target day(s): insufficient history window "
+                f"(need window_days={window_days})"
+            )
+        if not valid_indices:
+            raise RuntimeError("rolling has no valid target day after incremental filtering")
+        if rolling_enabled:
+            print(
+                f"[rolling] execution refit_every_n_days={refit_every_n_days} "
+                f"prep_workers={prep_workers} prefetch_windows={prefetch_windows} "
+                f"train_processes={train_processes} "
+                f"parallel_shards={parallel_shards} parallel_shard_index={parallel_shard_index}"
+            )
+        if parallel_shards > 1:
+            all_count = len(valid_indices)
+            valid_indices = [
+                idx
+                for seq, idx in enumerate(valid_indices)
+                if (seq % parallel_shards) == parallel_shard_index
+            ]
+            print(
+                f"[rolling] shard assignment {parallel_shard_index + 1}/{parallel_shards}: "
+                f"{len(valid_indices)}/{all_count} target day(s)"
+            )
+        if not valid_indices:
+            print("[rolling] no target day assigned for this shard, skip training")
+            (out_dir / "config.json").write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+            (out_dir / "features.json").write_text(json.dumps(factor_cols, ensure_ascii=False, indent=2), encoding="utf-8")
+            print(f"saved rolling: {out_dir}")
+            print(f"saved scores: {score_output}")
+            wandb_logger.finish({"status": "no_target_for_shard"})
+            return
+        train_cache_days = sorted(
+            {
+                d
+                for idx in valid_indices
+                for d in days[idx - window_days + 1: idx]
+            }
+        )
+        test_cache_days = sorted({days[idx] for idx in valid_indices})
+        print(
+            f"[rolling] prebuild caches: train_days={len(train_cache_days)} "
+            f"test_days={len(test_cache_days)}"
+        )
+        train_day_cache = _build_daily_split_cache(
+            days=train_cache_days,
+            factor_store=store,
+            label_root=label_root,
+            factor_cols=factor_cols,
+            min_count=min_count,
+            winsor_lower=winsor_lower,
+            winsor_upper=winsor_upper,
+            zscore=zscore,
+            factor_time=factor_time,
+            label_time=label_time,
+            require_label=True,
+        )
+        test_day_cache = _build_daily_split_cache(
+            days=test_cache_days,
+            factor_store=store,
+            label_root=label_root,
+            factor_cols=factor_cols,
+            min_count=min_count,
+            winsor_lower=winsor_lower,
+            winsor_upper=winsor_upper,
+            zscore=zscore,
+            factor_time=factor_time,
+            label_time=label_time,
+            require_label=False,
+        )
+        print(
+            f"[rolling] cache_ready train_cached={len(train_day_cache)} "
+            f"test_cached={len(test_day_cache)}"
+        )
+        total_rolls = len(valid_indices)
+        active_model = None
+        last_refit_pos: int | None = None
+        last_refit_day: date | None = None
+        with ThreadPoolExecutor(max_workers=prep_workers, thread_name_prefix="roll_prep") as prep_pool:
+            inflight: deque[tuple[int, int, object]] = deque()
+            next_pos = 0
+
+            def _enqueue() -> bool:
+                nonlocal next_pos
+                if next_pos >= total_rolls:
+                    return False
+                roll_pos = next_pos + 1
+                idx = valid_indices[next_pos]
+                fut = prep_pool.submit(
+                    _prepare_rolling_payload,
+                    idx=idx,
+                    days=days,
+                    window_days=window_days,
+                    train_ratio=train_ratio,
+                    factor_cols=factor_cols,
+                    train_day_cache=train_day_cache,
+                    test_day_cache=test_day_cache,
+                )
+                inflight.append((roll_pos, idx, fut))
+                next_pos += 1
+                return True
+
+            for _ in range(min(prefetch_windows, total_rolls)):
+                if not _enqueue():
+                    break
+
+            while inflight:
+                roll_idx, idx, fut = inflight.popleft()
+                _enqueue()
+                payload = fut.result()
+                if payload is None:
+                    continue
+                test_day = payload["test_day"]
+                train_days = payload["train_days"]
+                val_days = payload["val_days"]
+                train_data = payload["train_data"]
+                val_data = payload["val_data"]
+                test_data = payload["test_data"]
+                should_refit = (
+                    active_model is None
+                    or refit_every_n_days <= 1
+                    or last_refit_pos is None
+                    or (roll_idx - last_refit_pos) >= refit_every_n_days
+                )
+                print(
+                    f"[rolling] {roll_idx}/{total_rolls} test_day={test_day} "
+                    f"refit={'Y' if should_refit else 'N'} cadence={refit_every_n_days}"
+                )
+                refit_status = "reuse"
+                if should_refit:
+                    if train_data.x.empty:
+                        if active_model is None:
+                            print(f"[rolling] skip {test_day}: empty train split and no reusable model")
+                            continue
+                        refit_status = "reuse_empty_train"
+                    else:
+                        init_model = None
+                        if incremental_enabled and incremental_warm_start:
+                            prev_ckpt = _find_previous_checkpoint(state_dir, test_day)
+                            if prev_ckpt is not None:
+                                init_model = str(prev_ckpt)
+                                print(f"[rolling] warm-start from checkpoint: {prev_ckpt.name}")
+                        try:
+                            model, params = train_lgbm(
+                                train=train_data,
+                                val=val_data,
+                                lgbm_params=lgbm_params,
+                                early_stopping_rounds=int(early_rounds) if early_rounds else None,
+                                loss_mode=loss_mode,
+                                init_model=init_model,
+                            )
+                        except Exception as exc:
+                            if init_model is None:
+                                raise
+                            print(f"[rolling] warm-start failed, fallback cold-start: {type(exc).__name__}: {exc}")
+                            model, params = train_lgbm(
+                                train=train_data,
+                                val=val_data,
+                                lgbm_params=lgbm_params,
+                                early_stopping_rounds=int(early_rounds) if early_rounds else None,
+                                loss_mode=loss_mode,
+                                init_model=None,
+                            )
+                        hist = params.get("history", []) if isinstance(params, dict) else []
+                        if hist:
+                            wandb_logger.log_history(
+                                hist,
+                                step_key="iteration",
+                                prefix="iter",
+                            )
+                        active_model = model
+                        last_refit_pos = roll_idx
+                        last_refit_day = test_day
+                        refit_status = "refit"
+                        if incremental_enabled and incremental_save_state:
+                            ckpt_path = _checkpoint_path(state_dir, test_day)
+                            try:
+                                model.booster_.save_model(str(ckpt_path))
+                            except Exception as exc:
+                                print(f"[rolling] failed to save checkpoint {ckpt_path}: {exc}")
+                if active_model is None:
+                    print(f"[rolling] skip {test_day}: no trained model available")
+                    continue
+                test_pred = active_model.predict(test_data.x)
+                model_source_day = test_day if refit_status == "refit" else (last_refit_day or test_day)
+                if not (desired_start <= test_day <= desired_end):
+                    continue
+                score_df = pd.DataFrame(
+                    {"trade_date": test_day, "code": test_data.code, "score": test_pred}
+                )
+                score_rows.append(score_df)
+                if np.isfinite(test_data.y).any():
+                    test_metrics = evaluate_metrics(
+                        test_data.x, test_data.y, test_data.dt, test_pred, bins=bins
+                    )
+                else:
+                    test_metrics = {
+                        "mse": float("nan"),
+                        "r2": float("nan"),
+                        "dir": float("nan"),
+                        "ic_mean": float("nan"),
+                        "ic_ir": float("nan"),
+                        "rank_ic_mean": float("nan"),
+                        "rank_ic_ir": float("nan"),
+                        "bins": [],
+                    }
+                rolling_rows.append(
+                    {
+                        "trade_date": test_day,
+                        "train_days": len(train_days),
+                        "val_days": len(val_days),
+                        "count": int(len(test_data.y)),
+                        "refit": bool(refit_status == "refit"),
+                        "refit_status": refit_status,
+                        "model_source_day": model_source_day,
+                        "refit_every_n_days": refit_every_n_days,
+                        "rank_ic": test_metrics["rank_ic_mean"],
+                        "ic": test_metrics["ic_mean"],
+                        "dir": test_metrics["dir"],
+                        "mse": test_metrics["mse"],
+                        "r2": test_metrics["r2"],
+                    }
+                )
+                print(
+                    f"rolling {test_day} refit={refit_status} train_days={len(train_days)} "
+                    f"val_days={len(val_days)} count={len(test_data.y)} "
+                    f"rank_ic={test_metrics['rank_ic_mean']:.4f}"
+                )
+                wandb_logger.log(
+                    {
+                        "trade_date": test_day,
+                        "train_days": len(train_days),
+                        "val_days": len(val_days),
+                        "count": int(len(test_data.y)),
+                        "refit": bool(refit_status == "refit"),
+                        "rank_ic": test_metrics.get("rank_ic_mean"),
+                        "ic": test_metrics.get("ic_mean"),
+                        "dir": test_metrics.get("dir"),
+                        "mse": test_metrics.get("mse"),
+                        "r2": test_metrics.get("r2"),
+                    },
+                    step=int(roll_idx),
+                    prefix="rolling",
+                )
+
+        if score_rows:
+            all_scores = pd.concat(score_rows, ignore_index=True)
+            write_scores_by_date(
+                score_output,
+                all_scores,
+                overwrite=score_overwrite,
+                dedupe=score_dedupe,
+            )
+        else:
+            raise RuntimeError("rolling produced no scores; check window_days and data range")
+        if rolling_rows:
+            pd.DataFrame(rolling_rows).to_csv(out_dir / "rolling_metrics.csv", index=False)
+        (out_dir / "config.json").write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+        (out_dir / "features.json").write_text(json.dumps(factor_cols, ensure_ascii=False, indent=2), encoding="utf-8")
+        print(f"saved rolling: {out_dir}")
+        print(f"saved scores: {score_output}")
+        if rolling_rows:
+            rr = pd.DataFrame(rolling_rows)
+            wandb_logger.finish(
+                {
+                    "status": "ok",
+                    "rolling_days": int(len(rr)),
+                    "rolling_rank_ic_mean": float(pd.to_numeric(rr["rank_ic"], errors="coerce").mean()),
+                    "rolling_ic_mean": float(pd.to_numeric(rr["ic"], errors="coerce").mean()),
+                    "rolling_dir_mean": float(pd.to_numeric(rr["dir"], errors="coerce").mean()),
+                }
+            )
+        else:
+            wandb_logger.finish({"status": "ok_empty_rolling"})
+        return
+
+    train_data = build_dataset(
+        factor_store=store,
+        label_root=label_root,
+        days=train_days,
+        factor_cols=factor_cols,
+        min_count=min_count,
+        winsor_lower=winsor_lower,
+        winsor_upper=winsor_upper,
+        zscore=zscore,
+        factor_time=factor_time,
+        label_time=label_time,
+    )
+    val_data = build_dataset(
+        factor_store=store,
+        label_root=label_root,
+        days=val_days,
+        factor_cols=factor_cols,
+        min_count=min_count,
+        winsor_lower=winsor_lower,
+        winsor_upper=winsor_upper,
+        zscore=zscore,
+        factor_time=factor_time,
+        label_time=label_time,
+    )
+    test_data = build_dataset(
+        factor_store=store,
+        label_root=label_root,
+        days=test_days,
+        factor_cols=factor_cols,
+        min_count=min_count,
+        winsor_lower=winsor_lower,
+        winsor_upper=winsor_upper,
+        zscore=zscore,
+        factor_time=factor_time,
+        label_time=label_time,
+    )
+
+    model = None
+    params = {}
+    history = []
+
+    grid_enabled = bool(grid_cfg.get("enable", False))
+    if grid_enabled:
+        alpha_list = grid_cfg.get("reg_alpha", [])
+        lambda_list = grid_cfg.get("reg_lambda", [])
+        leaves_list = grid_cfg.get("num_leaves", [])
+        depth_list = grid_cfg.get("max_depth", [])
+        if not alpha_list:
+            alpha_list = [lgbm_params.get("reg_alpha", 0.0)]
+        if not lambda_list:
+            lambda_list = [lgbm_params.get("reg_lambda", 0.0)]
+        if not leaves_list:
+            leaves_list = [lgbm_params.get("num_leaves", 31)]
+        if not depth_list:
+            depth_list = [lgbm_params.get("max_depth", -1)]
+        grid_rows = []
+        best_score = float("-inf")
+        best_params = None
+        best_model = None
+        best_history = None
+        best_iter = None
+        for alpha in alpha_list:
+            for lam in lambda_list:
+                for leaves in leaves_list:
+                    for depth in depth_list:
+                        trial_params = dict(lgbm_params)
+                        trial_params["reg_alpha"] = float(alpha)
+                        trial_params["reg_lambda"] = float(lam)
+                        trial_params["num_leaves"] = int(leaves)
+                        trial_params["max_depth"] = int(depth)
+                        trial_model, trial_meta = train_lgbm(
+                            train=train_data,
+                            val=val_data,
+                            lgbm_params=trial_params,
+                            early_stopping_rounds=int(early_rounds) if early_rounds else None,
+                            loss_mode=loss_mode,
+                        )
+                        trial_hist = trial_meta.get("history", [])
+                        trial_best = _best_val_metric(trial_hist, metric_name)
+                        trial_best_iter = _best_iter_from_hist(trial_hist, metric_name)
+                        grid_rows.append(
+                            {
+                                "reg_alpha": float(alpha),
+                                "reg_lambda": float(lam),
+                                "num_leaves": int(leaves),
+                                "max_depth": int(depth),
+                                f"best_val_{metric_name}": trial_best,
+                                "best_iteration": trial_best_iter,
+                            }
+                        )
+                        wandb_logger.log(
+                            grid_rows[-1],
+                            step=int(len(grid_rows)),
+                            prefix="grid",
+                        )
+                        if not np.isnan(trial_best) and trial_best > best_score:
+                            best_score = trial_best
+                            best_params = trial_params
+                            best_model = trial_model
+                            best_history = trial_hist
+                            best_iter = trial_best_iter
+        pd.DataFrame(grid_rows).to_csv(out_dir / "grid_search.csv", index=False)
+        if best_params is None:
+            raise RuntimeError("grid search failed to produce valid params")
+        (out_dir / "best_params.json").write_text(
+            json.dumps(
+                {
+                    f"best_val_{metric_name}": best_score,
+                    "best_iteration": best_iter,
+                    "params": best_params,
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        model = best_model
+        params = best_params | {"history": best_history or []}
+        history = best_history or []
+    else:
+        model, params = train_lgbm(
+            train=train_data,
+            val=val_data,
+            lgbm_params=lgbm_params,
+            early_stopping_rounds=int(early_rounds) if early_rounds else None,
+            loss_mode=loss_mode,
+        )
+        history = params.get("history", [])
+
+    train_pred = model.predict(train_data.x)
+    val_pred = model.predict(val_data.x)
+    test_pred = model.predict(test_data.x)
+
+    train_metrics = evaluate_metrics(train_data.x, train_data.y, train_data.dt, train_pred, bins=bins)
+    val_metrics = evaluate_metrics(val_data.x, val_data.y, val_data.dt, val_pred, bins=bins)
+    test_metrics = evaluate_metrics(test_data.x, test_data.y, test_data.dt, test_pred, bins=bins)
+
+    print(
+        f"train mse={train_metrics['mse']:.6f} r2={train_metrics['r2']:.4f} dir={train_metrics['dir']:.4f} "
+        f"ic={train_metrics['ic_mean']:.4f} ir={train_metrics['ic_ir']:.4f} "
+        f"rank_ic={train_metrics['rank_ic_mean']:.4f} rank_ir={train_metrics['rank_ic_ir']:.4f}"
+    )
+    print(
+        f"val mse={val_metrics['mse']:.6f} r2={val_metrics['r2']:.4f} dir={val_metrics['dir']:.4f} "
+        f"ic={val_metrics['ic_mean']:.4f} ir={val_metrics['ic_ir']:.4f} "
+        f"rank_ic={val_metrics['rank_ic_mean']:.4f} rank_ir={val_metrics['rank_ic_ir']:.4f}"
+    )
+    print(
+        f"test mse={test_metrics['mse']:.6f} r2={test_metrics['r2']:.4f} dir={test_metrics['dir']:.4f} "
+        f"ic={test_metrics['ic_mean']:.4f} ir={test_metrics['ic_ir']:.4f} "
+        f"rank_ic={test_metrics['rank_ic_mean']:.4f} rank_ir={test_metrics['rank_ic_ir']:.4f}"
+    )
+
+    print(f"train bins: {_format_bins(train_metrics['bin_dir'])}")
+    print(f"val bins: {_format_bins(val_metrics['bin_dir'])}")
+    print(f"test bins: {_format_bins(test_metrics['bin_dir'])}")
+
+    # save model (best iteration if available)
+    best_iter = getattr(model, "best_iteration_", None)
+    if best_iter and isinstance(best_iter, int):
+        model.booster_.save_model(str(out_dir / "model.txt"), num_iteration=best_iter)
+    else:
+        model.booster_.save_model(str(out_dir / "model.txt"))
+    # save config and metrics
+    (out_dir / "config.json").write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+    (out_dir / "features.json").write_text(json.dumps(factor_cols, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    metrics_df = pd.DataFrame([
+        {"split": "train", **{k: v for k, v in train_metrics.items() if k != "bin_dir"}},
+        {"split": "val", **{k: v for k, v in val_metrics.items() if k != "bin_dir"}},
+        {"split": "test", **{k: v for k, v in test_metrics.items() if k != "bin_dir"}},
+    ])
+    metrics_df.to_csv(out_dir / "metrics.csv", index=False)
+
+    if history:
+        pd.DataFrame(history).to_csv(out_dir / "metrics_iter.csv", index=False)
+        wandb_logger.log_history(history, step_key="iteration", prefix="iter")
+
+    # save bin dir
+    def _bin_df(split, metrics):
+        return pd.DataFrame([
+            {"split": split, "bin": b, "dir_acc": acc, "count": n} for b, acc, n in metrics["bin_dir"]
+        ])
+    bin_df = pd.concat([
+        _bin_df("train", train_metrics),
+        _bin_df("val", val_metrics),
+        _bin_df("test", test_metrics),
+    ], ignore_index=True)
+    bin_df.to_csv(out_dir / "bin_dir.csv", index=False)
+    wandb_logger.log(
+        {
+            "train_mse": train_metrics.get("mse"),
+            "train_r2": train_metrics.get("r2"),
+            "train_dir": train_metrics.get("dir"),
+            "train_rank_ic": train_metrics.get("rank_ic_mean"),
+            "val_mse": val_metrics.get("mse"),
+            "val_r2": val_metrics.get("r2"),
+            "val_dir": val_metrics.get("dir"),
+            "val_rank_ic": val_metrics.get("rank_ic_mean"),
+            "test_mse": test_metrics.get("mse"),
+            "test_r2": test_metrics.get("r2"),
+            "test_dir": test_metrics.get("dir"),
+            "test_rank_ic": test_metrics.get("rank_ic_mean"),
+        },
+        prefix="final",
+    )
+    wandb_logger.finish(
+        {
+            "status": "ok",
+            "best_iteration": getattr(model, "best_iteration_", None),
+            "out_dir": str(out_dir),
+        }
+    )
+
+    print(f"saved: {out_dir}")
+
+
+if __name__ == "__main__":
+    main()
+
+

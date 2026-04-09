@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 
 from cbond_on.config.loader import load_config_file
-from cbond_on.app.usecases.evaluate_model import execute as evaluate_model
+from cbond_on.app.pipelines.model_eval_pipeline import execute as run_model_eval_pipeline
 
 
 def main(
@@ -15,8 +15,8 @@ def main(
     label_cutoff: str | None = None,
 ) -> None:
     cfg = load_config_file(config_name or "score/model_eval")
-    result = evaluate_model(
-        cfg=cfg,
+    result = run_model_eval_pipeline(
+        cfg,
         model_id=model_id,
         start=start,
         end=end,

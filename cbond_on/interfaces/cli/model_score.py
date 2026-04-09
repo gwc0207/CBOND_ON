@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 from cbond_on.config.loader import load_config_file
-from cbond_on.app.usecases.train_score import execute as train_score
+from cbond_on.app.pipelines.train_score_pipeline import execute as run_train_score_pipeline
 
 
 def main(
@@ -71,18 +71,18 @@ def main(
         print({"model_id": model_id or cfg.get("model_id"), "parallel_shards": effective_shards, "status": "ok"})
         return
 
-    result = train_score(
+    result = run_train_score_pipeline(
+        cfg,
         model_id=model_id or cfg.get("model_id") or cfg.get("default_model_id"),
         start=start or cfg.get("start"),
         end=end or cfg.get("end"),
         label_cutoff=label_cutoff or cfg.get("label_cutoff"),
-        cfg=cfg,
     )
     print(result)
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Build model scores from services layer")
+    parser = argparse.ArgumentParser(description="Build model scores from application layer")
     parser.add_argument("--model-id")
     parser.add_argument("--start")
     parser.add_argument("--end")

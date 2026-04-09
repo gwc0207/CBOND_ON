@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import argparse
 
-from cbond_on.app.usecases.run_live_once import execute as run_live_once
+from cbond_on.app.pipelines.live_pipeline import execute as run_live_pipeline
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -12,7 +12,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--mode", default="default", help="run mode")
     args = parser.parse_args(argv)
 
-    out_dir = run_live_once(start=args.start, target=args.target, mode=args.mode)
+    out_dir = run_live_pipeline(start=args.start, target=args.target, mode=args.mode)
     print(f"saved: {out_dir}")
 
 

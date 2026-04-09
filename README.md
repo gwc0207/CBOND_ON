@@ -3,21 +3,20 @@
 Private repo for overnight strategy management.
 
 ## Structure
-- cbond_on/config: config files (paths, sync, model, backtest, live, dataset)
+- cbond_on/config: config files (data, factor, score, live, models, backtest_pipeline)
 - cbond_on/core: shared utilities
-- cbond_on/data: data IO and processing
-- cbond_on/factors: factor definitions
-- cbond_on/models: model wrappers
-- cbond_on/backtest: backtest logic
-- cbond_on/run: entry scripts
-- cbond_on/report: report outputs
+- cbond_on/domain: pure domain logic (factors / labels / models / strategies / signals / portfolio / panel)
+- cbond_on/app: application usecases, ports and pipelines orchestration
+- cbond_on/infra: infrastructure adapters (data IO, rust engine, model runners, backtest, report, live)
+- cbond_on/interfaces: CLI entry adapters
+- cbond_on/run: compatibility entry scripts (delegate to interfaces/app)
 
 ## Configs
-- cbond_on/config/paths_config.json5
-- cbond_on/config/models/model_config.json5
-- cbond_on/config/backtest_config.json5
-- cbond_on/config/live_config.json5
-- cbond_on/config/dataset_config.json5
+- cbond_on/config/data/paths_config.json5
+- cbond_on/config/score/model_score_config.json5
+- cbond_on/config/live/live_config.json5
+- cbond_on/config/backtest_pipeline/backtest_config.json5
+- cbond_on/config/models/*
 
 ## Quick Start (Commands)
 Activate the environment first:
@@ -25,24 +24,37 @@ Activate the environment first:
 source .venv/bin/activate
 ```
 
-Build LOB dataset:
+Build panel + labels:
 ```bash
-python3 cbond_on/run/build_lob_dataset.py
+python3 cbond_on/run/build_panels.py
+python3 cbond_on/run/build_labels.py
 ```
 
-Train model:
+Build factors / factor batch:
 ```bash
-python3 cbond_on/run/train_lob_model.py
+python3 cbond_on/run/build_factors.py
+python3 cbond_on/run/factor_batch.py
 ```
 
-Generate scores:
+Model score / model eval:
 ```bash
-python3 cbond_on/run/score_lob_model.py
+python3 cbond_on/run/model_score.py
+python3 cbond_on/run/model_eval.py
 ```
 
 Run backtest:
 ```bash
 python3 cbond_on/run/backtest.py
+```
+
+Run live:
+```bash
+python3 cbond_on/run/live.py
+```
+
+Run full pipeline:
+```bash
+python3 cbond_on/run/pipeline_all.py
 ```
 
 Optional: refresh scores during backtest by setting `refresh_scores: true` in:

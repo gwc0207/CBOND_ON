@@ -12,7 +12,7 @@ from cbond_on.interfaces.cli.model_score import main
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Build model scores from services layer")
+    parser = argparse.ArgumentParser(description="Build model scores from application layer")
     parser.add_argument("--model-id")
     parser.add_argument("--start")
     parser.add_argument("--end")

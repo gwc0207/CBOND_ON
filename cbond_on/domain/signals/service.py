@@ -1,12 +1,12 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date
 
 import pandas as pd
 
-from cbond_on.strategies import StrategyRegistry
-from cbond_on.strategies.base import StrategyContext
+from cbond_on.domain.strategies import StrategyRegistry
+from cbond_on.domain.strategies.base import StrategyContext
 
 
 @dataclass
@@ -35,4 +35,5 @@ def select_signals(req: SignalSelectionRequest) -> pd.DataFrame:
     if "code" not in picks.columns:
         raise KeyError("strategy output missing required column: code")
     return picks
+
 

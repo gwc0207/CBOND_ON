@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from cbond_on.services.model.model_score_service import run as run_model_score
+from cbond_on.app.usecases.model_score_runtime import run as run_model_score
 
 
 def execute(

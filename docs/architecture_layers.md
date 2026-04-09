@@ -1,54 +1,68 @@
-# CBOND_ON Layered Architecture (v2)
+# CBOND_ON Architecture Layers (Current)
 
-## 1. Layer Overview
+## Layer Structure
 
-- `interfaces`: CLI entrypoints only (argument parsing and invoking pipelines/usecases)
-- `app`: orchestration layer
-  - `commands`: input command objects
-  - `dto`: cross-layer return objects
-  - `ports`: abstract contracts for infra
-  - `usecases`: single business action
-  - `pipelines`: multi-stage orchestration
-- `domain`: pure business rules (no IO/FFI)
-  - includes `signals` and `portfolio` split
-- `infra`: concrete implementations (rust/model/io/report/cache)
-- `config`: config loader/schema facade
-- `common`: shared constants/errors
+- `interfaces`
+  - CLI/entry adapters only.
+  - Converts args to pipeline calls.
+- `app`
+  - `usecases`: single business actions.
+  - `pipelines`: multi-step orchestration.
+  - `commands` / `dto` / `ports`: cross-layer contracts.
+- `domain`
+  - pure business rules and semantics (`signals`, `portfolio`, factor definitions/spec).
+  - no infra / cli dependency.
+- `infra`
+  - concrete implementations (`rust`, `factors-pipeline`, `model`, `data`, `io`, `live`, `backtest`, `report`, `cache`).
+- `common`
+  - cross-cutting helpers.
 
-## 2. Dependency Rules
+## Dependency Rules
 
-1. `interfaces -> app -> domain`
-2. `app -> ports -> infra`
-3. `domain` must not import `infra`
-4. `interfaces` must not hold business logic
+1. `interfaces -> app`.
+2. `app -> domain` and `app -> infra`.
+3. `domain` must not import `app` / `infra` / `interfaces`.
+4. `run/*` must delegate to `interfaces/cli/*`.
+5. no code can import `cbond_on.services.*` (legacy layer removed).
+6. no code can import legacy packages:
+   - `cbond_on.data`
+   - `cbond_on.factors`
+   - `cbond_on.models`
+   - `cbond_on.backtest`
+   - `cbond_on.report`
+   - `cbond_on.model_eval`
+   - `cbond_on.strategies`
+   - `cbond_on.factor_batch`
+   - `cbond_on.live`
 
-## 3. Current Landing Scope
+## Migration Status
 
-Implemented in this change set:
+Completed:
 
-1. New package skeleton:
-   - `cbond_on/interfaces`
-   - `cbond_on/app`
-   - `cbond_on/domain`
-   - `cbond_on/infra`
-   - `cbond_on/common`
-2. Domain extraction:
-   - `domain/signals/service.py`
-   - `domain/portfolio/service.py`
-3. Service integration:
-   - `services/backtest/backtest_service.py` now uses domain `signals/portfolio`
-   - `services/live/live_service.py` now uses domain `signals`
-4. CLI migration:
-   - all `run/*.py` entrypoints now delegate to `interfaces/cli/*`
-5. App orchestration modules:
-   - usecases and pipelines are available under `cbond_on/app`
+- legacy package directories removed:
+  - `cbond_on/services`
+  - `cbond_on/data`
+  - `cbond_on/factors`
+  - `cbond_on/models`
+  - `cbond_on/backtest`
+  - `cbond_on/report`
+  - `cbond_on/model_eval`
+  - `cbond_on/strategies`
+  - `cbond_on/factor_batch`
+  - `cbond_on/live`
+- `run/*` entry scripts route through `interfaces/cli/*`.
+- `liveLaunch/*` routes through `app.pipelines.live_pipeline`.
+- factor definitions/spec moved to `domain/factors/*`.
+- factor execution pipeline moved to `infra/factors/*`.
+- data adapters moved to `infra/data/*`.
+- model core + eval moved to `infra/model/*` and `infra/model/eval/*`.
+- backtest adapters moved to `infra/backtest/*`.
+- reporting moved to `infra/report/*`.
 
-## 4. Compatibility
+## Guard Command
 
-- Existing commands remain unchanged, e.g.:
-  - `python cbond_on/run/factor_batch.py`
-  - `python cbond_on/run/model_score.py`
-  - `python cbond_on/run/model_eval.py`
-  - `python cbond_on/run/backtest.py`
-  - `python cbond_on/run/live.py`
+Use this to enforce boundaries after changes:
 
+```bash
+python cbond_on/run/architecture_guard.py
+```

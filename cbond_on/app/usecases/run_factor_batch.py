@@ -1,9 +1,9 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from datetime import date
 from pathlib import Path
 
-from cbond_on.factor_batch.runner import build_signal_specs, run_factor_batch
+from cbond_on.app.usecases.factor_batch_runtime import build_signal_specs, run_factor_batch
 
 
 def execute(
@@ -33,4 +33,5 @@ def execute(
         overwrite=overwrite,
         specs=build_signal_specs(cfg),
     )
+
 

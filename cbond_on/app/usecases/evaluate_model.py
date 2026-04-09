@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from cbond_on.services.model.model_eval_service import run as run_model_eval
+from cbond_on.app.usecases.model_eval_runtime import run as run_model_eval
 
 
 def execute(

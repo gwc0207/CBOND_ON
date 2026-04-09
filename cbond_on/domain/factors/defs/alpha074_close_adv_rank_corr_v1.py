@@ -1,0 +1,47 @@
+﻿from __future__ import annotations
+
+import pandas as pd
+
+from cbond_on.core.registry import FactorRegistry
+from cbond_on.domain.factors.base import FactorComputeContext
+from cbond_on.domain.factors.defs._intraday_utils import EPS, _AlphaBase, _group_scalar, _prepare_panel
+
+
+@FactorRegistry.register("alpha074_close_adv_rank_corr_v1")
+class Alpha074CloseAdvRankCorrV1Factor(_AlphaBase):
+    name = "alpha074_close_adv_rank_corr_v1"
+
+    def _compute_series(self, ctx: FactorComputeContext) -> pd.Series:
+        adv_window = int(ctx.params.get("adv_window", 20))
+        sum_window = int(ctx.params.get("sum_window", 37))
+        corr_window_1 = int(ctx.params.get("corr_window_1", 15))
+        weight = float(ctx.params.get("weight", 0.026))
+        corr_window_2 = int(ctx.params.get("corr_window_2", 11))
+        frame = _prepare_panel(ctx, ["amount", "volume", "last", "high"])
+
+        def _calc(g: pd.DataFrame) -> float:
+            amount = g["amount"].astype("float64")
+            volume = g["volume"].astype("float64")
+            last_px = g["last"].astype("float64")
+            high = g["high"].astype("float64")
+
+            adv = amount.rolling(max(1, adv_window), min_periods=1).mean()
+            sum_adv = adv.rolling(max(1, sum_window), min_periods=1).sum()
+            corr1 = last_px.rolling(max(2, corr_window_1), min_periods=2).corr(sum_adv)
+            rank_corr1 = corr1.rank(pct=True, method="average")
+
+            vwap = amount / (volume + EPS)
+            weighted = high * weight + vwap * (1.0 - weight)
+            rank_weighted = weighted.rank(pct=True, method="average")
+            rank_vol = volume.rank(pct=True, method="average")
+            corr2 = rank_weighted.rolling(max(2, corr_window_2), min_periods=2).corr(rank_vol)
+            rank_corr2 = corr2.rank(pct=True, method="average")
+
+            r1 = rank_corr1.iloc[-1] if len(rank_corr1) else float("nan")
+            r2 = rank_corr2.iloc[-1] if len(rank_corr2) else float("nan")
+            if pd.isna(r1) or pd.isna(r2):
+                return 0.0
+            return -1.0 if r1 < r2 else 0.0
+
+        return _group_scalar(frame, _calc)
+

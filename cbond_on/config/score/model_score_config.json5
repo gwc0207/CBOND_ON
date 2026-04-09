@@ -13,7 +13,7 @@
     prep_workers: 8,
     // How many rolling windows are prepared ahead of training.
     prefetch_windows: 4,
-    // Threading controls applied in model_score_service (all model types).
+    // Threading controls applied in model_score runtime (all model types).
     threading: {
       omp_num_threads: 8,
       mkl_num_threads: 8,

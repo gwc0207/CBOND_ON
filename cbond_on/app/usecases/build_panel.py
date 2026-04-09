@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from cbond_on.services.data.panel_service import run as run_panel
+from cbond_on.app.usecases.panel_runtime import run as run_panel
 
 
 def execute(
