@@ -427,7 +427,7 @@ def _build_perf_summary(*, raw_data_root: str | Path, day: str | None, lookback:
     data_cfg = dict(live_cfg.get("data", {}))
     output_cfg = dict(live_cfg.get("output", {}))
     buy_col = str(output_cfg.get("buy_twap_col", "twap_1442_1457"))
-    sell_col = str(output_cfg.get("sell_twap_col", "twap_0930_1000"))
+    sell_col = str(output_cfg.get("sell_twap_col", "twap_0930_0945"))
     cost_bps = float(output_cfg.get("twap_bps", 1.5)) + float(output_cfg.get("fee_bps", 0.7))
     min_amount = float(data_cfg.get("min_amount", 0))
     min_volume = float(data_cfg.get("min_volume", 0))

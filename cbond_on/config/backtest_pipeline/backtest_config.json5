@@ -8,7 +8,7 @@
   strategy_id: "strategy01_topk_turnover",
   strategy_config_path: "strategies/strategy01/strategy01",
   buy_twap_col: "twap_1442_1457",
-  sell_twap_col: "twap_0930_1000",
+  sell_twap_col: "twap_0930_0945",
   twap_bps: 1.5,
   fee_bps: 0.7,
   filter_tradable: true,

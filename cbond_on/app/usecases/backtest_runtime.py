@@ -43,7 +43,7 @@ def run(
     score_cache = load_scores_by_date(score_path)
 
     buy_col = str(bt_cfg.get("buy_twap_col", "twap_1442_1457"))
-    sell_col = str(bt_cfg.get("sell_twap_col", "twap_0930_1000"))
+    sell_col = str(bt_cfg.get("sell_twap_col", "twap_0930_0945"))
     twap_bps = float(bt_cfg.get("twap_bps", 1.5))
     fee_bps = float(bt_cfg.get("fee_bps", 0.7))
     cost_bps = twap_bps + fee_bps

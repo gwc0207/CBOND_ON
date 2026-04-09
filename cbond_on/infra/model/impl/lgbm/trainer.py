@@ -1,6 +1,7 @@
 ﻿
 from __future__ import annotations
 
+from bisect import bisect_right
 from dataclasses import dataclass
 from datetime import date, datetime, time as dt_time
 from pathlib import Path
@@ -16,7 +17,10 @@ except Exception as exc:  # pragma: no cover
     lgb = None
     _LIGHTGBM_IMPORT_ERROR = exc
 
+from cbond_on.core.trading_days import list_available_trading_days_from_raw
+from cbond_on.core.universe import filter_tradable
 from cbond_on.domain.factors.storage import FactorStore
+from cbond_on.infra.data.io import read_table_range
 
 
 _GPU_HINTS = (
@@ -109,6 +113,85 @@ def _read_label_day(label_root: Path, day: date, *, factor_time: str, label_time
     return df
 
 
+def _read_daily_twap_day(
+    raw_data_root: str | Path,
+    twap_table: str,
+    day: date,
+) -> pd.DataFrame:
+    df = read_table_range(raw_data_root, twap_table, day, day)
+    if df.empty:
+        return df
+    if "code" not in df.columns:
+        if "instrument_code" in df.columns and "exchange_code" in df.columns:
+            df = df.copy()
+            df["code"] = (
+                df["instrument_code"].astype(str) + "." + df["exchange_code"].astype(str)
+            )
+        else:
+            return pd.DataFrame()
+    return df
+
+
+def build_tradable_code_map(
+    *,
+    raw_data_root: str | Path,
+    days: Sequence[date],
+    buy_twap_col: str,
+    sell_twap_col: str,
+    min_amount: float = 0.0,
+    min_volume: float = 0.0,
+    twap_table: str = "market_cbond.daily_twap",
+    asset: str = "cbond",
+) -> dict[date, set[str]]:
+    unique_days = sorted(set(days))
+    if not unique_days:
+        return {}
+    open_days = list_available_trading_days_from_raw(
+        raw_data_root,
+        kind="snapshot",
+        asset=asset,
+    )
+    if not open_days:
+        return {}
+
+    out: dict[date, set[str]] = {}
+    for day in unique_days:
+        pos = bisect_right(open_days, day)
+        if pos >= len(open_days):
+            continue
+        next_day = open_days[pos]
+        buy_df = _read_daily_twap_day(raw_data_root, twap_table, day)
+        sell_df = _read_daily_twap_day(raw_data_root, twap_table, next_day)
+        if buy_df.empty or sell_df.empty:
+            continue
+        if buy_twap_col not in buy_df.columns or sell_twap_col not in sell_df.columns:
+            continue
+
+        left_cols = ["code", buy_twap_col]
+        if "amount" in buy_df.columns:
+            left_cols.append("amount")
+        if "volume" in buy_df.columns:
+            left_cols.append("volume")
+        merged = buy_df[left_cols].merge(
+            sell_df[["code", sell_twap_col]].rename(columns={sell_twap_col: "__sell_twap"}),
+            on="code",
+            how="inner",
+        )
+        if merged.empty:
+            continue
+        filtered = filter_tradable(
+            merged,
+            buy_twap_col=buy_twap_col,
+            sell_twap_col="__sell_twap",
+            min_amount=float(min_amount),
+            min_volume=float(min_volume),
+        )
+        if filtered.empty:
+            continue
+        out[day] = set(filtered["code"].astype(str).tolist())
+    return out
+
+
 def _split_days(days: list[date], train_ratio: float, val_ratio: float) -> tuple[list[date], list[date], list[date]]:
     n_days = len(days)
     n_train = max(1, int(n_days * train_ratio))
@@ -172,6 +255,8 @@ def build_dataset(
     factor_time: str,
     label_time: str,
     require_label: bool = True,
+    tradable_code_map: dict[date, set[str]] | None = None,
+    tradable_strict: bool = False,
 ) -> SplitData:
     frames: list[pd.DataFrame] = []
     for day in days:
@@ -199,6 +284,15 @@ def build_dataset(
             merged = fdf.merge(label_df, on=["dt", "code"], how="inner")
         if merged.empty:
             continue
+        if require_label and tradable_code_map is not None:
+            allowed_codes = tradable_code_map.get(day)
+            if not allowed_codes:
+                if tradable_strict:
+                    continue
+            else:
+                merged = merged[merged["code"].astype(str).isin(allowed_codes)]
+                if merged.empty:
+                    continue
         if require_label:
             merged = merged.dropna(subset=factor_cols + ["y"])
         else:

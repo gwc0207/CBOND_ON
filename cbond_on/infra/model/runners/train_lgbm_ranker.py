@@ -30,6 +30,7 @@ from cbond_on.infra.model.impl.lgbm_ranker.trainer import (
     evaluate_metrics,
     train_lgbm_ranker,
 )
+from cbond_on.infra.model.impl.lgbm.trainer import build_tradable_code_map
 
 
 def _load_model_config(path: Path | None) -> dict:
@@ -166,6 +167,8 @@ def _build_daily_split_cache(
     factor_time: str,
     label_time: str,
     require_label: bool,
+    tradable_code_map: dict[date, set[str]] | None,
+    tradable_strict: bool,
 ) -> dict[date, SplitData]:
     cache: dict[date, SplitData] = {}
     total = len(days)
@@ -182,6 +185,8 @@ def _build_daily_split_cache(
             factor_time=factor_time,
             label_time=label_time,
             require_label=require_label,
+            tradable_code_map=tradable_code_map,
+            tradable_strict=tradable_strict,
         )
         if not split.x.empty:
             cache[day] = split
@@ -333,6 +338,7 @@ def main(
     factor_time = str(cfg.get("factor_time", "14:30"))
     label_time = str(cfg.get("label_time", "14:42"))
     raw_root = paths_cfg["raw_data_root"]
+    backtest_cfg = load_config_file("backtest")
 
     rolling_cfg = cfg.get("rolling", {})
     rolling_enabled = bool(rolling_cfg.get("enabled", False))
@@ -378,6 +384,48 @@ def main(
         extra_days = [d for d in trade_days if d > last_label_day and _factor_exists(d)]
         if extra_days:
             days = sorted(set(days + extra_days))
+
+    tradable_cfg: dict = {
+        "enabled": True,
+        "strict": True,
+        "twap_table": "market_cbond.daily_twap",
+        "asset": "cbond",
+        "buy_twap_col": backtest_cfg.get("buy_twap_col", "twap_1442_1457"),
+        "sell_twap_col": backtest_cfg.get("sell_twap_col", "twap_0930_0945"),
+        "min_amount": float(backtest_cfg.get("min_amount", 0.0)),
+        "min_volume": float(backtest_cfg.get("min_volume", 0.0)),
+    }
+    model_tradable_cfg = cfg.get("tradable_filter")
+    if isinstance(model_tradable_cfg, dict):
+        tradable_cfg.update(model_tradable_cfg)
+    exec_tradable_cfg = execution_cfg.get("tradable_filter")
+    if isinstance(exec_tradable_cfg, dict):
+        tradable_cfg.update(exec_tradable_cfg)
+    tradable_enabled = bool(tradable_cfg.get("enabled", True))
+    tradable_strict = bool(tradable_cfg.get("strict", True))
+    tradable_code_map: dict[date, set[str]] | None = None
+    if tradable_enabled:
+        tradable_code_map = build_tradable_code_map(
+            raw_data_root=raw_root,
+            days=days,
+            buy_twap_col=str(tradable_cfg.get("buy_twap_col", "twap_1442_1457")),
+            sell_twap_col=str(tradable_cfg.get("sell_twap_col", "twap_0930_0945")),
+            min_amount=float(tradable_cfg.get("min_amount", 0.0)),
+            min_volume=float(tradable_cfg.get("min_volume", 0.0)),
+            twap_table=str(tradable_cfg.get("twap_table", "market_cbond.daily_twap")),
+            asset=str(tradable_cfg.get("asset", "cbond")),
+        )
+        print(
+            "[tradable] enabled",
+            f"buy={tradable_cfg.get('buy_twap_col')}",
+            f"sell={tradable_cfg.get('sell_twap_col')}",
+            f"min_amount={float(tradable_cfg.get('min_amount', 0.0))}",
+            f"min_volume={float(tradable_cfg.get('min_volume', 0.0))}",
+            f"strict={tradable_strict}",
+            f"mapped_days={len(tradable_code_map)}",
+        )
+    else:
+        print("[tradable] disabled")
 
     train_cfg = cfg.get("train", {})
     train_ratio = float(train_cfg.get("train_ratio", 0.7))
@@ -561,6 +609,8 @@ def main(
             factor_time=factor_time,
             label_time=label_time,
             require_label=True,
+            tradable_code_map=tradable_code_map,
+            tradable_strict=tradable_strict,
         )
         test_day_cache = _build_daily_split_cache(
             days=test_cache_days,
@@ -574,6 +624,8 @@ def main(
             factor_time=factor_time,
             label_time=label_time,
             require_label=False,
+            tradable_code_map=tradable_code_map,
+            tradable_strict=tradable_strict,
         )
         print(
             f"[rolling] cache_ready train_cached={len(train_day_cache)} "
@@ -808,6 +860,8 @@ def main(
         zscore=zscore,
         factor_time=factor_time,
         label_time=label_time,
+        tradable_code_map=tradable_code_map,
+        tradable_strict=tradable_strict,
     )
     val_data = build_dataset(
         factor_store=store,
@@ -820,6 +874,8 @@ def main(
         zscore=zscore,
         factor_time=factor_time,
         label_time=label_time,
+        tradable_code_map=tradable_code_map,
+        tradable_strict=tradable_strict,
     )
     test_data = build_dataset(
         factor_store=store,
@@ -832,6 +888,8 @@ def main(
         zscore=zscore,
         factor_time=factor_time,
         label_time=label_time,
+        tradable_code_map=tradable_code_map,
+        tradable_strict=tradable_strict,
     )
 
     train_ranker = build_ranker_split_data(train_data, relevance_bins=relevance_bins)

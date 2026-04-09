@@ -170,7 +170,7 @@ def run_once(
         if universe.empty:
             raise ValueError("no score matched to clean data")
         buy_col = str(output_cfg.get("buy_twap_col", data_cfg.get("buy_twap_col", "twap_1442_1457")))
-        sell_col = str(output_cfg.get("sell_twap_col", data_cfg.get("sell_twap_col", "twap_0930_1000")))
+        sell_col = str(output_cfg.get("sell_twap_col", data_cfg.get("sell_twap_col", "twap_0930_0945")))
         if buy_col in universe.columns and sell_col in universe.columns:
             universe = filter_tradable(
                 universe,

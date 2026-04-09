@@ -1161,8 +1161,10 @@ def _build_day_labels_twap(
     sell_bps = float(label_cfg.get("sell_bps", 0.0)) + float(label_cfg.get("fee_bps", 0.0))
 
     cost_source = str(label_cfg.get("cost_source", "daily_twap")).strip().lower()
-    if cost_source not in {"daily_twap", "datahub_twap", "daily"}:
-        return pd.DataFrame()
+    if cost_source != "daily_twap":
+        raise ValueError(
+            "label cost_source must be 'daily_twap' (snapshot/self-computed TWAP is disabled)"
+        )
     twap_table = str(label_cfg.get("twap_table", "market_cbond.daily_twap"))
     close_col = str(
         label_cfg.get("close_twap_col")
