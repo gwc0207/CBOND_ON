@@ -16,6 +16,9 @@ env/
 
 # Local runtime artifacts
 .runtime_logs/
+runtime/
+notebook/runtime/
+wandb/
 *.log
 
 # Local secrets / machine-specific configs
@@ -42,3 +45,9 @@ rust/factor_engine/*.so
 rust/factor_engine/*.dll
 rust/factor_engine/*.dylib
 rust/factor_engine/*.pyd
+
+# Local python build/install artifacts
+*.egg-info/
+*.dist-info/
+build/
+dist/

@@ -57,6 +57,11 @@ Run full pipeline:
 python3 cbond_on/run/pipeline_all.py
 ```
 
+Repo hygiene check:
+```bash
+python3 cbond_on/run/repo_hygiene_guard.py
+```
+
 Optional: refresh scores during backtest by setting `refresh_scores: true` in:
 ```text
 cbond_on/config/backtest_config.json5

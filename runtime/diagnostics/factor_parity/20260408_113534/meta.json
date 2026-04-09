@@ -1,9 +1,0 @@
-{
-  "day":"2025-01-03",
-  "panel_name":"T1430",
-  "n_specs":25,
-  "n_common_cols":25,
-  "out_dir":"C:\\Users\\BaiYang\\CBOND_ON\\cbond_on\\runtime\\diagnostics\\factor_parity\\20260408_113534",
-  "global_max_abs":0.0008544922,
-  "ret_skew_max_abs":0.0
-}
