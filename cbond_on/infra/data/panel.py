@@ -23,7 +23,6 @@ DEFAULT_ASSET = "cbond"
 class _PanelDataFrameBackendState:
     requested: str
     active: str
-    fallback_pandas: bool
     reason: str
 
 
@@ -55,60 +54,12 @@ def _normalize_asset(asset: str | None) -> str:
 def _resolve_panel_dataframe_backend(cfg: dict[str, Any] | None = None) -> _PanelDataFrameBackendState:
     runtime = dict(cfg or {})
     requested = str(runtime.get("dataframe_backend", "pandas")).strip().lower()
-    if requested in {"", "none"}:
+    if requested in {"", "none", "gpu", "auto", "cudf"}:
         requested = "pandas"
-    if requested == "gpu":
-        requested = "pandas"
-    fallback_pandas = bool(runtime.get("fallback_pandas", True))
-
-    if requested == "pandas":
-        return _PanelDataFrameBackendState(
-            requested=requested,
-            active="pandas",
-            fallback_pandas=fallback_pandas,
-            reason="forced_pandas",
-        )
-
-    if requested not in {"auto", "cudf"}:
-        if not fallback_pandas:
-            raise ValueError(f"unsupported panel dataframe backend: {requested}")
-        return _PanelDataFrameBackendState(
-            requested=requested,
-            active="pandas",
-            fallback_pandas=fallback_pandas,
-            reason=f"unsupported_backend:{requested}",
-        )
-
-    try:
-        import cudf  # type: ignore
-    except Exception as exc:  # pragma: no cover
-        if not fallback_pandas:
-            raise RuntimeError(f"cudf import failed: {exc}") from exc
-        return _PanelDataFrameBackendState(
-            requested=requested,
-            active="pandas",
-            fallback_pandas=fallback_pandas,
-            reason=f"cudf_import_failed:{type(exc).__name__}",
-        )
-
-    try:
-        probe = cudf.DataFrame({"k": [0, 0], "v": [1.0, 2.0]})
-        _ = probe.groupby("k")["v"].sum()
-    except Exception as exc:  # pragma: no cover
-        if not fallback_pandas:
-            raise RuntimeError(f"cudf probe failed: {exc}") from exc
-        return _PanelDataFrameBackendState(
-            requested=requested,
-            active="pandas",
-            fallback_pandas=fallback_pandas,
-            reason=f"cudf_probe_failed:{type(exc).__name__}",
-        )
-
     return _PanelDataFrameBackendState(
         requested=requested,
-        active="cudf",
-        fallback_pandas=fallback_pandas,
-        reason="cudf_ready",
+        active="pandas",
+        reason="forced_pandas_only",
     )
 
 
@@ -511,7 +462,7 @@ def build_snapshot_sequence_panels(
                 snapshot_columns=snapshot_columns,
                 lead_minutes=lead_minutes,
                 dataframe_backend=dataframe_state.active,
-                fallback_pandas_on_read_error=dataframe_state.fallback_pandas,
+                fallback_pandas_on_read_error=True,
             )
             result.written += int(outcome.wrote)
             result.skipped += int(outcome.skipped)
@@ -543,7 +494,7 @@ def build_snapshot_sequence_panels(
                     snapshot_columns=snapshot_columns,
                     lead_minutes=lead_minutes,
                     dataframe_backend=dataframe_state.active,
-                    fallback_pandas_on_read_error=dataframe_state.fallback_pandas,
+                    fallback_pandas_on_read_error=True,
                 ): (day, lookback_days)
                 for _, day, lookback_days in tasks
             }

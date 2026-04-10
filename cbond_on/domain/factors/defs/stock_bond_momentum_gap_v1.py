@@ -36,6 +36,8 @@ def _open_like_from_cols(df: pd.DataFrame, *, open_col: str, ask_col: str, bid_c
 @FactorRegistry.register("stock_bond_momentum_gap_v1")
 class StockBondMomentumGapV1Factor(Factor):
     name = "stock_bond_momentum_gap_v1"
+    requires_stock_panel = True
+    requires_bond_stock_map = True
 
     def compute(self, ctx: FactorComputeContext) -> pd.Series:
         frame = build_bond_stock_latest_frame(

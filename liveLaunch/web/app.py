@@ -22,8 +22,12 @@ from flask import Flask, jsonify, render_template, request
 
 from cbond_on.infra.backtest.execution import apply_twap_bps
 from cbond_on.core.config import load_config_file
-from cbond_on.core.naming import make_window_label
 from cbond_on.infra.data.io import read_table_range, read_trading_calendar
+from cbond_on.infra.factors.quality import (
+    expected_factor_columns_from_cfg,
+    resolve_factor_store_label,
+    scan_factor_day_coverage,
+)
 
 try:
     import psutil
@@ -215,116 +219,35 @@ def _month_back(base: date, offset: int) -> tuple[int, int]:
     return year, month
 
 
-def _raw_snapshot_path(raw_data_root: Path, day: date) -> Path:
-    return (
-        raw_data_root
-        / "snapshot"
-        / "cbond"
-        / "raw_data"
-        / f"{day:%Y-%m}"
-        / f"{day:%Y%m%d}.parquet"
-    )
-
-
-def _clean_snapshot_path(clean_data_root: Path, day: date) -> Path:
-    month = f"{day:%Y-%m}"
-    filename = f"{day:%Y%m%d}.parquet"
-    return clean_data_root / "snapshot" / "cbond" / month / filename
-
-
-def _panel_path_for_day(panel_data_root: Path, label: str, day: date) -> Path:
-    return panel_data_root / "panels" / label / f"{day:%Y-%m}" / f"{day:%Y%m%d}.parquet"
-
-
-def _factor_path_for_day(factor_data_root: Path, label: str, day: date) -> Path:
-    return factor_data_root / "factors" / label / f"{day:%Y-%m}" / f"{day:%Y%m%d}.parquet"
-
-
-def _resolve_score_output_path(model_cfg: dict, *, model_id: str, paths_cfg: dict | None = None) -> Path:
-    raw = str(model_cfg.get("score_output", "")).strip()
-    if raw:
-        path = Path(raw)
-        if not path.is_absolute():
-            path = PROJECT_ROOT / path
-        return path
-    if paths_cfg is None:
-        paths_cfg = load_config_file("paths")
-    return Path(paths_cfg["results_root"]) / "scores" / str(model_id)
-
-
-def _collect_score_days(score_output: Path) -> set[date]:
-    if not score_output.exists() or not score_output.is_dir():
-        return set()
-    days: set[date] = set()
-    for p in score_output.rglob("*.csv"):
-        stem = p.stem
-        try:
-            if len(stem) == 10 and stem[4] == "-" and stem[7] == "-":
-                days.add(datetime.strptime(stem, "%Y-%m-%d").date())
-        except Exception:
-            continue
-    return days
-
-
-def _resolve_data_health_label() -> str:
+def _resolve_factor_coverage_target() -> tuple[str, list[str]]:
     panel_cfg = load_config_file("panel")
     live_cfg = _load_live_cfg()
     factor_group = dict(live_cfg.get("factor", {}))
-    factor_cfg_key = str(factor_group.get("config", "live/live_factors")).strip()
+    factor_cfg_key = str(factor_group.get("coverage_config", "factor")).strip()
+    if not factor_cfg_key:
+        factor_cfg_key = "factor"
     fb_cfg = load_config_file(factor_cfg_key)
-    panel_name = fb_cfg.get("panel_name") or panel_cfg.get("panel_name")
-    wm = fb_cfg.get("window_minutes", panel_cfg.get("window_minutes", [15]))
-    if isinstance(wm, list):
-        wm = wm[0] if wm else 15
-    return panel_name or make_window_label(int(wm))
-
-
-def _resolve_live_model_runtime() -> tuple[str, dict]:
-    live_cfg = _load_live_cfg()
-    model_group = dict(live_cfg.get("model_score", {}))
-    model_cfg_key = str(model_group.get("config", "live/live_models")).strip()
-    if not model_cfg_key:
-        raise ValueError("live_config.model_score.config must not be empty")
-    score_cfg = dict(load_config_file(model_cfg_key))
-    models = dict(score_cfg.get("models", {}))
-    if not models:
-        raise ValueError("live_models.models must be non-empty")
-
-    model_id = str(
-        model_group.get("model_id")
-        or score_cfg.get("model_id")
-        or score_cfg.get("default_model_id")
-        or ""
-    ).strip()
-    if not model_id and len(models) == 1:
-        model_id = str(next(iter(models.keys())))
-    if not model_id:
-        raise ValueError("cannot resolve live model_id")
-    model_entry = dict(models.get(model_id, {}))
-    if not model_entry:
-        raise KeyError(f"model_id not found in live_models config: {model_id}")
-
-    model_config_key = str(model_entry.get("model_config", "")).strip()
-    if not model_config_key:
-        raise ValueError(f"live_models.models.{model_id}.model_config is required")
-    model_cfg = load_config_file(model_config_key)
-    return model_id, model_cfg
+    label = resolve_factor_store_label(factor_cfg=fb_cfg, panel_cfg=panel_cfg)
+    expected_cols = expected_factor_columns_from_cfg(fb_cfg)
+    return label, expected_cols
 
 
 def _build_data_calendar(*, anchor_day: date, months: int = 2, selected_day: date | None = None) -> dict:
     months = max(1, min(int(months), 6))
     paths_cfg = load_config_file("paths")
-    model_id, model_cfg = _resolve_live_model_runtime()
-
     raw_root = Path(paths_cfg["raw_data_root"])
-    clean_root = Path(paths_cfg.get("cleaned_data_root") or paths_cfg.get("clean_data_root"))
-    panel_root = Path(paths_cfg["panel_data_root"])
     factor_root = Path(paths_cfg["factor_data_root"])
-    label = _resolve_data_health_label()
-    score_days = _collect_score_days(
-        _resolve_score_output_path(model_cfg, model_id=model_id, paths_cfg=paths_cfg)
-    )
+    label, expected_factor_cols = _resolve_factor_coverage_target()
+    factor_dir = factor_root / "factors" / label
     open_days = set(_load_open_days(raw_root))
+    oldest_year, oldest_month = _month_back(anchor_day, months - 1)
+    range_start = date(oldest_year, oldest_month, 1)
+    trading_days = sorted(d for d in open_days if range_start <= d <= anchor_day)
+    coverage_map = scan_factor_day_coverage(
+        factor_dir=factor_dir,
+        expected_factor_cols=expected_factor_cols,
+        trading_days=trading_days,
+    )
 
     month_blocks: list[dict] = []
     # Keep the same UX as CBOND_WC: show current month first, then older months.
@@ -337,27 +260,26 @@ def _build_data_calendar(*, anchor_day: date, months: int = 2, selected_day: dat
             iso = f"{day:%Y-%m-%d}"
             is_future = day > anchor_day
             is_open = day in open_days
-            raw_ok = _raw_snapshot_path(raw_root, day).exists()
-            clean_ok = _clean_snapshot_path(clean_root, day).exists()
-            panel_ok = _panel_path_for_day(panel_root, label, day).exists()
-            factor_ok = _factor_path_for_day(factor_root, label, day).exists()
-            score_ok = day in score_days
+            cov = coverage_map.get(day, {})
+            present_count = int(cov.get("present_factor_count", 0))
+            expected_count = int(cov.get("expected_factor_count", len(expected_factor_cols)))
+            unexpected_count = int(cov.get("unexpected_factor_count", 0))
+            ratio = float(cov.get("coverage_ratio", 0.0))
+            if expected_count <= 0:
+                ratio = 1.0
 
             if not is_open or is_future:
                 status = "off"
-            elif raw_ok and clean_ok and panel_ok and factor_ok and score_ok:
+            elif expected_count > 0 and present_count >= expected_count:
                 status = "ok"
-            elif raw_ok and clean_ok:
+            elif present_count > 0:
                 status = "partial"
             else:
                 status = "missing"
 
             detail = (
-                f"raw:{'Y' if raw_ok else 'N'} "
-                f"clean:{'Y' if clean_ok else 'N'} "
-                f"panel:{'Y' if panel_ok else 'N'} "
-                f"factor:{'Y' if factor_ok else 'N'} "
-                f"score:{'Y' if score_ok else 'N'}"
+                f"coverage:{present_count}/{expected_count} ({ratio * 100.0:.1f}%) "
+                f"unexpected:{unexpected_count}"
             )
             cells.append(
                 {
@@ -385,11 +307,12 @@ def _build_data_calendar(*, anchor_day: date, months: int = 2, selected_day: dat
         "anchor_day": f"{anchor_day:%Y-%m-%d}",
         "selected_day": f"{selected_day:%Y-%m-%d}" if selected_day else None,
         "label": label,
+        "expected_factor_count": len(expected_factor_cols),
         "months": month_blocks,
         "legend": {
-            "ok": "数据齐全",
-            "partial": "部分齐全",
-            "missing": "关键缺失",
+            "ok": "覆盖齐全",
+            "partial": "部分覆盖",
+            "missing": "无覆盖",
             "off": "非交易/未来",
         },
     }

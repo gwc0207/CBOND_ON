@@ -20,6 +20,8 @@ class FactorComputeContext:
 class Factor:
     name: str = ""
     output_col: Optional[str] = None
+    requires_stock_panel: bool = False
+    requires_bond_stock_map: bool = False
 
     def __init__(self, *, name: Optional[str] = None, output_col: Optional[str] = None):
         if name:

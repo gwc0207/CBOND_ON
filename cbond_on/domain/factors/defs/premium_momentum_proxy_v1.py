@@ -17,6 +17,8 @@ except Exception:  # pragma: no cover
 @FactorRegistry.register("premium_momentum_proxy_v1")
 class PremiumMomentumProxyV1Factor(Factor):
     name = "premium_momentum_proxy_v1"
+    requires_stock_panel = True
+    requires_bond_stock_map = True
 
     def compute(self, ctx: FactorComputeContext) -> pd.Series:
         frame = build_bond_stock_latest_frame(

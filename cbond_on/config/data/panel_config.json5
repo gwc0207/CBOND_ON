@@ -23,9 +23,5 @@
   panel_name: "T1430",
   count_points: 5000,
   max_lookback_days: 4,
-  snapshot_columns: null,
-  compute: {
-    dataframe_backend: "pandas",
-    fallback_pandas: true
-  }
+  snapshot_columns: null
 }

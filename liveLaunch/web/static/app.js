@@ -363,7 +363,9 @@ async function refreshDataCalendar() {
       return kb.localeCompare(ka);
     });
   if (calendarAnchor) {
-    const label = payload.anchor_day ? `asof ${payload.anchor_day}` : "";
+    const expected = Number(payload.expected_factor_count || 0);
+    const panel = payload.label ? ` ${payload.label}` : "";
+    const label = payload.anchor_day ? `asof ${payload.anchor_day}${panel} | factors ${expected}` : "";
     calendarAnchor.textContent = label;
   }
   if (!months.length) {

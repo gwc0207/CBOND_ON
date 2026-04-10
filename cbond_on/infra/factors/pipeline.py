@@ -23,7 +23,11 @@ from cbond_on.domain.factors.compute_backend import (
 )
 from cbond_on.infra.factors.rust_backend import build_factor_frame_rust
 from cbond_on.infra.factors.rust_shm_backend import build_factor_frame_rust_shm
-from cbond_on.domain.factors.spec import FactorSpec, build_factor_col
+from cbond_on.domain.factors.spec import (
+    FactorSpec,
+    build_factor_col,
+    infer_factor_context_requirements,
+)
 from cbond_on.domain.factors.storage import FactorStore
 
 _LOG_LOCK = threading.Lock()
@@ -179,7 +183,7 @@ def _read_bond_stock_map_day(
     return out.reset_index(drop=True)
 
 
-def _build_context_config(cfg: dict | None) -> dict:
+def _build_context_config(cfg: dict | None, *, specs: Sequence[FactorSpec]) -> dict:
     raw = dict(cfg or {})
     stock_raw = raw.get("stock_panel", {})
     map_raw = raw.get("bond_stock_map", {})
@@ -187,11 +191,31 @@ def _build_context_config(cfg: dict | None) -> dict:
         stock_raw = {}
     if not isinstance(map_raw, dict):
         map_raw = {}
+    mode = str(raw.get("mode", "auto")).strip().lower() or "auto"
+    if mode not in {"auto", "manual"}:
+        mode = "auto"
+    req = infer_factor_context_requirements(specs)
+
+    if mode == "manual":
+        stock_enabled = bool(stock_raw.get("enabled", req.stock_panel_required))
+        map_enabled = bool(map_raw.get("enabled", req.bond_stock_map_required))
+        stock_strict = bool(stock_raw.get("strict", True))
+        map_strict = bool(map_raw.get("strict", True))
+    else:
+        # Auto mode: only load what current factor set requires, and force strict.
+        stock_enabled = bool(req.stock_panel_required)
+        map_enabled = bool(req.bond_stock_map_required)
+        stock_strict = bool(stock_enabled)
+        map_strict = bool(map_enabled)
+
     return {
-        "stock_enabled": bool(stock_raw.get("enabled", True)),
-        "stock_strict": bool(stock_raw.get("strict", False)),
-        "map_enabled": bool(map_raw.get("enabled", True)),
-        "map_strict": bool(map_raw.get("strict", False)),
+        "mode": mode,
+        "stock_enabled": stock_enabled,
+        "stock_strict": stock_strict,
+        "map_enabled": map_enabled,
+        "map_strict": map_strict,
+        "stock_required_by": list(req.stock_panel_factors),
+        "map_required_by": list(req.bond_stock_map_factors),
         "map_table": str(map_raw.get("table", "market_cbond.daily_base")),
     }
 
@@ -375,7 +399,7 @@ def run_factor_pipeline(
     result = FactorPipelineResult()
     panel_data_root = Path(panel_data_root)
     raw_data_root_path = Path(raw_data_root) if raw_data_root else None
-    context = _build_context_config(context_cfg)
+    context = _build_context_config(context_cfg, specs=specs)
     engine_state = resolve_factor_engine(compute_cfg)
     backend_state = resolve_compute_backend(compute_cfg)
     dataframe_state = resolve_dataframe_backend(compute_cfg)
@@ -386,12 +410,7 @@ def run_factor_pipeline(
     compute_backend_params["__compute_backend__"]["debug_log_each_record"] = bool(
         runtime_compute_cfg.get("debug_log_each_record", False)
     )
-    for key in (
-        "plan_max_windows",
-        "plan_max_levels",
-        "plan_max_time_ranges",
-        "plan_log_summary",
-    ):
+    for key in ("plan_log_summary",):
         if key in runtime_compute_cfg:
             compute_backend_params["__compute_backend__"][key] = runtime_compute_cfg.get(key)
     print(
@@ -413,6 +432,10 @@ def run_factor_pipeline(
         f"active={dataframe_state.active}",
         f"reason={dataframe_state.reason}",
     )
+    if bool(context.get("map_enabled", False)) and raw_data_root_path is None:
+        raise ValueError(
+            "context.bond_stock_map is required by current factors, but raw_data_root is not configured"
+        )
     map_index: _DailyTableIndex | None = None
     if bool(context.get("map_enabled", False)) and raw_data_root_path is not None:
         map_index = _index_daily_table(raw_data_root_path, str(context.get("map_table")))
@@ -437,9 +460,16 @@ def run_factor_pipeline(
         f"engine={engine_state.active}",
         f"refresh={bool(refresh)}",
         f"overwrite={bool(overwrite)}",
+        f"context_mode={context.get('mode', 'auto')}",
         f"context_stock={bool(context.get('stock_enabled', False))}",
         f"context_map={bool(context.get('map_enabled', False))}",
+        f"context_stock_strict={bool(context.get('stock_strict', False))}",
+        f"context_map_strict={bool(context.get('map_strict', False))}",
     )
+    if context.get("stock_required_by"):
+        print("factor context stock required_by:", ",".join(context["stock_required_by"]))
+    if context.get("map_required_by"):
+        print("factor context map required_by:", ",".join(context["map_required_by"]))
     if workers <= 1:
         for day in progress(panel_days, desc="build_factors", unit="day", total=len(panel_days)):
             outcome = _build_factor_for_day(

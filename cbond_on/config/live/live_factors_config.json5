@@ -6,19 +6,10 @@
   overwrite: false,
   workers: 6,
   compute: {
-    engine: "rust",       // rust | rust_shm_exp | python (no automatic fallback)
-    backend: "auto",      // auto | torch | cpu
+    engine: "rust", // rust | rust_shm_exp
+    backend: "cpu", // default cpu; set torch/auto to use GPU path
     torch_device: "cuda", // e.g. "cuda", "cuda:0"
     fallback_cpu: true,
-    dataframe_backend: "pandas", // auto | cudf | pandas
-    fallback_pandas: true,
-    // used by engine=rust_shm_exp
-    shm_mp_start_method: "spawn", // spawn | fork | forkserver
-    shm_fallback_to_rust: true,
-    // used by rust/rust_shm_exp unified planning
-    plan_max_windows: 8,
-    plan_max_levels: 8,
-    plan_max_time_ranges: 8,
     plan_log_summary: true
   },
   factors: [

@@ -21,7 +21,12 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from cbond_on.core.config import load_config_file, parse_date, resolve_output_path
 from cbond_on.core.naming import make_window_label
-from cbond_on.infra.model.impl.lgbm.trainer import _iter_existing_label_days, _read_label_day, _split_days
+from cbond_on.infra.model.impl.lgbm.trainer import (
+    _iter_existing_label_days,
+    _read_label_day,
+    _split_days,
+    build_tradable_code_map,
+)
 from cbond_on.infra.model.impl.lob.lob_st import LOBSpatioTemporalModel
 from cbond_on.infra.model.score_io import load_scores_by_date, write_scores_by_date
 from cbond_on.infra.model.wandb_utils import init_wandb_logger
@@ -844,6 +849,8 @@ def _build_split_data(
     seq_len: int,
     min_seq_len: int,
     require_label: bool,
+    tradable_code_map: dict[date, set[str]] | None,
+    tradable_strict: bool,
     base_cache: dict[date, tuple[np.ndarray, np.ndarray]],
     label_cache: dict[date, dict[str, float]],
     base_cache_lock: Lock | None,
@@ -881,6 +888,20 @@ def _build_split_data(
         )
         if x_day.size == 0 or code_day.size == 0:
             return None
+        if require_label and tradable_code_map is not None:
+            allowed_codes = tradable_code_map.get(day)
+            if not allowed_codes:
+                if tradable_strict:
+                    return None
+            else:
+                keep_idx = [i for i, code in enumerate(code_day.tolist()) if str(code) in allowed_codes]
+                if not keep_idx:
+                    return None
+                keep = np.asarray(keep_idx, dtype=np.int64)
+                x_day = x_day[keep]
+                code_day = code_day[keep]
+                if x_day.size == 0 or code_day.size == 0:
+                    return None
 
         y_map = _label_map_for_day(
             label_root=label_root,
@@ -1111,6 +1132,48 @@ def main(
     refit_every_n_days = max(1, int(execution_cfg.get("refit_every_n_days", 1)))
     prep_workers = max(1, int(execution_cfg.get("prep_workers", 1)))
     prefetch_windows = max(0, int(execution_cfg.get("prefetch_windows", 0)))
+    backtest_cfg = load_config_file("backtest")
+    tradable_cfg: dict = {
+        "enabled": True,
+        "strict": True,
+        "twap_table": "market_cbond.daily_twap",
+        "asset": "cbond",
+        "buy_twap_col": backtest_cfg.get("buy_twap_col", "twap_1442_1457"),
+        "sell_twap_col": backtest_cfg.get("sell_twap_col", "twap_0930_0945"),
+        "min_amount": float(backtest_cfg.get("min_amount", 0.0)),
+        "min_volume": float(backtest_cfg.get("min_volume", 0.0)),
+    }
+    model_tradable_cfg = cfg.get("tradable_filter")
+    if isinstance(model_tradable_cfg, dict):
+        tradable_cfg.update(model_tradable_cfg)
+    exec_tradable_cfg = execution_cfg.get("tradable_filter")
+    if isinstance(exec_tradable_cfg, dict):
+        tradable_cfg.update(exec_tradable_cfg)
+    tradable_enabled = bool(tradable_cfg.get("enabled", True))
+    tradable_strict = bool(tradable_cfg.get("strict", True))
+    tradable_code_map: dict[date, set[str]] | None = None
+    if tradable_enabled:
+        tradable_code_map = build_tradable_code_map(
+            raw_data_root=paths_cfg["raw_data_root"],
+            days=days,
+            buy_twap_col=str(tradable_cfg.get("buy_twap_col", "twap_1442_1457")),
+            sell_twap_col=str(tradable_cfg.get("sell_twap_col", "twap_0930_0945")),
+            min_amount=float(tradable_cfg.get("min_amount", 0.0)),
+            min_volume=float(tradable_cfg.get("min_volume", 0.0)),
+            twap_table=str(tradable_cfg.get("twap_table", "market_cbond.daily_twap")),
+            asset=str(tradable_cfg.get("asset", "cbond")),
+        )
+        print(
+            "[tradable] enabled",
+            f"buy={tradable_cfg.get('buy_twap_col')}",
+            f"sell={tradable_cfg.get('sell_twap_col')}",
+            f"min_amount={float(tradable_cfg.get('min_amount', 0.0))}",
+            f"min_volume={float(tradable_cfg.get('min_volume', 0.0))}",
+            f"strict={tradable_strict}",
+            f"mapped_days={len(tradable_code_map)}",
+        )
+    else:
+        print("[tradable] disabled")
     cfg_out = dict(cfg)
     cfg_out["execution"] = {
         "refit_every_n_days": refit_every_n_days,
@@ -1126,6 +1189,17 @@ def main(
     cfg_out["prep_progress"] = {
         "enabled": log_data_prep_progress,
         "every_days": data_prep_progress_every,
+    }
+    cfg_out["tradable_filter"] = {
+        "enabled": tradable_enabled,
+        "strict": tradable_strict,
+        "twap_table": str(tradable_cfg.get("twap_table", "market_cbond.daily_twap")),
+        "asset": str(tradable_cfg.get("asset", "cbond")),
+        "buy_twap_col": str(tradable_cfg.get("buy_twap_col", "twap_1442_1457")),
+        "sell_twap_col": str(tradable_cfg.get("sell_twap_col", "twap_0930_0945")),
+        "min_amount": float(tradable_cfg.get("min_amount", 0.0)),
+        "min_volume": float(tradable_cfg.get("min_volume", 0.0)),
+        "mapped_days": int(len(tradable_code_map or {})),
     }
     train_ratio = float(train_cfg.get("train_ratio", 0.7))
     val_ratio = float(train_cfg.get("val_ratio", 0.15))
@@ -1249,6 +1323,8 @@ def main(
                 seq_len=seq_len,
                 min_seq_len=min_seq_len,
                 require_label=False,
+                tradable_code_map=tradable_code_map,
+                tradable_strict=tradable_strict,
                 base_cache=base_cache,
                 label_cache=label_cache,
                 base_cache_lock=base_cache_lock,
@@ -1337,6 +1413,8 @@ def main(
                             seq_len=seq_len,
                             min_seq_len=min_seq_len,
                             require_label=True,
+                            tradable_code_map=tradable_code_map,
+                            tradable_strict=tradable_strict,
                             base_cache=base_cache,
                             label_cache=label_cache,
                             base_cache_lock=base_cache_lock,
@@ -1358,6 +1436,8 @@ def main(
                             seq_len=seq_len,
                             min_seq_len=min_seq_len,
                             require_label=True,
+                            tradable_code_map=tradable_code_map,
+                            tradable_strict=tradable_strict,
                             base_cache=base_cache,
                             label_cache=label_cache,
                             base_cache_lock=base_cache_lock,
@@ -1491,6 +1571,8 @@ def main(
             seq_len=seq_len,
             min_seq_len=min_seq_len,
             require_label=True,
+            tradable_code_map=tradable_code_map,
+            tradable_strict=tradable_strict,
             base_cache=base_cache,
             label_cache=label_cache,
             base_cache_lock=base_cache_lock,
@@ -1512,6 +1594,8 @@ def main(
             seq_len=seq_len,
             min_seq_len=min_seq_len,
             require_label=True,
+            tradable_code_map=tradable_code_map,
+            tradable_strict=tradable_strict,
             base_cache=base_cache,
             label_cache=label_cache,
             base_cache_lock=base_cache_lock,
@@ -1544,6 +1628,8 @@ def main(
                 seq_len=seq_len,
                 min_seq_len=min_seq_len,
                 require_label=False,
+                tradable_code_map=tradable_code_map,
+                tradable_strict=tradable_strict,
                 base_cache=base_cache,
                 label_cache=label_cache,
                 base_cache_lock=base_cache_lock,

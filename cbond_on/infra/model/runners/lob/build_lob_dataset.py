@@ -12,6 +12,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from cbond_on.core.config import load_config_file, parse_date, parse_time
+from cbond_on.core.universe import filter_tradable
 from cbond_on.infra.data.io import read_table_all
 
 
@@ -147,6 +148,8 @@ def _build_one_day(
     y_norm_method: str,
     buy_twap_col: str,
     sell_twap_col: str,
+    min_amount: float,
+    min_volume: float,
     output_dir: Path,
     overwrite: bool,
 ) -> dict:
@@ -160,15 +163,21 @@ def _build_one_day(
     if twap_day.empty or twap_next.empty:
         return {"day": day.date(), "status": "skip", "reason": "missing_twap"}
 
-    merged_twap = twap_day[["code", buy_twap_col]].merge(
+    left_cols = ["code", buy_twap_col]
+    if "amount" in twap_day.columns:
+        left_cols.append("amount")
+    if "volume" in twap_day.columns:
+        left_cols.append("volume")
+    merged_twap = twap_day[left_cols].merge(
         twap_next[["code", sell_twap_col]], on="code", how="inner"
     )
-    merged_twap = merged_twap[
-        merged_twap[buy_twap_col].notna()
-        & merged_twap[sell_twap_col].notna()
-        & (merged_twap[buy_twap_col] > 0)
-        & (merged_twap[sell_twap_col] > 0)
-    ]
+    merged_twap = filter_tradable(
+        merged_twap,
+        buy_twap_col=buy_twap_col,
+        sell_twap_col=sell_twap_col,
+        min_amount=float(min_amount),
+        min_volume=float(min_volume),
+    )
     if merged_twap.empty:
         return {"day": day.date(), "status": "skip", "reason": "no_label"}
 
@@ -348,6 +357,8 @@ def main() -> None:
 
     buy_twap_col = bt_cfg["buy_twap_col"]
     sell_twap_col = bt_cfg["sell_twap_col"]
+    min_amount = float(bt_cfg.get("min_amount", 0.0))
+    min_volume = float(bt_cfg.get("min_volume", 0.0))
 
     cal = read_table_all(raw_root, "metadata.trading_calendar")
     if cal.empty or "calendar_date" not in cal.columns:
@@ -420,6 +431,8 @@ def main() -> None:
             y_norm_method=y_norm_method,
             buy_twap_col=buy_twap_col,
             sell_twap_col=sell_twap_col,
+            min_amount=min_amount,
+            min_volume=min_volume,
             output_dir=output_dir,
             overwrite=overwrite,
         )

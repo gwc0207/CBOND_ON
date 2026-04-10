@@ -1,0 +1,1594 @@
+[
+  {
+    "factor": "aacb",
+    "file": "aacb.py",
+    "params": [
+      [
+        "levels",
+        3
+      ]
+    ],
+    "time_coverage": "???(??????T)"
+  },
+  {
+    "factor": "alpha001_signed_power_v1",
+    "file": "alpha001_signed_power_v1.py",
+    "params": [
+      [
+        "stddev_window",
+        20
+      ],
+      [
+        "ts_max_window",
+        5
+      ]
+    ],
+    "time_coverage": "????????(???????)"
+  },
+  {
+    "factor": "alpha002_corr_volume_return_v1",
+    "file": "alpha002_corr_volume_return_v1.py",
+    "params": [
+      [
+        "corr_window",
+        6
+      ]
+    ],
+    "time_coverage": "????????(???????)"
+  },
+  {
+    "factor": "alpha003_corr_open_volume_v1",
+    "file": "alpha003_corr_open_volume_v1.py",
+    "params": [
+      [
+        "corr_window",
+        10
+      ]
+    ],
+    "time_coverage": "????????(???????)"
+  },
+  {
+    "factor": "alpha004_ts_rank_low_v1",
+    "file": "alpha004_ts_rank_low_v1.py",
+    "params": [
+      [
+        "ts_rank_window",
+        9
+      ]
+    ],
+    "time_coverage": "????????(???????)"
+  },
+  {
+    "factor": "alpha005_vwap_gap_v1",
+    "file": "alpha005_vwap_gap_v1.py",
+    "params": [
+      [
+        "vwap_window",
+        10
+      ]
+    ],
+    "time_coverage": "????????(???????)"
+  },
+  {
+    "factor": "alpha006_corr_open_volume_neg_v1",
+    "file": "alpha006_corr_open_volume_neg_v1.py",
+    "params": [
+      [
+        "corr_window",
+        10
+      ]
+    ],
+    "time_coverage": "????????(???????)"
+  },
+  {
+    "factor": "alpha007_volume_breakout_v1",
+    "file": "alpha007_volume_breakout_v1.py",
+    "params": [
+      [
+        "adv_window",
+        20
+      ],
+      [
+        "delta_window",
+        7
+      ],
+      [
+        "ts_rank_window",
+        60
+      ]
+    ],
+    "time_coverage": "????????(???????)"
+  },
+  {
+    "factor": "alpha008_open_return_momentum_v1",
+    "file": "alpha008_open_return_momentum_v1.py",
+    "params": [
+      [
+        "sum_window",
+        5
+      ],
+      [
+        "delay_window",
+        10
+      ]
+    ],
+    "time_coverage": "????????(???????)"
+  },
+  {
+    "factor": "alpha009_close_change_filter_v1",
+    "file": "alpha009_close_change_filter_v1.py",
+    "params": [
+      [
+        "ts_window",
+        5
+      ]
+    ],
+    "time_coverage": "????????(???????)"
+  },
+  {
+    "factor": "alpha010_close_change_rank_v1",
+    "file": "alpha010_close_change_rank_v1.py",
+    "params": [
+      [
+        "ts_window",
+        4
+      ]
+    ],
+    "time_coverage": "????????(???????)"
+  },
+  {
+    "factor": "alpha011_vwap_close_volume_v1",
+    "file": "alpha011_vwap_close_volume_v1.py",
+    "params": [
+      [
+        "ts_window",
+        3
+      ]
+    ],
+    "time_coverage": "????????(???????)"
+  },
+  {
+    "factor": "alpha012_volume_close_reversal_v1",
+    "file": "alpha012_volume_close_reversal_v1.py",
+    "params": [],
+    "time_coverage": "???(??????T)"
+  },
+  {
+    "factor": "alpha013_cov_close_volume_v1",
+    "file": "alpha013_cov_close_volume_v1.py",
+    "params": [
+      [
+        "cov_window",
+        5
+      ]
+    ],
+    "time_coverage": "????????(???????)"
+  },
+  {
+    "factor": "alpha014_return_open_volume_v1",
+    "file": "alpha014_return_open_volume_v1.py",
+    "params": [
+      [
+        "delta_window",
+        3
+      ],
+      [
+        "corr_window",
+        10
+      ]
+    ],
+    "time_coverage": "????????(???????)"
+  },
+  {
+    "factor": "alpha015_high_volume_corr_v1",
+    "file": "alpha015_high_volume_corr_v1.py",
+    "params": [
+      [
+        "corr_window",
+        3
+      ],
+      [
+        "sum_window",
+        3
+      ]
+    ],
+    "time_coverage": "????????(???????)"
+  },
+  {
+    "factor": "alpha016_cov_high_volume_v1",
+    "file": "alpha016_cov_high_volume_v1.py",
+    "params": [
+      [
+        "cov_window",
+        5
+      ]
+    ],
+    "time_coverage": "????????(???????)"
+  },
+  {
+    "factor": "alpha017_close_rank_volume_v1",
+    "file": "alpha017_close_rank_volume_v1.py",
+    "params": [
+      [
+        "adv_window",
+        20
+      ],
+      [
+        "ts_rank_close_window",
+        10
+      ],
+      [
+        "ts_rank_vol_window",
+        5
+      ]
+    ],
+    "time_coverage": "????????(???????)"
+  },
+  {
+    "factor": "alpha018_close_open_vol_v1",
+    "file": "alpha018_close_open_vol_v1.py",
+    "params": [
+      [
+        "stddev_window",
+        5
+      ],
+      [
+        "corr_window",
+        10
+      ]
+    ],
+    "time_coverage": "????????(???????)"
+  },
+  {
+    "factor": "alpha019_close_momentum_sign_v1",
+    "file": "alpha019_close_momentum_sign_v1.py",
+    "params": [
+      [
+        "delta_window",
+        7
+      ],
+      [
+        "sum_window",
+        250
+      ]
+    ],
+    "time_coverage": "????????(???????)"
+  },
+  {
+    "factor": "alpha020_open_delay_range_v1",
+    "file": "alpha020_open_delay_range_v1.py",
+    "params": [
+      [
+        "delay_window",
+        1
+      ]
+    ],
+    "time_coverage": "????????(???????)"
+  },
+  {
+    "factor": "alpha021_close_volatility_breakout_v1",
+    "file": "alpha021_close_volatility_breakout_v1.py",
+    "params": [
+      [
+        "sum_window_long",
+        5
+      ],
+      [
+        "sum_window_short",
+        2
+      ],
+      [
+        "adv_window",
+        10
+      ]
+    ],
+    "time_coverage": "????????(???????)"
+  },
+  {
+    "factor": "alpha022_high_volume_corr_change_v1",
+    "file": "alpha022_high_volume_corr_change_v1.py",
+    "params": [
+      [
+        "corr_window",
+        5
+      ],
+      [
+        "delta_window",
+        5
+      ],
+      [
+        "stddev_window",
+        10
+      ]
+    ],
+    "time_coverage": "????????(???????)"
+  },
+  {
+    "factor": "alpha023_high_momentum_v1",
+    "file": "alpha023_high_momentum_v1.py",
+    "params": [
+      [
+        "sum_window",
+        10
+      ],
+      [
+        "delta_window",
+        2
+      ]
+    ],
+    "time_coverage": "????????(???????)"
+  },
+  {
+    "factor": "alpha024_close_trend_filter_v1",
+    "file": "alpha024_close_trend_filter_v1.py",
+    "params": [
+      [
+        "sum_window",
+        20
+      ],
+      [
+        "delta_window",
+        20
+      ],
+      [
+        "ts_min_window",
+        20
+      ],
+      [
+        "short_delta_window",
+        3
+      ],
+      [
+        "trend_threshold",
+        0.05
+      ]
+    ],
+    "time_coverage": "????????(???????)"
+  },
+  {
+    "factor": "alpha025_return_volume_vwap_range_v1",
+    "file": "alpha025_return_volume_vwap_range_v1.py",
+    "params": [
+      [
+        "adv_window",
+        10
+      ]
+    ],
+    "time_coverage": "????????(???????)"
+  },
+  {
+    "factor": "alpha026_volume_high_rank_corr_v1",
+    "file": "alpha026_volume_high_rank_corr_v1.py",
+    "params": [
+      [
+        "ts_rank_window",
+        5
+      ],
+      [
+        "corr_window",
+        5
+      ],
+      [
+        "ts_max_window",
+        3
+      ]
+    ],
+    "time_coverage": "????????(???????)"
+  },
+  {
+    "factor": "alpha027_volume_vwap_corr_signal_v1",
+    "file": "alpha027_volume_vwap_corr_signal_v1.py",
+    "params": [
+      [
+        "corr_window",
+        6
+      ],
+      [
+        "sum_window",
+        2
+      ]
+    ],
+    "time_coverage": "????????(???????)"
+  },
+  {
+    "factor": "alpha028_adv_low_close_signal_v1",
+    "file": "alpha028_adv_low_close_signal_v1.py",
+    "params": [
+      [
+        "adv_window",
+        10
+      ],
+      [
+        "corr_window",
+        5
+      ]
+    ],
+    "time_coverage": "????????(???????)"
+  },
+  {
+    "factor": "alpha029_complex_rank_signal_v1",
+    "file": "alpha029_complex_rank_signal_v1.py",
+    "params": [
+      [
+        "ts_min_window",
+        2
+      ],
+      [
+        "ts_rank_window",
+        5
+      ],
+      [
+        "delay_window",
+        3
+      ],
+      [
+        "min_window",
+        5
+      ]
+    ],
+    "time_coverage": "????????(???????)"
+  },
+  {
+    "factor": "alpha030_close_sign_volume_v1",
+    "file": "alpha030_close_sign_volume_v1.py",
+    "params": [
+      [
+        "delay1",
+        1
+      ],
+      [
+        "delay2",
+        2
+      ],
+      [
+        "delay3",
+        3
+      ],
+      [
+        "sum_window_short",
+        5
+      ],
+      [
+        "sum_window_long",
+        10
+      ]
+    ],
+    "time_coverage": "????????(???????)"
+  },
+  {
+    "factor": "alpha031_close_decay_momentum_v1",
+    "file": "alpha031_close_decay_momentum_v1.py",
+    "params": [
+      [
+        "delta_window",
+        10
+      ],
+      [
+        "decay_window",
+        10
+      ],
+      [
+        "delta_short_window",
+        3
+      ],
+      [
+        "corr_window",
+        12
+      ],
+      [
+        "adv_window",
+        10
+      ]
+    ],
+    "time_coverage": "????????(???????)"
+  },
+  {
+    "factor": "alpha032_vwap_close_mean_reversion_v1",
+    "file": "alpha032_vwap_close_mean_reversion_v1.py",
+    "params": [
+      [
+        "sum_window",
+        7
+      ],
+      [
+        "corr_window",
+        60
+      ],
+      [
+        "delay_window",
+        5
+      ],
+      [
+        "corr_scale",
+        20.0
+      ]
+    ],
+    "time_coverage": "????????(???????)"
+  },
+  {
+    "factor": "alpha033_open_close_ratio_v1",
+    "file": "alpha033_open_close_ratio_v1.py",
+    "params": [],
+    "time_coverage": "???(??????T)"
+  },
+  {
+    "factor": "alpha034_return_volatility_rank_v1",
+    "file": "alpha034_return_volatility_rank_v1.py",
+    "params": [
+      [
+        "stddev_window_short",
+        2
+      ],
+      [
+        "stddev_window_long",
+        5
+      ],
+      [
+        "delta_window",
+        1
+      ]
+    ],
+    "time_coverage": "????????(???????)"
+  },
+  {
+    "factor": "alpha035_volume_price_momentum_v1",
+    "file": "alpha035_volume_price_momentum_v1.py",
+    "params": [
+      [
+        "ts_rank_window_long",
+        20
+      ],
+      [
+        "ts_rank_window_short",
+        16
+      ]
+    ],
+    "time_coverage": "????????(???????)"
+  },
+  {
+    "factor": "alpha036_complex_correlation_signal_v1",
+    "file": "alpha036_complex_correlation_signal_v1.py",
+    "params": [
+      [
+        "corr_window_1",
+        15
+      ],
+      [
+        "corr_window_2",
+        6
+      ],
+      [
+        "sum_window",
+        60
+      ],
+      [
+        "ts_rank_window",
+        5
+      ],
+      [
+        "delay_window",
+        6
+      ],
+      [
+        "adv_window",
+        10
+      ]
+    ],
+    "time_coverage": "????????(???????)"
+  },
+  {
+    "factor": "alpha037_open_close_correlation_v1",
+    "file": "alpha037_open_close_correlation_v1.py",
+    "params": [
+      [
+        "corr_window",
+        30
+      ],
+      [
+        "delay_window",
+        1
+      ]
+    ],
+    "time_coverage": "????????(???????)"
+  },
+  {
+    "factor": "alpha038_close_rank_ratio_v1",
+    "file": "alpha038_close_rank_ratio_v1.py",
+    "params": [
+      [
+        "ts_rank_window",
+        10
+      ]
+    ],
+    "time_coverage": "????????(???????)"
+  },
+  {
+    "factor": "alpha039_volume_decay_momentum_v1",
+    "file": "alpha039_volume_decay_momentum_v1.py",
+    "params": [
+      [
+        "adv_window",
+        10
+      ],
+      [
+        "decay_window",
+        9
+      ],
+      [
+        "delta_window",
+        7
+      ],
+      [
+        "sum_window",
+        60
+      ]
+    ],
+    "time_coverage": "????????(???????)"
+  },
+  {
+    "factor": "alpha040_high_volatility_corr_v1",
+    "file": "alpha040_high_volatility_corr_v1.py",
+    "params": [
+      [
+        "stddev_window",
+        10
+      ],
+      [
+        "corr_window",
+        10
+      ]
+    ],
+    "time_coverage": "????????(???????)"
+  },
+  {
+    "factor": "alpha041_geometric_mean_vwap_v1",
+    "file": "alpha041_geometric_mean_vwap_v1.py",
+    "params": [],
+    "time_coverage": "???(??????T)"
+  },
+  {
+    "factor": "alpha042_vwap_close_rank_ratio_v1",
+    "file": "alpha042_vwap_close_rank_ratio_v1.py",
+    "params": [],
+    "time_coverage": "???(??????T)"
+  },
+  {
+    "factor": "alpha043_volume_delay_momentum_v1",
+    "file": "alpha043_volume_delay_momentum_v1.py",
+    "params": [
+      [
+        "adv_window",
+        10
+      ],
+      [
+        "ts_rank_window_1",
+        10
+      ],
+      [
+        "delta_window",
+        5
+      ],
+      [
+        "ts_rank_window_2",
+        5
+      ]
+    ],
+    "time_coverage": "????????(???????)"
+  },
+  {
+    "factor": "alpha044_high_volume_rank_corr_v1",
+    "file": "alpha044_high_volume_rank_corr_v1.py",
+    "params": [
+      [
+        "corr_window",
+        5
+      ]
+    ],
+    "time_coverage": "????????(???????)"
+  },
+  {
+    "factor": "alpha045_close_sum_corr_v1",
+    "file": "alpha045_close_sum_corr_v1.py",
+    "params": [
+      [
+        "delay_window",
+        5
+      ],
+      [
+        "sum_window_long",
+        20
+      ],
+      [
+        "corr_window_1",
+        2
+      ],
+      [
+        "sum_window_short",
+        5
+      ],
+      [
+        "corr_window_2",
+        2
+      ]
+    ],
+    "time_coverage": "????????(???????)"
+  },
+  {
+    "factor": "alpha046_close_delay_trend_v1",
+    "file": "alpha046_close_delay_trend_v1.py",
+    "params": [
+      [
+        "delay_window_long",
+        10
+      ],
+      [
+        "delay_window_short",
+        5
+      ],
+      [
+        "trend_scale",
+        10.0
+      ],
+      [
+        "threshold_up",
+        0.25
+      ],
+      [
+        "threshold_down",
+        0.0
+      ]
+    ],
+    "time_coverage": "????????(???????)"
+  },
+  {
+    "factor": "alpha047_inverse_close_volume_v1",
+    "file": "alpha047_inverse_close_volume_v1.py",
+    "params": [
+      [
+        "adv_window",
+        10
+      ],
+      [
+        "sum_window",
+        5
+      ],
+      [
+        "delay_window",
+        5
+      ],
+      [
+        "power",
+        5
+      ]
+    ],
+    "time_coverage": "????????(???????)"
+  },
+  {
+    "factor": "alpha049_close_delay_threshold_v1",
+    "file": "alpha049_close_delay_threshold_v1.py",
+    "params": [
+      [
+        "delay_window_long",
+        10
+      ],
+      [
+        "delay_window_short",
+        5
+      ],
+      [
+        "trend_scale",
+        10.0
+      ],
+      [
+        "threshold",
+        null
+      ]
+    ],
+    "time_coverage": "????????(???????)"
+  },
+  {
+    "factor": "alpha050_volume_vwap_corr_max_v1",
+    "file": "alpha050_volume_vwap_corr_max_v1.py",
+    "params": [
+      [
+        "corr_window",
+        5
+      ],
+      [
+        "ts_max_window",
+        5
+      ]
+    ],
+    "time_coverage": "????????(???????)"
+  },
+  {
+    "factor": "alpha051_close_delay_threshold_v2_v1",
+    "file": "alpha051_close_delay_threshold_v2_v1.py",
+    "params": [
+      [
+        "delay_window_long",
+        10
+      ],
+      [
+        "delay_window_short",
+        5
+      ],
+      [
+        "trend_scale",
+        10.0
+      ],
+      [
+        "threshold",
+        null
+      ]
+    ],
+    "time_coverage": "????????(???????)"
+  },
+  {
+    "factor": "alpha052_low_momentum_volume_v1",
+    "file": "alpha052_low_momentum_volume_v1.py",
+    "params": [
+      [
+        "ts_min_window",
+        5
+      ],
+      [
+        "delay_window",
+        5
+      ],
+      [
+        "sum_window_long",
+        60
+      ],
+      [
+        "sum_window_short",
+        20
+      ],
+      [
+        "ts_rank_window",
+        5
+      ]
+    ],
+    "time_coverage": "????????(???????)"
+  },
+  {
+    "factor": "alpha053_price_position_delta_v1",
+    "file": "alpha053_price_position_delta_v1.py",
+    "params": [
+      [
+        "delta_window",
+        9
+      ]
+    ],
+    "time_coverage": "????????(???????)"
+  },
+  {
+    "factor": "alpha054_price_power_ratio_v1",
+    "file": "alpha054_price_power_ratio_v1.py",
+    "params": [
+      [
+        "power",
+        5
+      ]
+    ],
+    "time_coverage": "???(??????T)"
+  },
+  {
+    "factor": "alpha055_close_range_volume_corr_v1",
+    "file": "alpha055_close_range_volume_corr_v1.py",
+    "params": [
+      [
+        "ts_window",
+        12
+      ],
+      [
+        "corr_window",
+        6
+      ]
+    ],
+    "time_coverage": "????????(???????)"
+  },
+  {
+    "factor": "alpha057_close_vwap_decay_v1",
+    "file": "alpha057_close_vwap_decay_v1.py",
+    "params": [
+      [
+        "ts_argmax_window",
+        10
+      ],
+      [
+        "decay_window",
+        2
+      ]
+    ],
+    "time_coverage": "????????(???????)"
+  },
+  {
+    "factor": "alpha060_price_range_volume_scale_v1",
+    "file": "alpha060_price_range_volume_scale_v1.py",
+    "params": [
+      [
+        "ts_argmax_window",
+        10
+      ]
+    ],
+    "time_coverage": "????????(???????)"
+  },
+  {
+    "factor": "alpha062_vwap_open_rank_compare_v1",
+    "file": "alpha062_vwap_open_rank_compare_v1.py",
+    "params": [
+      [
+        "adv_window",
+        20
+      ],
+      [
+        "sum_window",
+        22
+      ],
+      [
+        "corr_window",
+        10
+      ]
+    ],
+    "time_coverage": "????????(???????)"
+  },
+  {
+    "factor": "alpha065_open_vwap_min_signal_v1",
+    "file": "alpha065_open_vwap_min_signal_v1.py",
+    "params": [
+      [
+        "weight",
+        0.008
+      ],
+      [
+        "adv_window",
+        30
+      ],
+      [
+        "sum_window",
+        9
+      ],
+      [
+        "corr_window",
+        6
+      ],
+      [
+        "ts_min_window",
+        14
+      ]
+    ],
+    "time_coverage": "????????(???????)"
+  },
+  {
+    "factor": "alpha066_vwap_low_decay_v1",
+    "file": "alpha066_vwap_low_decay_v1.py",
+    "params": [
+      [
+        "delta_window",
+        4
+      ],
+      [
+        "decay_window_1",
+        7
+      ],
+      [
+        "weight",
+        0.966
+      ],
+      [
+        "decay_window_2",
+        11
+      ],
+      [
+        "ts_rank_window",
+        7
+      ]
+    ],
+    "time_coverage": "????????(???????)"
+  },
+  {
+    "factor": "alpha068_high_adv_rank_signal_v1",
+    "file": "alpha068_high_adv_rank_signal_v1.py",
+    "params": [
+      [
+        "adv_window",
+        15
+      ],
+      [
+        "corr_window",
+        9
+      ],
+      [
+        "ts_rank_window",
+        14
+      ],
+      [
+        "weight",
+        0.518
+      ],
+      [
+        "delta_window",
+        1
+      ]
+    ],
+    "time_coverage": "????????(???????)"
+  },
+  {
+    "factor": "alpha072_vwap_volume_decay_ratio_v1",
+    "file": "alpha072_vwap_volume_decay_ratio_v1.py",
+    "params": [
+      [
+        "adv_window",
+        20
+      ],
+      [
+        "corr_window_1",
+        9
+      ],
+      [
+        "decay_window_1",
+        10
+      ],
+      [
+        "ts_rank_window_1",
+        4
+      ],
+      [
+        "ts_rank_window_2",
+        19
+      ],
+      [
+        "corr_window_2",
+        7
+      ],
+      [
+        "decay_window_2",
+        3
+      ]
+    ],
+    "time_coverage": "????????(???????)"
+  },
+  {
+    "factor": "alpha073_vwap_open_decay_max_v1",
+    "file": "alpha073_vwap_open_decay_max_v1.py",
+    "params": [
+      [
+        "delta_window_1",
+        5
+      ],
+      [
+        "decay_window_1",
+        3
+      ],
+      [
+        "weight",
+        0.147
+      ],
+      [
+        "delta_window_2",
+        2
+      ],
+      [
+        "decay_window_2",
+        3
+      ],
+      [
+        "ts_rank_window",
+        17
+      ]
+    ],
+    "time_coverage": "????????(???????)"
+  },
+  {
+    "factor": "alpha074_close_adv_rank_corr_v1",
+    "file": "alpha074_close_adv_rank_corr_v1.py",
+    "params": [
+      [
+        "adv_window",
+        20
+      ],
+      [
+        "sum_window",
+        37
+      ],
+      [
+        "corr_window_1",
+        15
+      ],
+      [
+        "weight",
+        0.026
+      ],
+      [
+        "corr_window_2",
+        11
+      ]
+    ],
+    "time_coverage": "????????(???????)"
+  },
+  {
+    "factor": "alpha075_vwap_volume_low_adv_corr_v1",
+    "file": "alpha075_vwap_volume_low_adv_corr_v1.py",
+    "params": [
+      [
+        "corr_window_1",
+        4
+      ],
+      [
+        "adv_window",
+        30
+      ],
+      [
+        "corr_window_2",
+        12
+      ]
+    ],
+    "time_coverage": "????????(???????)"
+  },
+  {
+    "factor": "alpha077_mid_price_adv_decay_min_v1",
+    "file": "alpha077_mid_price_adv_decay_min_v1.py",
+    "params": [
+      [
+        "decay_window_1",
+        10
+      ],
+      [
+        "adv_window",
+        20
+      ],
+      [
+        "corr_window",
+        3
+      ],
+      [
+        "decay_window_2",
+        6
+      ]
+    ],
+    "time_coverage": "????????(???????)"
+  },
+  {
+    "factor": "alpha078_low_vwap_adv_corr_v1",
+    "file": "alpha078_low_vwap_adv_corr_v1.py",
+    "params": [
+      [
+        "weight",
+        0.352
+      ],
+      [
+        "sum_window_1",
+        20
+      ],
+      [
+        "adv_window",
+        20
+      ],
+      [
+        "sum_window_2",
+        20
+      ],
+      [
+        "corr_window_1",
+        7
+      ],
+      [
+        "corr_window_2",
+        6
+      ]
+    ],
+    "time_coverage": "????????(???????)"
+  },
+  {
+    "factor": "amihud_illiq",
+    "file": "amihud_illiq.py",
+    "params": [
+      [
+        "window_minutes",
+        30
+      ],
+      [
+        "price_col",
+        "last"
+      ],
+      [
+        "amount_col",
+        "amount"
+      ]
+    ],
+    "time_coverage": "T-30min ~ T (???)"
+  },
+  {
+    "factor": "amount_sum",
+    "file": "amount_sum.py",
+    "params": [
+      [
+        "window_minutes",
+        30
+      ],
+      [
+        "amount_col",
+        "amount"
+      ]
+    ],
+    "time_coverage": "T-30min ~ T (???)"
+  },
+  {
+    "factor": "bid_ask_spread_v1",
+    "file": "bid_ask_spread_v1.py",
+    "params": [],
+    "time_coverage": "???(??????T)"
+  },
+  {
+    "factor": "depth_imbalance",
+    "file": "depth_imbalance.py",
+    "params": [
+      [
+        "levels",
+        3
+      ]
+    ],
+    "time_coverage": "???(??????T)"
+  },
+  {
+    "factor": "depth_slope",
+    "file": "depth_slope.py",
+    "params": [
+      [
+        "levels",
+        5
+      ]
+    ],
+    "time_coverage": "???(??????T)"
+  },
+  {
+    "factor": "depth_weighted_imbalance_v1",
+    "file": "depth_weighted_imbalance_v1.py",
+    "params": [
+      [
+        "weights",
+        [
+          5,
+          4,
+          3,
+          2,
+          1
+        ]
+      ]
+    ],
+    "time_coverage": "???(??????T)"
+  },
+  {
+    "factor": "intraday_momentum_v1",
+    "file": "intraday_momentum_v1.py",
+    "params": [],
+    "time_coverage": "???(??????T)"
+  },
+  {
+    "factor": "microprice_bias",
+    "file": "microprice_bias.py",
+    "params": [
+      [
+        "bid_col",
+        "bid_price1"
+      ],
+      [
+        "ask_col",
+        "ask_price1"
+      ],
+      [
+        "bid_vol_col",
+        "bid_volume1"
+      ],
+      [
+        "ask_vol_col",
+        "ask_volume1"
+      ]
+    ],
+    "time_coverage": "???(??????T)"
+  },
+  {
+    "factor": "midprice_move",
+    "file": "midprice_move.py",
+    "params": [
+      [
+        "window_minutes",
+        30
+      ],
+      [
+        "bid_col",
+        "bid_price1"
+      ],
+      [
+        "ask_col",
+        "ask_price1"
+      ]
+    ],
+    "time_coverage": "T-30min ~ T (???)"
+  },
+  {
+    "factor": "mom_slope",
+    "file": "mom_slope.py",
+    "params": [
+      [
+        "window_minutes",
+        30
+      ],
+      [
+        "price_col",
+        "last"
+      ]
+    ],
+    "time_coverage": "T-30min ~ T (???)"
+  },
+  {
+    "factor": "order_flow_imbalance_v1",
+    "file": "order_flow_imbalance_v1.py",
+    "params": [],
+    "time_coverage": "???(??????T)"
+  },
+  {
+    "factor": "premium_momentum_proxy_v1",
+    "file": "premium_momentum_proxy_v1.py",
+    "params": [],
+    "time_coverage": "???(??????T)"
+  },
+  {
+    "factor": "price_level_position_v1",
+    "file": "price_level_position_v1.py",
+    "params": [],
+    "time_coverage": "???(??????T)"
+  },
+  {
+    "factor": "price_position",
+    "file": "price_position.py",
+    "params": [
+      [
+        "window_minutes",
+        30
+      ],
+      [
+        "price_col",
+        "last"
+      ]
+    ],
+    "time_coverage": "T-30min ~ T (???)"
+  },
+  {
+    "factor": "range_ratio",
+    "file": "range_ratio.py",
+    "params": [
+      [
+        "window_minutes",
+        30
+      ],
+      [
+        "price_col",
+        "last"
+      ]
+    ],
+    "time_coverage": "T-30min ~ T (???)"
+  },
+  {
+    "factor": "ret_open_to_time",
+    "file": "ret_open_to_time.py",
+    "params": [
+      [
+        "price_col",
+        "last"
+      ],
+      [
+        "start_time",
+        "09:30"
+      ],
+      [
+        "end_time",
+        "14:30"
+      ]
+    ],
+    "time_coverage": "09:30~14:30 (????)"
+  },
+  {
+    "factor": "ret_window",
+    "file": "ret_window.py",
+    "params": [
+      [
+        "window_minutes",
+        30
+      ],
+      [
+        "price_col",
+        "last"
+      ]
+    ],
+    "time_coverage": "T-30min ~ T (???)"
+  },
+  {
+    "factor": "return_skew",
+    "file": "return_skew.py",
+    "params": [
+      [
+        "window_minutes",
+        30
+      ],
+      [
+        "price_col",
+        "last"
+      ],
+      [
+        "use_log_return",
+        true
+      ]
+    ],
+    "time_coverage": "T-30min ~ T (???)"
+  },
+  {
+    "factor": "spread",
+    "file": "spread.py",
+    "params": [
+      [
+        "bid_col",
+        "bid_price1"
+      ],
+      [
+        "ask_col",
+        "ask_price1"
+      ]
+    ],
+    "time_coverage": "???(??????T)"
+  },
+  {
+    "factor": "stock_bond_momentum_gap_v1",
+    "file": "stock_bond_momentum_gap_v1.py",
+    "params": [],
+    "time_coverage": "???(??????T)"
+  },
+  {
+    "factor": "trade_intensity_v1",
+    "file": "trade_intensity_v1.py",
+    "params": [],
+    "time_coverage": "???(??????T)"
+  },
+  {
+    "factor": "turnover_rate",
+    "file": "turnover_rate.py",
+    "params": [
+      [
+        "window_minutes",
+        30
+      ],
+      [
+        "volume_col",
+        "volume"
+      ],
+      [
+        "shares_col",
+        "num_trades"
+      ]
+    ],
+    "time_coverage": "T-30min ~ T (???)"
+  },
+  {
+    "factor": "volatility",
+    "file": "volatility.py",
+    "params": [
+      [
+        "window_minutes",
+        30
+      ],
+      [
+        "price_col",
+        "last"
+      ],
+      [
+        "use_log_return",
+        true
+      ]
+    ],
+    "time_coverage": "T-30min ~ T (???)"
+  },
+  {
+    "factor": "volatility_scaled_return_v1",
+    "file": "volatility_scaled_return_v1.py",
+    "params": [],
+    "time_coverage": "???(??????T)"
+  },
+  {
+    "factor": "volen",
+    "file": "volen.py",
+    "params": [
+      [
+        "levels",
+        5
+      ],
+      [
+        "fast",
+        60
+      ],
+      [
+        "slow",
+        10
+      ]
+    ],
+    "time_coverage": "???(??????T)"
+  },
+  {
+    "factor": "volume_imbalance",
+    "file": "volume_imbalance.py",
+    "params": [
+      [
+        "window_minutes",
+        30
+      ],
+      [
+        "levels",
+        3
+      ]
+    ],
+    "time_coverage": "T-30min ~ T (???)"
+  },
+  {
+    "factor": "volume_price_trend_v1",
+    "file": "volume_price_trend_v1.py",
+    "params": [],
+    "time_coverage": "???(??????T)"
+  },
+  {
+    "factor": "volume_sum",
+    "file": "volume_sum.py",
+    "params": [
+      [
+        "window_minutes",
+        30
+      ],
+      [
+        "volume_col",
+        "volume"
+      ]
+    ],
+    "time_coverage": "T-30min ~ T (???)"
+  },
+  {
+    "factor": "vwap",
+    "file": "vwap.py",
+    "params": [
+      [
+        "window_minutes",
+        30
+      ],
+      [
+        "volume_col",
+        "volume"
+      ],
+      [
+        "amount_col",
+        "amount"
+      ]
+    ],
+    "time_coverage": "T-30min ~ T (???)"
+  },
+  {
+    "factor": "vwap_gap",
+    "file": "vwap_gap.py",
+    "params": [
+      [
+        "window_minutes",
+        30
+      ],
+      [
+        "price_col",
+        "last"
+      ],
+      [
+        "volume_col",
+        "volume"
+      ],
+      [
+        "amount_col",
+        "amount"
+      ]
+    ],
+    "time_coverage": "T-30min ~ T (???)"
+  }
+]

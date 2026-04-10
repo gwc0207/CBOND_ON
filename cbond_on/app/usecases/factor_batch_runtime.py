@@ -10,10 +10,10 @@ from typing import Iterable, Sequence
 
 import pandas as pd
 
-from cbond_on.core.config import load_config_file, resolve_config_file_path
 from cbond_on.core.trading_days import list_trading_days_from_raw
 from cbond_on.core.utils import progress
 from cbond_on.infra.factors.pipeline import run_factor_pipeline
+from cbond_on.infra.factors.quality import load_factor_specs_from_cfg, resolve_disabled_factor_names
 from cbond_on.domain.factors.spec import FactorSpec, build_factor_col
 from cbond_on.domain.factors.storage import FactorStore
 from cbond_on.infra.report.factor_report import save_single_factor_report
@@ -36,64 +36,13 @@ class _BacktestDayPrepared:
     merged: pd.DataFrame | None = None
 
 
-def _load_factor_items_from_payload(payload: object, *, source: str) -> list[dict]:
-    if isinstance(payload, dict):
-        items = payload.get("factors", [])
-    elif isinstance(payload, list):
-        items = payload
-    else:
-        raise TypeError(f"{source} must be list or object with 'factors'")
-
-    if not isinstance(items, list):
-        raise TypeError(f"{source}.factors must be a list")
-
-    out: list[dict] = []
-    for idx, item in enumerate(items):
-        if not isinstance(item, dict):
-            raise TypeError(f"{source}.factors[{idx}] must be an object")
-        if "name" not in item or "factor" not in item:
-            raise KeyError(f"{source}.factors[{idx}] must contain 'name' and 'factor'")
-        out.append(dict(item))
-    return out
-
-
 def build_signal_specs(cfg: dict) -> list[FactorSpec]:
-    inline = cfg.get("factors", [])
-    if not isinstance(inline, list):
-        raise TypeError("factor_config.factors must be a list")
-
-    items: list[dict] = _load_factor_items_from_payload(inline, source="factor_config")
-
-    factor_files = cfg.get("factor_files", [])
-    if factor_files is None:
-        factor_files = []
-    if not isinstance(factor_files, list):
-        raise TypeError("factor_config.factor_files must be a list of config paths")
-
-    for ref in factor_files:
-        ref_text = str(ref).strip()
-        if not ref_text:
-            continue
-        path = resolve_config_file_path(ref_text)
-        payload = load_config_file(str(path))
-        items.extend(_load_factor_items_from_payload(payload, source=str(path)))
-
-    specs: list[FactorSpec] = []
-    seen_names: set[str] = set()
-    for item in items:
-        name = str(item["name"]).strip()
-        if not name:
-            raise ValueError("factor spec name must not be empty")
-        if name in seen_names:
-            raise ValueError(f"duplicate factor spec name: {name}")
-        seen_names.add(name)
-        specs.append(
-            FactorSpec(
-                name=name,
-                factor=str(item["factor"]),
-                params=item.get("params", {}),
-                output_col=item.get("output_col"),
-            )
+    specs = load_factor_specs_from_cfg(cfg)
+    disabled = resolve_disabled_factor_names(cfg)
+    if disabled:
+        print(
+            "factor disabled set:",
+            f"count={len(disabled)}",
         )
     return specs
 

@@ -1,38 +1,25 @@
 ﻿{
-  start: "2025-01-03",
-  end: "2025-01-03",
+  start: "2025-01-01",
+  end: "2026-04-08",
   panel_name: "T1430",
   factor_time: "14:30",
   label_time: "14:42",
-  refresh: true,
+  refresh: false,
   overwrite: false,
   workers: 1,
   factor_workers: 2,
   compute: {
-    engine: "rust", // rust | rust_shm_exp | python (no automatic fallback)
-    backend: "cpu",       // auto | torch | cpu
+    engine: "rust", // rust | rust_shm_exp
+    backend: "cpu", // default cpu; set torch/auto to use GPU path
     torch_device: "cuda", // e.g. "cuda", "cuda:0"
     fallback_cpu: true,
-    dataframe_backend: "pandas", // auto | cudf | pandas
-    fallback_pandas: true,
-    // used by engine=rust_shm_exp
-    shm_mp_start_method: "auto", // auto=>linux:fork, windows:spawn
-    shm_fallback_to_rust: true,
-    // used by rust/rust_shm_exp unified planning
-    plan_max_windows: 8,
-    plan_max_levels: 8,
-    plan_max_time_ranges: 8,
     plan_log_summary: true,
     debug_log_each_record: false
   },
   factor_files: [
-    "factor/lgbm_factor_MSE.json5"
+    "factor/factors_all_in_one.json5"
   ],
-  context: {
-    stock_panel: { enabled: false, strict: false },
-    bond_stock_map: { enabled: false, strict: false }
-  },
-  backtest_enabled: false,
+  backtest_enabled: true,
   factors: [],
   backtest: {
     workers: 6,

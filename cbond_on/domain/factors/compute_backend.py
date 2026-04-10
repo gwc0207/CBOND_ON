@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from typing import Any
 
@@ -28,7 +29,6 @@ class ComputeBackendState:
 class DataFrameBackendState:
     requested: str
     active: str
-    fallback_pandas: bool
     reason: str
 
     def to_params(self) -> dict[str, Any]:
@@ -36,7 +36,6 @@ class DataFrameBackendState:
             "__compute_backend__": {
                 "dataframe_requested": self.requested,
                 "dataframe_active": self.active,
-                "fallback_pandas": self.fallback_pandas,
                 "dataframe_reason": self.reason,
             }
         }
@@ -59,7 +58,7 @@ class FactorEngineState:
 
 
 def _parse_requested_backend(cfg: dict[str, Any]) -> str:
-    requested = str(cfg.get("backend", "auto")).strip().lower()
+    requested = str(cfg.get("backend", "cpu")).strip().lower()
     if requested in {"", "none"}:
         return "cpu"
     if requested in {"gpu"}:
@@ -68,12 +67,19 @@ def _parse_requested_backend(cfg: dict[str, Any]) -> str:
 
 
 def _parse_requested_engine(cfg: dict[str, Any]) -> str:
-    requested = str(cfg.get("engine", cfg.get("factor_engine", "python"))).strip().lower()
+    requested = str(cfg.get("engine", cfg.get("factor_engine", "rust"))).strip().lower()
     if requested in {"", "none"}:
-        return "python"
+        return "rust"
     if requested == "auto":
-        return "python"
+        return "rust"
     return requested
+
+
+def _allow_python_factor_engine(cfg: dict[str, Any]) -> bool:
+    if bool(cfg.get("allow_python_engine", False)):
+        return True
+    env_val = str(os.environ.get("CBOND_ALLOW_PYTHON_FACTOR_ENGINE", "")).strip().lower()
+    return env_val in {"1", "true", "yes", "on"}
 
 
 def _parse_requested_dataframe_backend(cfg: dict[str, Any]) -> str:
@@ -83,9 +89,7 @@ def _parse_requested_dataframe_backend(cfg: dict[str, Any]) -> str:
             cfg.get("frame_backend", cfg.get("table_backend", "pandas")),
         )
     ).strip().lower()
-    if requested in {"", "none"}:
-        return "pandas"
-    if requested in {"gpu"}:
+    if requested in {"", "none", "gpu", "auto", "cudf"}:
         return "pandas"
     return requested
 
@@ -165,68 +169,33 @@ def resolve_compute_backend(cfg: dict[str, Any] | None = None) -> ComputeBackend
 def resolve_factor_engine(cfg: dict[str, Any] | None = None) -> FactorEngineState:
     runtime = dict(cfg or {})
     requested = _parse_requested_engine(runtime)
-    if requested in {"python", "rust", "rust_shm_exp"}:
+    if requested in {"rust", "rust_shm_exp"}:
         return FactorEngineState(
             requested=requested,
             active=requested,
             reason=f"forced_{requested}",
         )
+    if requested == "python":
+        if _allow_python_factor_engine(runtime):
+            return FactorEngineState(
+                requested=requested,
+                active=requested,
+                reason="explicit_python_engine",
+            )
+        raise ValueError(
+            "unsupported factor engine: python is special-use only; set allow_python_engine=true "
+            "or env CBOND_ALLOW_PYTHON_FACTOR_ENGINE=1 to enable"
+        )
     raise ValueError(
-        f"unsupported factor engine: {requested}; expected python|rust|rust_shm_exp|auto"
+        f"unsupported factor engine: {requested}; expected rust|rust_shm_exp"
     )
 
 
 def resolve_dataframe_backend(cfg: dict[str, Any] | None = None) -> DataFrameBackendState:
     runtime = dict(cfg or {})
     requested = _parse_requested_dataframe_backend(runtime)
-    fallback_pandas = bool(runtime.get("fallback_pandas", True))
-
-    if requested == "pandas":
-        return DataFrameBackendState(
-            requested=requested,
-            active="pandas",
-            fallback_pandas=fallback_pandas,
-            reason="forced_pandas",
-        )
-
-    if requested not in {"auto", "cudf"}:
-        if not fallback_pandas:
-            raise ValueError(f"unsupported dataframe backend: {requested}")
-        return DataFrameBackendState(
-            requested=requested,
-            active="pandas",
-            fallback_pandas=fallback_pandas,
-            reason=f"unsupported_backend:{requested}",
-        )
-
-    try:
-        import cudf  # type: ignore
-    except Exception as exc:  # pragma: no cover
-        if not fallback_pandas:
-            raise RuntimeError(f"cudf import failed: {exc}") from exc
-        return DataFrameBackendState(
-            requested=requested,
-            active="pandas",
-            fallback_pandas=fallback_pandas,
-            reason=f"cudf_import_failed:{type(exc).__name__}",
-        )
-
-    try:
-        probe = cudf.DataFrame({"k": [0, 0], "v": [1.0, 2.0]})
-        _ = probe.groupby("k")["v"].sum()
-    except Exception as exc:  # pragma: no cover
-        if not fallback_pandas:
-            raise RuntimeError(f"cudf probe failed: {exc}") from exc
-        return DataFrameBackendState(
-            requested=requested,
-            active="pandas",
-            fallback_pandas=fallback_pandas,
-            reason=f"cudf_probe_failed:{type(exc).__name__}",
-        )
-
     return DataFrameBackendState(
         requested=requested,
-        active="cudf",
-        fallback_pandas=fallback_pandas,
-        reason="cudf_ready",
+        active="pandas",
+        reason="forced_pandas_only",
     )

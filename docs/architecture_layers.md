@@ -72,3 +72,22 @@ Use this to enforce repository cleanliness (runtime/dependency artifacts not tra
 ```bash
 python -m cbond_on.common.repo_hygiene_guard
 ```
+
+Use this to run factor quality checks (read-only, no auto-clean):
+
+```bash
+python -m cbond_on.common.factor_quality_guard --config factor
+```
+
+Apply actions:
+
+```bash
+# disable bad factors (writes config/factor/factor_disabled_factors.json)
+python -m cbond_on.common.factor_quality_guard --config factor --apply-disable-bad
+
+# remove deprecated factor columns from factor store
+python -m cbond_on.common.factor_quality_guard --config factor --apply-remove-deprecated
+
+# do both in one run
+python -m cbond_on.common.factor_quality_guard --config factor --apply-disable-bad --apply-remove-deprecated
+```
