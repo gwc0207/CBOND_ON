@@ -18,7 +18,7 @@ def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Factor quality guard: detect deprecated factors, bad factors, and "
-            "coverage/missing patterns. Default is read-only; apply flags enable fixes."
+            "coverage/missing patterns. Default applies fixes (disable-bad + remove-deprecated)."
         )
     )
     parser.add_argument("--config", default="factor", help="factor config key/path (default: factor)")
@@ -51,13 +51,21 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--out", help="optional JSON output path")
     parser.add_argument(
         "--apply-remove-deprecated",
-        action="store_true",
-        help="apply action: remove deprecated factor columns from factor parquet store",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "apply action: remove deprecated factor columns from factor parquet store "
+            "(default: enabled; use --no-apply-remove-deprecated to disable)"
+        ),
     )
     parser.add_argument(
         "--apply-disable-bad",
-        action="store_true",
-        help="apply action: add bad factors into disabled_factors file",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "apply action: add bad factors into disabled_factors file "
+            "(default: enabled; use --no-apply-disable-bad to disable)"
+        ),
     )
     parser.add_argument(
         "--show-top",
