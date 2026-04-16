@@ -17,7 +17,7 @@
     debug_log_each_record: false
   },
   factor_files: [
-    "factor/factors_all_in_one.json5"
+    "factor/factors_daily_sharpe_only.json5"
   ],
   backtest_enabled: true,
   factors: [],

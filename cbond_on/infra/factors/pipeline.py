@@ -354,8 +354,12 @@ def _build_factor_for_day(
             for req in daily_reqs:
                 source = str(req.source)
                 frame = daily_data.get(source)
-                if frame is None or frame.empty:
+                if frame is None:
                     raise RuntimeError(f"daily context '{source}' missing on {day}")
+                # daily data may be legitimately empty on early periods or sparse vendors;
+                # in strict mode we only enforce schema when rows are present.
+                if frame.empty:
+                    continue
                 missing_cols = [col for col in req.columns if col not in frame.columns]
                 if missing_cols:
                     raise RuntimeError(

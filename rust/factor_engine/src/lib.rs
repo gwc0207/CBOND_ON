@@ -267,6 +267,14 @@ fn norm_code(code: &str) -> String {
     code.trim().to_ascii_uppercase()
 }
 
+fn norm_instrument_code(code: &str) -> String {
+    let text = norm_code(code);
+    match text.split_once('.') {
+        Some((lhs, _)) => lhs.to_string(),
+        None => text,
+    }
+}
+
 fn norm_dt(dt: &str) -> String {
     if dt.len() >= 10 {
         dt[0..10].to_string()
@@ -404,7 +412,7 @@ fn parse_aux_data(
 
                 let mut by_code: HashMap<String, Vec<DailyPoint>> = HashMap::new();
                 for i in 0..n {
-                    let code = norm_code(&codes[i]);
+                    let code = norm_instrument_code(&codes[i]);
                     if code.is_empty() {
                         continue;
                     }
@@ -5231,7 +5239,7 @@ fn compute_factor_values(
             let min_periods = spec.param_i64("min_periods", lookback_days as i64).max(2) as usize;
             let annualize = spec.param_bool("annualize", false);
             for (gi, g) in panel.groups.iter().enumerate() {
-                let code = norm_code(&g.code);
+                let code = norm_instrument_code(&g.code);
                 let dt = norm_dt(&g.dt);
                 if code.is_empty() || dt.is_empty() {
                     out[gi] = 0.0;

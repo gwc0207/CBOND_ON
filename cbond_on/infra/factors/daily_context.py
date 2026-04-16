@@ -35,18 +35,18 @@ class DailyTableIndex:
 
 
 _DEFAULT_SOURCE_SPECS: dict[str, tuple[str, str, str]] = {
-    "market_cbond.daily_base": ("market_cbond.daily_base", "trade_date", "code"),
-    "market_cbond.daily_price": ("market_cbond.daily_price", "trade_date", "code"),
-    "market_cbond.daily_twap": ("market_cbond.daily_twap", "trade_date", "code"),
-    "market_cbond.daily_vwap": ("market_cbond.daily_vwap", "trade_date", "code"),
-    "market_cbond.daily_deriv": ("market_cbond.daily_deriv", "trade_date", "code"),
-    "market_cbond.daily_rating": ("market_cbond.daily_rating", "trade_date", "code"),
-    "cbond_daily_base": ("market_cbond.daily_base", "trade_date", "code"),
-    "cbond_daily_price": ("market_cbond.daily_price", "trade_date", "code"),
-    "cbond_daily_twap": ("market_cbond.daily_twap", "trade_date", "code"),
-    "cbond_daily_vwap": ("market_cbond.daily_vwap", "trade_date", "code"),
-    "cbond_daily_deriv": ("market_cbond.daily_deriv", "trade_date", "code"),
-    "cbond_daily_rating": ("market_cbond.daily_rating", "trade_date", "code"),
+    "market_cbond.daily_base": ("market_cbond.daily_base", "trade_date", "instrument_code"),
+    "market_cbond.daily_price": ("market_cbond.daily_price", "trade_date", "instrument_code"),
+    "market_cbond.daily_twap": ("market_cbond.daily_twap", "trade_date", "instrument_code"),
+    "market_cbond.daily_vwap": ("market_cbond.daily_vwap", "trade_date", "instrument_code"),
+    "market_cbond.daily_deriv": ("market_cbond.daily_deriv", "trade_date", "instrument_code"),
+    "market_cbond.daily_rating": ("market_cbond.daily_rating", "trade_date", "instrument_code"),
+    "cbond_daily_base": ("market_cbond.daily_base", "trade_date", "instrument_code"),
+    "cbond_daily_price": ("market_cbond.daily_price", "trade_date", "instrument_code"),
+    "cbond_daily_twap": ("market_cbond.daily_twap", "trade_date", "instrument_code"),
+    "cbond_daily_vwap": ("market_cbond.daily_vwap", "trade_date", "instrument_code"),
+    "cbond_daily_deriv": ("market_cbond.daily_deriv", "trade_date", "instrument_code"),
+    "cbond_daily_rating": ("market_cbond.daily_rating", "trade_date", "instrument_code"),
 }
 
 
