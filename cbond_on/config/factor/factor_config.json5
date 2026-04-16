@@ -5,7 +5,7 @@
   factor_time: "14:30",
   label_time: "14:42",
   refresh: false,
-  overwrite: false,
+  overwrite: true,
   workers: 1,
   factor_workers: 2,
   compute: {
