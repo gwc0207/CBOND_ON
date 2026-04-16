@@ -60,6 +60,7 @@ def compute_factor_from_context(
     *,
     stock_panel: pd.DataFrame | None = None,
     bond_stock_map: pd.DataFrame | None = None,
+    daily_data: dict[str, pd.DataFrame] | None = None,
 ) -> pd.Series:
     panel = ensure_panel_index(panel)
     if stock_panel is not None and not stock_panel.empty:
@@ -69,6 +70,7 @@ def compute_factor_from_context(
         panel=panel,
         stock_panel=stock_panel,
         bond_stock_map=bond_stock_map,
+        daily_data=dict(daily_data or {}),
         params=spec.params,
     )
     series = factor.compute(ctx)
@@ -100,6 +102,7 @@ def _spawn_spec_context(
         panel=panel,
         stock_panel=base_ctx.stock_panel,
         bond_stock_map=base_ctx.bond_stock_map,
+        daily_data=base_ctx.daily_data,
         params=params,
         cache=base_ctx.cache,
         cache_lock=base_ctx.cache_lock,
@@ -135,6 +138,7 @@ def build_factor_frame(
     *,
     stock_panel: pd.DataFrame | None = None,
     bond_stock_map: pd.DataFrame | None = None,
+    daily_data: dict[str, pd.DataFrame] | None = None,
     workers: int = 1,
     compute_backend_params: dict | None = None,
 ) -> pd.DataFrame:
@@ -156,6 +160,7 @@ def build_factor_frame(
         panel=panel,
         stock_panel=stock_panel,
         bond_stock_map=bond_stock_map,
+        daily_data=dict(daily_data or {}),
         params=dict(compute_backend_params or {}),
     )
 

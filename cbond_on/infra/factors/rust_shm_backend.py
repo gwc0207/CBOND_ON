@@ -53,6 +53,38 @@ def _specs_payload(specs: Sequence[FactorSpec]) -> list[dict]:
     return payload
 
 
+def _call_compute_factor_frame(
+    module: object,
+    *,
+    panel_df: pd.DataFrame,
+    specs_payload: list[dict],
+    daily_payload: dict[str, pd.DataFrame] | None,
+    compute_backend_params: dict,
+):
+    fn = getattr(module, "compute_factor_frame")
+    try:
+        return fn(
+            panel_df,
+            specs_payload,
+            None,
+            None,
+            daily_payload or None,
+            compute_backend_params,
+        )
+    except TypeError as exc:
+        if daily_payload:
+            raise RuntimeError(
+                "rust extension is outdated for daily factor context; rebuild cbond_on_rust first"
+            ) from exc
+        return fn(
+            panel_df,
+            specs_payload,
+            None,
+            None,
+            compute_backend_params,
+        )
+
+
 def _chunk_specs(specs: Sequence[FactorSpec], parts: int) -> list[list[FactorSpec]]:
     slots = max(1, min(int(parts), len(specs)))
     buckets: list[list[FactorSpec]] = [[] for _ in range(slots)]
@@ -211,12 +243,12 @@ def _rust_shm_worker(task: dict[str, Any]) -> pd.DataFrame:
         for col in package.get("numeric_cols") or []:
             data[col] = arrays[col]
         panel_df = pd.DataFrame(data, copy=False)
-        out = module.compute_factor_frame(
-            panel_df,
-            list(task.get("spec_payload") or []),
-            None,
-            None,
-            dict(task.get("compute_backend_params") or {}),
+        out = _call_compute_factor_frame(
+            module,
+            panel_df=panel_df,
+            specs_payload=list(task.get("spec_payload") or []),
+            daily_payload=task.get("daily_payload"),
+            compute_backend_params=dict(task.get("compute_backend_params") or {}),
         )
         if not isinstance(out, pd.DataFrame):
             raise RuntimeError("cbond_on_rust.compute_factor_frame must return pandas.DataFrame")
@@ -230,12 +262,12 @@ def _rust_fork_worker(task: dict[str, Any]) -> pd.DataFrame:
     panel_df = _FORK_PANEL_DF
     if panel_df is None:
         raise RuntimeError("fork_zero_copy panel is not initialized in worker")
-    out = module.compute_factor_frame(
-        panel_df,
-        list(task.get("spec_payload") or []),
-        None,
-        None,
-        dict(task.get("compute_backend_params") or {}),
+    out = _call_compute_factor_frame(
+        module,
+        panel_df=panel_df,
+        specs_payload=list(task.get("spec_payload") or []),
+        daily_payload=task.get("daily_payload"),
+        compute_backend_params=dict(task.get("compute_backend_params") or {}),
     )
     if not isinstance(out, pd.DataFrame):
         raise RuntimeError("cbond_on_rust.compute_factor_frame must return pandas.DataFrame")
@@ -248,6 +280,7 @@ def build_factor_frame_rust_shm(
     *,
     stock_panel: pd.DataFrame | None = None,
     bond_stock_map: pd.DataFrame | None = None,
+    daily_data: dict[str, pd.DataFrame] | None = None,
     compute_backend_params: dict | None = None,
     workers: int = 1,
 ) -> pd.DataFrame:
@@ -259,6 +292,7 @@ def build_factor_frame_rust_shm(
             specs,
             stock_panel=stock_panel,
             bond_stock_map=bond_stock_map,
+            daily_data=daily_data,
             compute_backend_params=compute_backend_params,
         )
     if (stock_panel is not None and not stock_panel.empty) or (
@@ -270,6 +304,7 @@ def build_factor_frame_rust_shm(
             specs,
             stock_panel=stock_panel,
             bond_stock_map=bond_stock_map,
+            daily_data=daily_data,
             compute_backend_params=compute_backend_params,
         )
 
@@ -285,6 +320,29 @@ def build_factor_frame_rust_shm(
     fork_zero_copy = bool(backend_cfg.get("shm_fork_zero_copy", True))
 
     panel_df = _normalize_panel_for_rust(panel)
+
+    daily_payload: dict[str, pd.DataFrame] = {}
+    for source, raw_df in dict(daily_data or {}).items():
+        if raw_df is None or raw_df.empty:
+            continue
+        df = raw_df.copy()
+        if "trade_date" not in df.columns or "code" not in df.columns:
+            continue
+        df["trade_date"] = pd.to_datetime(df["trade_date"], errors="coerce").dt.strftime("%Y-%m-%d")
+        df["code"] = df["code"].astype(str)
+        numeric_cols: list[str] = []
+        for col in df.columns:
+            if col in {"trade_date", "code"}:
+                continue
+            series = pd.to_numeric(df[col], errors="coerce")
+            if series.notna().any():
+                df[col] = series.astype("float64")
+                numeric_cols.append(col)
+        if not numeric_cols:
+            continue
+        keep_cols = ["trade_date", "code", *numeric_cols]
+        daily_payload[str(source)] = df[keep_cols].reset_index(drop=True)
+
     chunks = _chunk_specs(specs, workers)
     use_fork_zero_copy = mp_start_method == "fork" and fork_zero_copy
 
@@ -296,6 +354,7 @@ def build_factor_frame_rust_shm(
         tasks = [
             {
                 "spec_payload": _specs_payload(chunk),
+                "daily_payload": daily_payload or None,
                 "compute_backend_params": dict(compute_backend_params or {}),
             }
             for chunk in chunks
@@ -328,6 +387,7 @@ def build_factor_frame_rust_shm(
                     },
                 },
                 "spec_payload": _specs_payload(chunk),
+                "daily_payload": daily_payload or None,
                 "compute_backend_params": dict(compute_backend_params or {}),
             }
             for chunk in chunks
@@ -374,6 +434,7 @@ def build_factor_frame_rust_shm(
                 specs,
                 stock_panel=stock_panel,
                 bond_stock_map=bond_stock_map,
+                daily_data=daily_data,
                 compute_backend_params=compute_backend_params,
             )
     finally:

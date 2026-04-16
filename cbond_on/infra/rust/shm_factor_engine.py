@@ -14,6 +14,7 @@ def compute(
     *,
     stock_panel: pd.DataFrame | None = None,
     bond_stock_map: pd.DataFrame | None = None,
+    daily_data: dict[str, pd.DataFrame] | None = None,
     compute_backend_params: dict | None = None,
     workers: int = 1,
 ) -> pd.DataFrame:
@@ -22,6 +23,7 @@ def compute(
         specs,
         stock_panel=stock_panel,
         bond_stock_map=bond_stock_map,
+        daily_data=daily_data,
         compute_backend_params=compute_backend_params,
         workers=workers,
     )

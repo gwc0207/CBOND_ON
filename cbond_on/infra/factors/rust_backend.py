@@ -34,12 +34,48 @@ def _specs_payload(specs: Sequence[FactorSpec]) -> list[dict]:
     return payload
 
 
+def _call_compute_factor_frame(
+    module: object,
+    *,
+    panel_df: pd.DataFrame,
+    specs_payload: list[dict],
+    stock_df: pd.DataFrame | None,
+    map_df: pd.DataFrame | None,
+    daily_payload: dict[str, pd.DataFrame] | None,
+    compute_backend_params: dict,
+):
+    fn = getattr(module, "compute_factor_frame")
+    try:
+        return fn(
+            panel_df,
+            specs_payload,
+            stock_df,
+            map_df,
+            daily_payload or None,
+            compute_backend_params,
+        )
+    except TypeError as exc:
+        # Backward-compatibility for an older built extension with 5-arg signature.
+        if daily_payload:
+            raise RuntimeError(
+                "rust extension is outdated for daily factor context; rebuild cbond_on_rust first"
+            ) from exc
+        return fn(
+            panel_df,
+            specs_payload,
+            stock_df,
+            map_df,
+            compute_backend_params,
+        )
+
+
 def build_factor_frame_rust(
     panel: pd.DataFrame,
     specs: Sequence[FactorSpec],
     *,
     stock_panel: pd.DataFrame | None = None,
     bond_stock_map: pd.DataFrame | None = None,
+    daily_data: dict[str, pd.DataFrame] | None = None,
     compute_backend_params: dict | None = None,
 ) -> pd.DataFrame:
     if not specs:
@@ -69,6 +105,28 @@ def build_factor_frame_rust(
     map_df = None
     if bond_stock_map is not None and not bond_stock_map.empty:
         map_df = bond_stock_map.copy()
+
+    daily_payload: dict[str, pd.DataFrame] = {}
+    for source, raw_df in dict(daily_data or {}).items():
+        if raw_df is None or raw_df.empty:
+            continue
+        df = raw_df.copy()
+        if "trade_date" not in df.columns or "code" not in df.columns:
+            continue
+        df["trade_date"] = pd.to_datetime(df["trade_date"], errors="coerce").dt.strftime("%Y-%m-%d")
+        df["code"] = df["code"].astype(str)
+        numeric_cols: list[str] = []
+        for col in df.columns:
+            if col in {"trade_date", "code"}:
+                continue
+            series = pd.to_numeric(df[col], errors="coerce")
+            if series.notna().any():
+                df[col] = series.astype("float64")
+                numeric_cols.append(col)
+        if not numeric_cols:
+            continue
+        keep_cols = ["trade_date", "code", *numeric_cols]
+        daily_payload[str(source)] = df[keep_cols].reset_index(drop=True)
     t_prepare_context = perf_counter() - t_prepare_context
 
     t_payload = perf_counter()
@@ -79,12 +137,14 @@ def build_factor_frame_rust(
         raise RuntimeError("module 'cbond_on_rust' missing function: compute_factor_frame")
 
     t_rust = perf_counter()
-    out = module.compute_factor_frame(
-        panel_df,
-        payload,
-        stock_df,
-        map_df,
-        dict(compute_backend_params or {}),
+    out = _call_compute_factor_frame(
+        module,
+        panel_df=panel_df,
+        specs_payload=payload,
+        stock_df=stock_df,
+        map_df=map_df,
+        daily_payload=daily_payload or None,
+        compute_backend_params=dict(compute_backend_params or {}),
     )
     t_rust = perf_counter() - t_rust
     if not isinstance(out, pd.DataFrame):

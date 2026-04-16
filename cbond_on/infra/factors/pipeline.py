@@ -24,9 +24,17 @@ from cbond_on.domain.factors.compute_backend import (
 from cbond_on.infra.factors.rust_backend import build_factor_frame_rust
 from cbond_on.infra.factors.rust_shm_backend import build_factor_frame_rust_shm
 from cbond_on.domain.factors.spec import (
+    FactorDailyContextRequirement,
     FactorSpec,
     build_factor_col,
     infer_factor_context_requirements,
+)
+from cbond_on.infra.factors.daily_context import (
+    DailySourceSpec,
+    DailyTableIndex as _DailyContextTableIndex,
+    index_daily_table,
+    load_daily_context_for_day,
+    resolve_daily_source_specs,
 )
 from cbond_on.domain.factors.storage import FactorStore
 
@@ -187,10 +195,13 @@ def _build_context_config(cfg: dict | None, *, specs: Sequence[FactorSpec]) -> d
     raw = dict(cfg or {})
     stock_raw = raw.get("stock_panel", {})
     map_raw = raw.get("bond_stock_map", {})
+    daily_raw = raw.get("daily", {})
     if not isinstance(stock_raw, dict):
         stock_raw = {}
     if not isinstance(map_raw, dict):
         map_raw = {}
+    if not isinstance(daily_raw, dict):
+        daily_raw = {}
     mode = str(raw.get("mode", "auto")).strip().lower() or "auto"
     if mode not in {"auto", "manual"}:
         mode = "auto"
@@ -201,12 +212,23 @@ def _build_context_config(cfg: dict | None, *, specs: Sequence[FactorSpec]) -> d
         map_enabled = bool(map_raw.get("enabled", req.bond_stock_map_required))
         stock_strict = bool(stock_raw.get("strict", True))
         map_strict = bool(map_raw.get("strict", True))
+        daily_enabled = bool(daily_raw.get("enabled", req.daily_required))
+        daily_strict = bool(daily_raw.get("strict", True))
     else:
         # Auto mode: only load what current factor set requires, and force strict.
         stock_enabled = bool(req.stock_panel_required)
         map_enabled = bool(req.bond_stock_map_required)
         stock_strict = bool(stock_enabled)
         map_strict = bool(map_enabled)
+        daily_enabled = bool(req.daily_required)
+        daily_strict = bool(daily_enabled)
+
+    daily_reqs: list[FactorDailyContextRequirement] = (
+        list(req.daily_requirements) if daily_enabled else []
+    )
+    daily_required_by_source = {item.source: list(item.factors) for item in daily_reqs}
+    daily_source_columns = {item.source: list(item.columns) for item in daily_reqs}
+    daily_source_lookback = {item.source: int(item.lookback_days) for item in daily_reqs}
 
     return {
         "mode": mode,
@@ -217,6 +239,15 @@ def _build_context_config(cfg: dict | None, *, specs: Sequence[FactorSpec]) -> d
         "stock_required_by": list(req.stock_panel_factors),
         "map_required_by": list(req.bond_stock_map_factors),
         "map_table": str(map_raw.get("table", "market_cbond.daily_base")),
+        "daily_enabled": daily_enabled,
+        "daily_strict": daily_strict,
+        "daily_requirements": daily_reqs,
+        "daily_sources": [item.source for item in daily_reqs],
+        "daily_source_columns": daily_source_columns,
+        "daily_source_lookback": daily_source_lookback,
+        "daily_required_by": list(req.daily_factors),
+        "daily_required_by_source": daily_required_by_source,
+        "daily_cfg": daily_raw,
     }
 
 
@@ -233,6 +264,8 @@ def _build_factor_for_day(
     raw_data_root: Path | None,
     context_cfg: dict,
     map_index: _DailyTableIndex | None,
+    daily_source_specs: dict[str, DailySourceSpec],
+    daily_source_indexes: dict[str, _DailyContextTableIndex | None],
     factor_workers: int,
     compute_backend_params: dict,
     factor_engine: str,
@@ -306,12 +339,43 @@ def _build_factor_for_day(
             raise RuntimeError(f"bond-stock mapping missing on {day}")
         if not bond_stock_map_df.empty:
             bond_stock_map = bond_stock_map_df
+
+    daily_data: dict[str, pd.DataFrame] = {}
+    if bool(context_cfg.get("daily_enabled", False)) and raw_data_root is not None:
+        daily_reqs = list(context_cfg.get("daily_requirements", ()))
+        daily_data = load_daily_context_for_day(
+            day,
+            raw_data_root=raw_data_root,
+            requirements=daily_reqs,
+            source_specs=daily_source_specs,
+            source_indexes=daily_source_indexes,
+        )
+        if bool(context_cfg.get("daily_strict", False)):
+            for req in daily_reqs:
+                source = str(req.source)
+                frame = daily_data.get(source)
+                if frame is None or frame.empty:
+                    raise RuntimeError(f"daily context '{source}' missing on {day}")
+                missing_cols = [col for col in req.columns if col not in frame.columns]
+                if missing_cols:
+                    raise RuntimeError(
+                        f"daily context '{source}' missing columns on {day}: {missing_cols}"
+                    )
     t_context = perf_counter() - t_context
+    daily_rows = (
+        ",".join(
+            f"{source}:{len(df)}"
+            for source, df in sorted(daily_data.items(), key=lambda kv: kv[0])
+        )
+        if daily_data
+        else "-"
+    )
     _log_day(
         day,
         (
             f"context_loaded stock_rows={0 if stock_panel is None else len(stock_panel)} "
-            f"map_rows={0 if bond_stock_map is None else len(bond_stock_map)} t_context={t_context:.2f}s"
+            f"map_rows={0 if bond_stock_map is None else len(bond_stock_map)} "
+            f"daily_sources={len(daily_data)} daily_rows={daily_rows} t_context={t_context:.2f}s"
         ),
     )
 
@@ -326,6 +390,7 @@ def _build_factor_for_day(
             to_compute,
             stock_panel=stock_panel,
             bond_stock_map=bond_stock_map,
+            daily_data=daily_data,
             compute_backend_params=compute_backend_params,
         )
     elif factor_engine == "rust_shm_exp":
@@ -334,6 +399,7 @@ def _build_factor_for_day(
             to_compute,
             stock_panel=stock_panel,
             bond_stock_map=bond_stock_map,
+            daily_data=daily_data,
             compute_backend_params=compute_backend_params,
             workers=factor_workers,
         )
@@ -343,6 +409,7 @@ def _build_factor_for_day(
             to_compute,
             stock_panel=stock_panel,
             bond_stock_map=bond_stock_map,
+            daily_data=daily_data,
             workers=factor_workers,
             compute_backend_params=compute_backend_params,
         )
@@ -436,9 +503,24 @@ def run_factor_pipeline(
         raise ValueError(
             "context.bond_stock_map is required by current factors, but raw_data_root is not configured"
         )
+    if bool(context.get("daily_enabled", False)) and raw_data_root_path is None:
+        raise ValueError(
+            "context.daily is required by current factors, but raw_data_root is not configured"
+        )
     map_index: _DailyTableIndex | None = None
     if bool(context.get("map_enabled", False)) and raw_data_root_path is not None:
         map_index = _index_daily_table(raw_data_root_path, str(context.get("map_table")))
+    daily_source_specs: dict[str, DailySourceSpec] = {}
+    daily_source_indexes: dict[str, _DailyContextTableIndex | None] = {}
+    if bool(context.get("daily_enabled", False)) and raw_data_root_path is not None:
+        daily_source_specs = resolve_daily_source_specs(
+            list(context.get("daily_requirements", ())),
+            daily_cfg=context.get("daily_cfg"),
+        )
+        daily_source_indexes = {
+            source: index_daily_table(raw_data_root_path, source_spec.table)
+            for source, source_spec in daily_source_specs.items()
+        }
     store = FactorStore(Path(factor_data_root), panel_name=panel_name, window_minutes=window_minutes)
     panel_days = _iter_existing_panel_days(
         panel_data_root,
@@ -463,13 +545,25 @@ def run_factor_pipeline(
         f"context_mode={context.get('mode', 'auto')}",
         f"context_stock={bool(context.get('stock_enabled', False))}",
         f"context_map={bool(context.get('map_enabled', False))}",
+        f"context_daily={bool(context.get('daily_enabled', False))}",
         f"context_stock_strict={bool(context.get('stock_strict', False))}",
         f"context_map_strict={bool(context.get('map_strict', False))}",
+        f"context_daily_strict={bool(context.get('daily_strict', False))}",
     )
     if context.get("stock_required_by"):
         print("factor context stock required_by:", ",".join(context["stock_required_by"]))
     if context.get("map_required_by"):
         print("factor context map required_by:", ",".join(context["map_required_by"]))
+    if context.get("daily_required_by"):
+        print("factor context daily required_by:", ",".join(context["daily_required_by"]))
+    for source, factors in sorted((context.get("daily_required_by_source") or {}).items()):
+        print(
+            "factor context daily source:",
+            f"{source}",
+            f"lookback_days={int((context.get('daily_source_lookback') or {}).get(source, 1))}",
+            f"columns={','.join((context.get('daily_source_columns') or {}).get(source, [])) or '-'}",
+            f"required_by={','.join(factors)}",
+        )
     if workers <= 1:
         for day in progress(panel_days, desc="build_factors", unit="day", total=len(panel_days)):
             outcome = _build_factor_for_day(
@@ -484,6 +578,8 @@ def run_factor_pipeline(
                 raw_data_root=raw_data_root_path,
                 context_cfg=context,
                 map_index=map_index,
+                daily_source_specs=daily_source_specs,
+                daily_source_indexes=daily_source_indexes,
                 factor_workers=factor_workers,
                 compute_backend_params=compute_backend_params,
                 factor_engine=engine_state.active,
@@ -507,6 +603,8 @@ def run_factor_pipeline(
                 raw_data_root=raw_data_root_path,
                 context_cfg=context,
                 map_index=map_index,
+                daily_source_specs=daily_source_specs,
+                daily_source_indexes=daily_source_indexes,
                 factor_workers=factor_workers,
                 compute_backend_params=compute_backend_params,
                 factor_engine=engine_state.active,

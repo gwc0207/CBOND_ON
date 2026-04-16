@@ -1,10 +1,10 @@
-use std::collections::{BTreeSet, HashMap};
-use std::time::Instant;
 use chrono::NaiveDate;
 use numpy::{PyArray1, PyArrayMethods};
 use pyo3::exceptions::{PyKeyError, PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
+use std::collections::{BTreeSet, HashMap};
+use std::time::Instant;
 
 const EPS: f64 = 1e-8;
 
@@ -88,9 +88,21 @@ struct LatestQuote {
 }
 
 #[derive(Clone, Default)]
+struct DailySourceData {
+    by_code: HashMap<String, Vec<DailyPoint>>,
+}
+
+#[derive(Clone)]
+struct DailyPoint {
+    date: String,
+    values: HashMap<String, f64>,
+}
+
+#[derive(Clone, Default)]
 struct AuxData {
     stock_latest: HashMap<(String, String), LatestQuote>,
     bond_stock_map: HashMap<String, String>,
+    daily_sources: HashMap<String, DailySourceData>,
 }
 
 #[derive(Clone, Debug)]
@@ -174,12 +186,14 @@ fn cbond_on_rust(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
 }
 
 #[pyfunction]
+#[pyo3(signature = (panel_df, specs_payload, stock_df=None, map_df=None, daily_data=None, _compute_params=None))]
 fn compute_factor_frame(
     py: Python<'_>,
     panel_df: &Bound<'_, PyAny>,
     specs_payload: &Bound<'_, PyAny>,
     stock_df: Option<&Bound<'_, PyAny>>,
     map_df: Option<&Bound<'_, PyAny>>,
+    daily_data: Option<&Bound<'_, PyAny>>,
     _compute_params: Option<&Bound<'_, PyAny>>,
 ) -> PyResult<PyObject> {
     let mut panel = parse_panel(py, panel_df)?;
@@ -187,7 +201,7 @@ fn compute_factor_frame(
     let plan_limits = parse_plan_limits(_compute_params)?;
     let plan = extract_factor_plan(&specs, &plan_limits)?;
     let window_cache = build_window_start_cache(&panel, &plan.windows);
-    let aux = parse_aux_data(py, stock_df, map_df)?;
+    let aux = parse_aux_data(py, stock_df, map_df, daily_data)?;
     if panel.groups.is_empty() {
         return empty_df(py);
     }
@@ -212,14 +226,7 @@ fn compute_factor_frame(
     let t_all_factors = Instant::now();
     for spec in &specs {
         let t_factor = Instant::now();
-        let values = compute_factor_values(
-            py,
-            &mut panel,
-            panel_df,
-            &aux,
-            &window_cache,
-            spec,
-        )?;
+        let values = compute_factor_values(py, &mut panel, panel_df, &aux, &window_cache, spec)?;
         let elapsed = t_factor.elapsed().as_secs_f64();
         factor_timings.push((spec.output_col.clone(), elapsed));
         out_cols.insert(spec.output_col.clone(), values);
@@ -272,6 +279,7 @@ fn parse_aux_data(
     py: Python<'_>,
     stock_df: Option<&Bound<'_, PyAny>>,
     map_df: Option<&Bound<'_, PyAny>>,
+    daily_data: Option<&Bound<'_, PyAny>>,
 ) -> PyResult<AuxData> {
     let mut aux = AuxData::default();
 
@@ -349,6 +357,95 @@ fn parse_aux_data(
                 let s = norm_code(&stock_code[i]);
                 if !c.is_empty() && !s.is_empty() {
                     aux.bond_stock_map.insert(c, s);
+                }
+            }
+        }
+    }
+
+    if let Some(raw_daily) = daily_data {
+        if !raw_daily.is_none() {
+            let daily_dict = raw_daily.downcast::<PyDict>()?;
+            for (raw_source, raw_df) in daily_dict.iter() {
+                let source = raw_source.extract::<String>()?;
+                let df = raw_df;
+                if !has_col(py, &df, "trade_date")? || !has_col(py, &df, "code")? {
+                    continue;
+                }
+                let dates = col_to_str_vec(py, &df, "trade_date")?;
+                let codes = col_to_str_vec(py, &df, "code")?;
+                let n = dates.len().min(codes.len());
+                if n == 0 {
+                    continue;
+                }
+
+                let cols_obj = df.getattr("columns")?;
+                let cols_list_any = cols_obj.call_method0("tolist")?;
+                let cols_list = cols_list_any.extract::<Vec<String>>()?;
+
+                let mut numeric_cols: Vec<String> = Vec::new();
+                let mut numeric_data: HashMap<String, Vec<f64>> = HashMap::new();
+                for col in cols_list {
+                    if col == "trade_date" || col == "code" {
+                        continue;
+                    }
+                    let vec = match col_to_f64_vec(py, &df, &col) {
+                        Ok(v) => v,
+                        Err(_) => continue,
+                    };
+                    if vec.len() < n {
+                        continue;
+                    }
+                    numeric_cols.push(col.clone());
+                    numeric_data.insert(col, vec);
+                }
+                if numeric_cols.is_empty() {
+                    continue;
+                }
+
+                let mut by_code: HashMap<String, Vec<DailyPoint>> = HashMap::new();
+                for i in 0..n {
+                    let code = norm_code(&codes[i]);
+                    if code.is_empty() {
+                        continue;
+                    }
+                    let trade_date = norm_dt(&dates[i]);
+                    if trade_date.is_empty() {
+                        continue;
+                    }
+                    let mut values = HashMap::<String, f64>::new();
+                    for col in &numeric_cols {
+                        if let Some(vec) = numeric_data.get(col) {
+                            let v = vec[i];
+                            if v.is_finite() {
+                                values.insert(col.clone(), v);
+                            }
+                        }
+                    }
+                    if values.is_empty() {
+                        continue;
+                    }
+                    by_code.entry(code).or_default().push(DailyPoint {
+                        date: trade_date,
+                        values,
+                    });
+                }
+                for rows in by_code.values_mut() {
+                    rows.sort_by(|a, b| a.date.cmp(&b.date));
+                    let mut dedup: Vec<DailyPoint> = Vec::with_capacity(rows.len());
+                    for row in rows.iter().cloned() {
+                        if let Some(last) = dedup.last_mut() {
+                            if last.date == row.date {
+                                *last = row;
+                                continue;
+                            }
+                        }
+                        dedup.push(row);
+                    }
+                    *rows = dedup;
+                }
+                if !by_code.is_empty() {
+                    aux.daily_sources
+                        .insert(source, DailySourceData { by_code });
                 }
             }
         }
@@ -670,7 +767,12 @@ fn col_to_f64_vec(py: Python<'_>, df: &Bound<'_, PyAny>, col: &str) -> PyResult<
     Ok(arr.readonly().as_slice()?.to_vec())
 }
 
-fn ensure_col(py: Python<'_>, panel: &mut PanelData, panel_df: &Bound<'_, PyAny>, col: &str) -> PyResult<()> {
+fn ensure_col(
+    py: Python<'_>,
+    panel: &mut PanelData,
+    panel_df: &Bound<'_, PyAny>,
+    col: &str,
+) -> PyResult<()> {
     if !panel.cols.contains_key(col) {
         let values = col_to_f64_vec(py, panel_df, col)?;
         if values.len() != panel.len() {
@@ -708,7 +810,9 @@ fn window_start_ns(trade_ns: &[i64], start: usize, end: usize, window_minutes: i
         return start;
     }
     let end_ns = trade_ns[end - 1];
-    let lookback = window_minutes.saturating_mul(60).saturating_mul(1_000_000_000i64);
+    let lookback = window_minutes
+        .saturating_mul(60)
+        .saturating_mul(1_000_000_000i64);
     let cutoff = end_ns.saturating_sub(lookback);
     let mut lo = start;
     let mut hi = end;
@@ -807,7 +911,11 @@ fn pct_rank(values: &[f64]) -> Vec<f64> {
     if m == 0 {
         return out;
     }
-    idx.sort_by(|&a, &b| values[a].partial_cmp(&values[b]).unwrap_or(std::cmp::Ordering::Equal));
+    idx.sort_by(|&a, &b| {
+        values[a]
+            .partial_cmp(&values[b])
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     let mut i = 0usize;
     while i < m {
         let mut j = i + 1;
@@ -866,7 +974,11 @@ fn corr_slice(x: &[f64], y: &[f64]) -> f64 {
         return 0.0;
     }
     let r = sxy / (sxx.sqrt() * syy.sqrt());
-    if r.is_finite() { r } else { 0.0 }
+    if r.is_finite() {
+        r
+    } else {
+        0.0
+    }
 }
 
 fn cov_slice(x: &[f64], y: &[f64]) -> f64 {
@@ -966,7 +1078,11 @@ fn skew_unbiased(values: &[f64]) -> f64 {
     }
     let adj = (n as f64) * ((n - 1) as f64).sqrt() / ((n - 2) as f64);
     let out = adj * (sum3 / denom);
-    if out.is_finite() { out } else { 0.0 }
+    if out.is_finite() {
+        out
+    } else {
+        0.0
+    }
 }
 
 fn ts_rank_last(values: &[f64], window: usize) -> f64 {
@@ -1165,7 +1281,11 @@ fn diff(values: &[f64], lag: usize) -> Vec<f64> {
     for i in lag..values.len() {
         let a = values[i];
         let b = values[i - lag];
-        out[i] = if a.is_finite() && b.is_finite() { a - b } else { f64::NAN };
+        out[i] = if a.is_finite() && b.is_finite() {
+            a - b
+        } else {
+            f64::NAN
+        };
     }
     out
 }
@@ -1241,6 +1361,85 @@ fn cov_last_window(x: &[f64], y: &[f64], window: usize) -> f64 {
     let n = x.len().min(y.len());
     let w = window.max(2).min(n);
     cov_slice(&x[n - w..n], &y[n - w..n])
+}
+
+fn daily_values_asof(
+    aux: &AuxData,
+    source: &str,
+    code: &str,
+    asof_dt: &str,
+    col: &str,
+    lookback_days: usize,
+) -> Vec<f64> {
+    let Some(source_data) = aux.daily_sources.get(source) else {
+        return Vec::new();
+    };
+    let Some(rows) = source_data.by_code.get(code) else {
+        return Vec::new();
+    };
+    let mut out_rev: Vec<f64> = Vec::with_capacity(lookback_days.max(1));
+    let limit = lookback_days.max(1);
+    for row in rows.iter().rev() {
+        if row.date.as_str() > asof_dt {
+            continue;
+        }
+        if let Some(v) = row.values.get(col) {
+            if v.is_finite() {
+                out_rev.push(*v);
+                if out_rev.len() >= limit {
+                    break;
+                }
+            }
+        }
+    }
+    out_rev.reverse();
+    out_rev
+}
+
+fn rolling_sharpe_last_mean(
+    values: &[f64],
+    lookback_days: usize,
+    smooth_days: usize,
+    min_periods: usize,
+    annualize: bool,
+) -> f64 {
+    if values.len() < 2 {
+        return 0.0;
+    }
+    let returns = pct_change(values);
+    let window = lookback_days.max(2);
+    let min_count = min_periods.max(2);
+    let ann = if annualize { 252.0f64.sqrt() } else { 1.0 };
+    let mut sharpe_hist: Vec<f64> = Vec::new();
+    for i in 0..returns.len() {
+        let end = i + 1;
+        let start = end.saturating_sub(window);
+        let mut buf: Vec<f64> = Vec::with_capacity(window);
+        for &v in &returns[start..end] {
+            if v.is_finite() {
+                buf.push(v);
+            }
+        }
+        if buf.len() < min_count {
+            continue;
+        }
+        let mean = mean_valid(&buf);
+        let std = std_sample(&buf);
+        if mean.is_finite() && std.is_finite() && std > EPS {
+            sharpe_hist.push((mean / std) * ann);
+        }
+    }
+    if sharpe_hist.is_empty() {
+        return 0.0;
+    }
+    let smooth = smooth_days.max(1).min(sharpe_hist.len());
+    let s = sharpe_hist.len() - smooth;
+    let out = mean_valid(&sharpe_hist[s..]);
+    if out.is_finite() {
+        out
+    } else {
+        0.0
+    }
 }
 
 fn compute_factor_values(
@@ -1401,10 +1600,8 @@ fn compute_factor_values(
             let (eh, em) = parse_hhmm(&et);
             for (gi, g) in panel.groups.iter().enumerate() {
                 let base_ns = date_start_ns(&g.dt).unwrap_or(0);
-                let start_ns = base_ns
-                    + (sh as i64 * 3600 + sm as i64 * 60) * 1_000_000_000i64;
-                let end_ns = base_ns
-                    + (eh as i64 * 3600 + em as i64 * 60) * 1_000_000_000i64;
+                let start_ns = base_ns + (sh as i64 * 3600 + sm as i64 * 60) * 1_000_000_000i64;
+                let end_ns = base_ns + (eh as i64 * 3600 + em as i64 * 60) * 1_000_000_000i64;
                 let col = panel.col(&price_col)?;
                 let mut first = f64::NAN;
                 let mut last = f64::NAN;
@@ -1486,11 +1683,12 @@ fn compute_factor_values(
                 let lo = min_valid(p);
                 let hi = max_valid(p);
                 let last = last_valid(p);
-                out[gi] = if lo.is_finite() && hi.is_finite() && last.is_finite() && last.abs() > EPS {
-                    (hi - lo) / last
-                } else {
-                    0.0
-                };
+                out[gi] =
+                    if lo.is_finite() && hi.is_finite() && last.is_finite() && last.abs() > EPS {
+                        (hi - lo) / last
+                    } else {
+                        0.0
+                    };
             }
         }
         "price_position" => {
@@ -1566,7 +1764,11 @@ fn compute_factor_values(
                     }
                 }
                 let denom = bid + ask;
-                out[gi] = if denom > EPS { (bid - ask) / denom } else { 0.0 };
+                out[gi] = if denom > EPS {
+                    (bid - ask) / denom
+                } else {
+                    0.0
+                };
             }
         }
         "spread" => {
@@ -1607,7 +1809,11 @@ fn compute_factor_values(
                     }
                 }
                 let denom = bid + ask;
-                out[gi] = if denom > EPS { (bid - ask) / denom } else { 0.0 };
+                out[gi] = if denom > EPS {
+                    (bid - ask) / denom
+                } else {
+                    0.0
+                };
             }
         }
         "midprice_move" => {
@@ -1733,12 +1939,20 @@ fn compute_factor_values(
                             wsum += w;
                         }
                     }
-                    if wsum > EPS { s / wsum } else { 0.0 }
+                    if wsum > EPS {
+                        s / wsum
+                    } else {
+                        0.0
+                    }
                 };
                 let bid_slope = calc_side(&bp, &bv);
                 let ask_slope = calc_side(&ap, &av);
                 let mid = (panel.col("ask_price1")?[r] + panel.col("bid_price1")?[r]) * 0.5;
-                out[gi] = if mid > EPS { (ask_slope - bid_slope) / mid } else { 0.0 };
+                out[gi] = if mid > EPS {
+                    (ask_slope - bid_slope) / mid
+                } else {
+                    0.0
+                };
             }
         }
         "return_skew" => {
@@ -1786,7 +2000,11 @@ fn compute_factor_values(
                 let bid = panel.col("bid_volume1")?[r];
                 let ask = panel.col("ask_volume1")?[r];
                 let denom = bid + ask + EPS;
-                out[gi] = if bid.is_finite() && ask.is_finite() { (bid - ask) / denom } else { 0.0 };
+                out[gi] = if bid.is_finite() && ask.is_finite() {
+                    (bid - ask) / denom
+                } else {
+                    0.0
+                };
             }
         }
         "depth_weighted_imbalance_v1" => {
@@ -1806,7 +2024,11 @@ fn compute_factor_values(
                     ask += panel.col(&format!("ask_volume{}", i + 1))?[r] * w;
                 }
                 let denom = bid + ask + EPS;
-                out[gi] = if bid.is_finite() && ask.is_finite() { (bid - ask) / denom } else { 0.0 };
+                out[gi] = if bid.is_finite() && ask.is_finite() {
+                    (bid - ask) / denom
+                } else {
+                    0.0
+                };
             }
         }
         "intraday_momentum_v1" => {
@@ -1853,7 +2075,11 @@ fn compute_factor_values(
                 let high = panel.col("high")?[r];
                 let low = panel.col("low")?[r];
                 let spread = high - low;
-                out[gi] = if spread > EPS { (last - low) / (spread + EPS) } else { 0.0 };
+                out[gi] = if spread > EPS {
+                    (last - low) / (spread + EPS)
+                } else {
+                    0.0
+                };
             }
         }
         "volume_price_trend_v1" => {
@@ -2131,7 +2357,11 @@ fn compute_factor_values(
                 let mut ret = vec![f64::NAN; last.len()];
                 for i in 0..last.len() {
                     let op = open_like_at(open[i], ask[i], bid[i]);
-                    ret[i] = if op.abs() > EPS && last[i].is_finite() { (last[i] - op) / (op + EPS) } else { f64::NAN };
+                    ret[i] = if op.abs() > EPS && last[i].is_finite() {
+                        (last[i] - op) / (op + EPS)
+                    } else {
+                        f64::NAN
+                    };
                 }
                 let x = pct_rank(&dlog);
                 let y = pct_rank(&ret);
@@ -2186,7 +2416,11 @@ fn compute_factor_values(
                 let last = &panel.col("last")?[g.start..g.end];
                 let mut vwap = vec![f64::NAN; amount.len()];
                 for i in 0..amount.len() {
-                    vwap[i] = if volume[i].abs() > EPS { amount[i] / (volume[i] + EPS) } else { f64::NAN };
+                    vwap[i] = if volume[i].abs() > EPS {
+                        amount[i] / (volume[i] + EPS)
+                    } else {
+                        f64::NAN
+                    };
                 }
                 let mut open_like = vec![f64::NAN; open.len()];
                 for i in 0..open.len() {
@@ -2196,8 +2430,16 @@ fn compute_factor_values(
                 let open_last = last_valid(&open_like);
                 let vwap_last = last_valid(&vwap);
                 let last_px = last_valid(last);
-                gap1[gi] = if open_last.is_finite() && avg_vwap_last.is_finite() { open_last - avg_vwap_last } else { 0.0 };
-                gap2[gi] = if last_px.is_finite() && vwap_last.is_finite() { last_px - vwap_last } else { 0.0 };
+                gap1[gi] = if open_last.is_finite() && avg_vwap_last.is_finite() {
+                    open_last - avg_vwap_last
+                } else {
+                    0.0
+                };
+                gap2[gi] = if last_px.is_finite() && vwap_last.is_finite() {
+                    last_px - vwap_last
+                } else {
+                    0.0
+                };
             }
             let rank1 = cs_rank_by_dt(&panel.groups, &gap1);
             let rank2 = cs_rank_by_dt(&panel.groups, &gap2);
@@ -2240,7 +2482,11 @@ fn compute_factor_values(
                 if adv >= last_valid(volume) {
                     out[gi] = -1.0;
                 } else {
-                    let sign = if d_last.is_finite() { d_last.signum() } else { 0.0 };
+                    let sign = if d_last.is_finite() {
+                        d_last.signum()
+                    } else {
+                        0.0
+                    };
                     let mut abs_d = Vec::with_capacity(d.len());
                     for v in d {
                         abs_d.push(v.abs());
@@ -2272,7 +2518,11 @@ fn compute_factor_values(
                 let mut ret = vec![f64::NAN; n];
                 for i in 0..n {
                     o[i] = open_like_at(open[i], ask[i], bid[i]);
-                    ret[i] = if o[i].abs() > EPS { (last[i] - o[i]) / (o[i] + EPS) } else { f64::NAN };
+                    ret[i] = if o[i].abs() > EPS {
+                        (last[i] - o[i]) / (o[i] + EPS)
+                    } else {
+                        f64::NAN
+                    };
                 }
                 let mut sum_o = vec![f64::NAN; n];
                 let mut sum_r = vec![f64::NAN; n];
@@ -2286,8 +2536,16 @@ fn compute_factor_values(
                     prod[i] = sum_o[i] * sum_r[i];
                 }
                 let delay_idx = n.saturating_sub(1 + delay_window);
-                let delayed = if n > delay_window { prod[delay_idx] } else { f64::NAN };
-                let delay_val = if delayed.is_finite() { delayed } else { prod[0] };
+                let delayed = if n > delay_window {
+                    prod[delay_idx]
+                } else {
+                    f64::NAN
+                };
+                let delay_val = if delayed.is_finite() {
+                    delayed
+                } else {
+                    prod[0]
+                };
                 raw[gi] = prod[n - 1] - delay_val;
             }
             out = cs_rank_by_dt(&panel.groups, &raw)
@@ -2305,11 +2563,23 @@ fn compute_factor_values(
                 let ts_min = rolling_min_last(&d, ts_window);
                 let ts_max = rolling_max_last(&d, ts_window);
                 out[gi] = if ts_min > 0.0 {
-                    if last_d.is_finite() { last_d } else { 0.0 }
+                    if last_d.is_finite() {
+                        last_d
+                    } else {
+                        0.0
+                    }
                 } else if ts_max < 0.0 {
-                    if last_d.is_finite() { last_d } else { 0.0 }
+                    if last_d.is_finite() {
+                        last_d
+                    } else {
+                        0.0
+                    }
                 } else {
-                    if last_d.is_finite() { -last_d } else { 0.0 }
+                    if last_d.is_finite() {
+                        -last_d
+                    } else {
+                        0.0
+                    }
                 };
             }
         }
@@ -2324,11 +2594,23 @@ fn compute_factor_values(
                 let ts_min = rolling_min_last(&d, ts_window);
                 let ts_max = rolling_max_last(&d, ts_window);
                 raw[gi] = if ts_min > 0.0 {
-                    if last_d.is_finite() { last_d } else { 0.0 }
+                    if last_d.is_finite() {
+                        last_d
+                    } else {
+                        0.0
+                    }
                 } else if ts_max < 0.0 {
-                    if last_d.is_finite() { last_d } else { 0.0 }
+                    if last_d.is_finite() {
+                        last_d
+                    } else {
+                        0.0
+                    }
                 } else {
-                    if last_d.is_finite() { -last_d } else { 0.0 }
+                    if last_d.is_finite() {
+                        -last_d
+                    } else {
+                        0.0
+                    }
                 };
             }
             out = cs_rank_by_dt(&panel.groups, &raw);
@@ -2607,7 +2889,11 @@ fn compute_factor_values(
                 }
                 let std_diff = if abs_tail.len() >= 2 {
                     let v = std_sample(&abs_tail);
-                    if v.is_finite() { v } else { 0.0 }
+                    if v.is_finite() {
+                        v
+                    } else {
+                        0.0
+                    }
                 } else {
                     0.0
                 };
@@ -2649,9 +2935,17 @@ fn compute_factor_values(
                 let delayed = delay_last_from_slice(last, delta_window);
                 let last_change = last[n - 1] - delayed;
                 let delta_last = delta_last_from_slice(last, delta_window);
-                let delta_value = if delta_last.is_finite() { delta_last } else { 0.0 };
+                let delta_value = if delta_last.is_finite() {
+                    delta_last
+                } else {
+                    0.0
+                };
                 let sign_term = (last_change + delta_value).signum();
-                sign_raw[gi] = if sign_term.is_finite() { sign_term } else { 0.0 };
+                sign_raw[gi] = if sign_term.is_finite() {
+                    sign_term
+                } else {
+                    0.0
+                };
 
                 let mut ret = vec![f64::NAN; n];
                 for i in 0..n {
@@ -2744,7 +3038,11 @@ fn compute_factor_values(
                 let s_long = last.len().saturating_sub(sum_window_long);
                 let std_long = {
                     let v = std_sample(&last[s_long..]);
-                    if v.is_finite() { v } else { 0.0 }
+                    if v.is_finite() {
+                        v
+                    } else {
+                        0.0
+                    }
                 };
                 let avg_short = rolling_mean_last(last, sum_window_short);
                 let upper = avg_long + std_long;
@@ -3045,7 +3343,8 @@ fn compute_factor_values(
                 }
                 let mut returns = vec![f64::NAN; n];
                 for i in 0..n {
-                    returns[i] = if last[i].is_finite() && pre[i].is_finite() && pre[i].abs() > EPS {
+                    returns[i] = if last[i].is_finite() && pre[i].is_finite() && pre[i].abs() > EPS
+                    {
                         (last[i] - pre[i]) / (pre[i] + EPS)
                     } else {
                         f64::NAN
@@ -3054,7 +3353,11 @@ fn compute_factor_values(
                 let delta_close = diff(last, 1);
                 let mut neg_delta = vec![f64::NAN; n];
                 for i in 0..n {
-                    neg_delta[i] = if delta_close[i].is_finite() { -delta_close[i] } else { f64::NAN };
+                    neg_delta[i] = if delta_close[i].is_finite() {
+                        -delta_close[i]
+                    } else {
+                        f64::NAN
+                    };
                 }
                 let rank_delta = pct_rank(&neg_delta);
                 let mut ts_min_rank = vec![f64::NAN; n];
@@ -3085,12 +3388,20 @@ fn compute_factor_values(
                 let min_rank = rolling_min_last(&rank_scaled, min_window);
                 let mut delay_ret = vec![f64::NAN; n];
                 for i in 0..n {
-                    let x = if returns[i].is_finite() { -returns[i] } else { f64::NAN };
+                    let x = if returns[i].is_finite() {
+                        -returns[i]
+                    } else {
+                        f64::NAN
+                    };
                     delay_ret[i] = x;
                 }
                 if delay_window > 0 {
                     for i in (0..n).rev() {
-                        delay_ret[i] = if i >= delay_window { delay_ret[i - delay_window] } else { f64::NAN };
+                        delay_ret[i] = if i >= delay_window {
+                            delay_ret[i - delay_window]
+                        } else {
+                            f64::NAN
+                        };
                     }
                 }
                 let ts_rank_ret = ts_rank_last(&delay_ret, ts_rank_window);
@@ -3120,9 +3431,21 @@ fn compute_factor_values(
                 let l1 = delay_value_or_nan(last, delay1);
                 let l2 = delay_value_or_nan(last, delay2);
                 let l3 = delay_value_or_nan(last, delay3);
-                let s1 = if l0.is_finite() && l1.is_finite() { (l0 - l1).signum() } else { 0.0 };
-                let s2 = if l1.is_finite() && l2.is_finite() { (l1 - l2).signum() } else { 0.0 };
-                let s3 = if l2.is_finite() && l3.is_finite() { (l2 - l3).signum() } else { 0.0 };
+                let s1 = if l0.is_finite() && l1.is_finite() {
+                    (l0 - l1).signum()
+                } else {
+                    0.0
+                };
+                let s2 = if l1.is_finite() && l2.is_finite() {
+                    (l1 - l2).signum()
+                } else {
+                    0.0
+                };
+                let s3 = if l2.is_finite() && l3.is_finite() {
+                    (l2 - l3).signum()
+                } else {
+                    0.0
+                };
                 sign_sum[gi] = s1 + s2 + s3;
                 let s_short = {
                     let s = n.saturating_sub(sum_window_short);
@@ -3220,7 +3543,11 @@ fn compute_factor_values(
                 }
                 let mut delayed_last = vec![f64::NAN; n];
                 for i in 0..n {
-                    delayed_last[i] = if i >= delay_window { last[i - delay_window] } else { f64::NAN };
+                    delayed_last[i] = if i >= delay_window {
+                        last[i - delay_window]
+                    } else {
+                        f64::NAN
+                    };
                 }
                 let corr = corr_last_window(&vwap, &delayed_last, corr_window);
                 raw[gi] = diff1 + corr_scale * corr;
@@ -3291,11 +3618,19 @@ fn compute_factor_values(
                 let s2 = n.saturating_sub(stddev_window_long);
                 let std_short = {
                     let v = std_sample(&ret[s1..n]);
-                    if v.is_finite() { v } else { 0.0 }
+                    if v.is_finite() {
+                        v
+                    } else {
+                        0.0
+                    }
                 };
                 let std_long = {
                     let v = std_sample(&ret[s2..n]);
-                    if v.is_finite() { v } else { 0.0 }
+                    if v.is_finite() {
+                        v
+                    } else {
+                        0.0
+                    }
                 };
                 vol_ratio[gi] = std_short / (std_long + EPS);
                 delta_close[gi] = delta_last_from_slice(last, delta_window);
@@ -3445,12 +3780,20 @@ fn compute_factor_values(
                 }
                 let mut delay_ret = vec![f64::NAN; n];
                 for i in 0..n {
-                    let x = if ret[i].is_finite() { -ret[i] } else { f64::NAN };
+                    let x = if ret[i].is_finite() {
+                        -ret[i]
+                    } else {
+                        f64::NAN
+                    };
                     delay_ret[i] = if i >= delay_window { x } else { f64::NAN };
                 }
                 if delay_window > 0 {
                     for i in (0..n).rev() {
-                        delay_ret[i] = if i >= delay_window { delay_ret[i - delay_window] } else { f64::NAN };
+                        delay_ret[i] = if i >= delay_window {
+                            delay_ret[i - delay_window]
+                        } else {
+                            f64::NAN
+                        };
                     }
                 }
                 t3[gi] = ts_rank_last(&delay_ret, ts_rank_window);
@@ -3504,7 +3847,11 @@ fn compute_factor_values(
                 }
                 let mut delay_diff = vec![f64::NAN; n];
                 for i in 0..n {
-                    delay_diff[i] = if i >= delay_window { diff[i - delay_window] } else { f64::NAN };
+                    delay_diff[i] = if i >= delay_window {
+                        diff[i - delay_window]
+                    } else {
+                        f64::NAN
+                    };
                 }
                 corr_term[gi] = corr_last_window(&delay_diff, last, corr_window);
                 diff_term[gi] = diff[n - 1];
@@ -3707,7 +4054,11 @@ fn compute_factor_values(
                 let delta_close = diff(last, delta_window);
                 let mut neg_delta = vec![f64::NAN; n];
                 for i in 0..n {
-                    neg_delta[i] = if delta_close[i].is_finite() { -delta_close[i] } else { f64::NAN };
+                    neg_delta[i] = if delta_close[i].is_finite() {
+                        -delta_close[i]
+                    } else {
+                        f64::NAN
+                    };
                 }
                 let ts_rank_delta = ts_rank_last(&neg_delta, ts_rank_window_2);
                 out[gi] = ts_rank_vol * ts_rank_delta;
@@ -3748,7 +4099,11 @@ fn compute_factor_values(
                 }
                 let mut delayed = vec![f64::NAN; n];
                 for i in 0..n {
-                    delayed[i] = if i >= delay_window { last[i - delay_window] } else { f64::NAN };
+                    delayed[i] = if i >= delay_window {
+                        last[i - delay_window]
+                    } else {
+                        f64::NAN
+                    };
                 }
                 avg_delay[gi] = rolling_mean_last(&delayed, sum_window_long);
                 corr1[gi] = corr_last_window(last, volume, corr_window_1);
@@ -3792,7 +4147,11 @@ fn compute_factor_values(
                 } else {
                     0.0
                 };
-                let delta_close = if n >= 2 { last[n - 1] - last[n - 2] } else { 0.0 };
+                let delta_close = if n >= 2 {
+                    last[n - 1] - last[n - 2]
+                } else {
+                    0.0
+                };
                 out[gi] = if trend > threshold_up {
                     -1.0
                 } else if trend < threshold_down {
@@ -3852,7 +4211,11 @@ fn compute_factor_values(
                 }
                 let mut delay_vwap = vec![f64::NAN; n];
                 for i in 0..n {
-                    delay_vwap[i] = if i >= delay_window { vwap[i - delay_window] } else { f64::NAN };
+                    delay_vwap[i] = if i >= delay_window {
+                        vwap[i - delay_window]
+                    } else {
+                        f64::NAN
+                    };
                 }
                 let mut vwap_diff = vec![f64::NAN; n];
                 for i in 0..n {
@@ -3890,7 +4253,11 @@ fn compute_factor_values(
                 } else {
                     0.0
                 };
-                let delta_close = if n >= 2 { last[n - 1] - last[n - 2] } else { 0.0 };
+                let delta_close = if n >= 2 {
+                    last[n - 1] - last[n - 2]
+                } else {
+                    0.0
+                };
                 out[gi] = if trend < threshold { 1.0 } else { -delta_close };
             }
         }
@@ -3948,7 +4315,11 @@ fn compute_factor_values(
                 } else {
                     0.0
                 };
-                let delta_close = if n >= 2 { last[n - 1] - last[n - 2] } else { 0.0 };
+                let delta_close = if n >= 2 {
+                    last[n - 1] - last[n - 2]
+                } else {
+                    0.0
+                };
                 out[gi] = if trend < threshold { 1.0 } else { -delta_close };
             }
         }
@@ -3987,7 +4358,11 @@ fn compute_factor_values(
                 }
                 let mut delay_min = vec![f64::NAN; n];
                 for i in 0..n {
-                    delay_min[i] = if i >= delay_window { ts_min_low[i - delay_window] } else { f64::NAN };
+                    delay_min[i] = if i >= delay_window {
+                        ts_min_low[i - delay_window]
+                    } else {
+                        f64::NAN
+                    };
                 }
                 let mut low_diff = vec![f64::NAN; n];
                 for i in 0..n {
@@ -4029,7 +4404,11 @@ fn compute_factor_values(
                 let rank_ret = pct_rank(&ret_diff);
                 let ts_rank_vol = ts_rank_last(volume, ts_rank_window);
                 let alpha_last = low_diff[n - 1] * rank_ret[n - 1] * ts_rank_vol;
-                out[gi] = if alpha_last.is_finite() { alpha_last } else { 0.0 };
+                out[gi] = if alpha_last.is_finite() {
+                    alpha_last
+                } else {
+                    0.0
+                };
             }
         }
         "alpha053_price_position_delta_v1" => {
@@ -4060,7 +4439,11 @@ fn compute_factor_values(
                 } else {
                     f64::NAN
                 };
-                out[gi] = if delta_val.is_finite() { -delta_val } else { 0.0 };
+                out[gi] = if delta_val.is_finite() {
+                    -delta_val
+                } else {
+                    0.0
+                };
             }
         }
         "alpha054_price_power_ratio_v1" => {
@@ -4154,7 +4537,11 @@ fn compute_factor_values(
                 let rank_max = pct_rank(&ts_argmax);
                 let decay = rolling_linear_decay_series(&rank_max, decay_window);
                 let alpha_last = -(diff[n - 1] / (decay[n - 1] + EPS));
-                out[gi] = if alpha_last.is_finite() { alpha_last } else { 0.0 };
+                out[gi] = if alpha_last.is_finite() {
+                    alpha_last
+                } else {
+                    0.0
+                };
             }
         }
         "alpha060_price_range_volume_scale_v1" => {
@@ -4265,7 +4652,11 @@ fn compute_factor_values(
                 let rank_compare = pct_rank(&compare);
                 let rp = rank_compare[n - 1];
                 out[gi] = if rc.is_finite() && rp.is_finite() {
-                    if rc < rp { -1.0 } else { 0.0 }
+                    if rc < rp {
+                        -1.0
+                    } else {
+                        0.0
+                    }
                 } else {
                     0.0
                 };
@@ -4332,7 +4723,11 @@ fn compute_factor_values(
                 let rank_diff = pct_rank(&diff);
                 let rd = rank_diff[n - 1];
                 out[gi] = if rc.is_finite() && rd.is_finite() {
-                    if rc < rd { -1.0 } else { 0.0 }
+                    if rc < rd {
+                        -1.0
+                    } else {
+                        0.0
+                    }
                 } else {
                     0.0
                 };
@@ -4446,7 +4841,11 @@ fn compute_factor_values(
                 let rts = rank_ts[n - 1];
                 let rd = rank_delta[n - 1];
                 out[gi] = if rts.is_finite() && rd.is_finite() {
-                    if rts < rd { -1.0 } else { 0.0 }
+                    if rts < rd {
+                        -1.0
+                    } else {
+                        0.0
+                    }
                 } else {
                     0.0
                 };
@@ -4564,7 +4963,10 @@ fn compute_factor_values(
                 for i in 0..n {
                     ratio[i] = delta_weighted[i] / (weighted[i] + EPS);
                 }
-                let neg_ratio: Vec<f64> = ratio.iter().map(|v| if v.is_finite() { -*v } else { f64::NAN }).collect();
+                let neg_ratio: Vec<f64> = ratio
+                    .iter()
+                    .map(|v| if v.is_finite() { -*v } else { f64::NAN })
+                    .collect();
                 let decay2 = rolling_linear_decay_series(&neg_ratio, decay_window_2);
                 let ts_rank = ts_rank_last(&decay2, ts_rank_window);
                 let mut r1 = rank_decay1[n - 1];
@@ -4630,7 +5032,11 @@ fn compute_factor_values(
                 let r1 = rank_corr1[n - 1];
                 let r2 = rank_corr2[n - 1];
                 out[gi] = if r1.is_finite() && r2.is_finite() {
-                    if r1 < r2 { -1.0 } else { 0.0 }
+                    if r1 < r2 {
+                        -1.0
+                    } else {
+                        0.0
+                    }
                 } else {
                     0.0
                 };
@@ -4681,7 +5087,11 @@ fn compute_factor_values(
                 let r1 = rank_corr1[n - 1];
                 let r2 = rank_corr2[n - 1];
                 out[gi] = if r1.is_finite() && r2.is_finite() {
-                    if r1 < r2 { 1.0 } else { 0.0 }
+                    if r1 < r2 {
+                        1.0
+                    } else {
+                        0.0
+                    }
                 } else {
                     0.0
                 };
@@ -4813,6 +5223,32 @@ fn compute_factor_values(
                 out[gi] = r1.powf(r2);
             }
         }
+        "daily_sharpe_mean_v1" => {
+            let source = spec.param_str("source", "market_cbond.daily_twap");
+            let price_col = spec.param_str("price_col", "twap_1442_1457");
+            let lookback_days = spec.param_i64("lookback_days", 20).max(2) as usize;
+            let smooth_days = spec.param_i64("smooth_days", 5).max(1) as usize;
+            let min_periods = spec.param_i64("min_periods", lookback_days as i64).max(2) as usize;
+            let annualize = spec.param_bool("annualize", false);
+            for (gi, g) in panel.groups.iter().enumerate() {
+                let code = norm_code(&g.code);
+                let dt = norm_dt(&g.dt);
+                if code.is_empty() || dt.is_empty() {
+                    out[gi] = 0.0;
+                    continue;
+                }
+                let need_days = lookback_days + smooth_days + 2usize;
+                let price_series =
+                    daily_values_asof(aux, &source, &code, &dt, &price_col, need_days);
+                out[gi] = rolling_sharpe_last_mean(
+                    &price_series,
+                    lookback_days,
+                    smooth_days,
+                    min_periods,
+                    annualize,
+                );
+            }
+        }
         _ => {
             return Err(PyErr::new::<PyRuntimeError, _>(format!(
                 "rust factor kernel not implemented: {}",
@@ -4822,4 +5258,3 @@ fn compute_factor_values(
     }
     Ok(out)
 }
-
