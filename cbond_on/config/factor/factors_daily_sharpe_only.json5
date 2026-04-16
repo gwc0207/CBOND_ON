@@ -5,6 +5,7 @@
     { name: "daily_sharpe_twap_5d_mean5", factor: "daily_sharpe_mean_v1", params: {
       source: "market_cbond.daily_twap",
       price_col: "twap_1442_1457",
+      lag_days: 1,
       lookback_days: 5,
       smooth_days: 5,
       min_periods: 3,
@@ -13,6 +14,7 @@
     { name: "daily_sharpe_twap_10d_mean5", factor: "daily_sharpe_mean_v1", params: {
       source: "market_cbond.daily_twap",
       price_col: "twap_1442_1457",
+      lag_days: 1,
       lookback_days: 10,
       smooth_days: 5,
       min_periods: 5,
@@ -21,6 +23,7 @@
     { name: "daily_sharpe_twap_20d_mean5", factor: "daily_sharpe_mean_v1", params: {
       source: "market_cbond.daily_twap",
       price_col: "twap_1442_1457",
+      lag_days: 1,
       lookback_days: 20,
       smooth_days: 5,
       min_periods: 10,
@@ -29,6 +32,7 @@
     { name: "daily_sharpe_twap_40d_mean5", factor: "daily_sharpe_mean_v1", params: {
       source: "market_cbond.daily_twap",
       price_col: "twap_1442_1457",
+      lag_days: 1,
       lookback_days: 40,
       smooth_days: 5,
       min_periods: 20,
@@ -37,6 +41,7 @@
     { name: "daily_sharpe_twap_60d_mean5", factor: "daily_sharpe_mean_v1", params: {
       source: "market_cbond.daily_twap",
       price_col: "twap_1442_1457",
+      lag_days: 1,
       lookback_days: 60,
       smooth_days: 5,
       min_periods: 30,
@@ -45,6 +50,7 @@
     { name: "daily_sharpe_twap_120d_mean5", factor: "daily_sharpe_mean_v1", params: {
       source: "market_cbond.daily_twap",
       price_col: "twap_1442_1457",
+      lag_days: 1,
       lookback_days: 120,
       smooth_days: 5,
       min_periods: 60,
@@ -53,6 +59,7 @@
     { name: "daily_sharpe_twap_243d_mean5", factor: "daily_sharpe_mean_v1", params: {
       source: "market_cbond.daily_twap",
       price_col: "twap_1442_1457",
+      lag_days: 1,
       lookback_days: 243,
       smooth_days: 5,
       min_periods: 120,

@@ -32,7 +32,11 @@ class DailySharpeMeanV1Factor(Factor):
         price_col = str(params.get("price_col", "twap_1442_1457")).strip() or "twap_1442_1457"
         lookback_days = int(params.get("lookback_days", 20) or 20)
         smooth_days = int(params.get("smooth_days", 5) or 5)
-        context_lookback = int(params.get("context_lookback_days", lookback_days + smooth_days + 2))
+        lag_raw = params.get("lag_days", 1)
+        lag_days = max(0, int(1 if lag_raw is None else lag_raw))
+        context_lookback = int(
+            params.get("context_lookback_days", lookback_days + smooth_days + lag_days + 2)
+        )
         context_lookback = max(1, context_lookback)
         return [
             DailyFactorRequirement(
@@ -48,6 +52,8 @@ class DailySharpeMeanV1Factor(Factor):
         price_col = str(ctx.params.get("price_col", "twap_1442_1457")).strip() or "twap_1442_1457"
         lookback_days = max(2, int(ctx.params.get("lookback_days", 20) or 20))
         smooth_days = max(1, int(ctx.params.get("smooth_days", 5) or 5))
+        lag_raw = ctx.params.get("lag_days", 1)
+        lag_days = max(0, int(1 if lag_raw is None else lag_raw))
         min_periods = max(2, int(ctx.params.get("min_periods", lookback_days) or lookback_days))
         annualize = bool(ctx.params.get("annualize", False))
 
@@ -111,6 +117,9 @@ class DailySharpeMeanV1Factor(Factor):
             )
             if src.empty:
                 continue
+            if lag_days > 0:
+                src = src.copy()
+                src["trade_date"] = src["trade_date"] + pd.to_timedelta(lag_days, unit="D")
             tgt = code_keys[["dt", "trade_date", "code"]].sort_values("trade_date", kind="mergesort")
             joined = pd.merge_asof(
                 tgt,

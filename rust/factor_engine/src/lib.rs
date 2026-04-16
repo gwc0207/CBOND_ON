@@ -283,6 +283,19 @@ fn norm_dt(dt: &str) -> String {
     }
 }
 
+fn shift_dt_by_days(dt: &str, delta_days: i64) -> String {
+    if delta_days == 0 {
+        return dt.to_string();
+    }
+    let base = norm_dt(dt);
+    if let Ok(d) = NaiveDate::parse_from_str(&base, "%Y-%m-%d") {
+        return (d + chrono::Duration::days(delta_days))
+            .format("%Y-%m-%d")
+            .to_string();
+    }
+    base
+}
+
 fn parse_aux_data(
     py: Python<'_>,
     stock_df: Option<&Bound<'_, PyAny>>,
@@ -1378,6 +1391,7 @@ fn daily_values_asof(
     asof_dt: &str,
     col: &str,
     lookback_days: usize,
+    lag_days: usize,
 ) -> Vec<f64> {
     let Some(source_data) = aux.daily_sources.get(source) else {
         return Vec::new();
@@ -1385,10 +1399,15 @@ fn daily_values_asof(
     let Some(rows) = source_data.by_code.get(code) else {
         return Vec::new();
     };
+    let cutoff_dt = if lag_days > 0 {
+        shift_dt_by_days(asof_dt, -(lag_days as i64))
+    } else {
+        asof_dt.to_string()
+    };
     let mut out_rev: Vec<f64> = Vec::with_capacity(lookback_days.max(1));
     let limit = lookback_days.max(1);
     for row in rows.iter().rev() {
-        if row.date.as_str() > asof_dt {
+        if row.date.as_str() > cutoff_dt.as_str() {
             continue;
         }
         if let Some(v) = row.values.get(col) {
@@ -5236,6 +5255,7 @@ fn compute_factor_values(
             let price_col = spec.param_str("price_col", "twap_1442_1457");
             let lookback_days = spec.param_i64("lookback_days", 20).max(2) as usize;
             let smooth_days = spec.param_i64("smooth_days", 5).max(1) as usize;
+            let lag_days = spec.param_i64("lag_days", 1).max(0) as usize;
             let min_periods = spec.param_i64("min_periods", lookback_days as i64).max(2) as usize;
             let annualize = spec.param_bool("annualize", false);
             for (gi, g) in panel.groups.iter().enumerate() {
@@ -5245,9 +5265,9 @@ fn compute_factor_values(
                     out[gi] = 0.0;
                     continue;
                 }
-                let need_days = lookback_days + smooth_days + 2usize;
+                let need_days = lookback_days + smooth_days + lag_days + 2usize;
                 let price_series =
-                    daily_values_asof(aux, &source, &code, &dt, &price_col, need_days);
+                    daily_values_asof(aux, &source, &code, &dt, &price_col, need_days, lag_days);
                 out[gi] = rolling_sharpe_last_mean(
                     &price_series,
                     lookback_days,
