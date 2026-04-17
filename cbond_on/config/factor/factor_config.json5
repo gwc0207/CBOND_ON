@@ -5,7 +5,7 @@
   factor_time: "14:30",
   label_time: "14:42",
   refresh: false,
-  overwrite: true,
+  overwrite: false,
   workers: 1,
   factor_workers: 2,
   compute: {
@@ -17,7 +17,7 @@
     debug_log_each_record: false
   },
   factor_files: [
-    "factor/factors_daily_sharpe_only.json5"
+    "factor/factors_all_in_one.json5"
   ],
   backtest_enabled: true,
   factors: [],

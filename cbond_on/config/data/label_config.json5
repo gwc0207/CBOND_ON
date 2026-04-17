@@ -1,6 +1,6 @@
 {
   start: "2025-01-01",
-  end: "2026-03-20",
+  end: "2026-04-08",
   workers: 6,
   refresh: true,
   overwrite: true,

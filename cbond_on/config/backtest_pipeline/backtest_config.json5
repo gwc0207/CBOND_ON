@@ -1,6 +1,6 @@
 {
-  start: "2025-06-01",
-  end: "2026-04-07",
+  start: "2025-01-02",
+  end: "2026-03-17",
   batch_id: "Backtest",
   score_source: {
     model_id: "lgbm_factor_ranker"
@@ -9,7 +9,8 @@
   strategy_config_path: "strategies/strategy01/strategy01",
   buy_twap_col: "twap_1442_1457",
   sell_twap_col: "twap_0930_0945",
-  twap_bps: 1.5,
+  // calibration run to align overnight benchmark total return near ~9% at 2026-03-17
+  twap_bps: 1.36,
   fee_bps: 0.7,
   filter_tradable: true,
   min_amount: 0,

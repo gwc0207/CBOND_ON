@@ -3,7 +3,7 @@
 import json
 import shutil
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, time as dt_time
 from pathlib import Path
 from typing import Iterable, Sequence
@@ -27,6 +27,8 @@ class FactorBacktestResult:
     rank_ic: pd.Series
     bin_returns: pd.DataFrame
     daily_stats: pd.DataFrame
+    benchmark_returns: pd.Series = field(default_factory=lambda: pd.Series(dtype=float))
+    benchmark_nav: pd.Series = field(default_factory=lambda: pd.Series(dtype=float))
 
 
 @dataclass
@@ -34,6 +36,7 @@ class _BacktestDayPrepared:
     trade_day: date
     reason: str
     merged: pd.DataFrame | None = None
+    benchmark_universe: pd.DataFrame | None = None
 
 
 def build_signal_specs(cfg: dict) -> list[FactorSpec]:
@@ -112,13 +115,21 @@ def _prepare_backtest_day(
     label_df = _read_label_day(label_root, day, factor_time=factor_time, label_time=label_time)
     if label_df.empty:
         return _BacktestDayPrepared(trade_day=day, reason="missing_label")
+    benchmark_universe = label_df[["dt", "code", "y"]].dropna(subset=["y"])
+    if benchmark_universe.empty:
+        return _BacktestDayPrepared(trade_day=day, reason="missing_label")
 
     factor_df = factor_df.reset_index()
     merged = factor_df.merge(label_df, on=["dt", "code"], how="inner")
     merged = merged[[factor_col, "y", "dt", "code"]].dropna()
     if merged.empty:
         return _BacktestDayPrepared(trade_day=day, reason="merged_empty")
-    return _BacktestDayPrepared(trade_day=day, reason="", merged=merged)
+    return _BacktestDayPrepared(
+        trade_day=day,
+        reason="",
+        merged=merged,
+        benchmark_universe=benchmark_universe,
+    )
 
 
 def _select_bins_by_mean_return_intraday(
@@ -176,6 +187,7 @@ def run_intraday_factor_backtest(
     workers: int = 1,
 ) -> FactorBacktestResult:
     rows = []
+    benchmark_rows = []
     trade_returns_rows: list[float] = []
     diagnostics: list[dict] = []
     days = list(_iter_existing_label_days(label_root, start, end))
@@ -195,6 +207,8 @@ def run_intraday_factor_backtest(
                 continue
             diagnostics.append({"trade_date": day, "status": "ok", "count": len(prepared.merged)})
             rows.append(prepared.merged)
+            if prepared.benchmark_universe is not None and not prepared.benchmark_universe.empty:
+                benchmark_rows.append(prepared.benchmark_universe)
     else:
         with ThreadPoolExecutor(max_workers=workers) as executor:
             future_to_day = {
@@ -229,15 +243,36 @@ def run_intraday_factor_backtest(
                     {"trade_date": prepared.trade_day, "status": "ok", "count": len(prepared.merged)}
                 )
                 rows.append(prepared.merged)
+                if prepared.benchmark_universe is not None and not prepared.benchmark_universe.empty:
+                    benchmark_rows.append(prepared.benchmark_universe)
     if not rows:
         empty = pd.Series(dtype=float)
-        result = FactorBacktestResult(empty, empty, empty, empty, pd.DataFrame(), pd.DataFrame())
+        result = FactorBacktestResult(
+            empty,
+            empty,
+            empty,
+            empty,
+            pd.DataFrame(),
+            pd.DataFrame(),
+            benchmark_returns=empty,
+            benchmark_nav=empty,
+        )
         result.trade_returns = empty  # type: ignore[attr-defined]
         result.factor_values = empty  # type: ignore[attr-defined]
         result.diagnostics = pd.DataFrame(diagnostics)  # type: ignore[attr-defined]
         return result
 
     data = pd.concat(rows, ignore_index=True)
+    benchmark_data = (
+        pd.concat(benchmark_rows, ignore_index=True)
+        if benchmark_rows
+        else pd.DataFrame(columns=["dt", "code", "y"])
+    )
+    benchmark_by_dt = (
+        benchmark_data.groupby("dt", sort=True)["y"].mean()
+        if not benchmark_data.empty
+        else pd.Series(dtype=float)
+    )
 
     def _calc_day(group: pd.DataFrame) -> dict:
         g = group.dropna()
@@ -276,6 +311,7 @@ def run_intraday_factor_backtest(
 
     for dt, group in data.groupby("dt", sort=True):
         g = group[[factor_col, "y", "code"]].dropna()
+        benchmark_ret = float(benchmark_by_dt.loc[dt]) if dt in benchmark_by_dt.index else pd.NA
         if len(g) < min_count:
             diagnostics.append(
                 {
@@ -285,7 +321,16 @@ def run_intraday_factor_backtest(
                     "count": int(len(g)),
                 }
             )
-            daily_records.append({"dt": dt, "ret": pd.NA, "ic": pd.NA, "rank_ic": pd.NA, "count": len(g)})
+            daily_records.append(
+                {
+                    "dt": dt,
+                    "ret": pd.NA,
+                    "benchmark_return": benchmark_ret,
+                    "ic": pd.NA,
+                    "rank_ic": pd.NA,
+                    "count": len(g),
+                }
+            )
             continue
 
         ic = g[factor_col].corr(g["y"], method="pearson")
@@ -307,7 +352,16 @@ def run_intraday_factor_backtest(
                     "reason": "binning_failed",
                 }
             )
-            daily_records.append({"dt": dt, "ret": pd.NA, "ic": ic, "rank_ic": rank_ic, "count": len(g)})
+            daily_records.append(
+                {
+                    "dt": dt,
+                    "ret": pd.NA,
+                    "benchmark_return": benchmark_ret,
+                    "ic": ic,
+                    "rank_ic": rank_ic,
+                    "count": len(g),
+                }
+            )
             continue
         available_bins = sorted(bins_cat.dropna().unique().tolist())
         if not available_bins:
@@ -318,7 +372,16 @@ def run_intraday_factor_backtest(
                     "reason": "binning_failed",
                 }
             )
-            daily_records.append({"dt": dt, "ret": pd.NA, "ic": ic, "rank_ic": rank_ic, "count": len(g)})
+            daily_records.append(
+                {
+                    "dt": dt,
+                    "ret": pd.NA,
+                    "benchmark_return": benchmark_ret,
+                    "ic": ic,
+                    "rank_ic": rank_ic,
+                    "count": len(g),
+                }
+            )
             continue
         n_bins = len(available_bins)
 
@@ -339,7 +402,16 @@ def run_intraday_factor_backtest(
                     "bin_count_actual": int(n_bins),
                 }
             )
-            daily_records.append({"dt": dt, "ret": pd.NA, "ic": ic, "rank_ic": rank_ic, "count": len(g)})
+            daily_records.append(
+                {
+                    "dt": dt,
+                    "ret": pd.NA,
+                    "benchmark_return": benchmark_ret,
+                    "ic": ic,
+                    "rank_ic": rank_ic,
+                    "count": len(g),
+                }
+            )
             continue
         picks = g[bins_cat.isin(effective_bins)]
         if len(picks) < min_count:
@@ -353,7 +425,16 @@ def run_intraday_factor_backtest(
                     "bin_count_actual": int(n_bins),
                 }
             )
-            daily_records.append({"dt": dt, "ret": pd.NA, "ic": ic, "rank_ic": rank_ic, "count": len(g)})
+            daily_records.append(
+                {
+                    "dt": dt,
+                    "ret": pd.NA,
+                    "benchmark_return": benchmark_ret,
+                    "ic": ic,
+                    "rank_ic": rank_ic,
+                    "count": len(g),
+                }
+            )
             continue
         ret = picks["y"].mean()
         picks_y = pd.to_numeric(picks["y"], errors="coerce").dropna()
@@ -371,13 +452,28 @@ def run_intraday_factor_backtest(
                 "count": int(len(g)),
             }
         )
-        daily_records.append({"dt": dt, "ret": ret, "ic": ic, "rank_ic": rank_ic, "count": len(g)})
+        daily_records.append(
+            {
+                "dt": dt,
+                "ret": ret,
+                "benchmark_return": benchmark_ret,
+                "ic": ic,
+                "rank_ic": rank_ic,
+                "count": len(g),
+            }
+        )
 
     daily = pd.DataFrame(daily_records).set_index("dt")
-    returns = pd.to_numeric(daily["ret"], errors="coerce").dropna()
+    returns = pd.to_numeric(daily["ret"], errors="coerce")
+    benchmark_returns = pd.to_numeric(daily["benchmark_return"], errors="coerce")
+    valid_mask = returns.notna()
+    returns = returns.loc[valid_mask]
+    benchmark_returns = benchmark_returns.loc[valid_mask]
+    benchmark_returns = benchmark_returns.dropna()
     ic = pd.to_numeric(daily["ic"], errors="coerce").dropna()
     rank_ic = pd.to_numeric(daily["rank_ic"], errors="coerce").dropna()
     nav = (1.0 + returns.fillna(0.0)).cumprod()
+    benchmark_nav = (1.0 + benchmark_returns.fillna(0.0)).cumprod()
 
     def _bin_ret(group: pd.DataFrame) -> pd.Series:
         g = group.dropna()
@@ -426,6 +522,8 @@ def run_intraday_factor_backtest(
         rank_ic=rank_ic,
         bin_returns=bin_returns,
         daily_stats=daily_stats,
+        benchmark_returns=benchmark_returns,
+        benchmark_nav=benchmark_nav,
     )
     result.trade_returns = trade_returns  # type: ignore[attr-defined]
     result.factor_values = factor_values  # type: ignore[attr-defined]
