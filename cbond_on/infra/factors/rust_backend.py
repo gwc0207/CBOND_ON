@@ -93,6 +93,15 @@ def build_factor_frame_rust(
     t_prepare_panel = perf_counter() - t_prepare_panel
 
     t_prepare_context = perf_counter()
+    if stock_panel is not None and not isinstance(stock_panel, pd.DataFrame):
+        raise TypeError(
+            f"rust_backend stock_panel must be pandas.DataFrame, got {type(stock_panel).__name__}"
+        )
+    if bond_stock_map is not None and not isinstance(bond_stock_map, pd.DataFrame):
+        raise TypeError(
+            f"rust_backend bond_stock_map must be pandas.DataFrame, got {type(bond_stock_map).__name__}"
+        )
+
     stock_df = None
     if stock_panel is not None and not stock_panel.empty:
         stock_df = ensure_panel_index(stock_panel).reset_index().copy()
@@ -108,6 +117,12 @@ def build_factor_frame_rust(
 
     daily_payload: dict[str, pd.DataFrame] = {}
     for source, raw_df in dict(daily_data or {}).items():
+        if isinstance(raw_df, dict) and isinstance(raw_df.get("data"), pd.DataFrame):
+            raw_df = raw_df["data"]
+        if raw_df is not None and not isinstance(raw_df, pd.DataFrame):
+            raise TypeError(
+                f"rust_backend daily_data[{source!r}] must be pandas.DataFrame, got {type(raw_df).__name__}"
+            )
         if raw_df is None or raw_df.empty:
             continue
         df = raw_df.copy()

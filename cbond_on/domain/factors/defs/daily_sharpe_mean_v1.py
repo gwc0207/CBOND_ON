@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import math
-
 import numpy as np
 import pandas as pd
 
@@ -28,106 +26,119 @@ class DailySharpeMeanV1Factor(Factor):
     @classmethod
     def daily_requirements(cls, params: dict | None = None) -> list[DailyFactorRequirement]:
         params = dict(params or {})
+
         source = str(params.get("source", "market_cbond.daily_twap")).strip() or "market_cbond.daily_twap"
-        price_col = str(params.get("price_col", "twap_1442_1457")).strip() or "twap_1442_1457"
-        lookback_days = int(params.get("lookback_days", 20) or 20)
-        smooth_days = int(params.get("smooth_days", 5) or 5)
-        lag_raw = params.get("lag_days", 1)
-        lag_days = max(0, int(1 if lag_raw is None else lag_raw))
-        context_lookback = int(
-            params.get("context_lookback_days", lookback_days + smooth_days + lag_days + 2)
-        )
-        context_lookback = max(1, context_lookback)
+        buy_col = str(params.get("buy_col", "twap_1442_1457")).strip() or "twap_1442_1457"
+
+        time_tag = str(params.get("time_tag", "0930_0935")).strip() or "0930_0935"
+        sell_col = str(params.get("sell_col", f"twap_{time_tag}")).strip() or f"twap_{time_tag}"
+
+        window_raw = params.get("window", params.get("lookback_days", 20))
+        window = max(2, int(window_raw or 20))
+
+        context_lookback = int(params.get("context_lookback_days", window + 2) or (window + 2))
+        context_lookback = max(window + 1, context_lookback)
+
         return [
             DailyFactorRequirement(
                 source=source,
-                columns=(price_col,),
+                columns=(buy_col, sell_col),
                 lookback_days=context_lookback,
             )
         ]
 
     def compute(self, ctx: FactorComputeContext) -> pd.Series:
         panel = ensure_panel_index(ctx.panel)
+
         source = str(ctx.params.get("source", "market_cbond.daily_twap")).strip() or "market_cbond.daily_twap"
-        price_col = str(ctx.params.get("price_col", "twap_1442_1457")).strip() or "twap_1442_1457"
-        lookback_days = max(2, int(ctx.params.get("lookback_days", 20) or 20))
-        smooth_days = max(1, int(ctx.params.get("smooth_days", 5) or 5))
-        lag_raw = ctx.params.get("lag_days", 1)
-        lag_days = max(0, int(1 if lag_raw is None else lag_raw))
-        min_periods = max(2, int(ctx.params.get("min_periods", lookback_days) or lookback_days))
-        annualize = bool(ctx.params.get("annualize", False))
+        buy_col = str(ctx.params.get("buy_col", "twap_1442_1457")).strip() or "twap_1442_1457"
+
+        time_tag = str(ctx.params.get("time_tag", "0930_0935")).strip() or "0930_0935"
+        sell_col = str(ctx.params.get("sell_col", f"twap_{time_tag}")).strip() or f"twap_{time_tag}"
+
+        window_raw = ctx.params.get("window", ctx.params.get("lookback_days", 20))
+        window = max(2, int(window_raw or 20))
 
         daily = ctx.daily_data.get(source)
         if daily is None or daily.empty:
             return self._empty_result(panel)
-        if "trade_date" not in daily.columns or "code" not in daily.columns or price_col not in daily.columns:
+
+        required_cols = {"trade_date", "code", buy_col, sell_col}
+        missing = required_cols.difference(daily.columns)
+        if missing:
             raise KeyError(
-                f"daily_sharpe_mean_v1 source={source} must include trade_date/code/{price_col}"
+                f"daily_sharpe_mean_v1 source={source} must include columns: {sorted(missing)}"
             )
 
-        work = daily[["trade_date", "code", price_col]].copy()
+        work = daily[["trade_date", "code", buy_col, sell_col]].copy()
         work["trade_date"] = pd.to_datetime(work["trade_date"], errors="coerce").dt.normalize()
         work["instrument_code"] = self._to_instrument_code(work["code"])
-        work[price_col] = pd.to_numeric(work[price_col], errors="coerce")
-        work = work.dropna(subset=["trade_date", "instrument_code", price_col])
+
+        work[buy_col] = pd.to_numeric(work[buy_col], errors="coerce")
+        work[sell_col] = pd.to_numeric(work[sell_col], errors="coerce")
+
+        work = work.dropna(subset=["trade_date", "instrument_code", buy_col, sell_col])
         if work.empty:
             return self._empty_result(panel)
 
         work = work.sort_values(["instrument_code", "trade_date"], kind="mergesort").reset_index(drop=True)
-        work["ret"] = work.groupby("instrument_code", sort=False)[price_col].pct_change()
-        mean_s = (
-            work.groupby("instrument_code", sort=False)["ret"]
-            .rolling(lookback_days, min_periods=min_periods)
+
+        work["prev_buy"] = work.groupby("instrument_code", sort=False)[buy_col].shift(1)
+
+        valid_px = (
+            work["prev_buy"].notna()
+            & work[sell_col].notna()
+            & (work["prev_buy"] > 0)
+            & (work[sell_col] > 0)
+        )
+        work["overnight_ret"] = np.where(
+            valid_px,
+            work[sell_col] / work["prev_buy"] - 1.0,
+            np.nan,
+        )
+
+        min_periods = max(2, int(ctx.params.get("min_periods", window) or window))
+        min_periods = min(min_periods, window)
+        annualize = bool(ctx.params.get("annualize", False))
+
+        rolling_mean = (
+            work.groupby("instrument_code", sort=False)["overnight_ret"]
+            .rolling(window, min_periods=min_periods)
             .mean()
             .reset_index(level=0, drop=True)
         )
-        std_s = (
-            work.groupby("instrument_code", sort=False)["ret"]
-            .rolling(lookback_days, min_periods=min_periods)
+        rolling_std = (
+            work.groupby("instrument_code", sort=False)["overnight_ret"]
+            .rolling(window, min_periods=min_periods)
             .std(ddof=1)
             .reset_index(level=0, drop=True)
         )
-        sharpe = mean_s / std_s
+
+        sharpe = rolling_mean / rolling_std
         if annualize:
-            sharpe = sharpe * math.sqrt(252.0)
-        if smooth_days > 1:
-            sharpe = (
-                sharpe.groupby(work["instrument_code"], sort=False)
-                .rolling(smooth_days, min_periods=1)
-                .mean()
-                .reset_index(level=0, drop=True)
-            )
-        work["sharpe"] = sharpe.replace([np.inf, -np.inf], np.nan)
-        daily_sharpe = work[["trade_date", "instrument_code", "sharpe"]].dropna(subset=["sharpe"])
+            sharpe = sharpe * np.sqrt(252.0)
+        sharpe = sharpe.replace([np.inf, -np.inf], np.nan)
+        work["overnight_sharpe"] = sharpe
+
+        daily_factor = work[["trade_date", "instrument_code", "overnight_sharpe"]].dropna(
+            subset=["overnight_sharpe"]
+        )
 
         out = self._empty_result(panel)
-
-        if daily_sharpe.empty:
+        if daily_factor.empty:
             return out
 
         key_df = out.index.to_frame(index=False)
         key_df["trade_date"] = pd.to_datetime(key_df["dt"], errors="coerce").dt.normalize()
         key_df["instrument_code"] = self._to_instrument_code(key_df["code"])
 
-        for instrument_code, code_keys in key_df.groupby("instrument_code", sort=False):
-            src = daily_sharpe[
-                daily_sharpe["instrument_code"] == instrument_code
-            ][["trade_date", "sharpe"]].sort_values(
-                "trade_date", kind="mergesort"
-            )
-            if src.empty:
-                continue
-            if lag_days > 0:
-                src = src.copy()
-                src["trade_date"] = src["trade_date"] + pd.to_timedelta(lag_days, unit="D")
-            tgt = code_keys[["dt", "trade_date", "code"]].sort_values("trade_date", kind="mergesort")
-            joined = pd.merge_asof(
-                tgt,
-                src,
-                on="trade_date",
-                direction="backward",
-            )
-            for dt_value, code_value, val in zip(joined["dt"], joined["code"], joined["sharpe"]):
-                out.loc[(dt_value, code_value)] = float(val) if pd.notna(val) else np.nan
+        merged = key_df.merge(
+            daily_factor,
+            on=["trade_date", "instrument_code"],
+            how="left",
+            sort=False,
+        )
 
+        values = pd.to_numeric(merged["overnight_sharpe"], errors="coerce").to_numpy(dtype="float64")
+        out.iloc[:] = values
         return out

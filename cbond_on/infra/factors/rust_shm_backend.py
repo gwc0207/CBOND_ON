@@ -286,6 +286,14 @@ def build_factor_frame_rust_shm(
 ) -> pd.DataFrame:
     if not specs:
         return pd.DataFrame()
+    if stock_panel is not None and not isinstance(stock_panel, pd.DataFrame):
+        raise TypeError(
+            f"rust_shm_backend stock_panel must be pandas.DataFrame, got {type(stock_panel).__name__}"
+        )
+    if bond_stock_map is not None and not isinstance(bond_stock_map, pd.DataFrame):
+        raise TypeError(
+            f"rust_shm_backend bond_stock_map must be pandas.DataFrame, got {type(bond_stock_map).__name__}"
+        )
     if workers <= 1:
         return build_factor_frame_rust(
             panel,
@@ -323,6 +331,12 @@ def build_factor_frame_rust_shm(
 
     daily_payload: dict[str, pd.DataFrame] = {}
     for source, raw_df in dict(daily_data or {}).items():
+        if isinstance(raw_df, dict) and isinstance(raw_df.get("data"), pd.DataFrame):
+            raw_df = raw_df["data"]
+        if raw_df is not None and not isinstance(raw_df, pd.DataFrame):
+            raise TypeError(
+                f"rust_shm_backend daily_data[{source!r}] must be pandas.DataFrame, got {type(raw_df).__name__}"
+            )
         if raw_df is None or raw_df.empty:
             continue
         df = raw_df.copy()

@@ -10,6 +10,40 @@ python -m pip install maturin
 python -m maturin develop --release
 ```
 
+## Windows rebuild (without venv, recommended for this repo)
+
+When running from repo root (`cbond_on/`), local module path `cbond_on_rust/` shadows site-packages.
+After Rust changes, rebuild **and** replace local `.pyd` to avoid old ABI/signature mismatch.
+
+```powershell
+cd C:\Users\BaiYang\CBOND_ON\cbond_on\rust\factor_engine
+$py = "C:\Users\BaiYang\AppData\Local\Programs\Python\Python311\python.exe"
+$env:PYO3_PYTHON = $py
+
+# 1) build wheel
+& $py -m pip install -U maturin
+& $py -m maturin build --release -i $py
+
+# 2) reinstall wheel into site-packages (optional but recommended)
+$whl = Get-ChildItem .\target\wheels\cbond_on_rust-*.whl |
+  Sort-Object LastWriteTime -Descending |
+  Select-Object -First 1
+& $py -m pip install --force-reinstall $whl.FullName
+
+# 3) replace local repo module binary (important)
+$tmp = Join-Path $env:TEMP "cbond_on_rust_wheel_unpack"
+if (Test-Path $tmp) { Remove-Item -Recurse -Force $tmp }
+Expand-Archive -Path $whl.FullName -DestinationPath $tmp -Force
+$pyd = Get-ChildItem "$tmp\cbond_on_rust\cbond_on_rust*.pyd" | Select-Object -First 1
+Copy-Item $pyd.FullName "C:\Users\BaiYang\CBOND_ON\cbond_on\cbond_on_rust\" -Force
+
+# 4) quick check
+& $py -c "import cbond_on_rust,inspect;print(cbond_on_rust.__file__);print(inspect.signature(cbond_on_rust.compute_factor_frame))"
+```
+
+Expected signature after daily context upgrade:
+`(panel_df, specs_payload, stock_df=None, map_df=None, daily_data=None, _compute_params=None)`
+
 ## Current behavior
 
 - Python factor pipeline can route to Rust by setting `compute.engine = "rust"`.
