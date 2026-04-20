@@ -159,6 +159,31 @@ def _calc_bin_stats(bin_time_df: pd.DataFrame) -> pd.DataFrame:
     return nav_end
 
 
+def _mean_bin_monotonicity(bin_time_df: pd.DataFrame) -> float:
+    if bin_time_df.empty:
+        return float("nan")
+    day_df = bin_time_df.copy()
+    day_df["trade_date"] = pd.to_datetime(day_df["trade_time"], errors="coerce").dt.normalize()
+    day_df = day_df.dropna(subset=["trade_date"])
+    if day_df.empty:
+        return float("nan")
+    rhos: list[float] = []
+    for _, g in day_df.groupby("trade_date", sort=True):
+        x = pd.to_numeric(g.get("bin"), errors="coerce")
+        y = pd.to_numeric(g.get("return_mean"), errors="coerce")
+        mask = x.notna() & y.notna()
+        x = x[mask]
+        y = y[mask]
+        if x.nunique() < 2:
+            continue
+        rho = x.corr(y, method="spearman")
+        if pd.notna(rho):
+            rhos.append(float(rho))
+    if not rhos:
+        return float("nan")
+    return float(pd.Series(rhos, dtype=float).mean())
+
+
 def _plot_compressed(ax: Any, x_index: Any, y: Any, *, label: str | None = None, color: Any = None) -> None:
     ts = pd.DatetimeIndex(pd.to_datetime(x_index, errors="coerce"))
     valid = ~ts.isna()
@@ -174,31 +199,24 @@ def _plot_compressed(ax: Any, x_index: Any, y: Any, *, label: str | None = None,
         ax.plot(x, y_series.to_numpy(), label=label, color=color)
 
 
-def _rolling_sharpe(
+def _rolling_mean(series: pd.Series, *, window: int, min_periods: int) -> pd.Series:
+    s = pd.to_numeric(series, errors="coerce")
+    return s.rolling(window=window, min_periods=min_periods).mean()
+
+
+def _rolling_tstat(
     series: pd.Series,
     *,
     window: int,
     min_periods: int,
-    periods_per_year: float,
 ) -> pd.Series:
     s = pd.to_numeric(series, errors="coerce")
-    mean = s.rolling(window=window, min_periods=min_periods).mean()
-    std = s.rolling(window=window, min_periods=min_periods).std(ddof=0)
-    sharpe = (mean / std) * np.sqrt(periods_per_year)
-    return sharpe.replace([np.inf, -np.inf], np.nan)
-
-
-def _expanding_sharpe(
-    series: pd.Series,
-    *,
-    min_periods: int,
-    periods_per_year: float,
-) -> pd.Series:
-    s = pd.to_numeric(series, errors="coerce")
-    mean = s.expanding(min_periods=min_periods).mean()
-    std = s.expanding(min_periods=min_periods).std(ddof=0)
-    sharpe = (mean / std) * np.sqrt(periods_per_year)
-    return sharpe.replace([np.inf, -np.inf], np.nan)
+    roll = s.rolling(window=window, min_periods=min_periods)
+    mean = roll.mean()
+    std = roll.std(ddof=0)
+    cnt = roll.count()
+    t_val = (mean / std) * np.sqrt(cnt)
+    return t_val.replace([np.inf, -np.inf], np.nan)
 
 
 def save_single_factor_report(
@@ -314,6 +332,25 @@ def save_single_factor_report(
     ax.tick_params(axis="x", labelrotation=20)
 
     ax = axes[0, 2]
+    benchmark_line_plotted = False
+    if not benchmark_nav_series.empty:
+        bench_plot = pd.Series(
+            benchmark_nav_series.values,
+            index=pd.to_datetime(benchmark_nav_series.index, errors="coerce"),
+        ).dropna()
+        if not bench_plot.empty:
+            bench_plot.index = bench_plot.index.normalize()
+            bench_plot = bench_plot.groupby(bench_plot.index).last().sort_index()
+            if not bench_plot.empty:
+                ax.plot(
+                    bench_plot.index,
+                    bench_plot.values,
+                    label="benchmark",
+                    color="red",
+                    linestyle="--",
+                    linewidth=1.3,
+                )
+                benchmark_line_plotted = True
     if not bin_time_df.empty:
         day_df = bin_time_df.copy()
         day_df["trade_date"] = pd.to_datetime(day_df["trade_time"], errors="coerce").dt.normalize()
@@ -339,9 +376,15 @@ def save_single_factor_report(
             ax.tick_params(axis="x", labelrotation=30)
             ax.legend(fontsize=7, ncol=2)
         else:
-            ax.text(0.5, 0.5, "No bin NAV", ha="center", va="center", transform=ax.transAxes)
+            if not benchmark_line_plotted:
+                ax.text(0.5, 0.5, "No bin NAV", ha="center", va="center", transform=ax.transAxes)
+            else:
+                ax.legend(fontsize=7, ncol=2)
     else:
-        ax.text(0.5, 0.5, "No bin data", ha="center", va="center", transform=ax.transAxes)
+        if not benchmark_line_plotted:
+            ax.text(0.5, 0.5, "No bin data", ha="center", va="center", transform=ax.transAxes)
+        else:
+            ax.legend(fontsize=7, ncol=2)
     ax.set_title("Bin Cumulative NAV")
     ax.grid(True, alpha=0.3)
 
@@ -369,22 +412,26 @@ def save_single_factor_report(
     ax.grid(True, axis="y", alpha=0.3)
 
     ax = axes[1, 1]
+    mono = _mean_bin_monotonicity(bin_time_df)
+
     perf_metrics = [
-        ("strategy_ret", "ret_total"),
-        ("strategy_sharpe", "sharpe"),
-        ("maxdd", "maxdd"),
-        ("alpha_ret", "alpha_ret_total"),
+        ("strategy_ret", float(summary.get("ret_total", float("nan")))),
+        ("strategy_sharpe", float(summary.get("sharpe", float("nan")))),
+        ("maxdd", float(summary.get("maxdd", float("nan")))),
+        ("alpha_ret", float(summary.get("alpha_ret_total", float("nan")))),
+        ("mono_rankcorr", mono),
     ]
     perf_metric_names = [name for name, _ in perf_metrics]
-    perf_metric_vals = [summary[key] for _, key in perf_metrics]
+    perf_metric_vals = [val for _, val in perf_metrics]
     ax.bar(
         perf_metric_names,
         perf_metric_vals,
-        color=["#4C78A8", "#F58518", "#E45756", "#54A24B"],
+        color=["#4C78A8", "#F58518", "#E45756", "#54A24B", "#9C755F"],
     )
     for idx, val in enumerate(perf_metric_vals):
-        ax.text(idx, val, f"{val:.4f}", ha="center", va="bottom", fontsize=8)
-    ax.set_title("Strategy Metrics")
+        if pd.notna(val):
+            ax.text(idx, val, f"{val:.4f}", ha="center", va="bottom", fontsize=8)
+    ax.set_title("Factor + Strategy Metrics")
     ax.grid(True, axis="y", alpha=0.3)
     ax.tick_params(axis="x", labelrotation=20)
 
@@ -394,8 +441,10 @@ def save_single_factor_report(
         getattr(result, "benchmark_returns", pd.Series(dtype=float)),
         errors="coerce",
     ).dropna()
+    rank_ic_daily = pd.to_numeric(getattr(result, "rank_ic", pd.Series(dtype=float)), errors="coerce").dropna()
     if not factor_daily.empty:
         factor_daily = factor_daily.sort_index()
+        rank_ic_daily = rank_ic_daily.sort_index()
         common_idx = factor_daily.index.intersection(benchmark_daily.index)
         alpha_daily = (
             factor_daily.loc[common_idx] - benchmark_daily.loc[common_idx]
@@ -403,98 +452,60 @@ def save_single_factor_report(
             else pd.Series(dtype=float)
         ).sort_index()
 
-        obs = int(len(factor_daily))
-        # Adaptive rolling windows by observation count (trading-day based, no fixed week bucket).
-        short_win = max(10, min(40, obs // 6 if obs > 0 else 10))
-        long_win = max(short_win + 5, min(120, obs // 3 if obs > 0 else short_win + 5))
-        min_short = max(5, short_win // 2)
-        min_long = max(10, long_win // 2)
+        obs = int(max(len(factor_daily), len(rank_ic_daily), len(alpha_daily)))
+        # Adaptive rolling window by observation count (trading-day based).
+        roll_win = max(20, min(120, obs // 4 if obs > 0 else 20))
+        min_roll = max(10, roll_win // 2)
 
-        factor_sharpe_short = _rolling_sharpe(
-            factor_daily,
-            window=short_win,
-            min_periods=min_short,
-            periods_per_year=252.0,
-        )
-        factor_sharpe_long = _rolling_sharpe(
-            factor_daily,
-            window=long_win,
-            min_periods=min_long,
-            periods_per_year=252.0,
-        )
-        alpha_sharpe_short = _rolling_sharpe(
-            alpha_daily,
-            window=short_win,
-            min_periods=min_short,
-            periods_per_year=252.0,
-        )
-        alpha_sharpe_long = _rolling_sharpe(
-            alpha_daily,
-            window=long_win,
-            min_periods=min_long,
-            periods_per_year=252.0,
-        )
-        alpha_sharpe_exp = _expanding_sharpe(alpha_daily, min_periods=min_short, periods_per_year=252.0)
+        rank_ic_roll = _rolling_mean(rank_ic_daily, window=roll_win, min_periods=min_roll)
+        alpha_t_roll = _rolling_tstat(alpha_daily, window=roll_win, min_periods=min_roll)
+        alpha_hit_roll = _rolling_mean((alpha_daily > 0).astype(float), window=roll_win, min_periods=min_roll)
 
-        daily_export = pd.DataFrame(index=factor_daily.index.union(alpha_daily.index).sort_values())
+        daily_export = pd.DataFrame(index=factor_daily.index.union(alpha_daily.index).union(rank_ic_daily.index).sort_values())
         daily_export.index.name = "trade_time"
         daily_export["factor_daily_return"] = factor_daily.reindex(daily_export.index)
         daily_export["alpha_daily_return"] = alpha_daily.reindex(daily_export.index)
-        daily_export["factor_sharpe_short"] = factor_sharpe_short.reindex(daily_export.index)
-        daily_export["factor_sharpe_long"] = factor_sharpe_long.reindex(daily_export.index)
-        daily_export["alpha_sharpe_short"] = alpha_sharpe_short.reindex(daily_export.index)
-        daily_export["alpha_sharpe_long"] = alpha_sharpe_long.reindex(daily_export.index)
-        daily_export["alpha_sharpe_expanding"] = alpha_sharpe_exp.reindex(daily_export.index)
-        daily_export.reset_index().to_csv(out_dir / "sharpe_stability.csv", index=False)
+        daily_export["rank_ic_daily"] = rank_ic_daily.reindex(daily_export.index)
+        daily_export["rank_ic_roll_mean"] = rank_ic_roll.reindex(daily_export.index)
+        daily_export["alpha_roll_tstat"] = alpha_t_roll.reindex(daily_export.index)
+        daily_export["alpha_roll_hitrate"] = alpha_hit_roll.reindex(daily_export.index)
+        daily_export.reset_index().to_csv(out_dir / "factor_effectiveness_stability.csv", index=False)
 
         plotted = False
-        if not factor_sharpe_short.dropna().empty:
-            x = pd.to_datetime(factor_sharpe_short.index, errors="coerce")
-            y = pd.to_numeric(factor_sharpe_short, errors="coerce")
+        if not rank_ic_roll.dropna().empty:
+            x = pd.to_datetime(rank_ic_roll.index, errors="coerce")
+            y = pd.to_numeric(rank_ic_roll, errors="coerce")
             valid = x.notna() & y.notna()
             if valid.any():
-                ax.plot(x[valid], y[valid], label=f"Factor Sharpe({short_win}d)", color="#4C78A8")
+                ax.plot(x[valid], y[valid], label=f"RankIC Mean({roll_win}d)", color="#4C78A8")
                 plotted = True
-        if not factor_sharpe_long.dropna().empty:
-            x = pd.to_datetime(factor_sharpe_long.index, errors="coerce")
-            y = pd.to_numeric(factor_sharpe_long, errors="coerce")
+        ax.axhline(0.0, color="#4C78A8", linewidth=1.0, linestyle=":", alpha=0.7)
+        ax.set_ylabel("RankIC")
+
+        ax2 = ax.twinx()
+        if not alpha_t_roll.dropna().empty:
+            x = pd.to_datetime(alpha_t_roll.index, errors="coerce")
+            y = pd.to_numeric(alpha_t_roll, errors="coerce")
             valid = x.notna() & y.notna()
             if valid.any():
-                ax.plot(x[valid], y[valid], label=f"Factor Sharpe({long_win}d)", color="#2C7FB8", linestyle="--")
+                ax2.plot(x[valid], y[valid], label=f"Alpha t-stat({roll_win}d)", color="#54A24B")
                 plotted = True
-        if not alpha_sharpe_short.dropna().empty:
-            x = pd.to_datetime(alpha_sharpe_short.index, errors="coerce")
-            y = pd.to_numeric(alpha_sharpe_short, errors="coerce")
-            valid = x.notna() & y.notna()
-            if valid.any():
-                ax.plot(x[valid], y[valid], label=f"Alpha Sharpe({short_win}d)", color="#54A24B")
-                plotted = True
-        if not alpha_sharpe_long.dropna().empty:
-            x = pd.to_datetime(alpha_sharpe_long.index, errors="coerce")
-            y = pd.to_numeric(alpha_sharpe_long, errors="coerce")
-            valid = x.notna() & y.notna()
-            if valid.any():
-                ax.plot(x[valid], y[valid], label=f"Alpha Sharpe({long_win}d)", color="#1A9850", linestyle="--")
-                plotted = True
-        if not alpha_sharpe_exp.dropna().empty:
-            x = pd.to_datetime(alpha_sharpe_exp.index, errors="coerce")
-            y = pd.to_numeric(alpha_sharpe_exp, errors="coerce")
-            valid = x.notna() & y.notna()
-            if valid.any():
-                ax.plot(x[valid], y[valid], label="Alpha Sharpe(exp)", color="#F58518", linestyle="--")
-                plotted = True
+        ax2.axhline(2.0, color="#54A24B", linewidth=1.0, linestyle="--", alpha=0.7)
+        ax2.axhline(-2.0, color="#E45756", linewidth=1.0, linestyle="--", alpha=0.7)
+        ax2.set_ylabel("Alpha t-stat")
         if plotted:
-            ax.axhline(0.0, color="#999999", linewidth=1.0, linestyle=":")
             locator = mdates.AutoDateLocator()
             ax.xaxis.set_major_locator(locator)
             ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(locator))
             ax.tick_params(axis="x", labelrotation=30)
-            ax.legend(fontsize=8)
+            lines1, labels1 = ax.get_legend_handles_labels()
+            lines2, labels2 = ax2.get_legend_handles_labels()
+            ax.legend(lines1 + lines2, labels1 + labels2, fontsize=8, loc="best")
         else:
-            ax.text(0.5, 0.5, "No sharpe stability data", ha="center", va="center", transform=ax.transAxes)
+            ax.text(0.5, 0.5, "No effectiveness stability data", ha="center", va="center", transform=ax.transAxes)
     else:
         ax.text(0.5, 0.5, "No return data", ha="center", va="center", transform=ax.transAxes)
-    ax.set_title("Sharpe Stability (Daily Rolling)")
+    ax.set_title("Effectiveness Stability")
     ax.grid(True, alpha=0.3)
 
     fig.tight_layout()
