@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 from typing import Any
 
@@ -219,6 +220,46 @@ def _rolling_tstat(
     return t_val.replace([np.inf, -np.inf], np.nan)
 
 
+def _normal_cdf(x: float) -> float:
+    return 0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))
+
+
+def _newey_west_tstat(series: pd.Series, *, lag: int | None = None) -> tuple[float, float, float]:
+    s = pd.to_numeric(series, errors="coerce").dropna().astype(float)
+    n = int(s.shape[0])
+    if n < 3:
+        return float("nan"), float("nan"), float("nan")
+    mean = float(s.mean())
+    e = s.to_numpy() - mean
+    if lag is None:
+        lag = int(max(1, min(n - 1, round(4.0 * (n / 100.0) ** (2.0 / 9.0)))))
+    else:
+        lag = int(max(1, min(n - 1, lag)))
+    gamma0 = float(np.dot(e, e) / n)
+    long_run_var = gamma0
+    for k in range(1, lag + 1):
+        gamma_k = float(np.dot(e[k:], e[:-k]) / n)
+        weight = 1.0 - (k / (lag + 1.0))
+        long_run_var += 2.0 * weight * gamma_k
+    var_mean = long_run_var / n
+    if not np.isfinite(var_mean) or var_mean <= 0:
+        return mean, float("nan"), float("nan")
+    t_val = mean / math.sqrt(var_mean)
+    p_val = 2.0 * (1.0 - _normal_cdf(abs(float(t_val))))
+    return mean, float(t_val), float(p_val)
+
+
+def _series_sign_flip_count(series: pd.Series) -> int:
+    s = pd.to_numeric(series, errors="coerce").dropna()
+    if s.empty:
+        return 0
+    signs = np.sign(s.to_numpy())
+    signs = signs[signs != 0]
+    if signs.size < 2:
+        return 0
+    return int(np.sum(signs[1:] * signs[:-1] < 0))
+
+
 def save_single_factor_report(
     result: Any,
     out_dir: Path,
@@ -333,6 +374,7 @@ def save_single_factor_report(
 
     ax = axes[0, 2]
     benchmark_line_plotted = False
+    benchmark_plot: pd.Series | None = None
     if not benchmark_nav_series.empty:
         bench_plot = pd.Series(
             benchmark_nav_series.values,
@@ -342,15 +384,7 @@ def save_single_factor_report(
             bench_plot.index = bench_plot.index.normalize()
             bench_plot = bench_plot.groupby(bench_plot.index).last().sort_index()
             if not bench_plot.empty:
-                ax.plot(
-                    bench_plot.index,
-                    bench_plot.values,
-                    label="benchmark",
-                    color="red",
-                    linestyle="--",
-                    linewidth=1.3,
-                )
-                benchmark_line_plotted = True
+                benchmark_plot = bench_plot
     if not bin_time_df.empty:
         day_df = bin_time_df.copy()
         day_df["trade_date"] = pd.to_datetime(day_df["trade_time"], errors="coerce").dt.normalize()
@@ -369,18 +403,62 @@ def save_single_factor_report(
                 y = pd.to_numeric(nav[col], errors="coerce")
                 valid = x.notna() & y.notna()
                 if valid.any():
-                    ax.plot(x[valid], y[valid], label=f"bin {col}", color=color)
+                    ax.plot(x[valid], y[valid], label=f"bin {col}", color=color, zorder=2)
+            if benchmark_plot is not None:
+                ax.plot(
+                    benchmark_plot.index,
+                    benchmark_plot.values,
+                    label="benchmark",
+                    color="red",
+                    linestyle="--",
+                    linewidth=2.0,
+                    zorder=10,
+                )
+                benchmark_line_plotted = True
             locator = mdates.AutoDateLocator()
             ax.xaxis.set_major_locator(locator)
             ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(locator))
             ax.tick_params(axis="x", labelrotation=30)
-            ax.legend(fontsize=7, ncol=2)
+            handles, labels = ax.get_legend_handles_labels()
+            if handles:
+                order = sorted(
+                    range(len(labels)),
+                    key=lambda i: (0 if labels[i] == "benchmark" else 1, labels[i]),
+                )
+                ax.legend(
+                    [handles[i] for i in order],
+                    [labels[i] for i in order],
+                    fontsize=7,
+                    ncol=2,
+                )
         else:
+            if benchmark_plot is not None:
+                ax.plot(
+                    benchmark_plot.index,
+                    benchmark_plot.values,
+                    label="benchmark",
+                    color="red",
+                    linestyle="--",
+                    linewidth=2.0,
+                    zorder=10,
+                )
+                benchmark_line_plotted = True
             if not benchmark_line_plotted:
                 ax.text(0.5, 0.5, "No bin NAV", ha="center", va="center", transform=ax.transAxes)
             else:
                 ax.legend(fontsize=7, ncol=2)
     else:
+        if benchmark_plot is not None:
+            ax.plot(
+                benchmark_plot.index,
+                benchmark_plot.values,
+                label="benchmark",
+                color="red",
+                linestyle="--",
+                linewidth=2.0,
+                zorder=10,
+            )
+            benchmark_line_plotted = True
         if not benchmark_line_plotted:
             ax.text(0.5, 0.5, "No bin data", ha="center", va="center", transform=ax.transAxes)
         else:
@@ -436,77 +514,120 @@ def save_single_factor_report(
     ax.tick_params(axis="x", labelrotation=20)
 
     ax = axes[1, 2]
-    factor_daily = pd.to_numeric(getattr(result, "returns", pd.Series(dtype=float)), errors="coerce").dropna()
     benchmark_daily = pd.to_numeric(
         getattr(result, "benchmark_returns", pd.Series(dtype=float)),
         errors="coerce",
     ).dropna()
-    rank_ic_daily = pd.to_numeric(getattr(result, "rank_ic", pd.Series(dtype=float)), errors="coerce").dropna()
-    if not factor_daily.empty:
-        factor_daily = factor_daily.sort_index()
-        rank_ic_daily = rank_ic_daily.sort_index()
-        common_idx = factor_daily.index.intersection(benchmark_daily.index)
-        alpha_daily = (
-            factor_daily.loc[common_idx] - benchmark_daily.loc[common_idx]
-            if len(common_idx)
-            else pd.Series(dtype=float)
+    if not bin_time_df.empty and not benchmark_daily.empty:
+        day_df = bin_time_df.copy()
+        day_df["trade_date"] = pd.to_datetime(day_df["trade_time"], errors="coerce").dt.normalize()
+        day_df = day_df.dropna(subset=["trade_date"])
+        pivot = day_df.pivot_table(
+            index="trade_date",
+            columns="bin",
+            values="return_mean",
+            aggfunc="mean",
         ).sort_index()
+        bench_day = pd.Series(
+            benchmark_daily.values,
+            index=pd.to_datetime(benchmark_daily.index, errors="coerce"),
+        ).dropna()
+        bench_day.index = bench_day.index.normalize()
+        bench_day = bench_day.groupby(bench_day.index).mean().sort_index()
 
-        obs = int(max(len(factor_daily), len(rank_ic_daily), len(alpha_daily)))
-        # Adaptive rolling window by observation count (trading-day based).
+        common_days = pivot.index.intersection(bench_day.index)
+        pivot = pivot.loc[common_days]
+        bench_day = bench_day.loc[common_days]
+        alpha_by_bin = pivot.sub(bench_day, axis=0)
+        alpha_by_bin = alpha_by_bin.sort_index(axis=1)
+
+        obs = int(alpha_by_bin.shape[0])
         roll_win = max(20, min(120, obs // 4 if obs > 0 else 20))
         min_roll = max(10, roll_win // 2)
 
-        rank_ic_roll = _rolling_mean(rank_ic_daily, window=roll_win, min_periods=min_roll)
-        alpha_t_roll = _rolling_tstat(alpha_daily, window=roll_win, min_periods=min_roll)
-        alpha_hit_roll = _rolling_mean((alpha_daily > 0).astype(float), window=roll_win, min_periods=min_roll)
+        alpha_roll_t = pd.DataFrame(index=alpha_by_bin.index)
+        summary_rows: list[dict[str, float | int]] = []
+        for col in alpha_by_bin.columns:
+            s = pd.to_numeric(alpha_by_bin[col], errors="coerce")
+            t_roll = _rolling_tstat(s, window=roll_win, min_periods=min_roll)
+            alpha_roll_t[col] = t_roll
+            mean_val, nw_t, nw_p = _newey_west_tstat(s)
+            pos_ratio = float((pd.to_numeric(t_roll, errors="coerce") > 2.0).mean()) if t_roll.notna().any() else 0.0
+            neg_ratio = float((pd.to_numeric(t_roll, errors="coerce") < -2.0).mean()) if t_roll.notna().any() else 0.0
+            flip_count = _series_sign_flip_count(t_roll)
+            summary_rows.append(
+                {
+                    "bin": int(col),
+                    "sample_days": int(s.notna().sum()),
+                    "alpha_mean": float(mean_val),
+                    "alpha_nw_tstat": float(nw_t) if pd.notna(nw_t) else float("nan"),
+                    "alpha_nw_pvalue": float(nw_p) if pd.notna(nw_p) else float("nan"),
+                    "roll_t_pos_ratio": pos_ratio,
+                    "roll_t_neg_ratio": neg_ratio,
+                    "roll_t_sign_flip": int(flip_count),
+                }
+            )
+        pd.DataFrame(summary_rows).sort_values("bin").to_csv(
+            out_dir / "factor_bin_alpha_significance.csv",
+            index=False,
+        )
 
-        daily_export = pd.DataFrame(index=factor_daily.index.union(alpha_daily.index).union(rank_ic_daily.index).sort_values())
-        daily_export.index.name = "trade_time"
-        daily_export["factor_daily_return"] = factor_daily.reindex(daily_export.index)
-        daily_export["alpha_daily_return"] = alpha_daily.reindex(daily_export.index)
-        daily_export["rank_ic_daily"] = rank_ic_daily.reindex(daily_export.index)
-        daily_export["rank_ic_roll_mean"] = rank_ic_roll.reindex(daily_export.index)
-        daily_export["alpha_roll_tstat"] = alpha_t_roll.reindex(daily_export.index)
-        daily_export["alpha_roll_hitrate"] = alpha_hit_roll.reindex(daily_export.index)
-        daily_export.reset_index().to_csv(out_dir / "factor_effectiveness_stability.csv", index=False)
-
-        plotted = False
-        if not rank_ic_roll.dropna().empty:
-            x = pd.to_datetime(rank_ic_roll.index, errors="coerce")
-            y = pd.to_numeric(rank_ic_roll, errors="coerce")
-            valid = x.notna() & y.notna()
-            if valid.any():
-                ax.plot(x[valid], y[valid], label=f"RankIC Mean({roll_win}d)", color="#4C78A8")
-                plotted = True
-        ax.axhline(0.0, color="#4C78A8", linewidth=1.0, linestyle=":", alpha=0.7)
-        ax.set_ylabel("RankIC")
-
-        ax2 = ax.twinx()
-        if not alpha_t_roll.dropna().empty:
-            x = pd.to_datetime(alpha_t_roll.index, errors="coerce")
-            y = pd.to_numeric(alpha_t_roll, errors="coerce")
-            valid = x.notna() & y.notna()
-            if valid.any():
-                ax2.plot(x[valid], y[valid], label=f"Alpha t-stat({roll_win}d)", color="#54A24B")
-                plotted = True
-        ax2.axhline(2.0, color="#54A24B", linewidth=1.0, linestyle="--", alpha=0.7)
-        ax2.axhline(-2.0, color="#E45756", linewidth=1.0, linestyle="--", alpha=0.7)
-        ax2.set_ylabel("Alpha t-stat")
-        if plotted:
-            locator = mdates.AutoDateLocator()
-            ax.xaxis.set_major_locator(locator)
-            ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(locator))
-            ax.tick_params(axis="x", labelrotation=30)
-            lines1, labels1 = ax.get_legend_handles_labels()
-            lines2, labels2 = ax2.get_legend_handles_labels()
-            ax.legend(lines1 + lines2, labels1 + labels2, fontsize=8, loc="best")
+        heat = alpha_roll_t.T
+        if not heat.empty and heat.notna().any().any():
+            x = pd.to_datetime(heat.columns, errors="coerce")
+            valid_cols = ~x.isna()
+            heat = heat.loc[:, valid_cols]
+            x = x[valid_cols]
+            if heat.shape[1] > 0:
+                x_num = mdates.date2num(x.to_pydatetime())
+                x0 = float(x_num.min())
+                x1 = float(x_num.max())
+                if x0 == x1:
+                    x0 -= 0.5
+                    x1 += 0.5
+                im = ax.imshow(
+                    np.clip(heat.to_numpy(dtype=float), -3.0, 3.0),
+                    aspect="auto",
+                    origin="lower",
+                    cmap="RdBu_r",
+                    vmin=-3.0,
+                    vmax=3.0,
+                    extent=[x0, x1, -0.5, heat.shape[0] - 0.5],
+                )
+                cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+                cbar.set_label("Rolling t-stat", fontsize=8)
+                y_vals = list(range(heat.shape[0]))
+                y_labels = [f"bin {int(b)}" for b in heat.index]
+                ax.set_yticks(y_vals)
+                ax.set_yticklabels(y_labels, fontsize=7)
+                locator = mdates.AutoDateLocator()
+                ax.xaxis.set_major_locator(locator)
+                ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(locator))
+                ax.tick_params(axis="x", labelrotation=30)
+            else:
+                ax.text(0.5, 0.5, "No heatmap data", ha="center", va="center", transform=ax.transAxes)
         else:
-            ax.text(0.5, 0.5, "No effectiveness stability data", ha="center", va="center", transform=ax.transAxes)
+            ax.text(0.5, 0.5, "No rolling t-stat data", ha="center", va="center", transform=ax.transAxes)
     else:
-        ax.text(0.5, 0.5, "No return data", ha="center", va="center", transform=ax.transAxes)
-    ax.set_title("Effectiveness Stability")
-    ax.grid(True, alpha=0.3)
+        pd.DataFrame(
+            columns=[
+                "bin",
+                "sample_days",
+                "alpha_mean",
+                "alpha_nw_tstat",
+                "alpha_nw_pvalue",
+                "roll_t_pos_ratio",
+                "roll_t_neg_ratio",
+                "roll_t_sign_flip",
+            ]
+        ).to_csv(out_dir / "factor_bin_alpha_significance.csv", index=False)
+        ax.text(0.5, 0.5, "No bin/benchmark data", ha="center", va="center", transform=ax.transAxes)
+    ax.set_title(
+        f"Bin Alpha Significance Heatmap (rolling t, win={roll_win if 'roll_win' in locals() else 'n/a'})"
+    )
+    ax.set_xlabel("Trade Date")
+    ax.set_ylabel("Bin")
+    ax.grid(False)
 
     fig.tight_layout()
     fig.savefig(out_dir / "factor_report.png", dpi=150)

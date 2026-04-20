@@ -147,7 +147,7 @@ python cbond_on/run/factor_batch.py
 - 支持 `refresh/overwrite`。
 - 自动跳过黑名单因子（`factor_disabled_factors.json`）。
 
-### 5.4 因子质量守卫（`run/factor_quality_guard.py`）
+### 5.4 因子质量守卫（`cbond_on.common.factor_quality_guard`）
 
 目标：
 - 识别废弃因子和坏因子。
@@ -156,7 +156,7 @@ python cbond_on/run/factor_batch.py
 入口命令：
 
 ```bash
-python cbond_on/run/factor_quality_guard.py
+python -m cbond_on.common.factor_quality_guard --config factor
 ```
 
 当前默认行为（已开启）：
@@ -166,7 +166,7 @@ python cbond_on/run/factor_quality_guard.py
 只读扫描模式：
 
 ```bash
-python cbond_on/run/factor_quality_guard.py --no-apply-disable-bad --no-apply-remove-deprecated
+python -m cbond_on.common.factor_quality_guard --config factor --no-apply-disable-bad --no-apply-remove-deprecated
 ```
 
 输出与副作用：

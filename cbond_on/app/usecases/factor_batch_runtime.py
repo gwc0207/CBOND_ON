@@ -108,10 +108,6 @@ def _prepare_backtest_day(
     factor_time: str,
     label_time: str,
 ) -> _BacktestDayPrepared:
-    factor_df = factor_store.read_day(day)
-    if factor_df.empty or factor_col not in factor_df.columns:
-        return _BacktestDayPrepared(trade_day=day, reason="missing_factor")
-
     label_df = _read_label_day(label_root, day, factor_time=factor_time, label_time=label_time)
     if label_df.empty:
         return _BacktestDayPrepared(trade_day=day, reason="missing_label")
@@ -119,11 +115,23 @@ def _prepare_backtest_day(
     if benchmark_universe.empty:
         return _BacktestDayPrepared(trade_day=day, reason="missing_label")
 
+    factor_df = factor_store.read_day(day)
+    if factor_df.empty or factor_col not in factor_df.columns:
+        return _BacktestDayPrepared(
+            trade_day=day,
+            reason="missing_factor",
+            benchmark_universe=benchmark_universe,
+        )
+
     factor_df = factor_df.reset_index()
     merged = factor_df.merge(label_df, on=["dt", "code"], how="inner")
     merged = merged[[factor_col, "y", "dt", "code"]].dropna()
     if merged.empty:
-        return _BacktestDayPrepared(trade_day=day, reason="merged_empty")
+        return _BacktestDayPrepared(
+            trade_day=day,
+            reason="merged_empty",
+            benchmark_universe=benchmark_universe,
+        )
     return _BacktestDayPrepared(
         trade_day=day,
         reason="",
@@ -202,13 +210,13 @@ def run_intraday_factor_backtest(
                 factor_time=factor_time,
                 label_time=label_time,
             )
+            if prepared.benchmark_universe is not None and not prepared.benchmark_universe.empty:
+                benchmark_rows.append(prepared.benchmark_universe)
             if prepared.merged is None:
                 diagnostics.append({"trade_date": day, "status": "skip", "reason": prepared.reason})
                 continue
             diagnostics.append({"trade_date": day, "status": "ok", "count": len(prepared.merged)})
             rows.append(prepared.merged)
-            if prepared.benchmark_universe is not None and not prepared.benchmark_universe.empty:
-                benchmark_rows.append(prepared.benchmark_universe)
     else:
         with ThreadPoolExecutor(max_workers=workers) as executor:
             future_to_day = {
@@ -234,6 +242,8 @@ def run_intraday_factor_backtest(
                     prepared = future.result()
                 except Exception as exc:
                     raise RuntimeError(f"factor_backtest failed on {day}") from exc
+                if prepared.benchmark_universe is not None and not prepared.benchmark_universe.empty:
+                    benchmark_rows.append(prepared.benchmark_universe)
                 if prepared.merged is None:
                     diagnostics.append(
                         {"trade_date": prepared.trade_day, "status": "skip", "reason": prepared.reason}
@@ -243,8 +253,6 @@ def run_intraday_factor_backtest(
                     {"trade_date": prepared.trade_day, "status": "ok", "count": len(prepared.merged)}
                 )
                 rows.append(prepared.merged)
-                if prepared.benchmark_universe is not None and not prepared.benchmark_universe.empty:
-                    benchmark_rows.append(prepared.benchmark_universe)
     if not rows:
         empty = pd.Series(dtype=float)
         result = FactorBacktestResult(
@@ -465,11 +473,9 @@ def run_intraday_factor_backtest(
 
     daily = pd.DataFrame(daily_records).set_index("dt")
     returns = pd.to_numeric(daily["ret"], errors="coerce")
-    benchmark_returns = pd.to_numeric(daily["benchmark_return"], errors="coerce")
+    benchmark_returns = pd.to_numeric(benchmark_by_dt, errors="coerce").dropna().sort_index()
     valid_mask = returns.notna()
     returns = returns.loc[valid_mask]
-    benchmark_returns = benchmark_returns.loc[valid_mask]
-    benchmark_returns = benchmark_returns.dropna()
     ic = pd.to_numeric(daily["ic"], errors="coerce").dropna()
     rank_ic = pd.to_numeric(daily["rank_ic"], errors="coerce").dropna()
     nav = (1.0 + returns.fillna(0.0)).cumprod()
