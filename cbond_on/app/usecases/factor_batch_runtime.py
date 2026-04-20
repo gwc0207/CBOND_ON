@@ -37,6 +37,8 @@ class _BacktestDayPrepared:
     reason: str
     merged: pd.DataFrame | None = None
     benchmark_universe: pd.DataFrame | None = None
+    joined_count: int = 0
+    valid_count: int = 0
 
 
 def build_signal_specs(cfg: dict) -> list[FactorSpec]:
@@ -121,22 +123,31 @@ def _prepare_backtest_day(
             trade_day=day,
             reason="missing_factor",
             benchmark_universe=benchmark_universe,
+            joined_count=0,
+            valid_count=0,
         )
 
     factor_df = factor_df.reset_index()
-    merged = factor_df.merge(label_df, on=["dt", "code"], how="inner")
-    merged = merged[[factor_col, "y", "dt", "code"]].dropna()
+    joined = factor_df.merge(label_df, on=["dt", "code"], how="inner")
+    joined = joined[[factor_col, "y", "dt", "code"]]
+    joined_count = int(len(joined))
+    merged = joined.dropna()
+    valid_count = int(len(merged))
     if merged.empty:
         return _BacktestDayPrepared(
             trade_day=day,
             reason="merged_empty",
             benchmark_universe=benchmark_universe,
+            joined_count=joined_count,
+            valid_count=valid_count,
         )
     return _BacktestDayPrepared(
         trade_day=day,
         reason="",
         merged=merged,
         benchmark_universe=benchmark_universe,
+        joined_count=joined_count,
+        valid_count=valid_count,
     )
 
 
@@ -198,6 +209,8 @@ def run_intraday_factor_backtest(
     benchmark_rows = []
     trade_returns_rows: list[float] = []
     diagnostics: list[dict] = []
+    factor_joined_total = 0
+    factor_valid_total = 0
     days = list(_iter_existing_label_days(label_root, start, end))
     workers = max(1, int(workers))
     if workers <= 1:
@@ -210,6 +223,8 @@ def run_intraday_factor_backtest(
                 factor_time=factor_time,
                 label_time=label_time,
             )
+            factor_joined_total += int(prepared.joined_count)
+            factor_valid_total += int(prepared.valid_count)
             if prepared.benchmark_universe is not None and not prepared.benchmark_universe.empty:
                 benchmark_rows.append(prepared.benchmark_universe)
             if prepared.merged is None:
@@ -242,6 +257,8 @@ def run_intraday_factor_backtest(
                     prepared = future.result()
                 except Exception as exc:
                     raise RuntimeError(f"factor_backtest failed on {day}") from exc
+                factor_joined_total += int(prepared.joined_count)
+                factor_valid_total += int(prepared.valid_count)
                 if prepared.benchmark_universe is not None and not prepared.benchmark_universe.empty:
                     benchmark_rows.append(prepared.benchmark_universe)
                 if prepared.merged is None:
@@ -268,6 +285,15 @@ def run_intraday_factor_backtest(
         result.trade_returns = empty  # type: ignore[attr-defined]
         result.factor_values = empty  # type: ignore[attr-defined]
         result.diagnostics = pd.DataFrame(diagnostics)  # type: ignore[attr-defined]
+        result.factor_joined_total = int(factor_joined_total)  # type: ignore[attr-defined]
+        result.factor_valid_total = int(factor_valid_total)  # type: ignore[attr-defined]
+        result.factor_nan_ratio = (
+            float((factor_joined_total - factor_valid_total) / factor_joined_total)
+            if factor_joined_total > 0
+            else float("nan")
+        )  # type: ignore[attr-defined]
+        result.bin_ok = 0  # type: ignore[attr-defined]
+        result.bin_fail = 0  # type: ignore[attr-defined]
         return result
 
     data = pd.concat(rows, ignore_index=True)
@@ -536,6 +562,13 @@ def run_intraday_factor_backtest(
     result.diagnostics = pd.DataFrame(diagnostics)  # type: ignore[attr-defined]
     result.bin_ok = len(bin_rows)  # type: ignore[attr-defined]
     result.bin_fail = bin_fail  # type: ignore[attr-defined]
+    result.factor_joined_total = int(factor_joined_total)  # type: ignore[attr-defined]
+    result.factor_valid_total = int(factor_valid_total)  # type: ignore[attr-defined]
+    result.factor_nan_ratio = (
+        float((factor_joined_total - factor_valid_total) / factor_joined_total)
+        if factor_joined_total > 0
+        else float("nan")
+    )  # type: ignore[attr-defined]
     return result
 
 
@@ -551,6 +584,20 @@ def _load_screening_config(cfg: dict) -> dict:
         "ir_abs_min": float(raw.get("ir_abs_min", 0.0)),
         "sharpe_min": float(raw.get("sharpe_min", 0.1)),
         "copy_reports": bool(raw.get("copy_reports", True)),
+    }
+
+
+def _load_bad_factor_report_config(cfg: dict) -> dict:
+    raw = cfg.get("bad_factor_report", {})
+    if not isinstance(raw, dict):
+        raw = {}
+    return {
+        "enabled": bool(raw.get("enabled", True)),
+        "nan_ratio_threshold": float(raw.get("nan_ratio_threshold", 0.20)),
+        "bin_fail_ratio_threshold": float(raw.get("bin_fail_ratio_threshold", 0.20)),
+        "skip_ratio_threshold": float(raw.get("skip_ratio_threshold", 0.30)),
+        "top_n_plot": int(raw.get("top_n_plot", 30)),
+        "min_days": int(raw.get("min_days", 20)),
     }
 
 
@@ -608,6 +655,198 @@ def _build_screening_row(
         if key not in row:
             row[key] = value
     return row
+
+
+def _build_bad_factor_row(
+    *,
+    factor_name: str,
+    factor_col: str,
+    result: FactorBacktestResult,
+    cfg: dict,
+) -> dict:
+    diag = getattr(result, "diagnostics", pd.DataFrame())
+    if not isinstance(diag, pd.DataFrame):
+        diag = pd.DataFrame()
+    total_days = int(len(diag))
+    if total_days > 0 and "status" in diag.columns:
+        skip_days = int((diag["status"].astype(str) != "ok").sum())
+    else:
+        skip_days = 0
+    skip_ratio = float(skip_days / total_days) if total_days > 0 else float("nan")
+
+    if total_days > 0 and "reason" in diag.columns:
+        reason_series = diag["reason"].fillna("").astype(str)
+        bin_reason_mask = reason_series.isin({"binning_failed", "bin_select_out_of_range", "min_count_not_met"})
+        bin_standard_fail_days = int(bin_reason_mask.sum())
+    else:
+        bin_standard_fail_days = 0
+    bin_standard_fail_ratio = (
+        float(bin_standard_fail_days / total_days) if total_days > 0 else float("nan")
+    )
+
+    bin_ok = int(getattr(result, "bin_ok", 0) or 0)
+    bin_fail = int(getattr(result, "bin_fail", 0) or 0)
+    bin_total = int(bin_ok + bin_fail)
+    bin_fail_ratio = float(bin_fail / bin_total) if bin_total > 0 else float("nan")
+
+    nan_ratio = _to_float(getattr(result, "factor_nan_ratio", float("nan")))
+    joined_total = int(getattr(result, "factor_joined_total", 0) or 0)
+    valid_total = int(getattr(result, "factor_valid_total", 0) or 0)
+
+    nan_bad = pd.notna(nan_ratio) and nan_ratio >= float(cfg["nan_ratio_threshold"])
+    bin_bad = (
+        pd.notna(bin_fail_ratio)
+        and bin_total >= int(cfg["min_days"])
+        and bin_fail_ratio >= float(cfg["bin_fail_ratio_threshold"])
+    ) or (
+        pd.notna(bin_standard_fail_ratio)
+        and total_days >= int(cfg["min_days"])
+        and bin_standard_fail_ratio >= float(cfg["bin_fail_ratio_threshold"])
+    )
+    skip_bad = (
+        pd.notna(skip_ratio)
+        and total_days >= int(cfg["min_days"])
+        and skip_ratio >= float(cfg["skip_ratio_threshold"])
+    )
+    is_bad = bool(nan_bad or bin_bad or skip_bad)
+
+    reasons: list[str] = []
+    if nan_bad:
+        reasons.append("high_nan_ratio")
+    if bin_bad:
+        reasons.append("bin_standard_not_met")
+    if skip_bad:
+        reasons.append("high_skip_ratio")
+
+    return {
+        "factor_name": factor_name,
+        "factor_col": factor_col,
+        "total_days": total_days,
+        "skip_days": skip_days,
+        "skip_ratio": skip_ratio,
+        "bin_standard_fail_days": bin_standard_fail_days,
+        "bin_standard_fail_ratio": bin_standard_fail_ratio,
+        "bin_ok": bin_ok,
+        "bin_fail": bin_fail,
+        "bin_fail_ratio": bin_fail_ratio,
+        "factor_joined_total": joined_total,
+        "factor_valid_total": valid_total,
+        "nan_ratio": nan_ratio,
+        "bad_nan": bool(nan_bad),
+        "bad_bin": bool(bin_bad),
+        "bad_skip": bool(skip_bad),
+        "is_bad": bool(is_bad),
+        "bad_reasons": ",".join(reasons),
+    }
+
+
+def _write_bad_factor_outputs(out_root: Path, *, cfg: dict, rows: list[dict]) -> None:
+    bad_root = out_root / "bad_factors"
+    bad_root.mkdir(parents=True, exist_ok=True)
+    (bad_root / "bad_factor_report_config.json").write_text(
+        json.dumps(cfg, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+    all_df = pd.DataFrame(rows)
+    if all_df.empty:
+        all_df = pd.DataFrame(
+            columns=[
+                "factor_name",
+                "factor_col",
+                "total_days",
+                "skip_days",
+                "skip_ratio",
+                "bin_standard_fail_days",
+                "bin_standard_fail_ratio",
+                "bin_ok",
+                "bin_fail",
+                "bin_fail_ratio",
+                "factor_joined_total",
+                "factor_valid_total",
+                "nan_ratio",
+                "bad_nan",
+                "bad_bin",
+                "bad_skip",
+                "is_bad",
+                "bad_reasons",
+            ]
+        )
+    else:
+        all_df["is_bad"] = all_df["is_bad"].astype(bool)
+        all_df = all_df.sort_values(
+            by=["is_bad", "nan_ratio", "bin_standard_fail_ratio", "skip_ratio"],
+            ascending=[False, False, False, False],
+            kind="mergesort",
+        )
+    all_df.to_csv(bad_root / "factor_bad_quality_all.csv", index=False)
+
+    bad_df = all_df[all_df["is_bad"]].copy() if "is_bad" in all_df.columns else pd.DataFrame()
+    bad_df.to_csv(bad_root / "bad_factor_list.csv", index=False)
+    (bad_root / "bad_factor_list.txt").write_text(
+        "\n".join(bad_df["factor_name"].astype(str).tolist()) if not bad_df.empty else "",
+        encoding="utf-8",
+    )
+
+    summary = {
+        "total_factors": int(len(all_df)),
+        "bad_factors": int(len(bad_df)),
+        "bad_factor_ratio": float(len(bad_df) / len(all_df)) if len(all_df) > 0 else 0.0,
+        "thresholds": {
+            "nan_ratio_threshold": float(cfg["nan_ratio_threshold"]),
+            "bin_fail_ratio_threshold": float(cfg["bin_fail_ratio_threshold"]),
+            "skip_ratio_threshold": float(cfg["skip_ratio_threshold"]),
+            "min_days": int(cfg["min_days"]),
+        },
+    }
+    (bad_root / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+    except Exception:
+        return
+
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+    top_n = int(max(1, cfg.get("top_n_plot", 30)))
+
+    plot_df_nan = all_df.sort_values("nan_ratio", ascending=False).head(top_n) if not all_df.empty else pd.DataFrame()
+    if not plot_df_nan.empty:
+        colors = ["#E45756" if bool(v) else "#4C78A8" for v in plot_df_nan["bad_nan"].tolist()]
+        axes[0].bar(plot_df_nan["factor_name"].astype(str), pd.to_numeric(plot_df_nan["nan_ratio"], errors="coerce"), color=colors)
+        axes[0].axhline(float(cfg["nan_ratio_threshold"]), color="#E45756", linestyle="--", linewidth=1.0)
+        axes[0].set_title("Top NaN Ratio Factors")
+        axes[0].tick_params(axis="x", labelrotation=75, labelsize=7)
+        axes[0].grid(True, axis="y", alpha=0.3)
+    else:
+        axes[0].text(0.5, 0.5, "No factor rows", ha="center", va="center", transform=axes[0].transAxes)
+        axes[0].set_title("Top NaN Ratio Factors")
+
+    plot_df_bin = (
+        all_df.sort_values("bin_standard_fail_ratio", ascending=False).head(top_n)
+        if not all_df.empty
+        else pd.DataFrame()
+    )
+    if not plot_df_bin.empty:
+        colors = ["#E45756" if bool(v) else "#72B7B2" for v in plot_df_bin["bad_bin"].tolist()]
+        axes[1].bar(
+            plot_df_bin["factor_name"].astype(str),
+            pd.to_numeric(plot_df_bin["bin_standard_fail_ratio"], errors="coerce"),
+            color=colors,
+        )
+        axes[1].axhline(float(cfg["bin_fail_ratio_threshold"]), color="#E45756", linestyle="--", linewidth=1.0)
+        axes[1].set_title("Top Bin Standard Fail Ratio Factors")
+        axes[1].tick_params(axis="x", labelrotation=75, labelsize=7)
+        axes[1].grid(True, axis="y", alpha=0.3)
+    else:
+        axes[1].text(0.5, 0.5, "No factor rows", ha="center", va="center", transform=axes[1].transAxes)
+        axes[1].set_title("Top Bin Standard Fail Ratio Factors")
+
+    fig.tight_layout()
+    fig.savefig(bad_root / "bad_factor_metrics.png", dpi=150)
+    plt.close(fig)
 
 
 def _write_screening_outputs(out_root: Path, *, screening_cfg: dict, rows: list[dict]) -> None:
@@ -744,7 +983,9 @@ def run_factor_batch(
     alpha_significance_window = int(backtest_cfg.get("alpha_significance_window", 40))
     backtest_workers = int(backtest_cfg.get("workers", 1))
     screening_cfg = _load_screening_config(cfg)
+    bad_factor_cfg = _load_bad_factor_report_config(cfg)
     screening_rows: list[dict] = []
+    bad_factor_rows: list[dict] = []
     trading_days = set(
         list_trading_days_from_raw(
             raw_data_root,
@@ -796,8 +1037,28 @@ def run_factor_batch(
                     screening_cfg=screening_cfg,
                 )
             )
+        if bool(bad_factor_cfg.get("enabled", True)):
+            bad_factor_rows.append(
+                _build_bad_factor_row(
+                    factor_name=spec.name,
+                    factor_col=factor_col,
+                    result=result,
+                    cfg=bad_factor_cfg,
+                )
+            )
     if bool(screening_cfg.get("enabled", False)):
         _write_screening_outputs(out_root, screening_cfg=screening_cfg, rows=screening_rows)
+    if bool(bad_factor_cfg.get("enabled", True)):
+        _write_bad_factor_outputs(out_root, cfg=bad_factor_cfg, rows=bad_factor_rows)
+        bad_df = pd.DataFrame(bad_factor_rows)
+        bad_count = int(bad_df["is_bad"].sum()) if not bad_df.empty and "is_bad" in bad_df.columns else 0
+        print(
+            "bad factor report:",
+            f"enabled=True",
+            f"factors={len(bad_factor_rows)}",
+            f"bad={bad_count}",
+            f"out={(out_root / 'bad_factors').as_posix()}",
+        )
     _collect_report_plots(out_root)
     return out_root
 

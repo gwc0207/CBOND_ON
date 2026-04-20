@@ -40,5 +40,13 @@
     ir_abs_min: 0.15,
     sharpe_min: 0.3,
     copy_reports: true
+  },
+  bad_factor_report: {
+    enabled: true,
+    nan_ratio_threshold: 0.20,
+    bin_fail_ratio_threshold: 0.20,
+    skip_ratio_threshold: 0.30,
+    min_days: 20,
+    top_n_plot: 30
   }
 }
