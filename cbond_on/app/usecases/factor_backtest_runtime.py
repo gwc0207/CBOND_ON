@@ -61,6 +61,7 @@ def run(
     bin_source = str(run_cfg.get("bin_source", "manual"))
     bin_top_k = int(run_cfg.get("bin_top_k", 1))
     bin_lookback_days = int(run_cfg.get("bin_lookback_days", 60))
+    alpha_significance_window = int(run_cfg.get("alpha_significance_window", 40))
     workers = int(run_cfg.get("workers", 1))
     trading_days = set(
         list_trading_days_from_raw(
@@ -101,6 +102,7 @@ def run(
             factor_name=spec.name,
             factor_col=factor_col,
             trading_days=trading_days,
+            alpha_significance_window=alpha_significance_window,
         )
 
     return out_root

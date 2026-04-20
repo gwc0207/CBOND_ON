@@ -741,6 +741,7 @@ def run_factor_batch(
     bin_source = backtest_cfg.get("bin_source", "manual")
     bin_top_k = int(backtest_cfg.get("bin_top_k", 1))
     bin_lookback_days = int(backtest_cfg.get("bin_lookback_days", 60))
+    alpha_significance_window = int(backtest_cfg.get("alpha_significance_window", 40))
     backtest_workers = int(backtest_cfg.get("workers", 1))
     screening_cfg = _load_screening_config(cfg)
     screening_rows: list[dict] = []
@@ -784,6 +785,7 @@ def run_factor_batch(
             factor_name=spec.name,
             factor_col=factor_col,
             trading_days=trading_days,
+            alpha_significance_window=alpha_significance_window,
         )
         if bool(screening_cfg.get("enabled", False)):
             screening_rows.append(

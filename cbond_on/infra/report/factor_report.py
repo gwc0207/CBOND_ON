@@ -267,6 +267,7 @@ def save_single_factor_report(
     factor_name: str,
     factor_col: str,
     trading_days: set | None = None,
+    alpha_significance_window: int | None = None,
 ) -> dict[str, float]:
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -542,8 +543,13 @@ def save_single_factor_report(
         alpha_by_bin = alpha_by_bin.sort_index(axis=1)
 
         obs = int(alpha_by_bin.shape[0])
-        roll_win = max(20, min(120, obs // 4 if obs > 0 else 20))
-        min_roll = max(10, roll_win // 2)
+        configured_win = int(alpha_significance_window) if alpha_significance_window is not None else 40
+        configured_win = max(2, configured_win)
+        if obs > 0:
+            roll_win = int(min(configured_win, obs))
+        else:
+            roll_win = configured_win
+        min_roll = max(2, roll_win // 2)
 
         alpha_roll_t = pd.DataFrame(index=alpha_by_bin.index)
         summary_rows: list[dict[str, float | int]] = []
