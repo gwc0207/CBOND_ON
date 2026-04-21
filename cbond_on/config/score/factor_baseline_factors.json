@@ -1,0 +1,30 @@
+{
+  "factors": [
+    "aacb_l3",
+    "volen_f60_s10_l3",
+    "ret_5m",
+    "ret_10m",
+    "ret_30m",
+    "ret_60m",
+    "ret_open_0930_1430",
+    "mom_slope_30m",
+    "vol_30m",
+    "vol_60m",
+    "range_30m",
+    "pos_30m",
+    "volume_30m",
+    "amount_30m",
+    "vwap_30m",
+    "volimb_30m_l3",
+    "spread",
+    "depth_imb_l3",
+    "mid_move_30m",
+    "turnover_30m",
+    "amihud_30m",
+    "microprice_bias_l1",
+    "depth_slope_l5",
+    "ret_skew_30m",
+    "vwap_gap_30m"
+  ]
+}
+

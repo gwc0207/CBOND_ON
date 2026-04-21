@@ -1,0 +1,31 @@
+{
+  // base model selector (must exist in score/model_score config models)
+  base_model_id: "lgbm_factor_MSE",
+  model_score_config: "score/model_score",
+  factor_config: "factor",
+
+  // test window
+  start: "2025-06-01",
+  end: "2026-03-30",
+
+  // external factor lists
+  baseline_factors_file: "score/factor_baseline_factors.json",
+  blacklist_file: "score/factor_blacklist.json",
+
+  // debug knob: 0 = all candidates
+  max_candidates: 0,
+
+  // forwarded into model_score.execution
+  execution: {
+    refit_every_n_days: 1,
+    train_processes: 1
+  },
+
+  acceptance: {
+    min_days: 20,
+    min_delta_rank_ic_mean: 0.0,
+    min_t_stat: 2.0,
+    min_win_rate: 0.55
+  }
+}
+
