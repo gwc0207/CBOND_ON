@@ -22,6 +22,7 @@ from cbond_on.core.trading_days import list_trading_days_from_raw, prev_trading_
 from cbond_on.domain.factors.storage import FactorStore
 from cbond_on.infra.model.wandb_utils import init_wandb_logger
 from cbond_on.infra.model.score_io import load_scores_by_date, write_scores_by_date
+from cbond_on.infra.model.score_guard import score_guard_flags, score_guard_stats
 from cbond_on.infra.model.impl.lgbm.trainer import (
     SplitData,
     build_dataset,
@@ -286,6 +287,23 @@ def main(
         if candidate.exists():
             cfg_file = candidate
     cfg = _load_model_config(cfg_file)
+    score_guard_cfg = dict(cfg.get("score_guard", {}))
+    execution_guard_cfg = execution_cfg.get("score_guard")
+    if isinstance(execution_guard_cfg, dict):
+        score_guard_cfg.update(execution_guard_cfg)
+    score_guard_enabled = bool(score_guard_cfg.get("enabled", True))
+    score_guard_equal_tol = float(score_guard_cfg.get("equal_tol", 1e-12))
+    score_guard_warn_same_sign = bool(score_guard_cfg.get("warn_same_sign", False))
+    score_guard_fail_on_all_equal = bool(score_guard_cfg.get("fail_on_all_equal", False))
+    score_guard_fail_all_equal_days = max(0, int(score_guard_cfg.get("fail_all_equal_days", 0)))
+    print(
+        "[score_guard]",
+        f"enabled={score_guard_enabled}",
+        f"equal_tol={score_guard_equal_tol}",
+        f"warn_same_sign={score_guard_warn_same_sign}",
+        f"fail_on_all_equal={score_guard_fail_on_all_equal}",
+        f"fail_all_equal_days={score_guard_fail_all_equal_days}",
+    )
 
     cfg_start = parse_date(cfg.get("start"))
     cfg_end = parse_date(cfg.get("end"))
@@ -641,6 +659,7 @@ def main(
         active_model = None
         last_refit_pos: int | None = None
         last_refit_day: date | None = None
+        all_equal_days: list[date] = []
         with ThreadPoolExecutor(max_workers=prep_workers, thread_name_prefix="roll_prep") as prep_pool:
             inflight: deque[tuple[int, int, object]] = deque()
             next_pos = 0
@@ -747,6 +766,25 @@ def main(
                     print(f"[rolling] skip {test_day}: no trained model available")
                     continue
                 test_pred = active_model.predict(test_data.x)
+                guard_stats = (
+                    score_guard_stats(test_pred, equal_tol=score_guard_equal_tol)
+                    if score_guard_enabled
+                    else {}
+                )
+                guard_flags = (
+                    score_guard_flags(guard_stats, warn_same_sign=score_guard_warn_same_sign)
+                    if score_guard_enabled
+                    else []
+                )
+                if score_guard_enabled and guard_flags:
+                    print(
+                        f"[score_guard:{test_day}] flags={','.join(guard_flags)} "
+                        f"range={guard_stats.get('score_range')} std={guard_stats.get('score_std')} "
+                        f"unique={guard_stats.get('score_unique_count')}/{guard_stats.get('score_count')} "
+                        f"pos_ratio={guard_stats.get('score_pos_ratio')}"
+                    )
+                if score_guard_enabled and bool(guard_stats.get("score_all_equal", False)):
+                    all_equal_days.append(test_day)
                 model_source_day = test_day if refit_status == "refit" else (last_refit_day or test_day)
                 if not (desired_start <= test_day <= desired_end):
                     continue
@@ -784,6 +822,17 @@ def main(
                         "dir": test_metrics["dir"],
                         "mse": test_metrics["mse"],
                         "r2": test_metrics["r2"],
+                        "score_min": guard_stats.get("score_min", float("nan")),
+                        "score_max": guard_stats.get("score_max", float("nan")),
+                        "score_range": guard_stats.get("score_range", float("nan")),
+                        "score_std": guard_stats.get("score_std", float("nan")),
+                        "score_unique_count": guard_stats.get("score_unique_count", 0),
+                        "score_count": guard_stats.get("score_count", int(len(test_pred))),
+                        "score_pos_ratio": guard_stats.get("score_pos_ratio", float("nan")),
+                        "score_neg_ratio": guard_stats.get("score_neg_ratio", float("nan")),
+                        "score_zero_ratio": guard_stats.get("score_zero_ratio", float("nan")),
+                        "score_same_sign": bool(guard_stats.get("score_same_sign", False)),
+                        "score_all_equal": bool(guard_stats.get("score_all_equal", False)),
                     }
                 )
                 print(
@@ -803,6 +852,10 @@ def main(
                         "dir": test_metrics.get("dir"),
                         "mse": test_metrics.get("mse"),
                         "r2": test_metrics.get("r2"),
+                        "score_std": guard_stats.get("score_std", float("nan")),
+                        "score_range": guard_stats.get("score_range", float("nan")),
+                        "score_same_sign": bool(guard_stats.get("score_same_sign", False)),
+                        "score_all_equal": bool(guard_stats.get("score_all_equal", False)),
                     },
                     step=int(roll_idx),
                     prefix="rolling",
@@ -819,11 +872,40 @@ def main(
         else:
             raise RuntimeError("rolling produced no scores; check window_days and data range")
         if rolling_rows:
-            pd.DataFrame(rolling_rows).to_csv(out_dir / "rolling_metrics.csv", index=False)
+            rr = pd.DataFrame(rolling_rows)
+            rr.to_csv(out_dir / "rolling_metrics.csv", index=False)
+            guard_cols = [
+                "trade_date",
+                "score_count",
+                "score_min",
+                "score_max",
+                "score_range",
+                "score_std",
+                "score_unique_count",
+                "score_pos_ratio",
+                "score_neg_ratio",
+                "score_zero_ratio",
+                "score_same_sign",
+                "score_all_equal",
+            ]
+            present_guard_cols = [c for c in guard_cols if c in rr.columns]
+            if present_guard_cols:
+                rr[present_guard_cols].to_csv(out_dir / "rolling_score_guard.csv", index=False)
         (out_dir / "config.json").write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
         (out_dir / "features.json").write_text(json.dumps(factor_cols, ensure_ascii=False, indent=2), encoding="utf-8")
         print(f"saved rolling: {out_dir}")
         print(f"saved scores: {score_output}")
+        if score_guard_enabled:
+            print(
+                "[score_guard] rolling summary",
+                f"all_equal_days={len(all_equal_days)}",
+                f"total_days={len(rolling_rows)}",
+            )
+            if score_guard_fail_on_all_equal and len(all_equal_days) > score_guard_fail_all_equal_days:
+                raise RuntimeError(
+                    "score_guard failed: all-equal prediction days "
+                    f"{len(all_equal_days)} > allowed {score_guard_fail_all_equal_days}"
+                )
         if rolling_rows:
             rr = pd.DataFrame(rolling_rows)
             wandb_logger.finish(
@@ -833,6 +915,7 @@ def main(
                     "rolling_rank_ic_mean": float(pd.to_numeric(rr["rank_ic"], errors="coerce").mean()),
                     "rolling_ic_mean": float(pd.to_numeric(rr["ic"], errors="coerce").mean()),
                     "rolling_dir_mean": float(pd.to_numeric(rr["dir"], errors="coerce").mean()),
+                    "score_guard_all_equal_days": int(len(all_equal_days)),
                 }
             )
         else:
@@ -977,6 +1060,19 @@ def main(
     train_pred = model.predict(train_data.x)
     val_pred = model.predict(val_data.x)
     test_pred = model.predict(test_data.x)
+    split_guard_rows = []
+    if score_guard_enabled:
+        for split_name, pred in [("train", train_pred), ("val", val_pred), ("test", test_pred)]:
+            stats = score_guard_stats(pred, equal_tol=score_guard_equal_tol)
+            flags = score_guard_flags(stats, warn_same_sign=score_guard_warn_same_sign)
+            split_guard_rows.append({"split": split_name, **stats})
+            if flags:
+                print(
+                    f"[score_guard:{split_name}] flags={','.join(flags)} "
+                    f"range={stats.get('score_range')} std={stats.get('score_std')} "
+                    f"unique={stats.get('score_unique_count')}/{stats.get('score_count')} "
+                    f"pos_ratio={stats.get('score_pos_ratio')}"
+                )
 
     train_metrics = evaluate_metrics(train_data.x, train_data.y, train_data.dt, train_pred, bins=bins)
     val_metrics = evaluate_metrics(val_data.x, val_data.y, val_data.dt, val_pred, bins=bins)
@@ -1018,6 +1114,18 @@ def main(
         {"split": "test", **{k: v for k, v in test_metrics.items() if k != "bin_dir"}},
     ])
     metrics_df.to_csv(out_dir / "metrics.csv", index=False)
+    if score_guard_enabled and split_guard_rows:
+        pd.DataFrame(split_guard_rows).to_csv(out_dir / "score_guard.csv", index=False)
+        all_equal_splits = sum(1 for row in split_guard_rows if bool(row.get("score_all_equal", False)))
+        print(
+            "[score_guard] split summary",
+            f"all_equal_splits={all_equal_splits}",
+            f"total_splits={len(split_guard_rows)}",
+        )
+        if score_guard_fail_on_all_equal and all_equal_splits > 0:
+            raise RuntimeError(
+                "score_guard failed: non-rolling split has all-equal predictions"
+            )
 
     if history:
         pd.DataFrame(history).to_csv(out_dir / "metrics_iter.csv", index=False)
@@ -1048,6 +1156,9 @@ def main(
             "test_r2": test_metrics.get("r2"),
             "test_dir": test_metrics.get("dir"),
             "test_rank_ic": test_metrics.get("rank_ic_mean"),
+            "score_guard_train_all_equal": bool(split_guard_rows[0]["score_all_equal"]) if score_guard_enabled and split_guard_rows else False,
+            "score_guard_val_all_equal": bool(split_guard_rows[1]["score_all_equal"]) if score_guard_enabled and len(split_guard_rows) > 1 else False,
+            "score_guard_test_all_equal": bool(split_guard_rows[2]["score_all_equal"]) if score_guard_enabled and len(split_guard_rows) > 2 else False,
         },
         prefix="final",
     )
