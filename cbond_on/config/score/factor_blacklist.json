@@ -1,4 +1,18 @@
 {
-  "factors": []
+  "factors": [
+    "alpha062_vwap_open_rank_compare_v1",
+    "alpha068_high_adv_rank_signal_v1",
+    "alpha025_return_volume_vwap_range_v1",
+    "alpha043_volume_delay_momentum_v1",
+    "alpha021_close_volatility_breakout_v1",
+    "alpha065_open_vwap_min_signal_v1",
+    "alpha027_volume_vwap_corr_signal_v1",
+    "order_flow_imbalance_v1",
+    "alpha009_close_change_filter_v1",
+    "alpha010_close_change_rank_v1",
+    "alpha012_volume_close_reversal_v1",
+    "alpha034_return_volatility_rank_v1",
+    "alpha022_high_volume_corr_change_v1",
+    "alpha004_ts_rank_low_v1"
+  ]
 }
-

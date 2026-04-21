@@ -12,7 +12,7 @@ from cbond_on.interfaces.cli.factor_select import main
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Run factor selection by model uplift")
+    parser = argparse.ArgumentParser(description="Run factor selection by importance topN retraining")
     parser.add_argument("--config", default="score/factor_select")
     parser.add_argument("--start")
     parser.add_argument("--end")
@@ -22,4 +22,3 @@ if __name__ == "__main__":
         start=args.start,
         end=args.end,
     )
-

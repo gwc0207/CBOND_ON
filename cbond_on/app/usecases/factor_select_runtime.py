@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import copy
 import json
-import math
 import re
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -24,15 +23,14 @@ from cbond_on.infra.model.eval.evaluator import (
 
 
 @dataclass
-class _TrialResult:
-    factor: str
-    status: str
+class _EvalTrial:
+    trial_name: str
     trial_dir: Path
     score_output: Path
+    state_dir: Path
+    factors: list[str]
     summary: dict[str, Any]
     daily: pd.DataFrame
-    uplift: dict[str, Any]
-    error: str = ""
 
 
 def _safe_name(value: str) -> str:
@@ -67,178 +65,45 @@ def _load_factor_list(path_like: str) -> list[str]:
     return uniq
 
 
-def _t_stat_from_series(values: pd.Series) -> float:
-    s = pd.to_numeric(values, errors="coerce").dropna()
-    n = int(len(s))
-    if n < 2:
-        return float("nan")
-    std = float(s.std(ddof=1))
-    if std <= 0:
-        return float("nan")
-    mean = float(s.mean())
-    return float(mean / (std / math.sqrt(n)))
+def _dedupe_keep_order(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for value in values:
+        v = str(value).strip()
+        if not v or v in seen:
+            continue
+        seen.add(v)
+        out.append(v)
+    return out
 
 
-def _calc_uplift(baseline_daily: pd.DataFrame, candidate_daily: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, Any]]:
-    base = baseline_daily[["trade_date", "rank_ic", "ic", "dir"]].copy()
-    cand = candidate_daily[["trade_date", "rank_ic", "ic", "dir"]].copy()
-    base = base.rename(
-        columns={
-            "rank_ic": "rank_ic_base",
-            "ic": "ic_base",
-            "dir": "dir_base",
-        }
-    )
-    cand = cand.rename(
-        columns={
-            "rank_ic": "rank_ic_cand",
-            "ic": "ic_cand",
-            "dir": "dir_cand",
-        }
-    )
-    merged = base.merge(cand, on="trade_date", how="inner")
-    if merged.empty:
-        return merged, {
-            "days_overlap": 0,
-            "delta_rank_ic_mean": float("nan"),
-            "delta_rank_ic_t": float("nan"),
-            "delta_rank_ic_win_rate": float("nan"),
-            "delta_ic_mean": float("nan"),
-            "delta_ic_t": float("nan"),
-            "delta_dir_mean": float("nan"),
-        }
-
-    merged["delta_rank_ic"] = pd.to_numeric(merged["rank_ic_cand"], errors="coerce") - pd.to_numeric(
-        merged["rank_ic_base"], errors="coerce"
-    )
-    merged["delta_ic"] = pd.to_numeric(merged["ic_cand"], errors="coerce") - pd.to_numeric(
-        merged["ic_base"], errors="coerce"
-    )
-    merged["delta_dir"] = pd.to_numeric(merged["dir_cand"], errors="coerce") - pd.to_numeric(
-        merged["dir_base"], errors="coerce"
-    )
-
-    d_rank = pd.to_numeric(merged["delta_rank_ic"], errors="coerce").dropna()
-    d_ic = pd.to_numeric(merged["delta_ic"], errors="coerce").dropna()
-    d_dir = pd.to_numeric(merged["delta_dir"], errors="coerce").dropna()
-
-    uplift = {
-        "days_overlap": int(len(merged)),
-        "delta_rank_ic_mean": float(d_rank.mean()) if not d_rank.empty else float("nan"),
-        "delta_rank_ic_t": _t_stat_from_series(d_rank),
-        "delta_rank_ic_win_rate": float((d_rank > 0).mean()) if not d_rank.empty else float("nan"),
-        "delta_ic_mean": float(d_ic.mean()) if not d_ic.empty else float("nan"),
-        "delta_ic_t": _t_stat_from_series(d_ic),
-        "delta_dir_mean": float(d_dir.mean()) if not d_dir.empty else float("nan"),
-    }
-    return merged, uplift
-
-
-def _plot_candidate_report(
+def _build_trial_model_cfg(
     *,
-    factor: str,
-    out_path: Path,
-    baseline_daily: pd.DataFrame,
-    candidate_daily: pd.DataFrame,
-    uplift_daily: pd.DataFrame,
-    uplift: dict[str, Any],
-) -> None:
-    try:
-        import matplotlib
-
-        matplotlib.use("Agg")
-        import matplotlib.pyplot as plt
-    except Exception:
-        return
-
-    fig, axes = plt.subplots(2, 2, figsize=(14, 9))
-    ax = axes[0, 0]
-    b = baseline_daily.copy()
-    c = candidate_daily.copy()
-    if not b.empty:
-        b["trade_date"] = pd.to_datetime(b["trade_date"], errors="coerce")
-        ax.plot(b["trade_date"], pd.to_numeric(b["rank_ic"], errors="coerce"), label="baseline_rank_ic")
-    if not c.empty:
-        c["trade_date"] = pd.to_datetime(c["trade_date"], errors="coerce")
-        ax.plot(c["trade_date"], pd.to_numeric(c["rank_ic"], errors="coerce"), label="candidate_rank_ic")
-    ax.axhline(0.0, color="#999999", linewidth=0.8)
-    ax.set_title("Daily RankIC")
-    ax.grid(alpha=0.3)
-    ax.legend(loc="best", fontsize=8)
-
-    ax = axes[0, 1]
-    if not uplift_daily.empty:
-        u = uplift_daily.copy()
-        u["trade_date"] = pd.to_datetime(u["trade_date"], errors="coerce")
-        d = pd.to_numeric(u["delta_rank_ic"], errors="coerce")
-        cum = d.fillna(0.0).cumsum()
-        ax.plot(u["trade_date"], cum, color="#4C78A8", label="cum(delta_rank_ic)")
-        ax.axhline(0.0, color="#999999", linewidth=0.8)
-        ax.legend(loc="best", fontsize=8)
-    ax.set_title("Cumulative Delta RankIC")
-    ax.grid(alpha=0.3)
-
-    ax = axes[1, 0]
-    if not uplift_daily.empty:
-        vals = pd.to_numeric(uplift_daily["delta_rank_ic"], errors="coerce").dropna()
-        if not vals.empty:
-            ax.hist(vals, bins=40, color="#72B7B2", alpha=0.85)
-            ax.axvline(float(vals.mean()), color="#E45756", linestyle="--", linewidth=1.2, label="mean")
-            ax.legend(loc="best", fontsize=8)
-    ax.set_title("Delta RankIC Distribution")
-    ax.grid(alpha=0.3)
-
-    ax = axes[1, 1]
-    text_lines = [
-        f"factor: {factor}",
-        f"days_overlap: {uplift.get('days_overlap')}",
-        f"delta_rank_ic_mean: {uplift.get('delta_rank_ic_mean'):.6f}" if pd.notna(uplift.get("delta_rank_ic_mean")) else "delta_rank_ic_mean: nan",
-        f"delta_rank_ic_t: {uplift.get('delta_rank_ic_t'):.4f}" if pd.notna(uplift.get("delta_rank_ic_t")) else "delta_rank_ic_t: nan",
-        f"delta_rank_ic_win_rate: {uplift.get('delta_rank_ic_win_rate'):.4f}" if pd.notna(uplift.get("delta_rank_ic_win_rate")) else "delta_rank_ic_win_rate: nan",
-        f"delta_ic_mean: {uplift.get('delta_ic_mean'):.6f}" if pd.notna(uplift.get("delta_ic_mean")) else "delta_ic_mean: nan",
-        f"delta_ic_t: {uplift.get('delta_ic_t'):.4f}" if pd.notna(uplift.get("delta_ic_t")) else "delta_ic_t: nan",
-        f"delta_dir_mean: {uplift.get('delta_dir_mean'):.6f}" if pd.notna(uplift.get("delta_dir_mean")) else "delta_dir_mean: nan",
-    ]
-    ax.axis("off")
-    ax.text(0.02, 0.98, "\n".join(text_lines), va="top", ha="left", fontsize=10, family="monospace")
-
-    fig.tight_layout()
-    fig.savefig(out_path, dpi=150)
-    plt.close(fig)
-
-
-def _save_trial_artifacts(
-    *,
-    trial: _TrialResult,
-    uplift_daily: pd.DataFrame,
-    baseline_summary: dict[str, Any],
-    baseline_daily: pd.DataFrame,
-) -> None:
-    trial.trial_dir.mkdir(parents=True, exist_ok=True)
-    payload = {
-        "factor": trial.factor,
-        "status": trial.status,
-        "error": trial.error,
-        "summary": trial.summary,
-        "uplift": trial.uplift,
-        "baseline_summary": baseline_summary,
-    }
-    (trial.trial_dir / "summary.json").write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
-    if not trial.daily.empty:
-        trial.daily.to_csv(trial.trial_dir / "evaluation_daily.csv", index=False)
-    if not uplift_daily.empty:
-        uplift_daily.to_csv(trial.trial_dir / "uplift_daily.csv", index=False)
-    _plot_candidate_report(
-        factor=trial.factor,
-        out_path=trial.trial_dir / "factor_uplift_report.png",
-        baseline_daily=baseline_daily,
-        candidate_daily=trial.daily,
-        uplift_daily=uplift_daily,
-        uplift=trial.uplift,
-    )
+    base_model_cfg: dict[str, Any],
+    start_day: date,
+    end_day: date,
+    factors: list[str],
+    model_name: str,
+    score_output: Path,
+    save_state: bool,
+    state_dir: Path,
+) -> dict[str, Any]:
+    cfg = copy.deepcopy(base_model_cfg)
+    cfg["start"] = str(start_day)
+    cfg["end"] = str(end_day)
+    cfg["model_name"] = model_name
+    cfg["factors"] = list(factors)
+    cfg["score_output"] = str(score_output.as_posix())
+    cfg["score_overwrite"] = True
+    cfg["score_dedupe"] = True
+    inc = dict(cfg.get("incremental", {}))
+    inc["enabled"] = True
+    inc["skip_existing_scores"] = False
+    inc["warm_start"] = False
+    inc["save_state"] = bool(save_state)
+    inc["state_dir"] = str(state_dir.as_posix())
+    cfg["incremental"] = inc
+    return cfg
 
 
 def _evaluate_score_output(
@@ -263,30 +128,187 @@ def _evaluate_score_output(
     return evaluate_merged_scores(merged, bins=bins)
 
 
-def _build_trial_model_cfg(
+def _run_model_trial(
     *,
+    trial_name: str,
+    trial_dir: Path,
+    factors: list[str],
+    model_id: str,
+    model_type: str,
     base_model_cfg: dict[str, Any],
+    score_cfg: dict[str, Any],
+    execution_override: dict[str, Any],
     start_day: date,
     end_day: date,
-    factors: list[str],
-    model_name: str,
-    score_output: Path,
-) -> dict[str, Any]:
-    cfg = copy.deepcopy(base_model_cfg)
-    cfg["start"] = str(start_day)
-    cfg["end"] = str(end_day)
-    cfg["model_name"] = model_name
-    cfg["factors"] = list(factors)
-    cfg["score_output"] = str(score_output.as_posix())
-    cfg["score_overwrite"] = True
-    cfg["score_dedupe"] = True
-    inc = dict(cfg.get("incremental", {}))
-    inc["enabled"] = True
-    inc["skip_existing_scores"] = False
-    inc["warm_start"] = False
-    inc["save_state"] = False
-    cfg["incremental"] = inc
-    return cfg
+    label_root: Path,
+    factor_time: str,
+    label_time: str,
+    bins: int,
+    save_state: bool,
+) -> _EvalTrial:
+    trial_dir.mkdir(parents=True, exist_ok=True)
+    score_output = trial_dir / "scores"
+    state_dir = trial_dir / "state"
+    model_name = f"{base_model_cfg.get('model_name', model_id)}__factor_select__{_safe_name(trial_name)}"
+    trial_cfg = _build_trial_model_cfg(
+        base_model_cfg=base_model_cfg,
+        start_day=start_day,
+        end_day=end_day,
+        factors=factors,
+        model_name=model_name,
+        score_output=score_output,
+        save_state=save_state,
+        state_dir=state_dir,
+    )
+    trial_cfg_path = trial_dir / "model_config.json"
+    trial_cfg_path.write_text(json.dumps(trial_cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    trial_score_cfg = copy.deepcopy(score_cfg)
+    trial_score_cfg["model_id"] = "factor_select_trial"
+    trial_score_cfg["default_model_id"] = "factor_select_trial"
+    trial_score_cfg["models"] = {
+        "factor_select_trial": {
+            "model_type": model_type,
+            "model_config": str(trial_cfg_path.as_posix()),
+        }
+    }
+    trial_score_cfg["execution"] = execution_override
+
+    print(f"[factor_select] trial={trial_name} start factors={len(factors)}")
+    run_model_score(
+        model_id="factor_select_trial",
+        start=start_day,
+        end=end_day,
+        cfg=trial_score_cfg,
+    )
+
+    eval_res = _evaluate_score_output(
+        score_output=score_output,
+        label_root=label_root,
+        factor_time=factor_time,
+        label_time=label_time,
+        start_day=start_day,
+        end_day=end_day,
+        bins=bins,
+    )
+
+    payload = {
+        "trial_name": trial_name,
+        "factor_count": len(factors),
+        "factors": factors,
+        "summary": eval_res.summary,
+    }
+    (trial_dir / "summary.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    if not eval_res.daily.empty:
+        eval_res.daily.to_csv(trial_dir / "evaluation_daily.csv", index=False)
+
+    print(
+        f"[factor_select] trial={trial_name} done "
+        f"rank_ic_mean={eval_res.summary.get('rank_ic_mean')} "
+        f"samples={eval_res.summary.get('samples')}"
+    )
+
+    return _EvalTrial(
+        trial_name=trial_name,
+        trial_dir=trial_dir,
+        score_output=score_output,
+        state_dir=state_dir,
+        factors=factors,
+        summary=dict(eval_res.summary),
+        daily=eval_res.daily,
+    )
+
+
+def _load_importance_from_state_dir(
+    *,
+    state_dir: Path,
+    importance_type: str,
+) -> pd.DataFrame:
+    try:
+        import lightgbm as lgb
+    except Exception as exc:  # pragma: no cover
+        raise RuntimeError(f"lightgbm is required for factor importance export: {exc}") from exc
+
+    if not state_dir.exists():
+        return pd.DataFrame(columns=["factor", "importance_mean", "importance_std", "importance_nonzero_ratio", "checkpoints"])
+
+    records: list[dict[str, Any]] = []
+    checkpoints = sorted(state_dir.glob("*.txt"))
+    for ckpt in checkpoints:
+        try:
+            booster = lgb.Booster(model_file=str(ckpt))
+            names = list(booster.feature_name())
+            importances = list(booster.feature_importance(importance_type=importance_type))
+            for factor, imp in zip(names, importances):
+                records.append(
+                    {
+                        "checkpoint": ckpt.stem,
+                        "factor": str(factor),
+                        "importance": float(imp),
+                    }
+                )
+        except Exception as exc:
+            print(f"[factor_select] skip checkpoint importance parse failed: {ckpt.name} ({type(exc).__name__}: {exc})")
+
+    if not records:
+        return pd.DataFrame(columns=["factor", "importance_mean", "importance_std", "importance_nonzero_ratio", "checkpoints"])
+
+    df = pd.DataFrame(records)
+    agg = (
+        df.groupby("factor", as_index=False)
+        .agg(
+            importance_mean=("importance", "mean"),
+            importance_std=("importance", "std"),
+            importance_nonzero_ratio=("importance", lambda s: float((pd.to_numeric(s, errors="coerce") > 0).mean())),
+            checkpoints=("checkpoint", "nunique"),
+        )
+        .sort_values(["importance_mean", "importance_nonzero_ratio"], ascending=[False, False], kind="mergesort")
+        .reset_index(drop=True)
+    )
+    agg["importance_std"] = pd.to_numeric(agg["importance_std"], errors="coerce").fillna(0.0)
+    return agg
+
+
+def _plot_importance_topk(
+    *,
+    importance_df: pd.DataFrame,
+    out_path: Path,
+    top_k: int,
+) -> None:
+    if importance_df.empty:
+        return
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+    except Exception:
+        return
+
+    top_k = max(1, int(top_k))
+    top = importance_df.head(top_k).copy()
+    top = top.iloc[::-1]
+
+    fig_h = max(6, int(len(top) * 0.28) + 2)
+    fig, ax = plt.subplots(figsize=(10, fig_h))
+    ax.barh(top["factor"], top["importance_mean"], color="#4C78A8", alpha=0.9)
+    ax.set_xlabel("importance_mean")
+    ax.set_title(f"Top {len(top)} Factor Importance")
+    ax.grid(axis="x", alpha=0.25)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=150)
+    plt.close(fig)
+
+
+def _numeric_delta_map(full_summary: dict[str, Any], topn_summary: dict[str, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    keys = sorted(set(full_summary.keys()) | set(topn_summary.keys()))
+    for key in keys:
+        fv = full_summary.get(key)
+        tv = topn_summary.get(key)
+        if isinstance(fv, (int, float)) and isinstance(tv, (int, float)):
+            out[key] = float(tv) - float(fv)
+    return out
 
 
 def run(
@@ -308,14 +330,18 @@ def run(
     ).strip()
     if not model_id:
         raise ValueError("factor_select missing base_model_id")
+
     models = dict(score_cfg.get("models", {}))
     if model_id not in models:
         raise KeyError(f"base_model_id not found in model_score config: {model_id}")
+
     model_entry = dict(models[model_id])
-    model_type = str(model_entry.get("model_type", "")).strip()
+    model_type = str(model_entry.get("model_type", "")).strip().lower()
     model_cfg_key = str(model_entry.get("model_config", "")).strip()
     if not model_type or not model_cfg_key:
         raise ValueError(f"invalid model entry for base model: {model_id}")
+    if model_type != "lgbm":
+        raise ValueError(f"factor_select importance_topn currently supports lgbm only, got: {model_type}")
 
     base_model_cfg_path = resolve_config_path(model_cfg_key)
     base_model_cfg = load_json_like(base_model_cfg_path)
@@ -334,240 +360,161 @@ def run(
     baseline_factors = _load_factor_list(str(selector_cfg.get("baseline_factors_file", "score/factor_baseline_factors")))
     if not baseline_factors:
         raise ValueError("baseline factor list is empty")
-    blacklist = set(_load_factor_list(str(selector_cfg.get("blacklist_file", "score/factor_blacklist"))))
+
+    blacklist = set(_load_factor_list(str(selector_cfg.get("blacklist_file", "score/factor_blacklist"))) )
 
     candidate_all = expected_factor_columns_from_cfg(factor_cfg)
     baseline_set = set(baseline_factors)
-    candidates = [x for x in candidate_all if x not in baseline_set and x not in blacklist]
+    candidate_extra = [x for x in candidate_all if x not in baseline_set and x not in blacklist]
     max_candidates = int(selector_cfg.get("max_candidates", 0) or 0)
     if max_candidates > 0:
-        candidates = candidates[:max_candidates]
+        candidate_extra = candidate_extra[:max_candidates]
+
+    selection_cfg = dict(selector_cfg.get("selection", {}))
+    pool_source = str(selection_cfg.get("pool_source", "baseline_plus_candidates")).strip().lower()
+    if pool_source == "baseline_only":
+        pool_factors = list(baseline_factors)
+    elif pool_source == "candidates_only":
+        pool_factors = [x for x in candidate_all if x not in blacklist]
+    else:
+        pool_factors = baseline_factors + candidate_extra
+    pool_factors = _dedupe_keep_order(pool_factors)
+    if not pool_factors:
+        raise ValueError("factor_select pool factors is empty")
+
+    mode = str(selection_cfg.get("mode", "importance_topn")).strip().lower()
+    if mode != "importance_topn":
+        raise ValueError(f"unsupported factor_select.selection.mode: {mode}")
+
+    importance_type = str(selection_cfg.get("importance_type", "gain")).strip().lower()
+    if importance_type not in {"gain", "split"}:
+        raise ValueError("selection.importance_type must be one of: gain, split")
+
+    top_n = int(selection_cfg.get("top_n", 10) or 10)
+    min_importance = float(selection_cfg.get("min_importance", 0.0))
+    plot_top_k = int(selection_cfg.get("plot_top_k", 30) or 30)
 
     results_root = Path(paths_cfg["results_root"])
     date_label = f"{start_day:%Y-%m-%d}_{end_day:%Y-%m-%d}"
     out_root = results_root / date_label / "Factor_Select" / datetime.now().strftime("%Y%m%d_%H%M%S")
     out_root.mkdir(parents=True, exist_ok=True)
-    candidates_root = out_root / "candidates"
-    candidates_root.mkdir(parents=True, exist_ok=True)
 
-    acceptance_cfg = dict(selector_cfg.get("acceptance", {}))
-    min_days = int(acceptance_cfg.get("min_days", 20))
-    min_delta_rank_ic_mean = float(acceptance_cfg.get("min_delta_rank_ic_mean", 0.0))
-    min_t_stat = float(acceptance_cfg.get("min_t_stat", 2.0))
-    min_win_rate = float(acceptance_cfg.get("min_win_rate", 0.55))
-
-    # baseline
-    baseline_dir = out_root / "baseline"
-    baseline_score_output = baseline_dir / "scores"
-    baseline_cfg = _build_trial_model_cfg(
+    # stage 1: train with full pool
+    full_dir = out_root / "stage1_full_pool"
+    full_trial = _run_model_trial(
+        trial_name="full_pool",
+        trial_dir=full_dir,
+        factors=pool_factors,
+        model_id=model_id,
+        model_type=model_type,
         base_model_cfg=base_model_cfg,
+        score_cfg=score_cfg,
+        execution_override=execution_override,
         start_day=start_day,
         end_day=end_day,
-        factors=baseline_factors,
-        model_name=f"{base_model_cfg.get('model_name', model_id)}__factor_select_baseline",
-        score_output=baseline_score_output,
-    )
-    baseline_cfg_path = baseline_dir / "model_config.json"
-    baseline_dir.mkdir(parents=True, exist_ok=True)
-    baseline_cfg_path.write_text(json.dumps(baseline_cfg, ensure_ascii=False, indent=2), encoding="utf-8")
-    baseline_score_cfg = copy.deepcopy(score_cfg)
-    baseline_score_cfg["model_id"] = "factor_select_baseline"
-    baseline_score_cfg["default_model_id"] = "factor_select_baseline"
-    baseline_score_cfg["models"] = {
-        "factor_select_baseline": {
-            "model_type": model_type,
-            "model_config": str(baseline_cfg_path.as_posix()),
-        }
-    }
-    baseline_score_cfg["execution"] = execution_override
-    print(f"[factor_select] baseline start model={model_id} factors={len(baseline_factors)}")
-    run_model_score(
-        model_id="factor_select_baseline",
-        start=start_day,
-        end=end_day,
-        cfg=baseline_score_cfg,
-    )
-    baseline_eval = _evaluate_score_output(
-        score_output=baseline_score_output,
         label_root=label_root,
         factor_time=factor_time,
         label_time=label_time,
-        start_day=start_day,
-        end_day=end_day,
         bins=bins,
+        save_state=True,
     )
-    baseline_summary = dict(baseline_eval.summary)
-    (baseline_dir / "summary.json").write_text(
-        json.dumps(
-            {
-                "model_id": model_id,
-                "factor_count": len(baseline_factors),
-                "summary": baseline_eval.summary,
-            },
-            ensure_ascii=False,
-            indent=2,
-        ),
+
+    importance_df = _load_importance_from_state_dir(
+        state_dir=full_trial.state_dir,
+        importance_type=importance_type,
+    )
+    if importance_df.empty:
+        raise RuntimeError(
+            "failed to extract feature importance from state checkpoints; "
+            "ensure rolling refit happened and incremental.save_state is enabled"
+        )
+
+    importance_df.to_csv(full_dir / "feature_importance.csv", index=False)
+    _plot_importance_topk(
+        importance_df=importance_df,
+        out_path=full_dir / "feature_importance_topk.png",
+        top_k=plot_top_k,
+    )
+
+    selected_df = importance_df[pd.to_numeric(importance_df["importance_mean"], errors="coerce") >= float(min_importance)].copy()
+    if selected_df.empty:
+        raise RuntimeError("no factor survives min_importance threshold")
+    if top_n > 0:
+        selected_df = selected_df.head(top_n)
+    selected_factors = selected_df["factor"].astype(str).tolist()
+    selected_factors = _dedupe_keep_order(selected_factors)
+    if not selected_factors:
+        raise RuntimeError("selected topN factors is empty")
+
+    selected_payload = {
+        "selection_mode": mode,
+        "importance_type": importance_type,
+        "min_importance": min_importance,
+        "top_n": top_n,
+        "selected_factor_count": len(selected_factors),
+        "selected_factors": selected_factors,
+    }
+    (out_root / "selected_factors_topn.json").write_text(
+        json.dumps(selected_payload, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
-    if not baseline_eval.daily.empty:
-        baseline_eval.daily.to_csv(baseline_dir / "evaluation_daily.csv", index=False)
 
-    # candidate loop
-    rows: list[dict[str, Any]] = []
-    accepted: list[str] = []
-    total = len(candidates)
-    for idx, factor in enumerate(candidates, start=1):
-        print(f"[factor_select] {idx}/{total} factor={factor} start")
-        trial_dir = candidates_root / _safe_name(factor)
-        score_output = trial_dir / "scores"
-        trial = _TrialResult(
-            factor=factor,
-            status="ok",
-            trial_dir=trial_dir,
-            score_output=score_output,
-            summary={},
-            daily=pd.DataFrame(),
-            uplift={},
-            error="",
-        )
-        uplift_daily = pd.DataFrame()
-        try:
-            trial_cfg = _build_trial_model_cfg(
-                base_model_cfg=base_model_cfg,
-                start_day=start_day,
-                end_day=end_day,
-                factors=baseline_factors + [factor],
-                model_name=f"{base_model_cfg.get('model_name', model_id)}__factor_select__{_safe_name(factor)}",
-                score_output=score_output,
-            )
-            trial_cfg_path = trial_dir / "model_config.json"
-            trial_dir.mkdir(parents=True, exist_ok=True)
-            trial_cfg_path.write_text(json.dumps(trial_cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+    # stage 2: retrain with topN factors
+    topn_dir = out_root / "stage2_topn_retrain"
+    topn_trial = _run_model_trial(
+        trial_name="topn_retrain",
+        trial_dir=topn_dir,
+        factors=selected_factors,
+        model_id=model_id,
+        model_type=model_type,
+        base_model_cfg=base_model_cfg,
+        score_cfg=score_cfg,
+        execution_override=execution_override,
+        start_day=start_day,
+        end_day=end_day,
+        label_root=label_root,
+        factor_time=factor_time,
+        label_time=label_time,
+        bins=bins,
+        save_state=False,
+    )
 
-            trial_score_cfg = copy.deepcopy(score_cfg)
-            trial_score_cfg["model_id"] = "factor_select_trial"
-            trial_score_cfg["default_model_id"] = "factor_select_trial"
-            trial_score_cfg["models"] = {
-                "factor_select_trial": {
-                    "model_type": model_type,
-                    "model_config": str(trial_cfg_path.as_posix()),
-                }
-            }
-            trial_score_cfg["execution"] = execution_override
-
-            run_model_score(
-                model_id="factor_select_trial",
-                start=start_day,
-                end=end_day,
-                cfg=trial_score_cfg,
-            )
-            eval_res = _evaluate_score_output(
-                score_output=score_output,
-                label_root=label_root,
-                factor_time=factor_time,
-                label_time=label_time,
-                start_day=start_day,
-                end_day=end_day,
-                bins=bins,
-            )
-            trial.summary = dict(eval_res.summary)
-            trial.daily = eval_res.daily
-            uplift_daily, uplift = _calc_uplift(baseline_eval.daily, eval_res.daily)
-            trial.uplift = uplift
-
-            is_accepted = (
-                int(uplift.get("days_overlap", 0)) >= min_days
-                and pd.notna(uplift.get("delta_rank_ic_mean"))
-                and float(uplift.get("delta_rank_ic_mean", float("nan"))) >= min_delta_rank_ic_mean
-                and pd.notna(uplift.get("delta_rank_ic_t"))
-                and float(uplift.get("delta_rank_ic_t", float("nan"))) >= min_t_stat
-                and pd.notna(uplift.get("delta_rank_ic_win_rate"))
-                and float(uplift.get("delta_rank_ic_win_rate", float("nan"))) >= min_win_rate
-            )
-            if is_accepted:
-                accepted.append(factor)
-            rows.append(
-                {
-                    "factor": factor,
-                    "status": "ok",
-                    "accepted": bool(is_accepted),
-                    **{f"cand_{k}": v for k, v in trial.summary.items()},
-                    **trial.uplift,
-                    "error": "",
-                }
-            )
-            print(
-                f"[factor_select] {idx}/{total} factor={factor} done "
-                f"delta_rank_ic_mean={trial.uplift.get('delta_rank_ic_mean')} "
-                f"t={trial.uplift.get('delta_rank_ic_t')}"
-            )
-        except Exception as exc:
-            trial.status = "failed"
-            trial.error = f"{type(exc).__name__}: {exc}"
-            rows.append(
-                {
-                    "factor": factor,
-                    "status": "failed",
-                    "accepted": False,
-                    "error": trial.error,
-                }
-            )
-            print(f"[factor_select] {idx}/{total} factor={factor} failed: {trial.error}")
-        finally:
-            _save_trial_artifacts(
-                trial=trial,
-                uplift_daily=uplift_daily,
-                baseline_summary=baseline_summary,
-                baseline_daily=baseline_eval.daily,
-            )
-
-    summary_df = pd.DataFrame(rows)
-    if not summary_df.empty:
-        sort_cols = [c for c in ["accepted", "delta_rank_ic_t", "delta_rank_ic_mean"] if c in summary_df.columns]
-        if sort_cols:
-            summary_df = summary_df.sort_values(sort_cols, ascending=[False] * len(sort_cols), kind="mergesort")
-        summary_df.to_csv(out_root / "factor_uplift_summary.csv", index=False)
-
-    accepted_payload = {
+    compare_payload = {
         "model_id": model_id,
         "start": str(start_day),
         "end": str(end_day),
-        "baseline_factor_count": len(baseline_factors),
-        "candidate_count": len(candidates),
-        "accepted_count": len(accepted),
-        "accepted_factors": accepted,
-        "acceptance": {
-            "min_days": min_days,
-            "min_delta_rank_ic_mean": min_delta_rank_ic_mean,
-            "min_t_stat": min_t_stat,
-            "min_win_rate": min_win_rate,
-        },
+        "pool_factor_count": len(pool_factors),
+        "selected_factor_count": len(selected_factors),
+        "full_pool_summary": full_trial.summary,
+        "topn_summary": topn_trial.summary,
+        "delta_topn_minus_full": _numeric_delta_map(full_trial.summary, topn_trial.summary),
     }
-    (out_root / "accepted_factors.json").write_text(
-        json.dumps(accepted_payload, ensure_ascii=False, indent=2),
+    (out_root / "compare_summary.json").write_text(
+        json.dumps(compare_payload, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
+
+    snapshot_payload = {
+        "selector_config": selector_cfg,
+        "model_score_config_key": str(selector_cfg.get("model_score_config", "score/model_score")),
+        "base_model_config_path": str(base_model_cfg_path.as_posix()),
+        "baseline_factors_file": str(selector_cfg.get("baseline_factors_file")),
+        "blacklist_file": str(selector_cfg.get("blacklist_file")),
+        "baseline_factors": baseline_factors,
+        "candidate_extra": candidate_extra,
+        "pool_factors": pool_factors,
+        "blacklist": sorted(list(blacklist)),
+    }
     (out_root / "run_config_snapshot.json").write_text(
-        json.dumps(
-            {
-                "selector_config": selector_cfg,
-                "model_score_config_key": str(selector_cfg.get("model_score_config", "score/model_score")),
-                "base_model_config_path": str(base_model_cfg_path.as_posix()),
-                "baseline_factors_file": str(selector_cfg.get("baseline_factors_file")),
-                "blacklist_file": str(selector_cfg.get("blacklist_file")),
-                "baseline_factors": baseline_factors,
-                "blacklist": sorted(list(blacklist)),
-            },
-            ensure_ascii=False,
-            indent=2,
-        ),
+        json.dumps(snapshot_payload, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
 
     return {
         "out_root": str(out_root.as_posix()),
         "model_id": model_id,
-        "baseline_factors": len(baseline_factors),
-        "candidate_factors": len(candidates),
-        "accepted_factors": len(accepted),
+        "pool_factors": len(pool_factors),
+        "selected_factors": len(selected_factors),
+        "stage1_rank_ic_mean": full_trial.summary.get("rank_ic_mean"),
+        "stage2_rank_ic_mean": topn_trial.summary.get("rank_ic_mean"),
     }

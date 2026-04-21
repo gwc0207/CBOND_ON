@@ -12,7 +12,8 @@
   baseline_factors_file: "score/factor_baseline_factors.json",
   blacklist_file: "score/factor_blacklist.json",
 
-  // debug knob: 0 = all candidates
+  // debug knob: 0 = all candidate extras
+  // (candidate extras = expected factors - baseline factors - blacklist)
   max_candidates: 0,
 
   // forwarded into model_score.execution
@@ -21,11 +22,18 @@
     train_processes: 1
   },
 
-  acceptance: {
-    min_days: 20,
-    min_delta_rank_ic_mean: 0.0,
-    min_t_stat: 2.0,
-    min_win_rate: 0.55
+  selection: {
+    // currently supported: importance_topn
+    mode: "importance_topn",
+    // baseline_plus_candidates | baseline_only | candidates_only
+    pool_source: "baseline_plus_candidates",
+    // LightGBM importance type: gain | split
+    importance_type: "gain",
+    // keep top N after importance ranking (<=0 means keep all)
+    top_n: 10,
+    // drop factors with importance_mean < min_importance
+    min_importance: 0.0,
+    // plot top K bars in stage1_full_pool/feature_importance_topk.png
+    plot_top_k: 30
   }
 }
-
