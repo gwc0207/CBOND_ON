@@ -7,8 +7,8 @@
   model_id: "lgbm_factor_MSE",
 
   // Evaluation window (trading-day filtering follows existing score pipeline behavior).
-  start: "2025-12-01",
-  end: "2026-03-30",
+  start: "2025-06-01",
+  end: "2025-12-31",
   label_cutoff: null,
 
   // If true, run model_score first, then evaluate scores.
@@ -16,7 +16,19 @@
 
   // Optional runtime override passed into model runners.
   execution: {
-    refit_every_n_days: 1
+    refit_every_n_days: 1,
+    score_guard: {
+      enabled: true,
+      warn_same_sign: false,
+      fail_on_all_equal: false,
+      fail_all_equal_days: 0,
+      // Sweep guard: if a trial cannot split a day into enough bins, fail that trial.
+      bin_guard_enabled: true,
+      required_bins: 20,
+      bin_guard_min_samples: 20,
+      fail_on_insufficient_bins: true,
+      fail_insufficient_bins_days: 0
+    }
   },
 
   // Evaluation settings.
@@ -32,7 +44,7 @@
   tuning: {
     enabled: true,
     search_type: "wandb_sweep", // grid | random | wandb_sweep
-    max_trials: 128,
+    max_trials: 16,
     random_seed: 42,
     // Used when search_type=wandb_sweep.
     // Parameter space still uses the same dot-path keys.
@@ -41,7 +53,7 @@
       entity: "1094028578-kings-college-london",
       name: "", // empty => auto-generated
       method: "random", // random | grid | bayes
-      count: 128, // number of sweep trials to run locally
+      count: 16, // number of sweep trials to run locally
       mode: "online", // online | offline | disabled
       local_dir: "D:/cbond_on/results/wandb",
       group: "model_eval",

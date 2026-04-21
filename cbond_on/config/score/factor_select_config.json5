@@ -7,6 +7,10 @@
   // test window
   start: "2025-06-01",
   end: "2026-03-30",
+  // cross-section bins used in evaluation/reporting
+  bins: 20,
+  // rolling window for bin alpha significance t-stat
+  alpha_significance_window: 40,
 
   // external factor lists
   baseline_factors_file: "score/factor_baseline_factors.json",
@@ -30,7 +34,7 @@
     // LightGBM importance type: gain | split
     importance_type: "gain",
     // keep top N after importance ranking (<=0 means keep all)
-    top_n: 10,
+    top_n: 30,
     // drop factors with importance_mean < min_importance
     min_importance: 0.0,
     // plot top K bars in stage1_full_pool/feature_importance_topk.png

@@ -62,3 +62,42 @@ def score_guard_flags(stats: dict[str, Any], *, warn_same_sign: bool = False) ->
         flags.append("same_sign")
     return flags
 
+
+def score_guard_bin_stats(
+    pred: Any,
+    *,
+    target_bins: int = 20,
+    min_count: int = 20,
+) -> dict[str, Any]:
+    bins_target = max(2, int(target_bins))
+    min_samples = max(1, int(min_count))
+    series = pd.to_numeric(pd.Series(pred), errors="coerce")
+    arr = series.to_numpy(dtype=float)
+    arr = arr[np.isfinite(arr)]
+    n = int(arr.size)
+    result = {
+        "score_bin_target": int(bins_target),
+        "score_bin_min_samples": int(min_samples),
+        "score_bin_count": int(0),
+        "score_bin_guard_checked": bool(False),
+        "score_bin_insufficient": bool(False),
+    }
+    if n < min_samples:
+        return result
+
+    s = pd.Series(arr)
+    labels: pd.Series
+    try:
+        ranks = s.rank(method="average", pct=True)
+        labels = pd.qcut(ranks, q=bins_target, labels=False, duplicates="drop")
+    except Exception:
+        try:
+            labels = pd.qcut(s, q=bins_target, labels=False, duplicates="drop")
+        except Exception:
+            labels = pd.Series(dtype=float)
+
+    actual_bins = int(pd.to_numeric(pd.Series(labels), errors="coerce").dropna().nunique())
+    result["score_bin_count"] = int(actual_bins)
+    result["score_bin_guard_checked"] = bool(True)
+    result["score_bin_insufficient"] = bool(actual_bins < bins_target)
+    return result

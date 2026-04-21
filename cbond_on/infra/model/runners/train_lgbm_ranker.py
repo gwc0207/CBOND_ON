@@ -21,7 +21,11 @@ from cbond_on.core.trading_days import list_trading_days_from_raw, prev_trading_
 from cbond_on.domain.factors.storage import FactorStore
 from cbond_on.infra.model.wandb_utils import init_wandb_logger
 from cbond_on.infra.model.score_io import load_scores_by_date, write_scores_by_date
-from cbond_on.infra.model.score_guard import score_guard_flags, score_guard_stats
+from cbond_on.infra.model.score_guard import (
+    score_guard_bin_stats,
+    score_guard_flags,
+    score_guard_stats,
+)
 from cbond_on.infra.model.impl.lgbm_ranker.trainer import (
     _iter_existing_label_days,
     _split_days,
@@ -331,6 +335,19 @@ def main(
     score_guard_warn_same_sign = bool(score_guard_cfg.get("warn_same_sign", False))
     score_guard_fail_on_all_equal = bool(score_guard_cfg.get("fail_on_all_equal", False))
     score_guard_fail_all_equal_days = max(0, int(score_guard_cfg.get("fail_all_equal_days", 0)))
+    score_guard_bin_guard_enabled = bool(score_guard_cfg.get("bin_guard_enabled", False))
+    score_guard_required_bins = max(2, int(score_guard_cfg.get("required_bins", 20)))
+    score_guard_bin_min_samples = max(
+        1,
+        int(score_guard_cfg.get("bin_guard_min_samples", score_guard_required_bins)),
+    )
+    score_guard_fail_on_insufficient_bins = bool(
+        score_guard_cfg.get("fail_on_insufficient_bins", False)
+    )
+    score_guard_fail_insufficient_bins_days = max(
+        0,
+        int(score_guard_cfg.get("fail_insufficient_bins_days", 0)),
+    )
     print(
         "[score_guard]",
         f"enabled={score_guard_enabled}",
@@ -338,6 +355,11 @@ def main(
         f"warn_same_sign={score_guard_warn_same_sign}",
         f"fail_on_all_equal={score_guard_fail_on_all_equal}",
         f"fail_all_equal_days={score_guard_fail_all_equal_days}",
+        f"bin_guard_enabled={score_guard_bin_guard_enabled}",
+        f"required_bins={score_guard_required_bins}",
+        f"bin_guard_min_samples={score_guard_bin_min_samples}",
+        f"fail_on_insufficient_bins={score_guard_fail_on_insufficient_bins}",
+        f"fail_insufficient_bins_days={score_guard_fail_insufficient_bins_days}",
     )
 
     cfg_start = parse_date(cfg.get("start"))
@@ -659,6 +681,7 @@ def main(
         last_refit_pos: int | None = None
         last_refit_day: date | None = None
         all_equal_days: list[date] = []
+        insufficient_bin_days: list[date] = []
         with ThreadPoolExecutor(max_workers=prep_workers, thread_name_prefix="roll_prep") as prep_pool:
             inflight: deque[tuple[int, int, object]] = deque()
             next_pos = 0
@@ -783,12 +806,50 @@ def main(
                     if score_guard_enabled
                     else []
                 )
+                bin_guard_stats = (
+                    score_guard_bin_stats(
+                        test_pred,
+                        target_bins=score_guard_required_bins,
+                        min_count=score_guard_bin_min_samples,
+                    )
+                    if score_guard_enabled and score_guard_bin_guard_enabled
+                    else {}
+                )
+                if (
+                    score_guard_enabled
+                    and score_guard_bin_guard_enabled
+                    and bool(bin_guard_stats.get("score_bin_guard_checked", False))
+                    and bool(bin_guard_stats.get("score_bin_insufficient", False))
+                ):
+                    guard_flags = [*guard_flags, "bins_lt_target"]
+                    insufficient_bin_days.append(test_day)
+                    if (
+                        score_guard_fail_on_insufficient_bins
+                        and len(insufficient_bin_days) > score_guard_fail_insufficient_bins_days
+                    ):
+                        raise RuntimeError(
+                            "score_guard failed: insufficient-bin prediction day "
+                            f"{test_day} actual={bin_guard_stats.get('score_bin_count')} "
+                            f"target={bin_guard_stats.get('score_bin_target')}"
+                        )
                 if score_guard_enabled and guard_flags:
                     print(
                         f"[score_guard:{test_day}] flags={','.join(guard_flags)} "
                         f"range={guard_stats.get('score_range')} std={guard_stats.get('score_std')} "
                         f"unique={guard_stats.get('score_unique_count')}/{guard_stats.get('score_count')} "
                         f"pos_ratio={guard_stats.get('score_pos_ratio')}"
+                    )
+                if (
+                    score_guard_enabled
+                    and score_guard_bin_guard_enabled
+                    and bool(bin_guard_stats.get("score_bin_guard_checked", False))
+                    and bool(bin_guard_stats.get("score_bin_insufficient", False))
+                ):
+                    print(
+                        f"[score_guard:{test_day}] bin_guard "
+                        f"actual={bin_guard_stats.get('score_bin_count')} "
+                        f"target={bin_guard_stats.get('score_bin_target')} "
+                        f"count={guard_stats.get('score_count')}"
                     )
                 if score_guard_enabled and bool(guard_stats.get("score_all_equal", False)):
                     all_equal_days.append(test_day)
@@ -842,6 +903,14 @@ def main(
                         "score_zero_ratio": guard_stats.get("score_zero_ratio", float("nan")),
                         "score_same_sign": bool(guard_stats.get("score_same_sign", False)),
                         "score_all_equal": bool(guard_stats.get("score_all_equal", False)),
+                        "score_bin_guard_checked": bool(
+                            bin_guard_stats.get("score_bin_guard_checked", False)
+                        ),
+                        "score_bin_target": int(bin_guard_stats.get("score_bin_target", 0)),
+                        "score_bin_count": int(bin_guard_stats.get("score_bin_count", 0)),
+                        "score_bin_insufficient": bool(
+                            bin_guard_stats.get("score_bin_insufficient", False)
+                        ),
                     }
                 )
                 print(
@@ -867,6 +936,11 @@ def main(
                         "score_range": guard_stats.get("score_range", float("nan")),
                         "score_same_sign": bool(guard_stats.get("score_same_sign", False)),
                         "score_all_equal": bool(guard_stats.get("score_all_equal", False)),
+                        "score_bin_count": int(bin_guard_stats.get("score_bin_count", 0)),
+                        "score_bin_target": int(bin_guard_stats.get("score_bin_target", 0)),
+                        "score_bin_insufficient": bool(
+                            bin_guard_stats.get("score_bin_insufficient", False)
+                        ),
                     },
                     step=int(roll_idx),
                     prefix="rolling",
@@ -897,6 +971,10 @@ def main(
                 "score_zero_ratio",
                 "score_same_sign",
                 "score_all_equal",
+                "score_bin_guard_checked",
+                "score_bin_target",
+                "score_bin_count",
+                "score_bin_insufficient",
             ]
             present_guard_cols = [c for c in guard_cols if c in rr.columns]
             if present_guard_cols:
@@ -909,12 +987,22 @@ def main(
             print(
                 "[score_guard] rolling summary",
                 f"all_equal_days={len(all_equal_days)}",
+                f"insufficient_bin_days={len(insufficient_bin_days)}",
                 f"total_days={len(rolling_rows)}",
             )
             if score_guard_fail_on_all_equal and len(all_equal_days) > score_guard_fail_all_equal_days:
                 raise RuntimeError(
                     "score_guard failed: all-equal prediction days "
                     f"{len(all_equal_days)} > allowed {score_guard_fail_all_equal_days}"
+                )
+            if (
+                score_guard_bin_guard_enabled
+                and score_guard_fail_on_insufficient_bins
+                and len(insufficient_bin_days) > score_guard_fail_insufficient_bins_days
+            ):
+                raise RuntimeError(
+                    "score_guard failed: insufficient-bin prediction days "
+                    f"{len(insufficient_bin_days)} > allowed {score_guard_fail_insufficient_bins_days}"
                 )
         if rolling_rows:
             rr = pd.DataFrame(rolling_rows)
@@ -926,6 +1014,7 @@ def main(
                     "rolling_ic_mean": float(pd.to_numeric(rr["ic"], errors="coerce").mean()),
                     "rolling_dir_mean": float(pd.to_numeric(rr["dir"], errors="coerce").mean()),
                     "score_guard_all_equal_days": int(len(all_equal_days)),
+                    "score_guard_insufficient_bin_days": int(len(insufficient_bin_days)),
                 }
             )
         else:
