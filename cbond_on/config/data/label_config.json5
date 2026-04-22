@@ -1,9 +1,9 @@
 {
-  start: "2025-01-01",
-  end: "2026-04-08",
+  start: "2024-01-02",
+  end: "2026-04-21",
   workers: 6,
-  refresh: true,
-  overwrite: true,
+  refresh: false,
+  overwrite: false,
   close_window: { start: "14:42", end: "14:57" },
   next_open_window: { start: "09:30", end: "09:45" },
   // label cost source is fixed to daily_twap (no snapshot fallback implementation)
