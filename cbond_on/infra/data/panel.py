@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from bisect import bisect_right
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import date, datetime, time
@@ -17,6 +18,7 @@ from .io import read_table_range
 from .snapshot_loader import SnapshotLoader, SnapshotPanel
 
 DEFAULT_ASSET = "cbond"
+_HISTORY_SCAN_START = date(1900, 1, 1)
 
 
 @dataclass(frozen=True)
@@ -434,9 +436,20 @@ def build_snapshot_sequence_panels(
         kind="snapshot",
         asset=asset_name,
     )
+    history_days = _iter_existing_snapshot_days(
+        cleaned_data_root,
+        _HISTORY_SCAN_START,
+        end,
+        asset=asset_name,
+    )
+    if not history_days:
+        history_days = list(trading_days)
     tasks: list[tuple[int, date, list[date]]] = []
     for idx, day in enumerate(trading_days):
-        lookback_days = trading_days[max(0, idx - max_lookback_days + 1) : idx + 1]
+        end_pos = bisect_right(history_days, day)
+        lookback_days = history_days[max(0, end_pos - max_lookback_days) : end_pos]
+        if not lookback_days:
+            lookback_days = [day]
         tasks.append((idx, day, lookback_days))
 
     worker_count = max(1, int(workers))
@@ -575,6 +588,7 @@ def _build_snapshot_sequence_day(
         cleaned_data_root,
         lookback_days,
         asset=asset,
+        columns=snapshot_columns,
         dataframe_backend=dataframe_backend,
         fallback_pandas_on_read_error=fallback_pandas_on_read_error,
     )
@@ -665,6 +679,7 @@ def _read_snapshot_days(
     days: list[date],
     *,
     asset: str = DEFAULT_ASSET,
+    columns: Optional[list[str]] = None,
     dataframe_backend: str = "pandas",
     fallback_pandas_on_read_error: bool = True,
 ) -> object:
@@ -674,6 +689,7 @@ def _read_snapshot_days(
             cleaned_data_root,
             day,
             asset=asset,
+            columns=columns,
             dataframe_backend=dataframe_backend,
             fallback_pandas_on_read_error=fallback_pandas_on_read_error,
         )
@@ -687,6 +703,7 @@ def _read_snapshot_day(
     day: date,
     *,
     asset: str = DEFAULT_ASSET,
+    columns: Optional[list[str]] = None,
     dataframe_backend: str = "pandas",
     fallback_pandas_on_read_error: bool = True,
 ) -> object:
@@ -704,8 +721,8 @@ def _read_snapshot_day(
                         raise RuntimeError(
                             f"cudf.read_parquet failed for {path}: {type(exc).__name__}: {exc}"
                         ) from exc
-                    return pd.read_parquet(path)
-            return pd.read_parquet(path)
+                    return pd.read_parquet(path, columns=columns)
+            return pd.read_parquet(path, columns=columns)
     return pd.DataFrame()
 
 
@@ -795,7 +812,7 @@ def _build_day_snapshot_sequence_pandas(
             raise KeyError(f"snapshot missing columns: {missing}")
         df = df[snapshot_columns]
 
-    df = df.sort_values(["code", "trade_time"]).copy()
+    df = df.sort_values(["code", "trade_time"])
     frames: list[pd.DataFrame] = []
     lead = max(0, int(lead_minutes))
     for start_t, end_t in schedule.windows:
@@ -806,16 +823,15 @@ def _build_day_snapshot_sequence_pandas(
         window_df = df[df["trade_time"] <= end_dt]
         if window_df.empty:
             continue
-        counts = window_df.groupby("code", sort=False).size()
-        eligible = counts[counts >= count_points].index
-        if len(eligible) == 0:
-            continue
-        window_df = window_df[window_df["code"].isin(eligible)]
-        window_df = window_df.groupby("code", sort=False).tail(count_points)
+        grouped = window_df.groupby("code", sort=False)
+        code_sizes = grouped["code"].transform("size")
+        rank_from_end = grouped.cumcount(ascending=False)
+        window_df = window_df[
+            (rank_from_end < count_points) & (code_sizes >= count_points)
+        ]
         if window_df.empty:
             continue
 
-        window_df = window_df.sort_values(["code", "trade_time"])
         window_df = window_df.copy()
         window_df["dt"] = pd.Timestamp(start_dt)
         window_df["seq"] = window_df.groupby("code", sort=False).cumcount()
@@ -928,6 +944,14 @@ def build_panels_with_labels(
         kind="snapshot",
         asset=asset_name,
     )
+    history_days = _iter_existing_snapshot_days(
+        cleaned_data_root,
+        _HISTORY_SCAN_START,
+        end,
+        asset=asset_name,
+    )
+    if not history_days:
+        history_days = list(trading_days)
     for idx, day in enumerate(
         progress(
             trading_days,
@@ -959,7 +983,10 @@ def build_panels_with_labels(
             row["panel_status"] = "skip"
             row["panel_reason"] = "exists"
         else:
-            lookback_days = trading_days[max(0, idx - max_lookback_days + 1): idx + 1]
+            end_pos = bisect_right(history_days, day)
+            lookback_days = history_days[max(0, end_pos - max_lookback_days) : end_pos]
+            if not lookback_days:
+                lookback_days = [day]
             snapshot_df = _read_snapshot_days(cleaned_data_root, lookback_days, asset=asset_name)
             if snapshot_df.empty:
                 row["panel_status"] = "skip"
@@ -1245,10 +1272,9 @@ def _drop_lunch(df: object) -> object:
         return pdf
     if not pd.api.types.is_datetime64_any_dtype(pdf["trade_time"]):
         return pdf
-    lunch_start = time(11, 30)
-    lunch_end = time(13, 0)
-    t = pdf["trade_time"].dt.time
-    return pdf[~((t >= lunch_start) & (t < lunch_end))]
+    # Keep this path fully vectorized (avoid `.dt.time`, which creates python objects).
+    minutes = pdf["trade_time"].dt.hour * 60 + pdf["trade_time"].dt.minute
+    return pdf[(minutes < (11 * 60 + 30)) | (minutes >= (13 * 60))]
 
 
 def _drop_lunch_cudf(df: object) -> object:
