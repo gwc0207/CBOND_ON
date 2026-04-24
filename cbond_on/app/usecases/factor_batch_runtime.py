@@ -27,6 +27,7 @@ class FactorBacktestResult:
     rank_ic: pd.Series
     bin_returns: pd.DataFrame
     daily_stats: pd.DataFrame
+    bin_counts: pd.DataFrame = field(default_factory=pd.DataFrame)
     benchmark_returns: pd.Series = field(default_factory=lambda: pd.Series(dtype=float))
     benchmark_nav: pd.Series = field(default_factory=lambda: pd.Series(dtype=float))
 
@@ -279,6 +280,7 @@ def run_intraday_factor_backtest(
             empty,
             pd.DataFrame(),
             pd.DataFrame(),
+            bin_counts=pd.DataFrame(),
             benchmark_returns=empty,
             benchmark_nav=empty,
         )
@@ -507,16 +509,16 @@ def run_intraday_factor_backtest(
     nav = (1.0 + returns.fillna(0.0)).cumprod()
     benchmark_nav = (1.0 + benchmark_returns.fillna(0.0)).cumprod()
 
-    def _bin_ret(group: pd.DataFrame) -> pd.Series:
+    def _bin_ret_and_count(group: pd.DataFrame) -> tuple[pd.Series, pd.Series]:
         g = group.dropna()
         n = len(g)
         if n < 2:
-            return pd.Series(dtype=float)
+            return pd.Series(dtype=float), pd.Series(dtype=int)
         bins_target = ic_bins
         if n < max(min_count, ic_bins):
             bins_target = max(2, min(ic_bins, n // 5))
         if bins_target < 2:
-            return pd.Series(dtype=float)
+            return pd.Series(dtype=float), pd.Series(dtype=int)
         vals = g[factor_col]
         try:
             bins = pd.qcut(vals, bins_target, labels=False, duplicates="drop")
@@ -527,23 +529,32 @@ def run_intraday_factor_backtest(
             try:
                 bins = pd.qcut(ranked, bins_target, labels=False, duplicates="drop")
             except Exception:
-                return pd.Series(dtype=float)
-        return g.groupby(bins)["y"].mean()
+                return pd.Series(dtype=float), pd.Series(dtype=int)
+        grouped = g.groupby(bins)["y"]
+        return grouped.mean(), grouped.size()
 
     bin_rows: list[pd.Series] = []
+    bin_count_rows: list[pd.Series] = []
     bin_fail = 0
     for dt, group in data.groupby("dt", sort=True):
-        s = _bin_ret(group[[factor_col, "y"]])
+        s, c = _bin_ret_and_count(group[[factor_col, "y"]])
         if s is None or s.empty or s.isna().all():
             bin_fail += 1
             continue
         s = s.astype(float)
         s.name = dt
         bin_rows.append(s)
+        c = c.astype(int)
+        c.name = dt
+        bin_count_rows.append(c)
     if bin_rows:
         bin_returns = pd.DataFrame(bin_rows).sort_index()
     else:
         bin_returns = pd.DataFrame()
+    if bin_count_rows:
+        bin_counts = pd.DataFrame(bin_count_rows).sort_index()
+    else:
+        bin_counts = pd.DataFrame()
     daily_stats = daily.reset_index().rename(columns={"dt": "trade_time"})
     trade_returns = pd.to_numeric(pd.Series(trade_returns_rows, dtype=float), errors="coerce").dropna()
     factor_values = pd.to_numeric(data.get(factor_col), errors="coerce").dropna()
@@ -554,6 +565,7 @@ def run_intraday_factor_backtest(
         rank_ic=rank_ic,
         bin_returns=bin_returns,
         daily_stats=daily_stats,
+        bin_counts=bin_counts,
         benchmark_returns=benchmark_returns,
         benchmark_nav=benchmark_nav,
     )
@@ -576,14 +588,45 @@ def _load_screening_config(cfg: dict) -> dict:
     raw = cfg.get("screening", {})
     if not isinstance(raw, dict):
         raw = {}
+    backtest_cfg = cfg.get("backtest", {})
+    if not isinstance(backtest_cfg, dict):
+        backtest_cfg = {}
+    bin_alpha = raw.get("bin_alpha", {})
+    if not isinstance(bin_alpha, dict):
+        bin_alpha = {}
+    default_bin_count = int(backtest_cfg.get("bin_count") or backtest_cfg.get("ic_bins") or 20)
+    rolling_window = int(bin_alpha.get("rolling_window", backtest_cfg.get("alpha_significance_window", 40)))
+    recent_window_count = int(bin_alpha.get("recent_window_count", 3))
     return {
         "enabled": bool(raw.get("enabled", False)),
+        "mode": str(raw.get("mode", "legacy")).lower(),
         "ic_metric": str(raw.get("ic_metric", "rank_ic_mean")),
         "ir_metric": str(raw.get("ir_metric", "rank_ic_ir")),
         "ic_abs_min": float(raw.get("ic_abs_min", 0.0)),
         "ir_abs_min": float(raw.get("ir_abs_min", 0.0)),
         "sharpe_min": float(raw.get("sharpe_min", 0.1)),
         "copy_reports": bool(raw.get("copy_reports", True)),
+        "bin_scope": str(bin_alpha.get("bin_scope", "any")).lower(),
+        "bins": bin_alpha.get("bins"),
+        "bin_count": max(2, int(bin_alpha.get("bin_count", default_bin_count))),
+        "coverage_ratio_min": float(bin_alpha.get("coverage_ratio_min", 0.80)),
+        "avg_count_min": float(bin_alpha.get("avg_count_min", 10.0)),
+        "full_alpha_mean_min": float(bin_alpha.get("full_alpha_mean_min", 0.0)),
+        "full_alpha_t_min": float(bin_alpha.get("full_alpha_t_min", 1.65)),
+        "rolling_window": max(2, rolling_window),
+        "rolling_min_periods": bin_alpha.get("rolling_min_periods"),
+        "rolling_min_periods_ratio": float(bin_alpha.get("rolling_min_periods_ratio", 0.75)),
+        "rolling_mean_pos_ratio_min": float(bin_alpha.get("rolling_mean_pos_ratio_min", 0.65)),
+        "rolling_t_pos_ratio_min": float(bin_alpha.get("rolling_t_pos_ratio_min", 0.65)),
+        "rolling_t_sig_threshold": float(bin_alpha.get("rolling_t_sig_threshold", 1.0)),
+        "rolling_t_sig_ratio_min": float(bin_alpha.get("rolling_t_sig_ratio_min", 0.35)),
+        "rolling_hit_rate_threshold": float(bin_alpha.get("rolling_hit_rate_threshold", 0.52)),
+        "rolling_hit_ok_ratio_min": float(bin_alpha.get("rolling_hit_ok_ratio_min", 0.60)),
+        "max_consecutive_bad_windows": int(bin_alpha.get("max_consecutive_bad_windows", 6)),
+        "recent_window_count": max(1, recent_window_count),
+        "recent_mean_pos_ratio_min": float(bin_alpha.get("recent_mean_pos_ratio_min", 0.67)),
+        "recent_t_pos_ratio_min": float(bin_alpha.get("recent_t_pos_ratio_min", 0.67)),
+        "recent_hit_ok_ratio_min": float(bin_alpha.get("recent_hit_ok_ratio_min", 0.50)),
     }
 
 
@@ -610,13 +653,310 @@ def _to_float(value: object) -> float:
         return float("nan")
 
 
+def _tstat(series: pd.Series) -> float:
+    s = pd.to_numeric(series, errors="coerce").dropna()
+    if len(s) < 2:
+        return float("nan")
+    std = float(s.std(ddof=1))
+    if std <= 0:
+        return float("nan")
+    return float(s.mean() / std * (len(s) ** 0.5))
+
+
+def _rolling_tstat(series: pd.Series, *, window: int, min_periods: int) -> pd.Series:
+    s = pd.to_numeric(series, errors="coerce")
+    roll = s.rolling(window=window, min_periods=min_periods)
+    mean = roll.mean()
+    std = roll.std(ddof=1)
+    count = roll.count()
+    std = std.mask(std <= 0)
+    return mean / std * (count ** 0.5)
+
+
+def _max_consecutive_true(series: pd.Series) -> int:
+    vals = series.fillna(False).astype(bool).tolist()
+    best = 0
+    cur = 0
+    for val in vals:
+        if val:
+            cur += 1
+            best = max(best, cur)
+        else:
+            cur = 0
+    return int(best)
+
+
+def _screening_bins_to_check(*, cfg: dict, available_bins: Sequence[object]) -> list[int]:
+    available = sorted({int(x) for x in available_bins if pd.notna(x)})
+    scope = str(cfg.get("bin_scope", "tail")).lower()
+    bin_count = int(cfg.get("bin_count", 20))
+    raw_bins = cfg.get("bins")
+    if scope == "custom" and isinstance(raw_bins, Sequence) and not isinstance(raw_bins, (str, bytes)):
+        return sorted({int(x) for x in raw_bins})
+    if scope == "any":
+        return available
+    return [0, max(0, bin_count - 1)]
+
+
+def _stable_bin_alpha_rows(
+    *,
+    result: FactorBacktestResult,
+    screening_cfg: dict,
+) -> list[dict]:
+    bin_returns = result.bin_returns
+    benchmark_returns = pd.to_numeric(result.benchmark_returns, errors="coerce").dropna().sort_index()
+    if not isinstance(bin_returns, pd.DataFrame) or bin_returns.empty or benchmark_returns.empty:
+        return []
+
+    bin_returns = bin_returns.copy()
+    bin_returns.index = pd.to_datetime(bin_returns.index, errors="coerce")
+    bin_returns = bin_returns[~bin_returns.index.isna()].sort_index()
+    benchmark_returns.index = pd.to_datetime(benchmark_returns.index, errors="coerce")
+    benchmark_returns = benchmark_returns[~benchmark_returns.index.isna()].sort_index()
+    all_days = benchmark_returns.index
+    if len(all_days) == 0:
+        return []
+
+    bin_counts = result.bin_counts if isinstance(result.bin_counts, pd.DataFrame) else pd.DataFrame()
+    if not bin_counts.empty:
+        bin_counts = bin_counts.copy()
+        bin_counts.index = pd.to_datetime(bin_counts.index, errors="coerce")
+        bin_counts = bin_counts[~bin_counts.index.isna()].sort_index()
+
+    check_bins = _screening_bins_to_check(
+        cfg=screening_cfg,
+        available_bins=bin_returns.columns.tolist(),
+    )
+    rows: list[dict] = []
+    total_days = int(len(all_days))
+    configured_window = int(screening_cfg["rolling_window"])
+    rolling_window = max(2, min(configured_window, total_days))
+    raw_min_periods = screening_cfg.get("rolling_min_periods")
+    if raw_min_periods is None:
+        rolling_min_periods = int(round(rolling_window * float(screening_cfg["rolling_min_periods_ratio"])))
+    else:
+        rolling_min_periods = int(raw_min_periods)
+    rolling_min_periods = max(2, min(rolling_window, rolling_min_periods))
+
+    for bin_id in check_bins:
+        if bin_id not in bin_returns.columns:
+            rows.append(
+                {
+                    "bin": int(bin_id),
+                    "screen_status": "reject",
+                    "passed": False,
+                    "failed_rules": "missing_bin",
+                    "sample_days": 0,
+                    "total_days": total_days,
+                    "coverage_ratio": 0.0,
+                    "avg_count": 0.0,
+                    "alpha_mean": float("nan"),
+                    "alpha_t": float("nan"),
+                    "alpha_hit_rate": float("nan"),
+                    "rolling_window": rolling_window,
+                    "rolling_min_periods": rolling_min_periods,
+                }
+            )
+            continue
+
+        alpha = pd.to_numeric(bin_returns[bin_id], errors="coerce").reindex(all_days) - benchmark_returns.reindex(all_days)
+        alpha_valid = alpha.dropna()
+        sample_days = int(len(alpha_valid))
+        coverage_ratio = float(sample_days / total_days) if total_days > 0 else float("nan")
+        if not bin_counts.empty and bin_id in bin_counts.columns:
+            avg_count = float(pd.to_numeric(bin_counts[bin_id], errors="coerce").reindex(all_days).mean())
+        else:
+            avg_count = float("nan")
+
+        rolling_mean = alpha.rolling(window=rolling_window, min_periods=rolling_min_periods).mean()
+        rolling_t = _rolling_tstat(alpha, window=rolling_window, min_periods=rolling_min_periods)
+        rolling_hit = (alpha > 0).rolling(window=rolling_window, min_periods=rolling_min_periods).mean()
+        valid_roll = rolling_mean.notna()
+        if valid_roll.any():
+            rolling_mean_pos_ratio = float((rolling_mean[valid_roll] > 0).mean())
+            rolling_t_pos_ratio = float((rolling_t[valid_roll] > 0).mean())
+            rolling_t_sig_ratio = float(
+                (rolling_t[valid_roll] >= float(screening_cfg["rolling_t_sig_threshold"])).mean()
+            )
+            rolling_hit_ok_ratio = float(
+                (rolling_hit[valid_roll] >= float(screening_cfg["rolling_hit_rate_threshold"])).mean()
+            )
+            max_bad_windows = _max_consecutive_true(rolling_mean[valid_roll] <= 0)
+            recent_count = min(int(screening_cfg["recent_window_count"]), int(valid_roll.sum()))
+            recent_mean = rolling_mean[valid_roll].tail(recent_count)
+            recent_t = rolling_t[valid_roll].tail(recent_count)
+            recent_hit = rolling_hit[valid_roll].tail(recent_count)
+            recent_mean_pos_ratio = float((recent_mean > 0).mean()) if len(recent_mean) else 0.0
+            recent_t_pos_ratio = float((recent_t > 0).mean()) if len(recent_t) else 0.0
+            recent_hit_ok_ratio = float(
+                (recent_hit >= float(screening_cfg["rolling_hit_rate_threshold"])).mean()
+            ) if len(recent_hit) else 0.0
+            latest_rolling_alpha_mean = _to_float(recent_mean.iloc[-1]) if len(recent_mean) else float("nan")
+            latest_rolling_t = _to_float(recent_t.iloc[-1]) if len(recent_t) else float("nan")
+        else:
+            rolling_mean_pos_ratio = 0.0
+            rolling_t_pos_ratio = 0.0
+            rolling_t_sig_ratio = 0.0
+            rolling_hit_ok_ratio = 0.0
+            max_bad_windows = 0
+            recent_mean_pos_ratio = 0.0
+            recent_t_pos_ratio = 0.0
+            recent_hit_ok_ratio = 0.0
+            latest_rolling_alpha_mean = float("nan")
+            latest_rolling_t = float("nan")
+
+        alpha_mean = float(alpha_valid.mean()) if sample_days else float("nan")
+        alpha_t = _tstat(alpha_valid)
+        alpha_hit_rate = float((alpha_valid > 0).mean()) if sample_days else float("nan")
+        alpha_total = float(alpha_valid.sum()) if sample_days else float("nan")
+
+        checks = {
+            "coverage": pd.notna(coverage_ratio) and coverage_ratio >= float(screening_cfg["coverage_ratio_min"]),
+            "avg_count": pd.isna(avg_count) or avg_count >= float(screening_cfg["avg_count_min"]),
+            "alpha_mean": pd.notna(alpha_mean) and alpha_mean > float(screening_cfg["full_alpha_mean_min"]),
+            "alpha_t": pd.notna(alpha_t) and alpha_t >= float(screening_cfg["full_alpha_t_min"]),
+            "rolling_mean": rolling_mean_pos_ratio >= float(screening_cfg["rolling_mean_pos_ratio_min"]),
+            "rolling_t": rolling_t_pos_ratio >= float(screening_cfg["rolling_t_pos_ratio_min"]),
+            "rolling_t_sig": rolling_t_sig_ratio >= float(screening_cfg["rolling_t_sig_ratio_min"]),
+            "rolling_hit": rolling_hit_ok_ratio >= float(screening_cfg["rolling_hit_ok_ratio_min"]),
+            "recent_mean": recent_mean_pos_ratio >= float(screening_cfg["recent_mean_pos_ratio_min"]),
+            "recent_t": recent_t_pos_ratio >= float(screening_cfg["recent_t_pos_ratio_min"]),
+            "recent_hit": recent_hit_ok_ratio >= float(screening_cfg["recent_hit_ok_ratio_min"]),
+            "max_bad": max_bad_windows <= int(screening_cfg["max_consecutive_bad_windows"]),
+        }
+        failed_rules = [key for key, ok in checks.items() if not ok]
+        history_ok = all(
+            checks[key]
+            for key in [
+                "coverage",
+                "avg_count",
+                "alpha_mean",
+                "alpha_t",
+                "rolling_mean",
+                "rolling_t",
+                "rolling_t_sig",
+                "rolling_hit",
+                "max_bad",
+            ]
+        )
+        recent_ok = checks["recent_mean"] and checks["recent_t"] and checks["recent_hit"]
+        passed = bool(history_ok and recent_ok)
+        if passed:
+            status = "active"
+        elif history_ok and not recent_ok:
+            status = "watch_recent_decay"
+        elif recent_ok and not history_ok:
+            status = "watch_emerging"
+        else:
+            status = "reject"
+        rolling_score = (
+            rolling_mean_pos_ratio
+            + rolling_t_pos_ratio
+            + rolling_t_sig_ratio
+            + rolling_hit_ok_ratio
+            + recent_mean_pos_ratio
+            + recent_t_pos_ratio
+            + recent_hit_ok_ratio
+            - 0.05 * float(max_bad_windows)
+        )
+        rows.append(
+            {
+                "bin": int(bin_id),
+                "screen_status": status,
+                "passed": passed,
+                "failed_rules": ",".join(failed_rules),
+                "sample_days": sample_days,
+                "total_days": total_days,
+                "coverage_ratio": coverage_ratio,
+                "avg_count": avg_count,
+                "alpha_mean": alpha_mean,
+                "alpha_t": alpha_t,
+                "alpha_hit_rate": alpha_hit_rate,
+                "alpha_total": alpha_total,
+                "rolling_window": rolling_window,
+                "rolling_min_periods": rolling_min_periods,
+                "rolling_mean_pos_ratio": rolling_mean_pos_ratio,
+                "rolling_t_pos_ratio": rolling_t_pos_ratio,
+                "rolling_t_sig_ratio": rolling_t_sig_ratio,
+                "rolling_hit_ok_ratio": rolling_hit_ok_ratio,
+                "max_consecutive_bad_windows": int(max_bad_windows),
+                "recent_mean_pos_ratio": recent_mean_pos_ratio,
+                "recent_t_pos_ratio": recent_t_pos_ratio,
+                "recent_hit_ok_ratio": recent_hit_ok_ratio,
+                "latest_rolling_alpha_mean": latest_rolling_alpha_mean,
+                "latest_rolling_t": latest_rolling_t,
+                "rolling_score": rolling_score,
+            }
+        )
+    return rows
+
+
 def _build_screening_row(
     *,
     factor_name: str,
     factor_col: str,
     summary: dict,
+    result: FactorBacktestResult | None = None,
     screening_cfg: dict,
 ) -> dict:
+    mode = str(screening_cfg.get("mode", "legacy")).lower()
+    if mode == "stable_bin_alpha":
+        bin_rows = _stable_bin_alpha_rows(result=result, screening_cfg=screening_cfg) if result is not None else []
+        if bin_rows:
+            best = sorted(
+                bin_rows,
+                key=lambda r: (
+                    bool(r.get("passed", False)),
+                    float(r.get("rolling_score", float("-inf"))),
+                    float(r.get("alpha_t", float("-inf"))) if pd.notna(r.get("alpha_t")) else float("-inf"),
+                ),
+                reverse=True,
+            )[0]
+            passed = bool(best.get("passed", False))
+            status = str(best.get("screen_status", "reject"))
+            failed_rules = str(best.get("failed_rules", ""))
+        else:
+            best = {
+                "bin": pd.NA,
+                "screen_status": "reject",
+                "passed": False,
+                "failed_rules": "no_bin_alpha_data",
+            }
+            passed = False
+            status = "reject"
+            failed_rules = "no_bin_alpha_data"
+        row = {
+            "factor_name": factor_name,
+            "factor_col": factor_col,
+            "screening_mode": mode,
+            "passed": passed,
+            "screen_status": status,
+            "best_bin": best.get("bin"),
+            "failed_rules": failed_rules,
+            "best_coverage_ratio": best.get("coverage_ratio"),
+            "best_avg_count": best.get("avg_count"),
+            "best_alpha_mean": best.get("alpha_mean"),
+            "best_alpha_t": best.get("alpha_t"),
+            "best_alpha_hit_rate": best.get("alpha_hit_rate"),
+            "best_alpha_total": best.get("alpha_total"),
+            "best_rolling_mean_pos_ratio": best.get("rolling_mean_pos_ratio"),
+            "best_rolling_t_pos_ratio": best.get("rolling_t_pos_ratio"),
+            "best_rolling_t_sig_ratio": best.get("rolling_t_sig_ratio"),
+            "best_rolling_hit_ok_ratio": best.get("rolling_hit_ok_ratio"),
+            "best_max_consecutive_bad_windows": best.get("max_consecutive_bad_windows"),
+            "best_recent_mean_pos_ratio": best.get("recent_mean_pos_ratio"),
+            "best_recent_t_pos_ratio": best.get("recent_t_pos_ratio"),
+            "best_recent_hit_ok_ratio": best.get("recent_hit_ok_ratio"),
+            "best_latest_rolling_alpha_mean": best.get("latest_rolling_alpha_mean"),
+            "best_latest_rolling_t": best.get("latest_rolling_t"),
+            "best_rolling_score": best.get("rolling_score"),
+            "_bin_rows": bin_rows,
+        }
+        for key, value in summary.items():
+            if key not in row:
+                row[key] = value
+        return row
+
     ic_metric = screening_cfg["ic_metric"]
     ir_metric = screening_cfg["ir_metric"]
     ic_val = _to_float(summary.get(ic_metric))
@@ -895,34 +1235,93 @@ def _write_screening_outputs(out_root: Path, *, screening_cfg: dict, rows: list[
         encoding="utf-8",
     )
 
-    all_df = pd.DataFrame(rows)
+    mode = str(screening_cfg.get("mode", "legacy")).lower()
+    clean_rows: list[dict] = []
+    bin_detail_rows: list[dict] = []
+    for row in rows:
+        clean = dict(row)
+        bin_rows = clean.pop("_bin_rows", [])
+        clean_rows.append(clean)
+        if isinstance(bin_rows, list):
+            for bin_row in bin_rows:
+                detail = {
+                    "factor_name": clean.get("factor_name"),
+                    "factor_col": clean.get("factor_col"),
+                }
+                detail.update(dict(bin_row))
+                bin_detail_rows.append(detail)
+
+    all_df = pd.DataFrame(clean_rows)
     if all_df.empty:
-        columns = [
-            "factor_name",
-            "factor_col",
-            "ic_metric",
-            "ir_metric",
-            "ic_metric_value",
-            "ir_metric_value",
-            "sharpe",
-            "passed",
-            "failed_rules",
-        ]
+        if mode == "stable_bin_alpha":
+            columns = [
+                "factor_name",
+                "factor_col",
+                "screening_mode",
+                "passed",
+                "screen_status",
+                "best_bin",
+                "failed_rules",
+                "best_alpha_t",
+                "best_rolling_score",
+            ]
+        else:
+            columns = [
+                "factor_name",
+                "factor_col",
+                "ic_metric",
+                "ir_metric",
+                "ic_metric_value",
+                "ir_metric_value",
+                "sharpe",
+                "passed",
+                "failed_rules",
+            ]
         all_df = pd.DataFrame(columns=columns)
     else:
-        all_df["abs_ic_metric"] = pd.to_numeric(all_df["ic_metric_value"], errors="coerce").abs()
-        all_df["abs_ir_metric"] = pd.to_numeric(all_df["ir_metric_value"], errors="coerce").abs()
-        all_df["sharpe"] = pd.to_numeric(all_df["sharpe"], errors="coerce")
         all_df["passed"] = all_df["passed"].astype(bool)
-        all_df = all_df.sort_values(
-            by=["passed", "sharpe", "abs_ic_metric", "abs_ir_metric"],
-            ascending=[False, False, False, False],
-            kind="mergesort",
-        )
+        if mode == "stable_bin_alpha":
+            all_df["best_rolling_score"] = pd.to_numeric(all_df.get("best_rolling_score"), errors="coerce")
+            all_df["best_alpha_t"] = pd.to_numeric(all_df.get("best_alpha_t"), errors="coerce")
+            status_rank = {
+                "active": 3,
+                "watch_recent_decay": 2,
+                "watch_emerging": 1,
+                "reject": 0,
+            }
+            all_df["_status_rank"] = all_df.get("screen_status", "").map(status_rank).fillna(0)
+            all_df = all_df.sort_values(
+                by=["passed", "_status_rank", "best_rolling_score", "best_alpha_t"],
+                ascending=[False, False, False, False],
+                kind="mergesort",
+            ).drop(columns=["_status_rank"])
+        else:
+            all_df["abs_ic_metric"] = pd.to_numeric(all_df["ic_metric_value"], errors="coerce").abs()
+            all_df["abs_ir_metric"] = pd.to_numeric(all_df["ir_metric_value"], errors="coerce").abs()
+            all_df["sharpe"] = pd.to_numeric(all_df["sharpe"], errors="coerce")
+            all_df = all_df.sort_values(
+                by=["passed", "sharpe", "abs_ic_metric", "abs_ir_metric"],
+                ascending=[False, False, False, False],
+                kind="mergesort",
+            )
     all_df.to_csv(screened_root / "factor_screening_all.csv", index=False)
 
     shortlist = all_df[all_df["passed"]].copy() if "passed" in all_df.columns else pd.DataFrame()
     shortlist.to_csv(screened_root / "factor_shortlist.csv", index=False)
+    if mode == "stable_bin_alpha":
+        watch = (
+            all_df[all_df["screen_status"].astype(str).str.startswith("watch")].copy()
+            if "screen_status" in all_df.columns
+            else pd.DataFrame()
+        )
+        rejected = (
+            all_df[~all_df["passed"] & ~all_df.get("screen_status", "").astype(str).str.startswith("watch")].copy()
+            if "passed" in all_df.columns and "screen_status" in all_df.columns
+            else pd.DataFrame()
+        )
+        watch.to_csv(screened_root / "factor_watchlist.csv", index=False)
+        rejected.to_csv(screened_root / "factor_rejected.csv", index=False)
+        pd.DataFrame(bin_detail_rows).to_csv(screened_root / "factor_screening_bins.csv", index=False)
 
     if bool(screening_cfg.get("copy_reports", True)) and not shortlist.empty:
         selected_root = screened_root / "selected_reports"
@@ -1112,6 +1511,7 @@ def run_factor_batch(
                     factor_name=spec.name,
                     factor_col=factor_col,
                     summary=summary,
+                    result=result,
                     screening_cfg=screening_cfg,
                 )
             )

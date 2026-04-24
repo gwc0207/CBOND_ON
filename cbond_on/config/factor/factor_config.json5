@@ -34,12 +34,28 @@
   },
   screening: {
     enabled: true,
-    ic_metric: "rank_ic_mean",
-    ir_metric: "rank_ic_ir",
-    ic_abs_min: 0.015,
-    ir_abs_min: 0.15,
-    sharpe_min: 0.3,
-    copy_reports: true
+    // legacy: IC/IR/Sharpe; stable_bin_alpha: screen factors by bin alpha persistence.
+    mode: "stable_bin_alpha",
+    copy_reports: true,
+    bin_alpha: {
+      coverage_ratio_min: 0.80,
+      avg_count_min: 10,
+      full_alpha_mean_min: 0.0,
+      full_alpha_t_min: 1.65,
+      rolling_window: 40,
+      rolling_min_periods_ratio: 0.75,
+      rolling_mean_pos_ratio_min: 0.65,
+      rolling_t_pos_ratio_min: 0.65,
+      rolling_t_sig_threshold: 1.0,
+      rolling_t_sig_ratio_min: 0.35,
+      rolling_hit_rate_threshold: 0.52,
+      rolling_hit_ok_ratio_min: 0.60,
+      max_consecutive_bad_windows: 6,
+      recent_window_count: 10,
+      recent_mean_pos_ratio_min: 0.67,
+      recent_t_pos_ratio_min: 0.67,
+      recent_hit_ok_ratio_min: 0.50
+    }
   },
   bad_factor_report: {
     enabled: true,
