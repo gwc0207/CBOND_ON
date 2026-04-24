@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+from cbond_on.core.config import load_config_file, resolve_output_path
 
 
 def _to_bool(value: Any, default: bool = False) -> bool:
@@ -61,14 +62,16 @@ def _clean_payload(payload: dict[str, Any]) -> dict[str, Any]:
 
 def prepare_wandb_local_dirs(cfg: dict[str, Any] | None) -> str | None:
     cfg = cfg or {}
-    local_dir = str(cfg.get("local_dir", "")).strip()
-    if not local_dir and os.name == "nt":
-        # Keep local W&B artifacts off repo root on Windows by default.
-        local_dir = "D:/cbond_on/results/wandb"
-    if not local_dir:
-        return None
-
-    root = Path(local_dir).expanduser().resolve()
+    paths_cfg = load_config_file("paths")
+    default_root = Path(paths_cfg["results_root"]) / "wandb"
+    local_dir = cfg.get("local_dir")
+    if isinstance(local_dir, str):
+        local_dir = local_dir.strip() or None
+    root = resolve_output_path(
+        local_dir,
+        default_path=default_root,
+        results_root=paths_cfg["results_root"],
+    ).expanduser().resolve()
     data_dir = root / "data"
     cache_dir = root / "cache"
     config_dir = root / "config"

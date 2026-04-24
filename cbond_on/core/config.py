@@ -16,6 +16,37 @@ _PATHS_PROFILE_PRINTED = False
 _WINDOWS_ABS_RE = re.compile(r"^[A-Za-z]:[\\/]")
 
 
+def _pick_platform_value(value: Any) -> Any:
+    """Select per-platform config value when given as an object.
+
+    Supported keys (case-insensitive):
+    - Windows: windows, win
+    - Linux/Unix: linux, unix, posix, server
+    - Fallback: default, common, all, value
+    """
+    if not isinstance(value, dict):
+        return value
+
+    # Normalize keys for robust matching.
+    normalized: dict[str, Any] = {str(k).strip().lower(): v for k, v in value.items()}
+    is_windows = sys.platform.startswith("win")
+    primary_keys = ("windows", "win") if is_windows else ("linux", "unix", "posix", "server")
+    fallback_keys = ("default", "common", "all", "value")
+
+    for key in primary_keys:
+        picked = normalized.get(key)
+        if picked not in (None, ""):
+            return picked
+    for key in fallback_keys:
+        picked = normalized.get(key)
+        if picked not in (None, ""):
+            return picked
+    for picked in normalized.values():
+        if picked not in (None, ""):
+            return picked
+    return None
+
+
 def _normalize_key(name: str | Path) -> str:
     text = str(name).strip().replace("\\", "/")
     if not text:
@@ -112,6 +143,7 @@ def resolve_output_path(
     default_path: str | Path,
     results_root: str | Path | None = None,
 ) -> Path:
+    value = _pick_platform_value(value)
     default = Path(default_path).expanduser()
     if value is None:
         return default

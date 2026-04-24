@@ -43,11 +43,17 @@
     watermark_path: ""
   },
   data_hub: {
-    project_root: "C:/Users/BaiYang/CBOND_DATA_HUB",
+    project_root: {
+      windows: "C:/Users/BaiYang/CBOND_DATA_HUB",
+      linux: "/home/gswzif/CBOND_DATA_HUB"
+    },
     module: "cbond_data_hub",
     python_exe: "",
     pg_config_path: "",
-    manifest_root: "D:/cbond_data_hub/manifests",
+    manifest_root: {
+      windows: "D:/cbond_data_hub/manifests",
+      linux: "/mnt/cbond_data_hub_ro/manifests"
+    },
     require_datasets: ["raw", "clean"],
     allow_partial_manifest: false,
     require_done_marker: true,

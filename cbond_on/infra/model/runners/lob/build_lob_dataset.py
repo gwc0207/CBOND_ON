@@ -11,7 +11,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[5]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from cbond_on.core.config import load_config_file, parse_date, parse_time
+from cbond_on.core.config import load_config_file, parse_date, parse_time, resolve_output_path
 from cbond_on.core.universe import filter_tradable
 from cbond_on.infra.data.io import read_table_all
 
@@ -333,9 +333,12 @@ def main() -> None:
 
     raw_root = paths_cfg["raw_data_root"]
     clean_root = Path(paths_cfg["clean_data_root"])
-    snapshot_root = data_cfg.get("snapshot_root")
-    if not snapshot_root:
-        raise ValueError("data/raw_data_config.json5 missing data.snapshot_root")
+    snapshot_root = str(
+        resolve_output_path(
+            data_cfg.get("snapshot_root"),
+            default_path=Path(raw_root) / "snapshot" / "cbond" / "raw_data",
+        )
+    )
 
     start = parse_date(ds_cfg["start"])
     end = parse_date(ds_cfg["end"])

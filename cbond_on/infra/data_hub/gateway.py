@@ -1,20 +1,34 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
 from typing import Any
 
-from cbond_on.core.config import load_config_file
+from cbond_on.core.config import load_config_file, resolve_output_path
+
+
+def _default_data_hub_project_root() -> Path:
+    env_root = str(os.getenv("CBOND_DATA_HUB_PROJECT_ROOT", "")).strip()
+    if env_root:
+        return Path(env_root).expanduser()
+    if os.name == "nt":
+        return Path("C:/Users/BaiYang/CBOND_DATA_HUB")
+    return Path.home() / "CBOND_DATA_HUB"
 
 
 def runtime_from_live(live_cfg: dict | None = None) -> dict[str, str]:
     cfg = dict((live_cfg or load_config_file("live")).get("data_hub", {}))
+    project_root = resolve_output_path(
+        cfg.get("project_root"),
+        default_path=_default_data_hub_project_root(),
+    )
     return {
         "python_exe": str(cfg.get("python_exe") or sys.executable),
         "module": str(cfg.get("module") or "cbond_data_hub"),
-        "project_root": str(cfg.get("project_root") or "C:/Users/BaiYang/CBOND_DATA_HUB"),
+        "project_root": str(project_root),
         "pg_config_path": str(cfg.get("pg_config_path") or "").strip(),
     }
 

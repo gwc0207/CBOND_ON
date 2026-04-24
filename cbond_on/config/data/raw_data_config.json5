@@ -20,7 +20,10 @@
     }
   },
   data: {
-    snapshot_root: "D:/cbond_on/raw_data/snapshot/cbond/raw_data",
+    snapshot_root: {
+      windows: "D:/cbond_data_hub/raw_data/snapshot/cbond/raw_data",
+      linux: "/mnt/cbond_data_hub_ro/raw_data/snapshot/cbond/raw_data"
+    },
     snapshot_interval_seconds: 3,
     orderbook_levels: 5,
     price_field: "last",

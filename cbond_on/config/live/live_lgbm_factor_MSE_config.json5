@@ -31,7 +31,10 @@
   winsor: { lower: 0.01, upper: 0.99 },
   min_count: 30,
   bins: 5,
-  score_output: "D:/cbond_on/results/scores/live/lgbm_factor_MSE_live",
+  score_output: {
+    windows: "D:/cbond_on/results/scores/live/lgbm_factor_MSE_live",
+    linux: "/home/gswzif/cbond_on_runtime/results/scores/live/lgbm_factor_MSE_live"
+  },
   score_overwrite: false,
   score_dedupe: true,
   incremental: {

@@ -6,9 +6,18 @@
   window_minutes: 15,
   factor_time: "14:30",
   label_time: "14:42",
-  score_output: "D:/cbond_on/results/scores/linear_factor_default",
-  weights_output: "D:/cbond_on/results/scores/linear_factor_default/weights.csv",
-  meta_output: "D:/cbond_on/results/scores/linear_factor_default/meta.json",
+  score_output: {
+    windows: "D:/cbond_on/results/scores/linear_factor_default",
+    linux: "/home/gswzif/cbond_on_runtime/results/scores/linear_factor_default"
+  },
+  weights_output: {
+    windows: "D:/cbond_on/results/scores/linear_factor_default/weights.csv",
+    linux: "/home/gswzif/cbond_on_runtime/results/scores/linear_factor_default/weights.csv"
+  },
+  meta_output: {
+    windows: "D:/cbond_on/results/scores/linear_factor_default/meta.json",
+    linux: "/home/gswzif/cbond_on_runtime/results/scores/linear_factor_default/meta.json"
+  },
   factors: [
     "aacb_l3",
     "volen_f60_s10_l3",

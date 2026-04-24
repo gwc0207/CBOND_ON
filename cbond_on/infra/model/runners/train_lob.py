@@ -1715,10 +1715,10 @@ def main(
     if last_model is not None:
         model_path = out_dir / "model.pt"
         torch.save(last_model.state_dict(), model_path)
-        weights_path_text = str(cfg.get("weights_path", "")).strip()
-        if weights_path_text:
+        weights_path_cfg = cfg.get("weights_path")
+        if weights_path_cfg not in (None, ""):
             weights_path = resolve_output_path(
-                weights_path_text,
+                weights_path_cfg,
                 default_path=results_root / "models" / model_name / "model.pt",
                 results_root=results_root,
             )

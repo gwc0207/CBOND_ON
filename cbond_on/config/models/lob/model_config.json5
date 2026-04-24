@@ -62,7 +62,10 @@
   },
 
   // Daily score storage.
-  score_output: "D:/cbond_on/results/scores/lob_st_default",
+  score_output: {
+    windows: "D:/cbond_on/results/scores/lob_st_default",
+    linux: "/home/gswzif/cbond_on_runtime/results/scores/lob_st_default"
+  },
   score_overwrite: true,
   score_dedupe: true,
   incremental: {
@@ -71,5 +74,8 @@
   },
 
   // Save the latest checkpoint of the current run.
-  weights_path: "D:/cbond_on/results/models/lob_st_default/model.pt"
+  weights_path: {
+    windows: "D:/cbond_on/results/models/lob_st_default/model.pt",
+    linux: "/home/gswzif/cbond_on_runtime/results/models/lob_st_default/model.pt"
+  }
 }

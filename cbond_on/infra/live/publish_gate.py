@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from cbond_on.core.config import parse_date
+from cbond_on.core.config import parse_date, resolve_output_path
 from cbond_on.core.trading_days import list_available_trading_days_from_raw
 
 
@@ -61,9 +61,13 @@ def _default_manifest_root(raw_root: str, clean_root: str) -> Path:
 
 def data_hub_runtime_from_live(live_cfg: dict, *, raw_root: str, clean_root: str) -> dict:
     cfg = dict(live_cfg.get("data_hub", {}))
-    manifest_root = str(cfg.get("manifest_root", "")).strip()
-    if not manifest_root:
-        manifest_root = str(_default_manifest_root(raw_root, clean_root))
+    default_manifest_root = _default_manifest_root(raw_root, clean_root)
+    manifest_root = str(
+        resolve_output_path(
+            cfg.get("manifest_root"),
+            default_path=default_manifest_root,
+        )
+    )
     require_datasets = [str(x).strip().lower() for x in _parse_redis_symbols(cfg.get("require_datasets"))]
     if not require_datasets:
         require_datasets = ["raw", "clean"]
