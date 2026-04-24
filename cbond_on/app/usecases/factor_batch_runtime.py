@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
 import shutil
@@ -326,7 +326,7 @@ def _compute_factor_backtest_from_rows(
 
     daily_records: list[dict] = []
     trade_returns_rows: list[float] = []
-    bin_source = str(bin_source or "manual").lower()
+    bin_source = str(bin_source or "auto").lower()
     bin_count = int(bin_count) if bin_count is not None else int(ic_bins)
     if bin_count <= 1:
         bin_count = 2
@@ -598,7 +598,7 @@ def run_intraday_factor_backtest(
     ic_bins: int = 5,
     bin_count: int | None = None,
     bin_select: list[int] | None = None,
-    bin_source: str = "manual",
+    bin_source: str = "auto",
     bin_top_k: int = 1,
     bin_lookback_days: int = 60,
     workers: int = 1,
@@ -702,7 +702,7 @@ def run_intraday_factor_backtest_from_context(
     ic_bins: int = 5,
     bin_count: int | None = None,
     bin_select: list[int] | None = None,
-    bin_source: str = "manual",
+    bin_source: str = "auto",
     bin_top_k: int = 1,
     bin_lookback_days: int = 60,
 ) -> FactorBacktestResult:
@@ -1625,7 +1625,7 @@ def run_factor_batch(
     ic_bins = int(backtest_cfg.get("ic_bins", 5))
     bin_count = backtest_cfg.get("bin_count")
     bin_select = backtest_cfg.get("bin_select")
-    bin_source = backtest_cfg.get("bin_source", "manual")
+    bin_source = backtest_cfg.get("bin_source", "auto")
     bin_top_k = int(backtest_cfg.get("bin_top_k", 1))
     bin_lookback_days = int(backtest_cfg.get("bin_lookback_days", 60))
     alpha_significance_window = int(backtest_cfg.get("alpha_significance_window", 40))

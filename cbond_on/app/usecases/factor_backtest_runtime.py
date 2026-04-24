@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from datetime import date, datetime
 from pathlib import Path
@@ -58,7 +58,7 @@ def run(
     ic_bins = int(run_cfg.get("ic_bins", 5))
     bin_count = run_cfg.get("bin_count")
     bin_select = run_cfg.get("bin_select")
-    bin_source = str(run_cfg.get("bin_source", "manual"))
+    bin_source = str(run_cfg.get("bin_source", "auto"))
     bin_top_k = int(run_cfg.get("bin_top_k", 1))
     bin_lookback_days = int(run_cfg.get("bin_lookback_days", 60))
     alpha_significance_window = int(run_cfg.get("alpha_significance_window", 40))

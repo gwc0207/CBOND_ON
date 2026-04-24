@@ -12,8 +12,9 @@
   // If null, resolve from window automatically (e.g. 14:42-14:57 -> twap_1442_1457)
   close_twap_col: null,
   next_open_twap_col: null,
-  buy_bps: 0.0,
-  sell_bps: 0.0,
-  fee_bps: 0.0
+  // Align with backtest cost settings: per-side total cost = buy/sell_bps + fee_bps.
+  buy_bps: 1.36,
+  sell_bps: 1.36,
+  fee_bps: 0.7
 }
 
