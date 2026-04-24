@@ -30,7 +30,7 @@ class DailyOvernightReturnMeanV1Factor(Factor):
         source = str(params.get("source", "market_cbond.daily_twap")).strip() or "market_cbond.daily_twap"
         buy_col = str(params.get("buy_col", "twap_1442_1457")).strip() or "twap_1442_1457"
 
-        time_tag = str(params.get("time_tag", "0930_0945")).strip() or "0930_0945"
+        time_tag = str(params.get("time_tag", "0930_1000")).strip() or "0930_1000"
         sell_col = str(params.get("sell_col", f"twap_{time_tag}")).strip() or f"twap_{time_tag}"
 
         window_raw = params.get("window", params.get("lookback_days", 20))
@@ -53,7 +53,7 @@ class DailyOvernightReturnMeanV1Factor(Factor):
         source = str(ctx.params.get("source", "market_cbond.daily_twap")).strip() or "market_cbond.daily_twap"
         buy_col = str(ctx.params.get("buy_col", "twap_1442_1457")).strip() or "twap_1442_1457"
 
-        time_tag = str(ctx.params.get("time_tag", "0930_0945")).strip() or "0930_0945"
+        time_tag = str(ctx.params.get("time_tag", "0930_1000")).strip() or "0930_1000"
         sell_col = str(ctx.params.get("sell_col", f"twap_{time_tag}")).strip() or f"twap_{time_tag}"
 
         window_raw = ctx.params.get("window", ctx.params.get("lookback_days", 20))
