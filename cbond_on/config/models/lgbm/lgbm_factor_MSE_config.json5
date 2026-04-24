@@ -153,7 +153,7 @@
     val_ratio: 0.15,
     test_ratio: 0.15,
   },
-  early_stopping_rounds: null,
+  early_stopping_rounds: 150,
   grid_search: {
     enable: false,
     reg_alpha: [0.0, 0.0001, 0.001, 0.005],
