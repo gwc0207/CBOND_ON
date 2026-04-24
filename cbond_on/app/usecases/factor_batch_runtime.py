@@ -598,6 +598,8 @@ def _load_bad_factor_report_config(cfg: dict) -> dict:
         "skip_ratio_threshold": float(raw.get("skip_ratio_threshold", 0.30)),
         "top_n_plot": int(raw.get("top_n_plot", 30)),
         "min_days": int(raw.get("min_days", 20)),
+        "required_bin_count": int(raw.get("required_bin_count", 20)),
+        "mark_bad_if_any_insufficient_bin_day": bool(raw.get("mark_bad_if_any_insufficient_bin_day", True)),
     }
 
 
@@ -689,6 +691,21 @@ def _build_bad_factor_row(
     bin_total = int(bin_ok + bin_fail)
     bin_fail_ratio = float(bin_fail / bin_total) if bin_total > 0 else float("nan")
 
+    required_bin_count = int(max(2, cfg.get("required_bin_count", 20)))
+    bin_returns = getattr(result, "bin_returns", pd.DataFrame())
+    if isinstance(bin_returns, pd.DataFrame) and not bin_returns.empty:
+        active_bins_by_day = pd.to_numeric(bin_returns.notna().sum(axis=1), errors="coerce").fillna(0).astype(int)
+        insufficient_from_ok = int((active_bins_by_day < required_bin_count).sum())
+        bin_eval_days = int(len(active_bins_by_day))
+    else:
+        insufficient_from_ok = 0
+        bin_eval_days = 0
+    # Bin failures imply no valid bin panel for that day; count them as insufficient too.
+    insufficient_bin_days = int(insufficient_from_ok + max(0, bin_fail))
+    insufficient_bin_ratio = (
+        float(insufficient_bin_days / max(1, total_days)) if total_days > 0 else float("nan")
+    )
+
     nan_ratio = _to_float(getattr(result, "factor_nan_ratio", float("nan")))
     joined_total = int(getattr(result, "factor_joined_total", 0) or 0)
     valid_total = int(getattr(result, "factor_valid_total", 0) or 0)
@@ -708,7 +725,12 @@ def _build_bad_factor_row(
         and total_days >= int(cfg["min_days"])
         and skip_ratio >= float(cfg["skip_ratio_threshold"])
     )
-    is_bad = bool(nan_bad or bin_bad or skip_bad)
+    insufficient_bin_bad = (
+        bool(cfg.get("mark_bad_if_any_insufficient_bin_day", True))
+        and total_days >= int(cfg["min_days"])
+        and insufficient_bin_days > 0
+    )
+    is_bad = bool(nan_bad or bin_bad or skip_bad or insufficient_bin_bad)
 
     reasons: list[str] = []
     if nan_bad:
@@ -717,6 +739,8 @@ def _build_bad_factor_row(
         reasons.append("bin_standard_not_met")
     if skip_bad:
         reasons.append("high_skip_ratio")
+    if insufficient_bin_bad:
+        reasons.append("insufficient_bins_any_day")
 
     return {
         "factor_name": factor_name,
@@ -729,12 +753,17 @@ def _build_bad_factor_row(
         "bin_ok": bin_ok,
         "bin_fail": bin_fail,
         "bin_fail_ratio": bin_fail_ratio,
+        "required_bin_count": required_bin_count,
+        "bin_eval_days": bin_eval_days,
+        "insufficient_bin_days": insufficient_bin_days,
+        "insufficient_bin_ratio": insufficient_bin_ratio,
         "factor_joined_total": joined_total,
         "factor_valid_total": valid_total,
         "nan_ratio": nan_ratio,
         "bad_nan": bool(nan_bad),
         "bad_bin": bool(bin_bad),
         "bad_skip": bool(skip_bad),
+        "bad_insufficient_bins": bool(insufficient_bin_bad),
         "is_bad": bool(is_bad),
         "bad_reasons": ",".join(reasons),
     }
@@ -762,12 +791,17 @@ def _write_bad_factor_outputs(out_root: Path, *, cfg: dict, rows: list[dict]) ->
                 "bin_ok",
                 "bin_fail",
                 "bin_fail_ratio",
+                "required_bin_count",
+                "bin_eval_days",
+                "insufficient_bin_days",
+                "insufficient_bin_ratio",
                 "factor_joined_total",
                 "factor_valid_total",
                 "nan_ratio",
                 "bad_nan",
                 "bad_bin",
                 "bad_skip",
+                "bad_insufficient_bins",
                 "is_bad",
                 "bad_reasons",
             ]
@@ -797,6 +831,10 @@ def _write_bad_factor_outputs(out_root: Path, *, cfg: dict, rows: list[dict]) ->
             "bin_fail_ratio_threshold": float(cfg["bin_fail_ratio_threshold"]),
             "skip_ratio_threshold": float(cfg["skip_ratio_threshold"]),
             "min_days": int(cfg["min_days"]),
+            "required_bin_count": int(cfg.get("required_bin_count", 20)),
+            "mark_bad_if_any_insufficient_bin_day": bool(
+                cfg.get("mark_bad_if_any_insufficient_bin_day", True)
+            ),
         },
     }
     (bad_root / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -896,30 +934,70 @@ def _write_screening_outputs(out_root: Path, *, screening_cfg: dict, rows: list[
                 shutil.copy2(src, dst)
 
 
-def _collect_report_plots(out_root: Path) -> Path:
-    # Aggregate current run's factor report images into one timestamped folder.
+def _collect_report_plots(out_root: Path, *, bad_factor_names: set[str] | None = None) -> Path:
+    # Aggregate current run's factor report images into one folder and split into good/bad sets.
     plot_root = out_root / "plot"
+    plot_good_root = out_root / "plot_good"
+    plot_bad_root = out_root / "plot_bad"
     plot_root.mkdir(parents=True, exist_ok=True)
+    plot_good_root.mkdir(parents=True, exist_ok=True)
+    plot_bad_root.mkdir(parents=True, exist_ok=True)
 
-    copied_rows: list[dict[str, str]] = []
+    bad_names = set(bad_factor_names or set())
+    copied_rows_all: list[dict[str, str]] = []
+    copied_rows_good: list[dict[str, str]] = []
+    copied_rows_bad: list[dict[str, str]] = []
     for signal_dir in sorted(out_root.iterdir(), key=lambda p: p.name):
         if not signal_dir.is_dir():
             continue
         src = signal_dir / "factor_report.png"
         if not src.exists():
             continue
-        dst = plot_root / f"{signal_dir.name}.png"
-        shutil.copy2(src, dst)
-        copied_rows.append(
+        factor_name = signal_dir.name
+        status = "bad" if factor_name in bad_names else "good"
+        dst_all = plot_root / f"{factor_name}.png"
+        shutil.copy2(src, dst_all)
+        copied_rows_all.append(
             {
-                "factor_name": signal_dir.name,
+                "factor_name": factor_name,
+                "status": status,
                 "source": str(src),
-                "target": str(dst),
+                "target": str(dst_all),
             }
         )
+        if status == "bad":
+            dst_bad = plot_bad_root / f"{factor_name}.png"
+            shutil.copy2(src, dst_bad)
+            copied_rows_bad.append(
+                {
+                    "factor_name": factor_name,
+                    "status": status,
+                    "source": str(src),
+                    "target": str(dst_bad),
+                }
+            )
+        else:
+            dst_good = plot_good_root / f"{factor_name}.png"
+            shutil.copy2(src, dst_good)
+            copied_rows_good.append(
+                {
+                    "factor_name": factor_name,
+                    "status": status,
+                    "source": str(src),
+                    "target": str(dst_good),
+                }
+            )
 
-    pd.DataFrame(copied_rows, columns=["factor_name", "source", "target"]).to_csv(
+    pd.DataFrame(copied_rows_all, columns=["factor_name", "status", "source", "target"]).to_csv(
         plot_root / "index.csv",
+        index=False,
+    )
+    pd.DataFrame(copied_rows_good, columns=["factor_name", "status", "source", "target"]).to_csv(
+        plot_good_root / "index.csv",
+        index=False,
+    )
+    pd.DataFrame(copied_rows_bad, columns=["factor_name", "status", "source", "target"]).to_csv(
+        plot_bad_root / "index.csv",
         index=False,
     )
     return plot_root
@@ -1048,9 +1126,14 @@ def run_factor_batch(
             )
     if bool(screening_cfg.get("enabled", False)):
         _write_screening_outputs(out_root, screening_cfg=screening_cfg, rows=screening_rows)
+    bad_names: set[str] = set()
     if bool(bad_factor_cfg.get("enabled", True)):
         _write_bad_factor_outputs(out_root, cfg=bad_factor_cfg, rows=bad_factor_rows)
         bad_df = pd.DataFrame(bad_factor_rows)
+        if not bad_df.empty and "is_bad" in bad_df.columns and "factor_name" in bad_df.columns:
+            bad_names = set(
+                bad_df.loc[bad_df["is_bad"].astype(bool), "factor_name"].astype(str).tolist()
+            )
         bad_count = int(bad_df["is_bad"].sum()) if not bad_df.empty and "is_bad" in bad_df.columns else 0
         print(
             "bad factor report:",
@@ -1059,7 +1142,7 @@ def run_factor_batch(
             f"bad={bad_count}",
             f"out={(out_root / 'bad_factors').as_posix()}",
         )
-    _collect_report_plots(out_root)
+    _collect_report_plots(out_root, bad_factor_names=bad_names)
     return out_root
 
 

@@ -1,6 +1,6 @@
 ﻿{
   start: "2024-01-01",
-  end: "2025-12-31",
+  end: "2026-04-20",
   panel_name: "T1430",
   factor_time: "14:30",
   label_time: "14:42",
@@ -19,7 +19,7 @@
   factor_files: [
     "factor/factors_all_in_one.json5"
   ],
-  backtest_enabled: false,
+  backtest_enabled: true,
   factors: [],
   backtest: {
     workers: 6,
