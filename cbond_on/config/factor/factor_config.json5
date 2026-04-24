@@ -30,7 +30,9 @@
     bin_source: "auto",
     bin_top_k: 2,
     bin_lookback_days: 10,
-    alpha_significance_window: 40
+    alpha_significance_window: 40,
+    // Read label/factor daily parquet once and reuse it across all factor reports.
+    batch_context: true
   },
   screening: {
     enabled: true,

@@ -42,6 +42,15 @@ class _BacktestDayPrepared:
     valid_count: int = 0
 
 
+@dataclass
+class FactorBacktestBatchContext:
+    days: list[date]
+    merged_by_day: dict[date, pd.DataFrame]
+    benchmark_by_dt: pd.Series
+    missing_label_days: set[date]
+    missing_factor_days: set[date]
+
+
 def build_signal_specs(cfg: dict) -> list[FactorSpec]:
     specs = load_factor_specs_from_cfg(cfg)
     disabled = resolve_disabled_factor_names(cfg)
@@ -152,6 +161,74 @@ def _prepare_backtest_day(
     )
 
 
+def prepare_factor_backtest_batch_context(
+    *,
+    factor_store: FactorStore,
+    label_root: Path,
+    start: date,
+    end: date,
+    factor_time: str,
+    label_time: str,
+    factor_cols: Sequence[str],
+) -> FactorBacktestBatchContext:
+    days = list(_iter_existing_label_days(label_root, start, end))
+    factor_col_set = set(str(c) for c in factor_cols)
+    merged_by_day: dict[date, pd.DataFrame] = {}
+    benchmark_parts: list[pd.DataFrame] = []
+    missing_label_days: set[date] = set()
+    missing_factor_days: set[date] = set()
+
+    for day in progress(days, desc="factor_backtest_context", unit="day", total=len(days)):
+        label_df = _read_label_day(label_root, day, factor_time=factor_time, label_time=label_time)
+        if label_df.empty:
+            missing_label_days.add(day)
+            continue
+        benchmark_universe = label_df[["dt", "code", "y"]].dropna(subset=["y"])
+        if benchmark_universe.empty:
+            missing_label_days.add(day)
+            continue
+        benchmark_parts.append(benchmark_universe)
+
+        factor_df = factor_store.read_day(day)
+        if factor_df.empty:
+            missing_factor_days.add(day)
+            continue
+        factor_df = factor_df.reset_index()
+        available_factor_cols = [c for c in factor_df.columns if c in factor_col_set]
+        if not available_factor_cols:
+            missing_factor_days.add(day)
+            continue
+        keep_cols = ["dt", "code", *available_factor_cols]
+        missing_keys = [c for c in ["dt", "code"] if c not in factor_df.columns]
+        if missing_keys:
+            missing_factor_days.add(day)
+            continue
+        factor_df = factor_df[keep_cols]
+        joined = factor_df.merge(label_df[["dt", "code", "y"]], on=["dt", "code"], how="inner")
+        if joined.empty:
+            merged_by_day[day] = pd.DataFrame(columns=["dt", "code", "y", *available_factor_cols])
+            continue
+        merged_by_day[day] = joined
+
+    benchmark_data = (
+        pd.concat(benchmark_parts, ignore_index=True)
+        if benchmark_parts
+        else pd.DataFrame(columns=["dt", "code", "y"])
+    )
+    benchmark_by_dt = (
+        benchmark_data.groupby("dt", sort=True)["y"].mean()
+        if not benchmark_data.empty
+        else pd.Series(dtype=float)
+    )
+    return FactorBacktestBatchContext(
+        days=days,
+        merged_by_day=merged_by_day,
+        benchmark_by_dt=pd.to_numeric(benchmark_by_dt, errors="coerce").dropna().sort_index(),
+        missing_label_days=missing_label_days,
+        missing_factor_days=missing_factor_days,
+    )
+
+
 def _select_bins_by_mean_return_intraday(
     *,
     data: pd.DataFrame,
@@ -188,142 +265,67 @@ def _select_bins_by_mean_return_intraday(
     return [b for b, _ in ranked]
 
 
-def run_intraday_factor_backtest(
-    factor_store: FactorStore,
-    label_root: Path,
-    start: date,
-    end: date,
+def _build_empty_backtest_result(
+    diagnostics: list[dict],
     *,
-    factor_col: str,
-    factor_time: str,
-    label_time: str,
-    min_count: int = 30,
-    ic_bins: int = 5,
-    bin_count: int | None = None,
-    bin_select: list[int] | None = None,
-    bin_source: str = "manual",
-    bin_top_k: int = 1,
-    bin_lookback_days: int = 60,
-    workers: int = 1,
+    factor_joined_total: int = 0,
+    factor_valid_total: int = 0,
 ) -> FactorBacktestResult:
-    rows = []
-    benchmark_rows = []
-    trade_returns_rows: list[float] = []
-    diagnostics: list[dict] = []
-    factor_joined_total = 0
-    factor_valid_total = 0
-    days = list(_iter_existing_label_days(label_root, start, end))
-    workers = max(1, int(workers))
-    if workers <= 1:
-        for day in progress(days, desc="factor_backtest", unit="day", total=len(days)):
-            prepared = _prepare_backtest_day(
-                day=day,
-                factor_store=factor_store,
-                label_root=label_root,
-                factor_col=factor_col,
-                factor_time=factor_time,
-                label_time=label_time,
-            )
-            factor_joined_total += int(prepared.joined_count)
-            factor_valid_total += int(prepared.valid_count)
-            if prepared.benchmark_universe is not None and not prepared.benchmark_universe.empty:
-                benchmark_rows.append(prepared.benchmark_universe)
-            if prepared.merged is None:
-                diagnostics.append({"trade_date": day, "status": "skip", "reason": prepared.reason})
-                continue
-            diagnostics.append({"trade_date": day, "status": "ok", "count": len(prepared.merged)})
-            rows.append(prepared.merged)
-    else:
-        with ThreadPoolExecutor(max_workers=workers) as executor:
-            future_to_day = {
-                executor.submit(
-                    _prepare_backtest_day,
-                    day=day,
-                    factor_store=factor_store,
-                    label_root=label_root,
-                    factor_col=factor_col,
-                    factor_time=factor_time,
-                    label_time=label_time,
-                ): day
-                for day in days
-            }
-            for future in progress(
-                as_completed(future_to_day),
-                desc="factor_backtest",
-                unit="day",
-                total=len(future_to_day),
-            ):
-                day = future_to_day[future]
-                try:
-                    prepared = future.result()
-                except Exception as exc:
-                    raise RuntimeError(f"factor_backtest failed on {day}") from exc
-                factor_joined_total += int(prepared.joined_count)
-                factor_valid_total += int(prepared.valid_count)
-                if prepared.benchmark_universe is not None and not prepared.benchmark_universe.empty:
-                    benchmark_rows.append(prepared.benchmark_universe)
-                if prepared.merged is None:
-                    diagnostics.append(
-                        {"trade_date": prepared.trade_day, "status": "skip", "reason": prepared.reason}
-                    )
-                    continue
-                diagnostics.append(
-                    {"trade_date": prepared.trade_day, "status": "ok", "count": len(prepared.merged)}
-                )
-                rows.append(prepared.merged)
+    empty = pd.Series(dtype=float)
+    result = FactorBacktestResult(
+        empty,
+        empty,
+        empty,
+        empty,
+        pd.DataFrame(),
+        pd.DataFrame(),
+        bin_counts=pd.DataFrame(),
+        benchmark_returns=empty,
+        benchmark_nav=empty,
+    )
+    result.trade_returns = empty  # type: ignore[attr-defined]
+    result.factor_values = empty  # type: ignore[attr-defined]
+    result.diagnostics = pd.DataFrame(diagnostics)  # type: ignore[attr-defined]
+    result.factor_joined_total = int(factor_joined_total)  # type: ignore[attr-defined]
+    result.factor_valid_total = int(factor_valid_total)  # type: ignore[attr-defined]
+    result.factor_nan_ratio = (
+        float((factor_joined_total - factor_valid_total) / factor_joined_total)
+        if factor_joined_total > 0
+        else float("nan")
+    )  # type: ignore[attr-defined]
+    result.bin_ok = 0  # type: ignore[attr-defined]
+    result.bin_fail = 0  # type: ignore[attr-defined]
+    return result
+
+
+def _compute_factor_backtest_from_rows(
+    *,
+    rows: list[pd.DataFrame],
+    benchmark_by_dt: pd.Series,
+    diagnostics: list[dict],
+    factor_col: str,
+    min_count: int,
+    ic_bins: int,
+    bin_count: int | None,
+    bin_select: list[int] | None,
+    bin_source: str,
+    bin_top_k: int,
+    bin_lookback_days: int,
+    factor_joined_total: int,
+    factor_valid_total: int,
+) -> FactorBacktestResult:
     if not rows:
-        empty = pd.Series(dtype=float)
-        result = FactorBacktestResult(
-            empty,
-            empty,
-            empty,
-            empty,
-            pd.DataFrame(),
-            pd.DataFrame(),
-            bin_counts=pd.DataFrame(),
-            benchmark_returns=empty,
-            benchmark_nav=empty,
+        return _build_empty_backtest_result(
+            diagnostics,
+            factor_joined_total=factor_joined_total,
+            factor_valid_total=factor_valid_total,
         )
-        result.trade_returns = empty  # type: ignore[attr-defined]
-        result.factor_values = empty  # type: ignore[attr-defined]
-        result.diagnostics = pd.DataFrame(diagnostics)  # type: ignore[attr-defined]
-        result.factor_joined_total = int(factor_joined_total)  # type: ignore[attr-defined]
-        result.factor_valid_total = int(factor_valid_total)  # type: ignore[attr-defined]
-        result.factor_nan_ratio = (
-            float((factor_joined_total - factor_valid_total) / factor_joined_total)
-            if factor_joined_total > 0
-            else float("nan")
-        )  # type: ignore[attr-defined]
-        result.bin_ok = 0  # type: ignore[attr-defined]
-        result.bin_fail = 0  # type: ignore[attr-defined]
-        return result
 
     data = pd.concat(rows, ignore_index=True)
-    benchmark_data = (
-        pd.concat(benchmark_rows, ignore_index=True)
-        if benchmark_rows
-        else pd.DataFrame(columns=["dt", "code", "y"])
-    )
-    benchmark_by_dt = (
-        benchmark_data.groupby("dt", sort=True)["y"].mean()
-        if not benchmark_data.empty
-        else pd.Series(dtype=float)
-    )
-
-    def _calc_day(group: pd.DataFrame) -> dict:
-        g = group.dropna()
-        if len(g) < min_count:
-            return {"ret": pd.NA, "ic": pd.NA, "rank_ic": pd.NA, "count": len(g)}
-        g = g.sort_values(factor_col)
-        top = g.tail(top_k)
-        bottom = g.head(top_k)
-        ret = top["y"].mean() - bottom["y"].mean()
-        ic = g[factor_col].corr(g["y"], method="pearson")
-        rank_ic = g[factor_col].corr(g["y"], method="spearman")
-        return {"ret": ret, "ic": ic, "rank_ic": rank_ic, "count": len(g)}
+    benchmark_by_dt = pd.to_numeric(benchmark_by_dt, errors="coerce").dropna().sort_index()
 
     daily_records: list[dict] = []
-    holdings: set[str] = set()
+    trade_returns_rows: list[float] = []
     bin_source = str(bin_source or "manual").lower()
     bin_count = int(bin_count) if bin_count is not None else int(ic_bins)
     if bin_count <= 1:
@@ -372,7 +374,6 @@ def run_intraday_factor_backtest(
         ic = g[factor_col].corr(g["y"], method="pearson")
         rank_ic = g[factor_col].corr(g["y"], method="spearman")
 
-        # bin-based selection (aligned with cbond_day style)
         try:
             bins_cat = pd.qcut(
                 g[factor_col],
@@ -501,7 +502,7 @@ def run_intraday_factor_backtest(
 
     daily = pd.DataFrame(daily_records).set_index("dt")
     returns = pd.to_numeric(daily["ret"], errors="coerce")
-    benchmark_returns = pd.to_numeric(benchmark_by_dt, errors="coerce").dropna().sort_index()
+    benchmark_returns = benchmark_by_dt
     valid_mask = returns.notna()
     returns = returns.loc[valid_mask]
     ic = pd.to_numeric(daily["ic"], errors="coerce").dropna()
@@ -582,6 +583,176 @@ def run_intraday_factor_backtest(
         else float("nan")
     )  # type: ignore[attr-defined]
     return result
+
+
+def run_intraday_factor_backtest(
+    factor_store: FactorStore,
+    label_root: Path,
+    start: date,
+    end: date,
+    *,
+    factor_col: str,
+    factor_time: str,
+    label_time: str,
+    min_count: int = 30,
+    ic_bins: int = 5,
+    bin_count: int | None = None,
+    bin_select: list[int] | None = None,
+    bin_source: str = "manual",
+    bin_top_k: int = 1,
+    bin_lookback_days: int = 60,
+    workers: int = 1,
+) -> FactorBacktestResult:
+    rows = []
+    benchmark_rows = []
+    diagnostics: list[dict] = []
+    factor_joined_total = 0
+    factor_valid_total = 0
+    days = list(_iter_existing_label_days(label_root, start, end))
+    workers = max(1, int(workers))
+    if workers <= 1:
+        for day in progress(days, desc="factor_backtest", unit="day", total=len(days)):
+            prepared = _prepare_backtest_day(
+                day=day,
+                factor_store=factor_store,
+                label_root=label_root,
+                factor_col=factor_col,
+                factor_time=factor_time,
+                label_time=label_time,
+            )
+            factor_joined_total += int(prepared.joined_count)
+            factor_valid_total += int(prepared.valid_count)
+            if prepared.benchmark_universe is not None and not prepared.benchmark_universe.empty:
+                benchmark_rows.append(prepared.benchmark_universe)
+            if prepared.merged is None:
+                diagnostics.append({"trade_date": day, "status": "skip", "reason": prepared.reason})
+                continue
+            diagnostics.append({"trade_date": day, "status": "ok", "count": len(prepared.merged)})
+            rows.append(prepared.merged)
+    else:
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            future_to_day = {
+                executor.submit(
+                    _prepare_backtest_day,
+                    day=day,
+                    factor_store=factor_store,
+                    label_root=label_root,
+                    factor_col=factor_col,
+                    factor_time=factor_time,
+                    label_time=label_time,
+                ): day
+                for day in days
+            }
+            for future in progress(
+                as_completed(future_to_day),
+                desc="factor_backtest",
+                unit="day",
+                total=len(future_to_day),
+            ):
+                day = future_to_day[future]
+                try:
+                    prepared = future.result()
+                except Exception as exc:
+                    raise RuntimeError(f"factor_backtest failed on {day}") from exc
+                factor_joined_total += int(prepared.joined_count)
+                factor_valid_total += int(prepared.valid_count)
+                if prepared.benchmark_universe is not None and not prepared.benchmark_universe.empty:
+                    benchmark_rows.append(prepared.benchmark_universe)
+                if prepared.merged is None:
+                    diagnostics.append(
+                        {"trade_date": prepared.trade_day, "status": "skip", "reason": prepared.reason}
+                    )
+                    continue
+                diagnostics.append(
+                    {"trade_date": prepared.trade_day, "status": "ok", "count": len(prepared.merged)}
+                )
+                rows.append(prepared.merged)
+    benchmark_data = (
+        pd.concat(benchmark_rows, ignore_index=True)
+        if benchmark_rows
+        else pd.DataFrame(columns=["dt", "code", "y"])
+    )
+    benchmark_by_dt = (
+        benchmark_data.groupby("dt", sort=True)["y"].mean()
+        if not benchmark_data.empty
+        else pd.Series(dtype=float)
+    )
+    return _compute_factor_backtest_from_rows(
+        rows=rows,
+        benchmark_by_dt=benchmark_by_dt,
+        diagnostics=diagnostics,
+        factor_col=factor_col,
+        min_count=min_count,
+        ic_bins=ic_bins,
+        bin_count=bin_count,
+        bin_select=bin_select,
+        bin_source=bin_source,
+        bin_top_k=bin_top_k,
+        bin_lookback_days=bin_lookback_days,
+        factor_joined_total=factor_joined_total,
+        factor_valid_total=factor_valid_total,
+    )
+
+
+def run_intraday_factor_backtest_from_context(
+    ctx: FactorBacktestBatchContext,
+    *,
+    factor_col: str,
+    min_count: int = 30,
+    ic_bins: int = 5,
+    bin_count: int | None = None,
+    bin_select: list[int] | None = None,
+    bin_source: str = "manual",
+    bin_top_k: int = 1,
+    bin_lookback_days: int = 60,
+) -> FactorBacktestResult:
+    rows: list[pd.DataFrame] = []
+    diagnostics: list[dict] = []
+    factor_joined_total = 0
+    factor_valid_total = 0
+
+    for day in ctx.days:
+        if day in ctx.missing_label_days:
+            diagnostics.append({"trade_date": day, "status": "skip", "reason": "missing_label"})
+            continue
+        merged_day = ctx.merged_by_day.get(day)
+        if merged_day is None or merged_day.empty:
+            if day in ctx.missing_factor_days:
+                reason = "missing_factor"
+            else:
+                reason = "merged_empty"
+            diagnostics.append({"trade_date": day, "status": "skip", "reason": reason})
+            continue
+        if factor_col not in merged_day.columns:
+            diagnostics.append({"trade_date": day, "status": "skip", "reason": "missing_factor"})
+            continue
+        joined = merged_day[[factor_col, "y", "dt", "code"]]
+        joined_count = int(len(joined))
+        valid = joined.dropna()
+        valid_count = int(len(valid))
+        factor_joined_total += joined_count
+        factor_valid_total += valid_count
+        if valid.empty:
+            diagnostics.append({"trade_date": day, "status": "skip", "reason": "merged_empty"})
+            continue
+        diagnostics.append({"trade_date": day, "status": "ok", "count": valid_count})
+        rows.append(valid)
+
+    return _compute_factor_backtest_from_rows(
+        rows=rows,
+        benchmark_by_dt=ctx.benchmark_by_dt,
+        diagnostics=diagnostics,
+        factor_col=factor_col,
+        min_count=min_count,
+        ic_bins=ic_bins,
+        bin_count=bin_count,
+        bin_select=bin_select,
+        bin_source=bin_source,
+        bin_top_k=bin_top_k,
+        bin_lookback_days=bin_lookback_days,
+        factor_joined_total=factor_joined_total,
+        factor_valid_total=factor_valid_total,
+    )
 
 
 def _load_screening_config(cfg: dict) -> dict:
@@ -1459,6 +1630,7 @@ def run_factor_batch(
     bin_lookback_days = int(backtest_cfg.get("bin_lookback_days", 60))
     alpha_significance_window = int(backtest_cfg.get("alpha_significance_window", 40))
     backtest_workers = int(backtest_cfg.get("workers", 1))
+    use_batch_context = bool(backtest_cfg.get("batch_context", True))
     screening_cfg = _load_screening_config(cfg)
     bad_factor_cfg = _load_bad_factor_report_config(cfg)
     screening_rows: list[dict] = []
@@ -1474,27 +1646,59 @@ def run_factor_batch(
     )
 
     backtest_enabled = bool(cfg.get("backtest_enabled", True))
+    batch_context: FactorBacktestBatchContext | None = None
+    if backtest_enabled and use_batch_context:
+        factor_cols = [build_factor_col(spec) for spec in specs]
+        batch_context = prepare_factor_backtest_batch_context(
+            factor_store=factor_store,
+            label_root=Path(label_data_root),
+            start=start,
+            end=end,
+            factor_time=factor_time,
+            label_time=label_time,
+            factor_cols=factor_cols,
+        )
+        print(
+            "factor backtest context:",
+            f"days={len(batch_context.days)}",
+            f"merged_days={len(batch_context.merged_by_day)}",
+            f"benchmark_days={len(batch_context.benchmark_by_dt)}",
+            f"factor_cols={len(factor_cols)}",
+        )
     for spec in progress(specs, desc="factor_batch", unit="signal"):
         factor_col = build_factor_col(spec)
         if not backtest_enabled:
             continue
-        result = run_intraday_factor_backtest(
-            factor_store,
-            Path(label_data_root),
-            start,
-            end,
-            factor_col=factor_col,
-            factor_time=factor_time,
-            label_time=label_time,
-            min_count=min_count,
-            ic_bins=ic_bins,
-            bin_count=bin_count,
-            bin_select=bin_select,
-            bin_source=bin_source,
-            bin_top_k=bin_top_k,
-            bin_lookback_days=bin_lookback_days,
-            workers=backtest_workers,
-        )
+        if batch_context is not None:
+            result = run_intraday_factor_backtest_from_context(
+                batch_context,
+                factor_col=factor_col,
+                min_count=min_count,
+                ic_bins=ic_bins,
+                bin_count=bin_count,
+                bin_select=bin_select,
+                bin_source=bin_source,
+                bin_top_k=bin_top_k,
+                bin_lookback_days=bin_lookback_days,
+            )
+        else:
+            result = run_intraday_factor_backtest(
+                factor_store,
+                Path(label_data_root),
+                start,
+                end,
+                factor_col=factor_col,
+                factor_time=factor_time,
+                label_time=label_time,
+                min_count=min_count,
+                ic_bins=ic_bins,
+                bin_count=bin_count,
+                bin_select=bin_select,
+                bin_source=bin_source,
+                bin_top_k=bin_top_k,
+                bin_lookback_days=bin_lookback_days,
+                workers=backtest_workers,
+            )
         signal_dir = out_root / spec.name
         signal_dir.mkdir(parents=True, exist_ok=True)
         summary = save_single_factor_report(
