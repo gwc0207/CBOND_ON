@@ -95,6 +95,7 @@ from cbond_on.domain.factors.defs.alpha074_close_adv_rank_corr_v1 import Alpha07
 from cbond_on.domain.factors.defs.alpha075_vwap_volume_low_adv_corr_v1 import Alpha075VwapVolumeLowAdvCorrV1Factor
 from cbond_on.domain.factors.defs.alpha077_mid_price_adv_decay_min_v1 import Alpha077MidPriceAdvDecayMinV1Factor
 from cbond_on.domain.factors.defs.alpha078_low_vwap_adv_corr_v1 import Alpha078LowVwapAdvCorrV1Factor
+from cbond_on.domain.factors.defs.daily_overnight_return_mean_v1 import DailyOvernightReturnMeanV1Factor
 from cbond_on.domain.factors.defs.daily_sharpe_mean_v1 import DailySharpeMeanV1Factor
 
 __all__ = [
@@ -195,6 +196,7 @@ __all__ = [
     "Alpha075VwapVolumeLowAdvCorrV1Factor",
     "Alpha077MidPriceAdvDecayMinV1Factor",
     "Alpha078LowVwapAdvCorrV1Factor",
+    "DailyOvernightReturnMeanV1Factor",
     "DailySharpeMeanV1Factor",
 ]
 

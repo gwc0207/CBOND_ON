@@ -1,5 +1,5 @@
 {
-  "total_factors": 97,
+  "total_factors": 98,
   "module": "cbond_on_rust",
   "factors": [
     {
@@ -350,6 +350,11 @@
     {
       "factor": "bid_ask_spread_v1",
       "python_file": "bid_ask_spread_v1.py",
+      "rust_status": "implemented"
+    },
+    {
+      "factor": "daily_overnight_return_mean_v1",
+      "python_file": "daily_overnight_return_mean_v1.py",
       "rust_status": "implemented"
     },
     {

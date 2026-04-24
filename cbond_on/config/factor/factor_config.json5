@@ -17,7 +17,8 @@
     debug_log_each_record: false
   },
   factor_files: [
-    "factor/factors_all_in_one.json5"
+    // "factor/factors_all_in_one.json5"
+    "factor/factors_overnight_return_mean_only.json5"
   ],
   backtest_enabled: true,
   factors: [],
@@ -49,10 +50,10 @@
       rolling_mean_pos_ratio_min: 0.65,
       rolling_t_pos_ratio_min: 0.65,
       rolling_t_sig_threshold: 1.0,
-      rolling_t_sig_ratio_min: 0.35,
+      rolling_t_sig_ratio_min: 0.25,
       rolling_hit_rate_threshold: 0.52,
-      rolling_hit_ok_ratio_min: 0.60,
-      max_consecutive_bad_windows: 6,
+      rolling_hit_ok_ratio_min: 0.35,
+      max_consecutive_bad_windows: 40,
       recent_window_count: 10,
       recent_mean_pos_ratio_min: 0.67,
       recent_t_pos_ratio_min: 0.67,

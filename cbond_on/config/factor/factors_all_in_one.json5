@@ -1,6 +1,6 @@
 {
   // Unified factor set (merged from historical factor config files).
-  // Total factors: 108
+  // Total factors: 122
   factors: [
     { name: "cb_overnight_sharpe_5_0930_0935", factor: "daily_sharpe_mean_v1", params: {
       source: "market_cbond.daily_twap",
@@ -49,6 +49,55 @@
       buy_col: "twap_1442_1457",
       time_tag: "0930_0935",
       sell_col: "twap_0930_0935",
+      window: 243,
+    } },
+    { name: "cb_overnight_return_mean_5d", factor: "daily_overnight_return_mean_v1", params: {
+      source: "market_cbond.daily_twap",
+      buy_col: "twap_1442_1457",
+      time_tag: "0930_0945",
+      sell_col: "twap_0930_0945",
+      window: 5,
+    } },
+    { name: "cb_overnight_return_mean_10d", factor: "daily_overnight_return_mean_v1", params: {
+      source: "market_cbond.daily_twap",
+      buy_col: "twap_1442_1457",
+      time_tag: "0930_0945",
+      sell_col: "twap_0930_0945",
+      window: 10,
+    } },
+    { name: "cb_overnight_return_mean_20d", factor: "daily_overnight_return_mean_v1", params: {
+      source: "market_cbond.daily_twap",
+      buy_col: "twap_1442_1457",
+      time_tag: "0930_0945",
+      sell_col: "twap_0930_0945",
+      window: 20,
+    } },
+    { name: "cb_overnight_return_mean_40d", factor: "daily_overnight_return_mean_v1", params: {
+      source: "market_cbond.daily_twap",
+      buy_col: "twap_1442_1457",
+      time_tag: "0930_0945",
+      sell_col: "twap_0930_0945",
+      window: 40,
+    } },
+    { name: "cb_overnight_return_mean_60d", factor: "daily_overnight_return_mean_v1", params: {
+      source: "market_cbond.daily_twap",
+      buy_col: "twap_1442_1457",
+      time_tag: "0930_0945",
+      sell_col: "twap_0930_0945",
+      window: 60,
+    } },
+    { name: "cb_overnight_return_mean_120d", factor: "daily_overnight_return_mean_v1", params: {
+      source: "market_cbond.daily_twap",
+      buy_col: "twap_1442_1457",
+      time_tag: "0930_0945",
+      sell_col: "twap_0930_0945",
+      window: 120,
+    } },
+    { name: "cb_overnight_return_mean_243d", factor: "daily_overnight_return_mean_v1", params: {
+      source: "market_cbond.daily_twap",
+      buy_col: "twap_1442_1457",
+      time_tag: "0930_0945",
+      sell_col: "twap_0930_0945",
       window: 243,
     } },
     { name: "aacb_l3", factor: "aacb", params: {

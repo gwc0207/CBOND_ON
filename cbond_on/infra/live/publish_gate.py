@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from bisect import bisect_left
 import json
+import time
 from datetime import date
 from pathlib import Path
 
@@ -126,6 +127,10 @@ def _read_json_file(path: Path) -> dict:
         return {}
 
 
+def _is_missing_manifest_reason(reason: str) -> bool:
+    return str(reason).strip().lower().startswith("missing manifests=")
+
+
 def run_publish_status(
     *,
     runtime: dict,
@@ -213,6 +218,9 @@ def ensure_publish_ready(
     runtime: dict,
     trade_day: date,
 ) -> dict:
+    missing_retry_max_attempts = 15
+    missing_retry_sleep_seconds = 2.0
+
     status = run_publish_status(
         runtime=runtime,
         trade_day=trade_day,
@@ -226,6 +234,34 @@ def ensure_publish_ready(
     )
     if ready:
         return status
+
+    reason = str(status.get("reason", "")).strip()
+    if _is_missing_manifest_reason(reason):
+        for attempt in range(1, missing_retry_max_attempts + 1):
+            print(
+                "data hub publish retry:",
+                f"trade_day={trade_day}",
+                f"attempt={attempt}/{missing_retry_max_attempts}",
+                f"sleep={missing_retry_sleep_seconds:.1f}s",
+                f"reason={reason or 'unknown'}",
+            )
+            time.sleep(missing_retry_sleep_seconds)
+            status = run_publish_status(
+                runtime=runtime,
+                trade_day=trade_day,
+            )
+            ready = _publish_ready(status, require_done_marker=bool(runtime["require_done_marker"]))
+            reason = str(status.get("reason", "")).strip()
+            print(
+                "data hub publish status:",
+                f"trade_day={trade_day}",
+                f"ready={ready}",
+                f"reason={reason}",
+            )
+            if ready:
+                return status
+            if not _is_missing_manifest_reason(reason):
+                break
 
     raise RuntimeError(
         f"data hub publish not ready for {trade_day}: {status.get('reason', 'unknown')}"

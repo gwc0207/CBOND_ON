@@ -1413,6 +1413,72 @@ fn daily_overnight_returns_asof(
     out
 }
 
+fn daily_overnight_returns_before(
+    aux: &AuxData,
+    source: &str,
+    code: &str,
+    asof_dt: &str,
+    buy_col: &str,
+    sell_col: &str,
+) -> Vec<f64> {
+    let Some(source_data) = aux.daily_sources.get(source) else {
+        return Vec::new();
+    };
+    let Some(rows) = source_data.by_code.get(code) else {
+        return Vec::new();
+    };
+    if rows.len() < 2 {
+        return Vec::new();
+    }
+
+    let mut end_idx: isize = rows.len() as isize - 1;
+    while end_idx >= 0 && rows[end_idx as usize].date.as_str() >= asof_dt {
+        end_idx -= 1;
+    }
+    if end_idx < 1 {
+        return Vec::new();
+    }
+
+    let mut out: Vec<f64> = Vec::with_capacity(end_idx as usize);
+    for i in 1..=(end_idx as usize) {
+        let prev = &rows[i - 1];
+        let cur = &rows[i];
+        let buy_prev = prev.values.get(buy_col).copied().unwrap_or(f64::NAN);
+        let sell_cur = cur.values.get(sell_col).copied().unwrap_or(f64::NAN);
+        let ret = if buy_prev.is_finite() && sell_cur.is_finite() && buy_prev > EPS && sell_cur > 0.0 {
+            sell_cur / buy_prev - 1.0
+        } else {
+            f64::NAN
+        };
+        out.push(ret);
+    }
+    out
+}
+
+fn mean_last_window_min_periods(returns: &[f64], window: usize, min_periods: usize) -> f64 {
+    if returns.is_empty() {
+        return f64::NAN;
+    }
+    let full_window = window.max(1);
+    let need = min_periods.max(1);
+    if returns.len() < need {
+        return f64::NAN;
+    }
+
+    let w = full_window.min(returns.len());
+    let s = returns.len() - w;
+    let vals: Vec<f64> = returns[s..].iter().copied().filter(|v| v.is_finite()).collect();
+    if need > w || vals.len() < need {
+        return f64::NAN;
+    }
+    let out = mean_valid(&vals);
+    if out.is_finite() {
+        out
+    } else {
+        f64::NAN
+    }
+}
+
 fn sharpe_last_window(
     returns: &[f64],
     window: usize,
@@ -5257,6 +5323,31 @@ fn compute_factor_values(
                 let returns =
                     daily_overnight_returns_asof(aux, &source, &code, &dt, &buy_col, &sell_col);
                 out[gi] = sharpe_last_window(&returns, window, min_periods, annualize);
+            }
+        }
+        "daily_overnight_return_mean_v1" => {
+            let source = spec.param_str("source", "market_cbond.daily_twap");
+            let buy_col = spec.param_str("buy_col", "twap_1442_1457");
+            let time_tag = spec.param_str("time_tag", "0930_0945");
+            let default_sell_col = format!("twap_{}", time_tag);
+            let sell_col = spec.param_str("sell_col", default_sell_col.as_str());
+            let window = spec
+                .param_i64("window", spec.param_i64("lookback_days", 20))
+                .max(1) as usize;
+            let mut min_periods = spec.param_i64("min_periods", window as i64).max(1) as usize;
+            if min_periods > window {
+                min_periods = window;
+            }
+            for (gi, g) in panel.groups.iter().enumerate() {
+                let code = norm_instrument_code(&g.code);
+                let dt = norm_dt(&g.dt);
+                if code.is_empty() || dt.is_empty() {
+                    out[gi] = f64::NAN;
+                    continue;
+                }
+                let returns =
+                    daily_overnight_returns_before(aux, &source, &code, &dt, &buy_col, &sell_col);
+                out[gi] = mean_last_window_min_periods(&returns, window, min_periods);
             }
         }
         _ => {
