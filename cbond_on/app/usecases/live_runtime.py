@@ -40,7 +40,6 @@ def run_once(
     _ = mode
     paths_cfg = load_config_file("paths")
     live_cfg = load_config_file("live")
-    backtest_cfg = load_config_file("backtest_pipeline")
 
     schedule_cfg = dict(live_cfg.get("schedule", {}))
     data_cfg = dict(live_cfg.get("data", {}))
@@ -171,10 +170,10 @@ def run_once(
         if universe.empty:
             raise ValueError("no score matched to clean data")
         buy_col = str(
-            backtest_cfg.get("buy_twap_col", output_cfg.get("buy_twap_col", data_cfg.get("buy_twap_col", "twap_1442_1457")))
+            output_cfg.get("buy_twap_col", data_cfg.get("buy_twap_col", "twap_1442_1457"))
         )
         sell_col = str(
-            backtest_cfg.get("sell_twap_col", output_cfg.get("sell_twap_col", data_cfg.get("sell_twap_col", "twap_0930_0945")))
+            output_cfg.get("sell_twap_col", data_cfg.get("sell_twap_col", "twap_0930_0945"))
         )
         if buy_col in universe.columns and sell_col in universe.columns:
             universe = filter_tradable(

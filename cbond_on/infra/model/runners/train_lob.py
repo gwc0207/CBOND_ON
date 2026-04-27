@@ -1132,16 +1132,15 @@ def main(
     refit_every_n_days = max(1, int(execution_cfg.get("refit_every_n_days", 1)))
     prep_workers = max(1, int(execution_cfg.get("prep_workers", 1)))
     prefetch_windows = max(0, int(execution_cfg.get("prefetch_windows", 0)))
-    backtest_cfg = load_config_file("backtest")
     tradable_cfg: dict = {
         "enabled": True,
         "strict": True,
         "twap_table": "market_cbond.daily_twap",
         "asset": "cbond",
-        "buy_twap_col": backtest_cfg.get("buy_twap_col", "twap_1442_1457"),
-        "sell_twap_col": backtest_cfg.get("sell_twap_col", "twap_0930_0945"),
-        "min_amount": float(backtest_cfg.get("min_amount", 0.0)),
-        "min_volume": float(backtest_cfg.get("min_volume", 0.0)),
+        "buy_twap_col": "twap_1442_1457",
+        "sell_twap_col": "twap_0930_0945",
+        "min_amount": 0.0,
+        "min_volume": 0.0,
     }
     model_tradable_cfg = cfg.get("tradable_filter")
     if isinstance(model_tradable_cfg, dict):

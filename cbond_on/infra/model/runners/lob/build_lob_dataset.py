@@ -329,7 +329,6 @@ def main() -> None:
     sync_cfg = load_config_file("raw_data")
     data_cfg = sync_cfg.get("data", {})
     ds_cfg = load_config_file("models/lob/dataset")
-    bt_cfg = load_config_file("backtest")
 
     raw_root = paths_cfg["raw_data_root"]
     clean_root = Path(paths_cfg["clean_data_root"])
@@ -358,10 +357,10 @@ def main() -> None:
     refresh = bool(ds_cfg.get("refresh", False))
     overwrite = bool(ds_cfg.get("overwrite", False)) or refresh
 
-    buy_twap_col = bt_cfg["buy_twap_col"]
-    sell_twap_col = bt_cfg["sell_twap_col"]
-    min_amount = float(bt_cfg.get("min_amount", 0.0))
-    min_volume = float(bt_cfg.get("min_volume", 0.0))
+    buy_twap_col = str(ds_cfg.get("buy_twap_col", "twap_1442_1457"))
+    sell_twap_col = str(ds_cfg.get("sell_twap_col", "twap_0930_0945"))
+    min_amount = float(ds_cfg.get("min_amount", 0.0))
+    min_volume = float(ds_cfg.get("min_volume", 0.0))
 
     cal = read_table_all(raw_root, "metadata.trading_calendar")
     if cal.empty or "calendar_date" not in cal.columns:

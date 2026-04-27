@@ -20,7 +20,6 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from flask import Flask, jsonify, render_template, request
 
-from cbond_on.infra.backtest.execution import apply_twap_bps
 from cbond_on.core.config import load_config_file
 from cbond_on.infra.data.io import read_table_range, read_trading_calendar
 from cbond_on.infra.factors.quality import (
@@ -345,16 +344,24 @@ def _normalize_weights(w: pd.Series) -> pd.Series:
     return pd.Series([1.0 / len(s)] * len(s), index=s.index, dtype=float)
 
 
+def _apply_twap_bps(price: pd.Series, bps: float, *, side: str) -> pd.Series:
+    if bps == 0:
+        return price
+    adj = float(bps) / 10000.0
+    if side == "buy":
+        return price * (1.0 + adj)
+    if side == "sell":
+        return price * (1.0 - adj)
+    raise ValueError(f"unknown side: {side}")
+
+
 def _build_perf_summary(*, raw_data_root: str | Path, day: str | None, lookback: int | None) -> dict:
     live_cfg = _load_live_cfg()
     data_cfg = dict(live_cfg.get("data", {}))
     output_cfg = dict(live_cfg.get("output", {}))
-    bt_cfg = load_config_file("backtest_pipeline")
-    buy_col = str(bt_cfg.get("buy_twap_col", output_cfg.get("buy_twap_col", "twap_1442_1457")))
-    sell_col = str(bt_cfg.get("sell_twap_col", output_cfg.get("sell_twap_col", "twap_0930_0945")))
-    cost_bps = float(bt_cfg.get("twap_bps", output_cfg.get("twap_bps", 1.5))) + float(
-        bt_cfg.get("fee_bps", output_cfg.get("fee_bps", 0.7))
-    )
+    buy_col = str(output_cfg.get("buy_twap_col", data_cfg.get("buy_twap_col", "twap_1442_1457")))
+    sell_col = str(output_cfg.get("sell_twap_col", data_cfg.get("sell_twap_col", "twap_0930_0945")))
+    cost_bps = float(output_cfg.get("twap_bps", 1.5)) + float(output_cfg.get("fee_bps", 0.7))
     min_amount = float(data_cfg.get("min_amount", 0))
     min_volume = float(data_cfg.get("min_volume", 0))
     default_lb = int(data_cfg.get("perf_lookback_days", 20))
@@ -416,8 +423,8 @@ def _build_perf_summary(*, raw_data_root: str | Path, day: str | None, lookback:
         if merged.empty:
             continue
 
-        buy_px = apply_twap_bps(merged[buy_col], cost_bps, side="buy")
-        sell_px = apply_twap_bps(merged[sell_col], cost_bps, side="sell")
+        buy_px = _apply_twap_bps(merged[buy_col], cost_bps, side="buy")
+        sell_px = _apply_twap_bps(merged[sell_col], cost_bps, side="sell")
         strat_ret = (sell_px - buy_px) / buy_px
         w = _normalize_weights(merged["weight"])
         strategy_return = float((strat_ret * w).sum())
@@ -440,8 +447,8 @@ def _build_perf_summary(*, raw_data_root: str | Path, day: str | None, lookback:
         if bench.empty:
             benchmark_return = float("nan")
         else:
-            bench_buy = apply_twap_bps(bench[buy_col], cost_bps, side="buy")
-            bench_sell = apply_twap_bps(bench[sell_col], cost_bps, side="sell")
+            bench_buy = _apply_twap_bps(bench[buy_col], cost_bps, side="buy")
+            bench_sell = _apply_twap_bps(bench[sell_col], cost_bps, side="sell")
             benchmark_return = float(((bench_sell - bench_buy) / bench_buy).mean())
 
         rows.append(

@@ -378,7 +378,6 @@ def main(
     factor_time = str(cfg.get("factor_time", "14:30"))
     label_time = str(cfg.get("label_time", "14:42"))
     raw_root = paths_cfg["raw_data_root"]
-    backtest_cfg = load_config_file("backtest")
 
     rolling_cfg = cfg.get("rolling", {})
     rolling_enabled = bool(rolling_cfg.get("enabled", False))
@@ -430,10 +429,10 @@ def main(
         "strict": True,
         "twap_table": "market_cbond.daily_twap",
         "asset": "cbond",
-        "buy_twap_col": backtest_cfg.get("buy_twap_col", "twap_1442_1457"),
-        "sell_twap_col": backtest_cfg.get("sell_twap_col", "twap_0930_0945"),
-        "min_amount": float(backtest_cfg.get("min_amount", 0.0)),
-        "min_volume": float(backtest_cfg.get("min_volume", 0.0)),
+        "buy_twap_col": "twap_1442_1457",
+        "sell_twap_col": "twap_0930_0945",
+        "min_amount": 0.0,
+        "min_volume": 0.0,
     }
     model_tradable_cfg = cfg.get("tradable_filter")
     if isinstance(model_tradable_cfg, dict):

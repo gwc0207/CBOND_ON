@@ -14,11 +14,10 @@ from cbond_on.infra.model.impl.lob.score_builder import ScoreConfig, build_score
 def main() -> None:
     paths_cfg = load_config_file("paths")
     ds_cfg = load_config_file("models/lob/dataset")
-    bt_cfg = load_config_file("backtest")
     model_cfg = load_config_file("models/lob/model")
 
-    start = parse_date(bt_cfg["start"])
-    end = parse_date(bt_cfg["end"])
+    start = parse_date(ds_cfg["start"])
+    end = parse_date(ds_cfg["end"])
 
     clean_root = Path(paths_cfg["clean_data_root"])
     output_dir = clean_root / str(ds_cfg.get("output_dir", "LOBDS"))
