@@ -1,5 +1,5 @@
 ﻿{
-  start: "2024-01-01",
+  start: "2025-09-24",
   end: "2026-04-20",
   panel_name: "T1430",
   factor_time: "14:30",
@@ -29,7 +29,7 @@
     bin_count: 20,
     bin_select: null,
     bin_source: "auto",
-    bin_top_k: 2,
+    bin_top_k: 1,
     bin_lookback_days: 10,
     alpha_significance_window: 40,
     // Read label/factor daily parquet once and reuse it across all factor reports.

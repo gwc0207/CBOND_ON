@@ -8,6 +8,7 @@ import pandas as pd
 
 from cbond_on.infra.backtest.execution import apply_twap_bps
 from cbond_on.core.config import load_config_file, parse_date
+from cbond_on.core.fees import load_fees_buy_sell_bps
 from cbond_on.core.trading_days import next_trading_days_from_raw
 from cbond_on.core.universe import filter_tradable
 from cbond_on.domain.portfolio.service import normalize_weights, to_prev_positions
@@ -44,9 +45,13 @@ def run(
 
     buy_col = str(bt_cfg.get("buy_twap_col", "twap_1442_1457"))
     sell_col = str(bt_cfg.get("sell_twap_col", "twap_0930_0945"))
-    twap_bps = float(bt_cfg.get("twap_bps", 1.5))
-    fee_bps = float(bt_cfg.get("fee_bps", 0.7))
-    cost_bps = twap_bps + fee_bps
+    buy_cost_bps, sell_cost_bps, fee_source = load_fees_buy_sell_bps()
+    print(
+        "backtest cost:",
+        f"buy_bps={buy_cost_bps:.4f}",
+        f"sell_bps={sell_cost_bps:.4f}",
+        f"source={fee_source}",
+    )
     min_amount = float(bt_cfg.get("min_amount", 0.0))
     min_volume = float(bt_cfg.get("min_volume", 0.0))
     filter_flag = bool(bt_cfg.get("filter_tradable", True))
@@ -130,8 +135,8 @@ def run(
 
         picks = normalize_weights(picks, weight_col="weight")
 
-        buy_px = apply_twap_bps(picks[buy_col], cost_bps, side="buy")
-        sell_px = apply_twap_bps(picks[f"{sell_col}_next"], cost_bps, side="sell")
+        buy_px = apply_twap_bps(picks[buy_col], buy_cost_bps, side="buy")
+        sell_px = apply_twap_bps(picks[f"{sell_col}_next"], sell_cost_bps, side="sell")
         ret = (sell_px - buy_px) / buy_px
         picks["return"] = ret
         day_return = float((picks["return"] * picks["weight"]).sum())
@@ -145,8 +150,8 @@ def run(
             }
         )
 
-        full_buy = apply_twap_bps(merged[buy_col], cost_bps, side="buy")
-        full_sell = apply_twap_bps(merged[f"{sell_col}_next"], cost_bps, side="sell")
+        full_buy = apply_twap_bps(merged[buy_col], buy_cost_bps, side="buy")
+        full_sell = apply_twap_bps(merged[f"{sell_col}_next"], sell_cost_bps, side="sell")
         full_ret = (full_sell - full_buy) / full_buy
         ic_rows.append(
             {

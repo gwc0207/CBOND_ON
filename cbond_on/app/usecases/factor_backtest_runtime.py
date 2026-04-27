@@ -4,6 +4,7 @@ from datetime import date, datetime
 from pathlib import Path
 
 from cbond_on.core.config import load_config_file, parse_date
+from cbond_on.core.fees import load_fees_buy_sell_bps
 from cbond_on.core.trading_days import list_trading_days_from_raw
 from cbond_on.core.utils import progress
 from cbond_on.app.usecases.factor_batch_runtime import (
@@ -63,6 +64,13 @@ def run(
     bin_lookback_days = int(run_cfg.get("bin_lookback_days", 60))
     alpha_significance_window = int(run_cfg.get("alpha_significance_window", 40))
     workers = int(run_cfg.get("workers", 1))
+    buy_bps, sell_bps, fee_source = load_fees_buy_sell_bps()
+    print(
+        "factor backtest cost:",
+        f"buy_bps={buy_bps:.4f}",
+        f"sell_bps={sell_bps:.4f}",
+        f"source={fee_source}",
+    )
     trading_days = set(
         list_trading_days_from_raw(
             paths_cfg["raw_data_root"],
@@ -95,6 +103,8 @@ def run(
             bin_top_k=bin_top_k,
             bin_lookback_days=bin_lookback_days,
             workers=workers,
+            buy_bps=buy_bps,
+            sell_bps=sell_bps,
         )
         save_single_factor_report(
             result,

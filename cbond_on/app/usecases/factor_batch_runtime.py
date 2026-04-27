@@ -10,6 +10,8 @@ from typing import Iterable, Sequence
 
 import pandas as pd
 
+from cbond_on.core.config import load_config_file
+from cbond_on.core.fees import load_fees_buy_sell_bps
 from cbond_on.core.trading_days import list_trading_days_from_raw
 from cbond_on.core.utils import progress
 from cbond_on.infra.factors.pipeline import run_factor_pipeline
@@ -313,6 +315,8 @@ def _compute_factor_backtest_from_rows(
     bin_lookback_days: int,
     factor_joined_total: int,
     factor_valid_total: int,
+    buy_bps: float,
+    sell_bps: float,
 ) -> FactorBacktestResult:
     if not rows:
         return _build_empty_backtest_result(
@@ -322,7 +326,17 @@ def _compute_factor_backtest_from_rows(
         )
 
     data = pd.concat(rows, ignore_index=True)
-    benchmark_by_dt = pd.to_numeric(benchmark_by_dt, errors="coerce").dropna().sort_index()
+    data = data.copy()
+    data["y"] = _apply_cost_to_return_series(
+        pd.to_numeric(data["y"], errors="coerce"),
+        buy_bps=buy_bps,
+        sell_bps=sell_bps,
+    )
+    benchmark_by_dt = _apply_cost_to_return_series(
+        pd.to_numeric(benchmark_by_dt, errors="coerce"),
+        buy_bps=buy_bps,
+        sell_bps=sell_bps,
+    ).dropna().sort_index()
 
     daily_records: list[dict] = []
     trade_returns_rows: list[float] = []
@@ -602,6 +616,8 @@ def run_intraday_factor_backtest(
     bin_top_k: int = 1,
     bin_lookback_days: int = 60,
     workers: int = 1,
+    buy_bps: float = 0.0,
+    sell_bps: float = 0.0,
 ) -> FactorBacktestResult:
     rows = []
     benchmark_rows = []
@@ -691,6 +707,8 @@ def run_intraday_factor_backtest(
         bin_lookback_days=bin_lookback_days,
         factor_joined_total=factor_joined_total,
         factor_valid_total=factor_valid_total,
+        buy_bps=buy_bps,
+        sell_bps=sell_bps,
     )
 
 
@@ -705,6 +723,8 @@ def run_intraday_factor_backtest_from_context(
     bin_source: str = "auto",
     bin_top_k: int = 1,
     bin_lookback_days: int = 60,
+    buy_bps: float = 0.0,
+    sell_bps: float = 0.0,
 ) -> FactorBacktestResult:
     rows: list[pd.DataFrame] = []
     diagnostics: list[dict] = []
@@ -752,6 +772,8 @@ def run_intraday_factor_backtest_from_context(
         bin_lookback_days=bin_lookback_days,
         factor_joined_total=factor_joined_total,
         factor_valid_total=factor_valid_total,
+        buy_bps=buy_bps,
+        sell_bps=sell_bps,
     )
 
 
@@ -822,6 +844,25 @@ def _to_float(value: object) -> float:
         return float(value)
     except Exception:
         return float("nan")
+
+
+def _apply_cost_to_return_series(
+    series: pd.Series,
+    *,
+    buy_bps: float,
+    sell_bps: float,
+) -> pd.Series:
+    s = pd.to_numeric(series, errors="coerce")
+    buy_adj = 1.0 + max(0.0, float(buy_bps)) / 10000.0
+    sell_adj = 1.0 - max(0.0, float(sell_bps)) / 10000.0
+    if buy_adj <= 0 or sell_adj <= 0:
+        return s
+    # net_ret = ((1 + gross_ret) * sell_adj / buy_adj) - 1
+    return ((1.0 + s) * sell_adj / buy_adj) - 1.0
+
+
+def _resolve_factor_backtest_cost_bps() -> tuple[float, float, str]:
+    return load_fees_buy_sell_bps()
 
 
 def _tstat(series: pd.Series) -> float:
@@ -1633,6 +1674,13 @@ def run_factor_batch(
     use_batch_context = bool(backtest_cfg.get("batch_context", True))
     screening_cfg = _load_screening_config(cfg)
     bad_factor_cfg = _load_bad_factor_report_config(cfg)
+    factor_bt_buy_bps, factor_bt_sell_bps, factor_bt_fee_source = _resolve_factor_backtest_cost_bps()
+    print(
+        "factor backtest cost:",
+        f"buy_bps={factor_bt_buy_bps:.4f}",
+        f"sell_bps={factor_bt_sell_bps:.4f}",
+        f"source={factor_bt_fee_source}",
+    )
     screening_rows: list[dict] = []
     bad_factor_rows: list[dict] = []
     trading_days = set(
@@ -1680,6 +1728,8 @@ def run_factor_batch(
                 bin_source=bin_source,
                 bin_top_k=bin_top_k,
                 bin_lookback_days=bin_lookback_days,
+                buy_bps=factor_bt_buy_bps,
+                sell_bps=factor_bt_sell_bps,
             )
         else:
             result = run_intraday_factor_backtest(
@@ -1698,6 +1748,8 @@ def run_factor_batch(
                 bin_top_k=bin_top_k,
                 bin_lookback_days=bin_lookback_days,
                 workers=backtest_workers,
+                buy_bps=factor_bt_buy_bps,
+                sell_bps=factor_bt_sell_bps,
             )
         signal_dir = out_root / spec.name
         signal_dir.mkdir(parents=True, exist_ok=True)

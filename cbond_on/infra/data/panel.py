@@ -1135,9 +1135,6 @@ def _build_day_labels_twap(
     next_open_window = label_cfg.get("next_open_window", {})
     close_start_dt = datetime.combine(day, _parse_hhmm(close_window.get("start", "14:42")))
 
-    buy_bps = float(label_cfg.get("buy_bps", 0.0)) + float(label_cfg.get("fee_bps", 0.0))
-    sell_bps = float(label_cfg.get("sell_bps", 0.0)) + float(label_cfg.get("fee_bps", 0.0))
-
     cost_source = str(label_cfg.get("cost_source", "daily_twap")).strip().lower()
     if cost_source != "daily_twap":
         raise ValueError(
@@ -1172,8 +1169,6 @@ def _build_day_labels_twap(
         cost_now=cost_now,
         cost_next=cost_next,
         trade_time=close_start_dt,
-        buy_bps=buy_bps,
-        sell_bps=sell_bps,
     )
 
 
@@ -1182,8 +1177,6 @@ def _build_labels_from_cost(
     cost_now: pd.Series,
     cost_next: pd.Series,
     trade_time: datetime,
-    buy_bps: float,
-    sell_bps: float,
 ) -> pd.DataFrame:
     if cost_now.empty or cost_next.empty:
         return pd.DataFrame()
@@ -1196,8 +1189,6 @@ def _build_labels_from_cost(
     aligned = aligned.dropna()
     if aligned.empty:
         return pd.DataFrame()
-    aligned["cost_now"] = aligned["cost_now"] * (1.0 + buy_bps / 10000.0)
-    aligned["cost_next"] = aligned["cost_next"] * (1.0 - sell_bps / 10000.0)
     aligned = aligned[aligned["cost_now"] > 0]
     if aligned.empty:
         return pd.DataFrame()

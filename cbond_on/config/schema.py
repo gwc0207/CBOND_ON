@@ -46,30 +46,6 @@ class BacktestConfigData:
 
 
 @dataclass
-class CostConfig:
-    buy_bps: float = 1.0
-    sell_bps: float = 1.0
-    commission_rate: float = 0.00007
-
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "CostConfig":
-        return cls(
-            buy_bps=float(data.get("buy_bps", 1.0)),
-            sell_bps=float(data.get("sell_bps", 1.0)),
-            commission_rate=float(data.get("commission_rate", 0.00007)),
-        )
-
-    def to_model(self) -> "CostModel":
-        from cbond_on.core.costs import CostModel
-
-        return CostModel(
-            buy_bps=self.buy_bps,
-            sell_bps=self.sell_bps,
-            commission_rate=self.commission_rate,
-        )
-
-
-@dataclass
 class ScheduleConfig:
     mode: str = "fixed_15min_nodes"
     execution_window_minutes: int = 3

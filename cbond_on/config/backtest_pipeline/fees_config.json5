@@ -1,0 +1,9 @@
+{
+  // Shared fee config for non-live chains (backtest / factor batch / factor backtest).
+  // Effective side cost bps:
+  // - if buy_bps/sell_bps set: side_bps + fee_bps
+  // - else: twap_bps + fee_bps
+  twap_bps: 1.36,
+  fee_bps: 0.7
+}
+
