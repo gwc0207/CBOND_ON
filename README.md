@@ -265,7 +265,6 @@ python cbond_on/run/backtest.py
 - `daily_returns.csv`
 - `nav_curve.csv`
 - `positions.csv`
-- `ic_series.csv`
 - `diagnostics.csv`
 - 回测图像报告
 

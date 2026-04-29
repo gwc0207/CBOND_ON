@@ -215,7 +215,15 @@ def prepare_factor_backtest_batch_context(
         trade_days=days,
         buy_bps=buy_bps,
         sell_bps=sell_bps,
+        skip_failed_days=True,
     )
+    if len(benchmark_by_dt) < len(days):
+        print(
+            "factor backtest benchmark partial:",
+            f"available_days={len(benchmark_by_dt)}",
+            f"requested_days={len(days)}",
+            f"missing_days={len(days) - len(benchmark_by_dt)}",
+        )
     return FactorBacktestBatchContext(
         days=days,
         merged_by_day=merged_by_day,
@@ -358,9 +366,25 @@ def _compute_factor_backtest_from_rows(
             raise RuntimeError(f"invalid trade day in factor backtest data: {dt}")
         trade_day_val = trade_day.date()
         if trade_day_val not in benchmark_by_dt.index:
-            raise RuntimeError(
-                f"benchmark missing for factor backtest day={trade_day_val:%Y-%m-%d}"
+            diagnostics.append(
+                {
+                    "trade_date": dt,
+                    "status": "skip",
+                    "reason": "missing_benchmark",
+                    "count": int(len(g)),
+                }
             )
+            daily_records.append(
+                {
+                    "dt": trade_day_val,
+                    "ret": pd.NA,
+                    "benchmark_return": pd.NA,
+                    "ic": ic,
+                    "rank_ic": rank_ic,
+                    "count": len(g),
+                }
+            )
+            continue
         benchmark_ret = float(benchmark_by_dt.loc[trade_day_val])
         if len(g) < min_count:
             diagnostics.append(
@@ -682,7 +706,15 @@ def run_intraday_factor_backtest(
         trade_days=days,
         buy_bps=buy_bps,
         sell_bps=sell_bps,
+        skip_failed_days=True,
     )
+    if len(benchmark_by_dt) < len(days):
+        print(
+            "factor backtest benchmark partial:",
+            f"available_days={len(benchmark_by_dt)}",
+            f"requested_days={len(days)}",
+            f"missing_days={len(days) - len(benchmark_by_dt)}",
+        )
     return _compute_factor_backtest_from_rows(
         rows=rows,
         benchmark_by_dt=benchmark_by_dt,

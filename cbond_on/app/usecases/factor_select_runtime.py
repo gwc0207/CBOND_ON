@@ -800,7 +800,6 @@ def _run_model_trial(
         daily_ic["rank_ic"] = pd.to_numeric(daily_ic["rank_ic"], errors="coerce")
         daily_ic["ic_cum"] = daily_ic["ic"].fillna(0.0).cumsum()
         daily_ic["rank_ic_cum"] = daily_ic["rank_ic"].fillna(0.0).cumsum()
-        daily_ic.to_csv(trial_dir / "ic_series.csv", index=False)
 
     trade_days: list[date] = []
     if eval_res.merged is not None and not eval_res.merged.empty and "trade_date" in eval_res.merged.columns:

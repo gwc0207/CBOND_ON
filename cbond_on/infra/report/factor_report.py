@@ -300,8 +300,6 @@ def save_single_factor_report(
         ic_df["rank_ic"] = pd.to_numeric(ic_df.get("rank_ic"), errors="coerce")
         ic_df["ic_cum"] = ic_df["ic"].fillna(0.0).cumsum()
         ic_df["rank_ic_cum"] = ic_df["rank_ic"].fillna(0.0).cumsum()
-    ic_df.to_csv(out_dir / "ic_series.csv", index=False)
-
     bin_time_df = _normalize_bin_time(getattr(result, "bin_returns", None))
     if not bin_time_df.empty and trading_days is not None:
         bin_time_df = bin_time_df[bin_time_df["trade_time"].dt.date.isin(trading_days)]
@@ -331,13 +329,6 @@ def save_single_factor_report(
         if trading_days is not None:
             nav_out = nav_out[nav_out["trade_time"].dt.date.isin(trading_days)]
         nav_out = _filter_trading_times(nav_out, "trade_time")
-        nav_out.to_csv(out_dir / "nav_series.csv", index=False)
-    else:
-        pd.DataFrame(columns=["trade_time", "nav", "benchmark_nav"]).to_csv(
-            out_dir / "nav_series.csv",
-            index=False,
-        )
-
     try:
         import matplotlib
 

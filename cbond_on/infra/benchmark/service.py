@@ -184,23 +184,28 @@ def compute_benchmark_returns_for_days(
     buy_bps: float,
     sell_bps: float,
     pool_cfg: BenchmarkPoolConfig | None = None,
+    skip_failed_days: bool = False,
 ) -> pd.Series:
     cfg = pool_cfg or load_benchmark_pool_config()
     next_day_map = _build_next_day_map(raw_data_root=raw_data_root, trade_days=trade_days)
     rows: list[tuple[date, float]] = []
     for trade_day in sorted(next_day_map):
-        ret = compute_benchmark_return_for_day(
-            raw_data_root=raw_data_root,
-            trade_day=trade_day,
-            next_day=next_day_map[trade_day],
-            buy_bps=buy_bps,
-            sell_bps=sell_bps,
-            pool_cfg=cfg,
-        )
+        try:
+            ret = compute_benchmark_return_for_day(
+                raw_data_root=raw_data_root,
+                trade_day=trade_day,
+                next_day=next_day_map[trade_day],
+                buy_bps=buy_bps,
+                sell_bps=sell_bps,
+                pool_cfg=cfg,
+            )
+        except Exception:
+            if not skip_failed_days:
+                raise
+            continue
         rows.append((trade_day, ret))
     if not rows:
         return pd.Series(dtype=float)
     idx = [d for d, _ in rows]
     vals = [float(v) for _, v in rows]
     return pd.Series(vals, index=idx, dtype=float).sort_index()
-

@@ -210,8 +210,6 @@ def run(
     daily_df.to_csv(out_dir / "daily_returns.csv", index=False)
     nav_df.to_csv(out_dir / "nav_curve.csv", index=False)
     positions_df.to_csv(out_dir / "positions.csv", index=False)
-    if not ic_df.empty:
-        ic_df.to_csv(out_dir / "ic_series.csv", index=False)
     if not diag_df.empty:
         diag_df.to_csv(out_dir / "diagnostics.csv", index=False)
     write_backtest_report_image(
