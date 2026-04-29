@@ -1,0 +1,14 @@
+{
+  // Upstream daily tradable pool (already filtered upstream).
+  pool_table: "quant_factor_dev.researcher_xuvb.o_0005",
+
+  // Unified benchmark return window.
+  buy_twap_col: "twap_1442_1457",
+  sell_twap_col: "twap_0930_0945",
+
+  // Keep rows with positive membership signal.
+  positive_field: "factor_value",
+  positive_fallback_field: "weight",
+  positive_threshold: 0.0
+}
+

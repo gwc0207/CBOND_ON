@@ -16,6 +16,7 @@ from cbond_on.core.trading_days import list_trading_days_from_raw
 from cbond_on.core.utils import progress
 from cbond_on.infra.factors.pipeline import run_factor_pipeline
 from cbond_on.infra.factors.quality import load_factor_specs_from_cfg, resolve_disabled_factor_names
+from cbond_on.infra.benchmark.service import compute_benchmark_returns_for_days
 from cbond_on.domain.factors.spec import FactorSpec, build_factor_col
 from cbond_on.domain.factors.storage import FactorStore
 from cbond_on.infra.report.factor_report import save_single_factor_report
@@ -39,7 +40,6 @@ class _BacktestDayPrepared:
     trade_day: date
     reason: str
     merged: pd.DataFrame | None = None
-    benchmark_universe: pd.DataFrame | None = None
     joined_count: int = 0
     valid_count: int = 0
 
@@ -125,8 +125,8 @@ def _prepare_backtest_day(
     label_df = _read_label_day(label_root, day, factor_time=factor_time, label_time=label_time)
     if label_df.empty:
         return _BacktestDayPrepared(trade_day=day, reason="missing_label")
-    benchmark_universe = label_df[["dt", "code", "y"]].dropna(subset=["y"])
-    if benchmark_universe.empty:
+    label_df = label_df.dropna(subset=["y"])
+    if label_df.empty:
         return _BacktestDayPrepared(trade_day=day, reason="missing_label")
 
     factor_df = factor_store.read_day(day)
@@ -134,7 +134,6 @@ def _prepare_backtest_day(
         return _BacktestDayPrepared(
             trade_day=day,
             reason="missing_factor",
-            benchmark_universe=benchmark_universe,
             joined_count=0,
             valid_count=0,
         )
@@ -149,7 +148,6 @@ def _prepare_backtest_day(
         return _BacktestDayPrepared(
             trade_day=day,
             reason="merged_empty",
-            benchmark_universe=benchmark_universe,
             joined_count=joined_count,
             valid_count=valid_count,
         )
@@ -157,7 +155,6 @@ def _prepare_backtest_day(
         trade_day=day,
         reason="",
         merged=merged,
-        benchmark_universe=benchmark_universe,
         joined_count=joined_count,
         valid_count=valid_count,
     )
@@ -167,16 +164,18 @@ def prepare_factor_backtest_batch_context(
     *,
     factor_store: FactorStore,
     label_root: Path,
+    raw_data_root: str | Path,
     start: date,
     end: date,
     factor_time: str,
     label_time: str,
     factor_cols: Sequence[str],
+    buy_bps: float,
+    sell_bps: float,
 ) -> FactorBacktestBatchContext:
     days = list(_iter_existing_label_days(label_root, start, end))
     factor_col_set = set(str(c) for c in factor_cols)
     merged_by_day: dict[date, pd.DataFrame] = {}
-    benchmark_parts: list[pd.DataFrame] = []
     missing_label_days: set[date] = set()
     missing_factor_days: set[date] = set()
 
@@ -185,11 +184,10 @@ def prepare_factor_backtest_batch_context(
         if label_df.empty:
             missing_label_days.add(day)
             continue
-        benchmark_universe = label_df[["dt", "code", "y"]].dropna(subset=["y"])
-        if benchmark_universe.empty:
+        label_df = label_df.dropna(subset=["y"])
+        if label_df.empty:
             missing_label_days.add(day)
             continue
-        benchmark_parts.append(benchmark_universe)
 
         factor_df = factor_store.read_day(day)
         if factor_df.empty:
@@ -212,15 +210,11 @@ def prepare_factor_backtest_batch_context(
             continue
         merged_by_day[day] = joined
 
-    benchmark_data = (
-        pd.concat(benchmark_parts, ignore_index=True)
-        if benchmark_parts
-        else pd.DataFrame(columns=["dt", "code", "y"])
-    )
-    benchmark_by_dt = (
-        benchmark_data.groupby("dt", sort=True)["y"].mean()
-        if not benchmark_data.empty
-        else pd.Series(dtype=float)
+    benchmark_by_dt = compute_benchmark_returns_for_days(
+        raw_data_root=raw_data_root,
+        trade_days=days,
+        buy_bps=buy_bps,
+        sell_bps=sell_bps,
     )
     return FactorBacktestBatchContext(
         days=days,
@@ -332,11 +326,7 @@ def _compute_factor_backtest_from_rows(
         buy_bps=buy_bps,
         sell_bps=sell_bps,
     )
-    benchmark_by_dt = _apply_cost_to_return_series(
-        pd.to_numeric(benchmark_by_dt, errors="coerce"),
-        buy_bps=buy_bps,
-        sell_bps=sell_bps,
-    ).dropna().sort_index()
+    benchmark_by_dt = pd.to_numeric(benchmark_by_dt, errors="coerce").dropna().sort_index()
 
     daily_records: list[dict] = []
     trade_returns_rows: list[float] = []
@@ -363,7 +353,15 @@ def _compute_factor_backtest_from_rows(
 
     for dt, group in data.groupby("dt", sort=True):
         g = group[[factor_col, "y", "code"]].dropna()
-        benchmark_ret = float(benchmark_by_dt.loc[dt]) if dt in benchmark_by_dt.index else pd.NA
+        trade_day = pd.to_datetime(dt, errors="coerce")
+        if pd.isna(trade_day):
+            raise RuntimeError(f"invalid trade day in factor backtest data: {dt}")
+        trade_day_val = trade_day.date()
+        if trade_day_val not in benchmark_by_dt.index:
+            raise RuntimeError(
+                f"benchmark missing for factor backtest day={trade_day_val:%Y-%m-%d}"
+            )
+        benchmark_ret = float(benchmark_by_dt.loc[trade_day_val])
         if len(g) < min_count:
             diagnostics.append(
                 {
@@ -375,7 +373,7 @@ def _compute_factor_backtest_from_rows(
             )
             daily_records.append(
                 {
-                    "dt": dt,
+                    "dt": trade_day_val,
                     "ret": pd.NA,
                     "benchmark_return": benchmark_ret,
                     "ic": pd.NA,
@@ -405,7 +403,7 @@ def _compute_factor_backtest_from_rows(
             )
             daily_records.append(
                 {
-                    "dt": dt,
+                    "dt": trade_day_val,
                     "ret": pd.NA,
                     "benchmark_return": benchmark_ret,
                     "ic": ic,
@@ -425,7 +423,7 @@ def _compute_factor_backtest_from_rows(
             )
             daily_records.append(
                 {
-                    "dt": dt,
+                    "dt": trade_day_val,
                     "ret": pd.NA,
                     "benchmark_return": benchmark_ret,
                     "ic": ic,
@@ -455,7 +453,7 @@ def _compute_factor_backtest_from_rows(
             )
             daily_records.append(
                 {
-                    "dt": dt,
+                    "dt": trade_day_val,
                     "ret": pd.NA,
                     "benchmark_return": benchmark_ret,
                     "ic": ic,
@@ -478,7 +476,7 @@ def _compute_factor_backtest_from_rows(
             )
             daily_records.append(
                 {
-                    "dt": dt,
+                    "dt": trade_day_val,
                     "ret": pd.NA,
                     "benchmark_return": benchmark_ret,
                     "ic": ic,
@@ -505,7 +503,7 @@ def _compute_factor_backtest_from_rows(
         )
         daily_records.append(
             {
-                "dt": dt,
+                "dt": trade_day_val,
                 "ret": ret,
                 "benchmark_return": benchmark_ret,
                 "ic": ic,
@@ -602,6 +600,7 @@ def _compute_factor_backtest_from_rows(
 def run_intraday_factor_backtest(
     factor_store: FactorStore,
     label_root: Path,
+    raw_data_root: str | Path,
     start: date,
     end: date,
     *,
@@ -620,7 +619,6 @@ def run_intraday_factor_backtest(
     sell_bps: float = 0.0,
 ) -> FactorBacktestResult:
     rows = []
-    benchmark_rows = []
     diagnostics: list[dict] = []
     factor_joined_total = 0
     factor_valid_total = 0
@@ -638,8 +636,6 @@ def run_intraday_factor_backtest(
             )
             factor_joined_total += int(prepared.joined_count)
             factor_valid_total += int(prepared.valid_count)
-            if prepared.benchmark_universe is not None and not prepared.benchmark_universe.empty:
-                benchmark_rows.append(prepared.benchmark_universe)
             if prepared.merged is None:
                 diagnostics.append({"trade_date": day, "status": "skip", "reason": prepared.reason})
                 continue
@@ -672,8 +668,6 @@ def run_intraday_factor_backtest(
                     raise RuntimeError(f"factor_backtest failed on {day}") from exc
                 factor_joined_total += int(prepared.joined_count)
                 factor_valid_total += int(prepared.valid_count)
-                if prepared.benchmark_universe is not None and not prepared.benchmark_universe.empty:
-                    benchmark_rows.append(prepared.benchmark_universe)
                 if prepared.merged is None:
                     diagnostics.append(
                         {"trade_date": prepared.trade_day, "status": "skip", "reason": prepared.reason}
@@ -683,15 +677,11 @@ def run_intraday_factor_backtest(
                     {"trade_date": prepared.trade_day, "status": "ok", "count": len(prepared.merged)}
                 )
                 rows.append(prepared.merged)
-    benchmark_data = (
-        pd.concat(benchmark_rows, ignore_index=True)
-        if benchmark_rows
-        else pd.DataFrame(columns=["dt", "code", "y"])
-    )
-    benchmark_by_dt = (
-        benchmark_data.groupby("dt", sort=True)["y"].mean()
-        if not benchmark_data.empty
-        else pd.Series(dtype=float)
+    benchmark_by_dt = compute_benchmark_returns_for_days(
+        raw_data_root=raw_data_root,
+        trade_days=days,
+        buy_bps=buy_bps,
+        sell_bps=sell_bps,
     )
     return _compute_factor_backtest_from_rows(
         rows=rows,
@@ -921,9 +911,9 @@ def _stable_bin_alpha_rows(
         return []
 
     bin_returns = bin_returns.copy()
-    bin_returns.index = pd.to_datetime(bin_returns.index, errors="coerce")
+    bin_returns.index = pd.to_datetime(bin_returns.index, errors="coerce").normalize()
     bin_returns = bin_returns[~bin_returns.index.isna()].sort_index()
-    benchmark_returns.index = pd.to_datetime(benchmark_returns.index, errors="coerce")
+    benchmark_returns.index = pd.to_datetime(benchmark_returns.index, errors="coerce").normalize()
     benchmark_returns = benchmark_returns[~benchmark_returns.index.isna()].sort_index()
     all_days = benchmark_returns.index
     if len(all_days) == 0:
@@ -932,7 +922,7 @@ def _stable_bin_alpha_rows(
     bin_counts = result.bin_counts if isinstance(result.bin_counts, pd.DataFrame) else pd.DataFrame()
     if not bin_counts.empty:
         bin_counts = bin_counts.copy()
-        bin_counts.index = pd.to_datetime(bin_counts.index, errors="coerce")
+        bin_counts.index = pd.to_datetime(bin_counts.index, errors="coerce").normalize()
         bin_counts = bin_counts[~bin_counts.index.isna()].sort_index()
 
     check_bins = _screening_bins_to_check(
@@ -1700,11 +1690,14 @@ def run_factor_batch(
         batch_context = prepare_factor_backtest_batch_context(
             factor_store=factor_store,
             label_root=Path(label_data_root),
+            raw_data_root=raw_data_root,
             start=start,
             end=end,
             factor_time=factor_time,
             label_time=label_time,
             factor_cols=factor_cols,
+            buy_bps=factor_bt_buy_bps,
+            sell_bps=factor_bt_sell_bps,
         )
         print(
             "factor backtest context:",
@@ -1735,6 +1728,7 @@ def run_factor_batch(
             result = run_intraday_factor_backtest(
                 factor_store,
                 Path(label_data_root),
+                raw_data_root,
                 start,
                 end,
                 factor_col=factor_col,

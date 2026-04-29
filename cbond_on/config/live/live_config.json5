@@ -74,8 +74,6 @@
   output: {
     buy_twap_col: "twap_1442_1457",
     sell_twap_col: "twap_0930_0945",
-    twap_bps: 1.5,
-    fee_bps: 0.7,
     db_write: true,
     db_backend: "postgres",
     db_table: "quant_factor_dev.researcher_gswzif.o_0001",

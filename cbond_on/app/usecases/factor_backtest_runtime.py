@@ -90,6 +90,7 @@ def run(
         result = run_intraday_factor_backtest(
             factor_store,
             Path(paths_cfg["label_data_root"]),
+            paths_cfg["raw_data_root"],
             start_day,
             end_day,
             factor_col=factor_col,

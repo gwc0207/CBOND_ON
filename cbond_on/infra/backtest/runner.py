@@ -9,6 +9,7 @@ import pandas as pd
 
 from cbond_on.core.universe import filter_tradable
 from cbond_on.core.utils import progress
+from cbond_on.infra.benchmark.service import compute_benchmark_return_for_day
 from cbond_on.infra.data.io import read_table_range, read_trading_calendar, iter_clean_dates
 from cbond_on.infra.model.score_io import load_scores_by_date
 from .execution import apply_twap_bps
@@ -133,31 +134,13 @@ def run_backtest(
             diagnostics.append({"trade_date": day, "status": "skip", "reason": "missing_clean"})
             continue
 
-        # Benchmark universe must be independent of model score availability.
-        bench_df = buy_df.merge(
-            sell_df[["code", sell_twap_col]].rename(columns={sell_twap_col: sell_next_col}),
-            on="code",
-            how="inner",
+        benchmark_return = compute_benchmark_return_for_day(
+            raw_data_root=raw_data_root,
+            trade_day=day,
+            next_day=next_day,
+            buy_bps=cost_bps,
+            sell_bps=cost_bps,
         )
-        if filter_tradable_flag:
-            bench_df = filter_tradable(
-                bench_df,
-                buy_twap_col=buy_twap_col,
-                sell_twap_col=sell_next_col,
-                min_amount=min_amount,
-                min_volume=min_volume,
-            )
-        else:
-            required = [buy_twap_col, sell_next_col]
-            missing_cols = [c for c in required if c not in bench_df.columns]
-            if missing_cols:
-                raise KeyError(f"missing twap columns: {missing_cols}")
-        if bench_df.empty:
-            benchmark_return = 0.0
-        else:
-            bench_buy = apply_twap_bps(bench_df[buy_twap_col], cost_bps, side="buy")
-            bench_sell = apply_twap_bps(bench_df[sell_next_col], cost_bps, side="sell")
-            benchmark_return = float(((bench_sell - bench_buy) / bench_buy).mean())
 
         merged = buy_df.merge(
             sell_df[["code", sell_twap_col]].rename(columns={sell_twap_col: sell_next_col}),

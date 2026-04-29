@@ -17,7 +17,7 @@ def resolve_buy_sell_bps(cfg: dict) -> tuple[float, float]:
 
 def load_fees_buy_sell_bps(
     *,
-    config_key: str = "backtest_pipeline/fees",
+    config_key: str = "fees/fees",
 ) -> tuple[float, float, str]:
     cfg = dict(load_config_file(config_key))
     source = config_key

@@ -1,6 +1,6 @@
 {
-  // Shared fee config for non-live chains (backtest / factor batch / factor backtest).
-  // Effective side cost bps:
+  // Unified transaction cost config used by factor/model/backtest/live benchmark chains.
+  // Effective side bps:
   // - if buy_bps/sell_bps set: side_bps + fee_bps
   // - else: twap_bps + fee_bps
   twap_bps: 1.36,

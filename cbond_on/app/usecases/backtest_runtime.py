@@ -11,6 +11,7 @@ from cbond_on.core.config import load_config_file, parse_date
 from cbond_on.core.fees import load_fees_buy_sell_bps
 from cbond_on.core.trading_days import next_trading_days_from_raw
 from cbond_on.core.universe import filter_tradable
+from cbond_on.infra.benchmark.service import compute_benchmark_return_for_day
 from cbond_on.domain.portfolio.service import normalize_weights, to_prev_positions
 from cbond_on.domain.signals.service import SignalSelectionRequest, select_signals
 from cbond_on.infra.model.score_io import load_scores_by_date
@@ -140,11 +141,19 @@ def run(
         ret = (sell_px - buy_px) / buy_px
         picks["return"] = ret
         day_return = float((picks["return"] * picks["weight"]).sum())
+        benchmark_return = compute_benchmark_return_for_day(
+            raw_data_root=raw_root,
+            trade_day=day,
+            next_day=next_day,
+            buy_bps=buy_cost_bps,
+            sell_bps=sell_cost_bps,
+        )
         daily_rows.append(
             {
                 "trade_date": day,
                 "count": int(len(picks)),
                 "day_return": day_return,
+                "benchmark_return": float(benchmark_return),
                 "avg_return": float(picks["return"].mean()),
                 "total_weight": float(picks["weight"].sum()),
             }
@@ -184,6 +193,7 @@ def run(
     daily_df = pd.DataFrame(daily_rows).sort_values("trade_date")
     nav_df = daily_df[["trade_date"]].copy()
     nav_df["nav"] = (1.0 + daily_df["day_return"].fillna(0.0)).cumprod()
+    nav_df["benchmark_nav"] = (1.0 + pd.to_numeric(daily_df["benchmark_return"], errors="coerce").fillna(0.0)).cumprod()
     positions_df = pd.DataFrame(pos_rows)
     ic_df = pd.DataFrame(ic_rows).sort_values("trade_date") if ic_rows else pd.DataFrame()
     diag_df = pd.DataFrame(diag_rows).sort_values("trade_date") if diag_rows else pd.DataFrame()

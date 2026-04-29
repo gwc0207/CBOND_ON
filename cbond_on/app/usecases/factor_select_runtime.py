@@ -15,6 +15,8 @@ import pandas as pd
 from cbond_on.common.config_utils import load_json_like, resolve_config_path
 from cbond_on.config.loader import load_config_file, parse_date
 from cbond_on.app.usecases.model_score_runtime import run as run_model_score
+from cbond_on.core.fees import load_fees_buy_sell_bps
+from cbond_on.infra.benchmark.service import compute_benchmark_returns_for_days
 from cbond_on.infra.factors.quality import expected_factor_columns_from_cfg
 from cbond_on.infra.model.eval.evaluator import (
     EvaluationResult,
@@ -207,6 +209,7 @@ def _build_bin_outputs(
     *,
     merged: pd.DataFrame,
     bins: int,
+    benchmark_daily: pd.DataFrame,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     cols_daily = ["trade_date", "bin", "return_mean"]
     if merged is None or merged.empty:
@@ -237,7 +240,6 @@ def _build_bin_outputs(
 
     q = max(2, int(bins))
     bin_rows: list[dict[str, Any]] = []
-    benchmark_rows: list[dict[str, Any]] = []
     for trade_day, group in work.groupby("trade_date", sort=True):
         g = group[["score", "y"]].dropna()
         if g.empty:
@@ -263,12 +265,6 @@ def _build_bin_outputs(
                     "return_mean": float(ret),
                 }
             )
-        benchmark_rows.append(
-            {
-                "trade_date": trade_day,
-                "benchmark_return": float(pd.to_numeric(g["y"], errors="coerce").mean()),
-            }
-        )
 
     bin_daily = pd.DataFrame(bin_rows, columns=cols_daily)
     if bin_daily.empty:
@@ -279,9 +275,14 @@ def _build_bin_outputs(
         )
     bin_daily = bin_daily.sort_values(["trade_date", "bin"], kind="mergesort").reset_index(drop=True)
 
+    bench_daily = benchmark_daily.copy() if benchmark_daily is not None else pd.DataFrame()
+    if bench_daily.empty:
+        raise RuntimeError("factor_select benchmark_daily is empty")
+    if "trade_date" not in bench_daily.columns or "benchmark_return" not in bench_daily.columns:
+        raise RuntimeError("factor_select benchmark_daily missing required columns")
+    bench_daily["trade_date"] = pd.to_datetime(bench_daily["trade_date"], errors="coerce").dt.date
     bench_daily = (
-        pd.DataFrame(benchmark_rows, columns=["trade_date", "benchmark_return"])
-        .dropna(subset=["trade_date"])
+        bench_daily.dropna(subset=["trade_date"])
         .drop_duplicates(subset=["trade_date"], keep="last")
         .sort_values("trade_date", kind="mergesort")
         .reset_index(drop=True)
@@ -307,14 +308,20 @@ def _build_bin_outputs(
     nav = (1.0 + pivot).cumprod()
     nav.columns = [f"bin_{int(c)}" for c in nav.columns]
 
-    if not bench_daily.empty:
-        bench_series = pd.Series(
-            data=pd.to_numeric(bench_daily["benchmark_return"], errors="coerce").fillna(0.0).values,
-            index=bench_daily["trade_date"],
-            dtype=float,
+    bench_series = pd.Series(
+        data=pd.to_numeric(bench_daily["benchmark_return"], errors="coerce").values,
+        index=bench_daily["trade_date"],
+        dtype=float,
+    ).sort_index()
+    bench_series = bench_series.reindex(nav.index)
+    if bench_series.isna().any():
+        missing_days = [d for d in nav.index if pd.isna(bench_series.loc[d])]
+        sample = ",".join(str(x) for x in missing_days[:5])
+        raise RuntimeError(
+            "factor_select benchmark missing days for bin nav: "
+            f"missing={len(missing_days)} sample={sample}"
         )
-        bench_series = bench_series.reindex(nav.index).fillna(0.0)
-        nav.insert(0, "benchmark", (1.0 + bench_series).cumprod().values)
+    nav.insert(0, "benchmark", (1.0 + bench_series).cumprod().values)
 
     nav = nav.reset_index().rename(columns={"trade_date": "trade_date"})
     return bin_daily, bench_daily, nav
@@ -443,12 +450,7 @@ def _build_trial_metrics_and_alpha(
         else pd.DataFrame(columns=["trade_date", "benchmark_return"])
     )
     if bench.empty:
-        bench = pd.DataFrame(
-            {
-                "trade_date": pivot.index,
-                "benchmark_return": pivot.mean(axis=1).values,
-            }
-        )
+        raise RuntimeError("factor_select benchmark_daily is empty for trial metrics")
     bench["trade_date"] = pd.to_datetime(bench["trade_date"], errors="coerce").dt.date
     bench = bench.dropna(subset=["trade_date"]).drop_duplicates(subset=["trade_date"], keep="last")
     bench_series = pd.Series(
@@ -456,6 +458,13 @@ def _build_trial_metrics_and_alpha(
         index=bench["trade_date"],
         dtype=float,
     ).sort_index()
+    missing_bench_days = [d for d in pivot.index if d not in bench_series.index]
+    if missing_bench_days:
+        sample = ",".join(str(x) for x in missing_bench_days[:5])
+        raise RuntimeError(
+            "factor_select benchmark missing days for metrics: "
+            f"missing={len(missing_bench_days)} sample={sample}"
+        )
 
     strategy_series = pd.Series(index=pivot.index, dtype=float)
     for d in pivot.index:
@@ -725,6 +734,7 @@ def _run_model_trial(
     bins: int,
     save_state: bool,
     alpha_significance_window: int,
+    raw_data_root: str | Path,
 ) -> _EvalTrial:
     trial_dir.mkdir(parents=True, exist_ok=True)
     score_output = trial_dir / "scores"
@@ -792,11 +802,39 @@ def _run_model_trial(
         daily_ic["rank_ic_cum"] = daily_ic["rank_ic"].fillna(0.0).cumsum()
         daily_ic.to_csv(trial_dir / "ic_series.csv", index=False)
 
-    bin_daily_df, benchmark_daily_df, bin_nav_df = _build_bin_outputs(merged=eval_res.merged, bins=bins)
+    trade_days: list[date] = []
+    if eval_res.merged is not None and not eval_res.merged.empty and "trade_date" in eval_res.merged.columns:
+        trade_days = (
+            pd.to_datetime(eval_res.merged["trade_date"], errors="coerce")
+            .dt.date.dropna().drop_duplicates().sort_values().tolist()
+        )
+    if not trade_days and eval_res.daily is not None and not eval_res.daily.empty and "trade_date" in eval_res.daily.columns:
+        trade_days = (
+            pd.to_datetime(eval_res.daily["trade_date"], errors="coerce")
+            .dt.date.dropna().drop_duplicates().sort_values().tolist()
+        )
+    buy_bps, sell_bps, _ = load_fees_buy_sell_bps()
+    benchmark_series = compute_benchmark_returns_for_days(
+        raw_data_root=raw_data_root,
+        trade_days=trade_days,
+        buy_bps=buy_bps,
+        sell_bps=sell_bps,
+    )
+    benchmark_daily_df = pd.DataFrame(
+        {
+            "trade_date": list(benchmark_series.index),
+            "benchmark_return": list(benchmark_series.values),
+        }
+    )
+
+    bin_daily_df, benchmark_daily_df, bin_nav_df = _build_bin_outputs(
+        merged=eval_res.merged,
+        bins=bins,
+        benchmark_daily=benchmark_daily_df,
+    )
     if not bin_daily_df.empty:
         bin_daily_df.to_csv(trial_dir / "bin_daily_returns.csv", index=False)
-    if not benchmark_daily_df.empty:
-        benchmark_daily_df.to_csv(trial_dir / "benchmark_daily_returns.csv", index=False)
+    benchmark_daily_df.to_csv(trial_dir / "benchmark_daily_returns.csv", index=False)
     if not bin_nav_df.empty:
         bin_nav_df.to_csv(trial_dir / "bin_nav.csv", index=False)
         _plot_bin_nav(
@@ -1047,6 +1085,7 @@ def run(
         bins=bins,
         save_state=True,
         alpha_significance_window=alpha_significance_window,
+        raw_data_root=paths_cfg["raw_data_root"],
     )
 
     importance_df = _load_importance_from_state_dir(
@@ -1108,6 +1147,7 @@ def run(
         bins=bins,
         save_state=False,
         alpha_significance_window=alpha_significance_window,
+        raw_data_root=paths_cfg["raw_data_root"],
     )
 
     compare_payload = {
