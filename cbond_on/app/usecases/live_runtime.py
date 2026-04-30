@@ -6,6 +6,11 @@ from pathlib import Path
 from cbond_on.core.config import load_config_file, parse_date, resolve_output_path
 from cbond_on.core.universe import filter_tradable
 from cbond_on.infra.data.io import read_clean_daily
+from cbond_on.infra.universe.pool_filter import (
+    apply_pool_filter_to_universe,
+    load_upstream_pool_config,
+    resolve_pool_codes_for_trade_day,
+)
 from cbond_on.domain.signals.service import SignalSelectionRequest, select_signals
 from cbond_on.infra.model.score_io import load_scores_by_date
 from cbond_on.app.usecases.label_runtime import run as run_label
@@ -183,6 +188,21 @@ def run_once(
                 min_amount=float(data_cfg.get("min_amount", 0.0)),
                 min_volume=float(data_cfg.get("min_volume", 0.0)),
             )
+    pool_cfg = load_upstream_pool_config()
+    pool_codes, pool_info = resolve_pool_codes_for_trade_day(
+        raw_data_root=raw_root,
+        trade_day=score_day,
+        pool_cfg=pool_cfg,
+    )
+    if bool(pool_info.get("fallback_no_filter", False)):
+        print(
+            "[pool_filter] fallback_no_filter",
+            f"trade_day={score_day:%Y-%m-%d}",
+            f"expected_pool_day={pool_info.get('pool_day_expected')}",
+            f"reason={pool_info.get('fallback_reason')}",
+            f"nearest_pool_day={pool_info.get('nearest_pool_day')}",
+        )
+    universe = apply_pool_filter_to_universe(universe, pool_codes=pool_codes)
     if universe.empty:
         raise ValueError("live universe is empty after filters")
 

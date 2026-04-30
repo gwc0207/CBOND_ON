@@ -15,6 +15,11 @@ from cbond_on.core.fees import load_fees_buy_sell_bps
 from cbond_on.core.trading_days import next_trading_days_from_raw
 from cbond_on.core.universe import filter_tradable
 from cbond_on.infra.benchmark.service import compute_benchmark_breakdown_for_day
+from cbond_on.infra.universe.pool_filter import (
+    apply_pool_filter_to_universe,
+    load_upstream_pool_config,
+    resolve_pool_codes_for_trade_day,
+)
 from cbond_on.domain.portfolio.service import normalize_weights, to_prev_positions
 from cbond_on.domain.signals.service import SignalSelectionRequest, select_signals
 from cbond_on.infra.model.score_io import load_scores_by_date
@@ -59,6 +64,7 @@ def run(
     min_amount = float(bt_cfg.get("min_amount", 0.0))
     min_volume = float(bt_cfg.get("min_volume", 0.0))
     filter_flag = bool(bt_cfg.get("filter_tradable", True))
+    pool_cfg = load_upstream_pool_config()
 
     raw_root = paths_cfg["raw_data_root"]
     days = iter_open_days(raw_root, start_day, end_day)
@@ -104,6 +110,23 @@ def run(
             on="code",
             how="inner",
         )
+        pool_codes, pool_info = resolve_pool_codes_for_trade_day(
+            raw_data_root=raw_root,
+            trade_day=day,
+            pool_cfg=pool_cfg,
+        )
+        if bool(pool_info.get("fallback_no_filter", False)):
+            print(
+                "[pool_filter] fallback_no_filter",
+                f"trade_day={day:%Y-%m-%d}",
+                f"expected_pool_day={pool_info.get('pool_day_expected')}",
+                f"reason={pool_info.get('fallback_reason')}",
+                f"nearest_pool_day={pool_info.get('nearest_pool_day')}",
+            )
+        merged = apply_pool_filter_to_universe(merged, pool_codes=pool_codes)
+        if merged.empty:
+            diag_rows.append({"trade_date": day, "status": "skip", "reason": "empty_pool_filtered_universe"})
+            continue
         merged = merged.merge(score_df[["code", "score"]], on="code", how="inner")
         if filter_flag:
             merged = filter_tradable(

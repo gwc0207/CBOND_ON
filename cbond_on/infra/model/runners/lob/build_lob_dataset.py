@@ -13,6 +13,11 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from cbond_on.core.config import load_config_file, parse_date, parse_time, resolve_output_path
 from cbond_on.core.universe import filter_tradable
+from cbond_on.infra.universe.pool_filter import (
+    apply_pool_filter_to_universe,
+    load_upstream_pool_config,
+    resolve_pool_codes_for_trade_day,
+)
 from cbond_on.infra.data.io import read_table_all
 
 
@@ -150,6 +155,7 @@ def _build_one_day(
     sell_twap_col: str,
     min_amount: float,
     min_volume: float,
+    pool_cfg,
     output_dir: Path,
     overwrite: bool,
 ) -> dict:
@@ -178,6 +184,20 @@ def _build_one_day(
         min_amount=float(min_amount),
         min_volume=float(min_volume),
     )
+    pool_codes, pool_info = resolve_pool_codes_for_trade_day(
+        raw_data_root=raw_root,
+        trade_day=day.date(),
+        pool_cfg=pool_cfg,
+    )
+    if bool(pool_info.get("fallback_no_filter", False)):
+        print(
+            "[pool_filter] fallback_no_filter",
+            f"trade_day={day.date()}",
+            f"expected_pool_day={pool_info.get('pool_day_expected')}",
+            f"reason={pool_info.get('fallback_reason')}",
+            f"nearest_pool_day={pool_info.get('nearest_pool_day')}",
+        )
+    merged_twap = apply_pool_filter_to_universe(merged_twap, pool_codes=pool_codes)
     if merged_twap.empty:
         return {"day": day.date(), "status": "skip", "reason": "no_label"}
 
@@ -361,6 +381,7 @@ def main() -> None:
     sell_twap_col = str(ds_cfg.get("sell_twap_col", "twap_0930_0945"))
     min_amount = float(ds_cfg.get("min_amount", 0.0))
     min_volume = float(ds_cfg.get("min_volume", 0.0))
+    pool_cfg = load_upstream_pool_config()
 
     cal = read_table_all(raw_root, "metadata.trading_calendar")
     if cal.empty or "calendar_date" not in cal.columns:
@@ -435,6 +456,7 @@ def main() -> None:
             sell_twap_col=sell_twap_col,
             min_amount=min_amount,
             min_volume=min_volume,
+            pool_cfg=pool_cfg,
             output_dir=output_dir,
             overwrite=overwrite,
         )

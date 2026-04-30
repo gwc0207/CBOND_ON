@@ -1,6 +1,9 @@
 {
   // Upstream daily tradable pool (already filtered upstream).
   pool_table: "quant_factor_dev.researcher_xuvb.o_0005",
+  // For trade day T, use pool from T-1 open trading day.
+  pool_lag_trading_days: 1,
+  pool_asset: "cbond",
 
   // Unified benchmark return window.
   buy_twap_col: "twap_1442_1457",
@@ -11,4 +14,3 @@
   positive_fallback_field: "weight",
   positive_threshold: 0.0
 }
-

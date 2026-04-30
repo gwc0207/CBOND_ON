@@ -11,6 +11,11 @@ from cbond_on.core.universe import filter_tradable
 from cbond_on.core.utils import progress
 from cbond_on.infra.benchmark.service import compute_benchmark_breakdown_for_day
 from cbond_on.infra.data.io import read_table_range, read_trading_calendar, iter_clean_dates
+from cbond_on.infra.universe.pool_filter import (
+    apply_pool_filter_to_universe,
+    load_upstream_pool_config,
+    resolve_pool_codes_for_trade_day,
+)
 from cbond_on.infra.model.score_io import load_scores_by_date
 from .execution import apply_twap_bps, split_cycle_return_by_bridge
 
@@ -131,6 +136,7 @@ def run_backtest(
     live_bin_lookback_days = max(
         1, int(live_bin_lookback_days if live_bin_lookback_days is not None else bin_lookback_days)
     )
+    pool_cfg = load_upstream_pool_config()
     bin_history: list[dict[int, float]] = []
 
     for i in progress(range(len(day_list) - 1), desc="backtest", unit="day", total=len(day_list) - 1):
@@ -171,6 +177,23 @@ def run_backtest(
             how="left",
         )
         merged = merged.merge(score_df[["code", "score"]], on="code", how="left")
+        pool_codes, pool_info = resolve_pool_codes_for_trade_day(
+            raw_data_root=raw_data_root,
+            trade_day=day,
+            pool_cfg=pool_cfg,
+        )
+        if bool(pool_info.get("fallback_no_filter", False)):
+            print(
+                "[pool_filter] fallback_no_filter",
+                f"trade_day={day:%Y-%m-%d}",
+                f"expected_pool_day={pool_info.get('pool_day_expected')}",
+                f"reason={pool_info.get('fallback_reason')}",
+                f"nearest_pool_day={pool_info.get('nearest_pool_day')}",
+            )
+        merged = apply_pool_filter_to_universe(merged, pool_codes=pool_codes)
+        if merged.empty:
+            diagnostics.append({"trade_date": day, "status": "skip", "reason": "empty_pool_filtered_universe"})
+            continue
 
         if filter_tradable_flag:
             merged = filter_tradable(

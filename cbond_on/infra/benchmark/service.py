@@ -13,8 +13,12 @@ from cbond_on.infra.backtest.execution import (
     apply_twap_bps,
     split_cycle_return_by_bridge,
 )
-from cbond_on.infra.data.io import read_table_range
 from cbond_on.infra.io.market_twap import read_price_daily, read_twap_daily
+from cbond_on.infra.universe.pool_filter import (
+    UpstreamPoolConfig,
+    apply_pool_filter_to_universe,
+    resolve_pool_codes_for_trade_day,
+)
 
 
 @dataclass(frozen=True)
@@ -25,6 +29,8 @@ class BenchmarkPoolConfig:
     positive_field: str
     positive_fallback_field: str
     positive_threshold: float
+    pool_lag_trading_days: int
+    pool_asset: str
 
 
 @dataclass(frozen=True)
@@ -44,6 +50,8 @@ def load_benchmark_pool_config(cfg: dict | None = None) -> BenchmarkPoolConfig:
         positive_field=str(raw.get("positive_field", "factor_value")),
         positive_fallback_field=str(raw.get("positive_fallback_field", "weight")),
         positive_threshold=float(raw.get("positive_threshold", 0.0)),
+        pool_lag_trading_days=max(0, int(raw.get("pool_lag_trading_days", 1))),
+        pool_asset=str(raw.get("pool_asset", "cbond")),
     )
 
 
@@ -51,50 +59,6 @@ def _normalize_code_series(series: pd.Series) -> pd.Series:
     out = series.astype(str).str.strip()
     out = out.str.replace(r"\.0$", "", regex=True)
     return out
-
-
-def _normalize_pool_code(df: pd.DataFrame) -> pd.Series:
-    if "code" in df.columns:
-        return _normalize_code_series(df["code"])
-    if "instrument_code" in df.columns and "exchange_code" in df.columns:
-        left = _normalize_code_series(df["instrument_code"])
-        right = _normalize_code_series(df["exchange_code"])
-        return left + "." + right
-    if "instrument_code" in df.columns:
-        return _normalize_code_series(df["instrument_code"])
-    raise RuntimeError("benchmark pool missing code columns (need code or instrument_code/exchange_code)")
-
-
-def _load_benchmark_pool_day_codes(
-    *,
-    raw_data_root: str | Path,
-    day: date,
-    pool_cfg: BenchmarkPoolConfig,
-) -> pd.Series:
-    pool_df = read_table_range(raw_data_root, pool_cfg.pool_table, day, day)
-    if pool_df.empty:
-        raise RuntimeError(
-            f"benchmark pool missing day file: table={pool_cfg.pool_table} day={day:%Y-%m-%d}"
-        )
-    pool_df = pool_df.copy()
-    pool_df["code"] = _normalize_pool_code(pool_df)
-    if pool_cfg.positive_field in pool_df.columns:
-        mask = pd.to_numeric(pool_df[pool_cfg.positive_field], errors="coerce") > pool_cfg.positive_threshold
-    elif pool_cfg.positive_fallback_field in pool_df.columns:
-        mask = pd.to_numeric(pool_df[pool_cfg.positive_fallback_field], errors="coerce") > pool_cfg.positive_threshold
-    else:
-        raise RuntimeError(
-            "benchmark pool missing positive-filter columns: "
-            f"{pool_cfg.positive_field} / {pool_cfg.positive_fallback_field}"
-        )
-    codes = pool_df.loc[mask, "code"].dropna()
-    codes = _normalize_code_series(codes).drop_duplicates().sort_values(kind="mergesort")
-    if codes.empty:
-        raise RuntimeError(
-            f"benchmark pool empty after positive filter on {day:%Y-%m-%d}: "
-            f"{pool_cfg.positive_field}>{pool_cfg.positive_threshold}"
-        )
-    return codes
 
 
 def compute_benchmark_return_for_day(
@@ -127,11 +91,28 @@ def compute_benchmark_breakdown_for_day(
     pool_cfg: BenchmarkPoolConfig | None = None,
 ) -> BenchmarkReturnBreakdown:
     cfg = pool_cfg or load_benchmark_pool_config()
-    pool_codes = _load_benchmark_pool_day_codes(
-        raw_data_root=raw_data_root,
-        day=trade_day,
-        pool_cfg=cfg,
+    upstream_cfg = UpstreamPoolConfig(
+        pool_table=cfg.pool_table,
+        positive_field=cfg.positive_field,
+        positive_fallback_field=cfg.positive_fallback_field,
+        positive_threshold=cfg.positive_threshold,
+        pool_lag_trading_days=cfg.pool_lag_trading_days,
+        pool_asset=cfg.pool_asset,
     )
+    pool_codes, pool_info = resolve_pool_codes_for_trade_day(
+        raw_data_root=raw_data_root,
+        trade_day=trade_day,
+        pool_cfg=upstream_cfg,
+    )
+    if bool(pool_info.get("fallback_no_filter", False)):
+        print(
+            "[pool_filter] fallback_no_filter",
+            f"trade_day={trade_day:%Y-%m-%d}",
+            f"expected_pool_day={pool_info.get('pool_day_expected')}",
+            f"reason={pool_info.get('fallback_reason')}",
+            f"nearest_pool_day={pool_info.get('nearest_pool_day')}",
+            f"pool_table={cfg.pool_table}",
+        )
 
     buy_df = read_twap_daily(str(raw_data_root), trade_day)
     sell_df = read_twap_daily(str(raw_data_root), next_day)
@@ -163,12 +144,12 @@ def compute_benchmark_breakdown_for_day(
     sell["code"] = _normalize_code_series(sell["code"])
     bridge["code"] = _normalize_code_series(bridge["code"])
 
-    pool_df = pd.DataFrame({"code": pool_codes.values})
     merged = (
-        pool_df.merge(buy[["code", cfg.buy_twap_col]], on="code", how="inner")
+        buy[["code", cfg.buy_twap_col]]
         .merge(sell[["code", cfg.sell_twap_col]], on="code", how="inner")
         .merge(bridge[["code", bridge_col]], on="code", how="inner")
     )
+    merged = apply_pool_filter_to_universe(merged, pool_codes=pool_codes)
     merged = merged[
         merged[cfg.buy_twap_col].notna()
         & merged[cfg.sell_twap_col].notna()
@@ -178,9 +159,14 @@ def compute_benchmark_breakdown_for_day(
         & (merged[bridge_col] > 0)
     ]
     if merged.empty:
+        pool_tag = (
+            f"pool_day={pool_info.get('pool_day_used')}"
+            if pool_codes is not None
+            else "pool_filter=fallback_no_filter"
+        )
         raise RuntimeError(
             "benchmark universe empty after twap merge/filter: "
-            f"trade_day={trade_day:%Y-%m-%d} next_day={next_day:%Y-%m-%d}"
+            f"trade_day={trade_day:%Y-%m-%d} next_day={next_day:%Y-%m-%d} {pool_tag}"
         )
     buy_px = apply_twap_bps(merged[cfg.buy_twap_col], float(buy_bps), side="buy")
     sell_px = apply_twap_bps(merged[cfg.sell_twap_col], float(sell_bps), side="sell")

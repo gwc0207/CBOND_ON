@@ -20,6 +20,12 @@ except Exception as exc:  # pragma: no cover
 from cbond_on.core.trading_days import list_available_trading_days_from_raw
 from cbond_on.core.universe import filter_tradable
 from cbond_on.domain.factors.storage import FactorStore
+from cbond_on.infra.universe.pool_filter import (
+    UpstreamPoolConfig,
+    apply_pool_filter_to_universe,
+    load_upstream_pool_config,
+    resolve_pool_codes_for_trade_day,
+)
 from cbond_on.infra.data.io import read_table_range
 
 
@@ -142,6 +148,7 @@ def build_tradable_code_map(
     min_volume: float = 0.0,
     twap_table: str = "market_cbond.daily_twap",
     asset: str = "cbond",
+    pool_cfg: UpstreamPoolConfig | None = None,
 ) -> dict[date, set[str]]:
     unique_days = sorted(set(days))
     if not unique_days:
@@ -153,6 +160,7 @@ def build_tradable_code_map(
     )
     if not open_days:
         return {}
+    upstream_pool_cfg = pool_cfg or load_upstream_pool_config()
 
     out: dict[date, set[str]] = {}
     for day in unique_days:
@@ -186,6 +194,20 @@ def build_tradable_code_map(
             min_amount=float(min_amount),
             min_volume=float(min_volume),
         )
+        pool_codes, pool_info = resolve_pool_codes_for_trade_day(
+            raw_data_root=raw_data_root,
+            trade_day=day,
+            pool_cfg=upstream_pool_cfg,
+        )
+        if bool(pool_info.get("fallback_no_filter", False)):
+            print(
+                "[pool_filter] fallback_no_filter",
+                f"trade_day={day:%Y-%m-%d}",
+                f"expected_pool_day={pool_info.get('pool_day_expected')}",
+                f"reason={pool_info.get('fallback_reason')}",
+                f"nearest_pool_day={pool_info.get('nearest_pool_day')}",
+            )
+        filtered = apply_pool_filter_to_universe(filtered, pool_codes=pool_codes)
         if filtered.empty:
             continue
         out[day] = set(filtered["code"].astype(str).tolist())
