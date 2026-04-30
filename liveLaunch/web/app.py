@@ -22,8 +22,8 @@ from flask import Flask, jsonify, render_template, request
 
 from cbond_on.core.config import load_config_file
 from cbond_on.core.fees import load_fees_buy_sell_bps
-from cbond_on.infra.backtest.execution import apply_twap_bps
-from cbond_on.infra.benchmark.service import compute_benchmark_return_for_day
+from cbond_on.infra.backtest.execution import apply_twap_bps, split_cycle_return_by_bridge
+from cbond_on.infra.benchmark.service import compute_benchmark_breakdown_for_day
 from cbond_on.infra.data.io import read_table_range, read_trading_calendar
 from cbond_on.infra.factors.quality import (
     expected_factor_columns_from_cfg,
@@ -195,6 +195,16 @@ def _read_twap_daily(raw_data_root: str | Path, day: date) -> pd.DataFrame:
     if df.empty:
         return df
     if "instrument_code" in df.columns and "exchange_code" in df.columns:
+        df = df.copy()
+        df["code"] = df["instrument_code"].astype(str) + "." + df["exchange_code"].astype(str)
+    return df
+
+
+def _read_price_daily(raw_data_root: str | Path, day: date) -> pd.DataFrame:
+    df = read_table_range(raw_data_root, "market_cbond.daily_price", day, day)
+    if df.empty:
+        return df
+    if "code" not in df.columns and "instrument_code" in df.columns and "exchange_code" in df.columns:
         df = df.copy()
         df["code"] = df["instrument_code"].astype(str) + "." + df["exchange_code"].astype(str)
     return df
@@ -395,30 +405,43 @@ def _build_perf_summary(*, raw_data_root: str | Path, day: str | None, lookback:
 
         buy_df = _read_twap_daily(raw_data_root, trade_day)
         sell_df = _read_twap_daily(raw_data_root, next_day)
-        if buy_df.empty or sell_df.empty:
+        bridge_df = _read_price_daily(raw_data_root, next_day)
+        if buy_df.empty or sell_df.empty or bridge_df.empty:
             continue
 
-        if buy_col not in buy_df.columns or sell_col not in sell_df.columns:
+        if buy_col not in buy_df.columns or sell_col not in sell_df.columns or "prev_close_price" not in bridge_df.columns:
             continue
 
-        merged = picks.merge(buy_df[["code", buy_col]], on="code", how="left").merge(
-            sell_df[["code", sell_col]], on="code", how="left"
+        merged = picks.merge(buy_df[["code", buy_col]], on="code", how="left")
+        merged = merged.merge(sell_df[["code", sell_col]], on="code", how="left")
+        merged = merged.merge(
+            bridge_df[["code", "prev_close_price"]].rename(columns={"prev_close_price": "bridge_prev_close"}),
+            on="code",
+            how="left",
         )
         merged = merged[
             merged[buy_col].notna()
             & merged[sell_col].notna()
+            & merged["bridge_prev_close"].notna()
             & (merged[buy_col] > 0)
             & (merged[sell_col] > 0)
+            & (pd.to_numeric(merged["bridge_prev_close"], errors="coerce") > 0)
         ]
         if merged.empty:
             continue
 
         buy_px = apply_twap_bps(merged[buy_col], buy_cost_bps, side="buy")
         sell_px = apply_twap_bps(merged[sell_col], sell_cost_bps, side="sell")
-        strat_ret = (sell_px - buy_px) / buy_px
+        buy_leg_ret, sell_leg_ret, strat_ret = split_cycle_return_by_bridge(
+            buy_px,
+            sell_px,
+            pd.to_numeric(merged["bridge_prev_close"], errors="coerce"),
+        )
         w = _normalize_weights(merged["weight"])
         strategy_return = float((strat_ret * w).sum())
-        benchmark_return = compute_benchmark_return_for_day(
+        strategy_buy_leg_ret = float((buy_leg_ret * w).sum())
+        strategy_sell_leg_ret = float((sell_leg_ret * w).sum())
+        benchmark = compute_benchmark_breakdown_for_day(
             raw_data_root=raw_data_root,
             trade_day=trade_day,
             next_day=next_day,
@@ -431,7 +454,13 @@ def _build_perf_summary(*, raw_data_root: str | Path, day: str | None, lookback:
                 "trade_date": trade_day,
                 "next_day": next_day,
                 "strategy_return": strategy_return,
-                "benchmark_return": benchmark_return,
+                "strategy_full_cycle_ret_net": strategy_return,
+                "strategy_buy_leg_ret_net": strategy_buy_leg_ret,
+                "strategy_sell_leg_ret_net": strategy_sell_leg_ret,
+                "benchmark_return": float(benchmark.full_cycle_ret_net),
+                "benchmark_full_cycle_ret_net": float(benchmark.full_cycle_ret_net),
+                "benchmark_buy_leg_ret_net": float(benchmark.buy_leg_ret_net),
+                "benchmark_sell_leg_ret_net": float(benchmark.sell_leg_ret_net),
                 "count": int(len(merged)),
             }
         )
@@ -461,8 +490,20 @@ def _build_perf_summary(*, raw_data_root: str | Path, day: str | None, lookback:
             "trade_date": f"{row.trade_date:%Y-%m-%d}",
             "next_day": f"{row.next_day:%Y-%m-%d}",
             "strategy_return": float(row.strategy_return),
+            "strategy_full_cycle_ret_net": float(row.strategy_full_cycle_ret_net),
+            "strategy_buy_leg_ret_net": float(row.strategy_buy_leg_ret_net),
+            "strategy_sell_leg_ret_net": float(row.strategy_sell_leg_ret_net),
             "benchmark_return": float(row.benchmark_return)
             if pd.notna(row.benchmark_return)
+            else None,
+            "benchmark_full_cycle_ret_net": float(row.benchmark_full_cycle_ret_net)
+            if pd.notna(row.benchmark_full_cycle_ret_net)
+            else None,
+            "benchmark_buy_leg_ret_net": float(row.benchmark_buy_leg_ret_net)
+            if pd.notna(row.benchmark_buy_leg_ret_net)
+            else None,
+            "benchmark_sell_leg_ret_net": float(row.benchmark_sell_leg_ret_net)
+            if pd.notna(row.benchmark_sell_leg_ret_net)
             else None,
             "strategy_nav": float(row.strategy_nav),
             "benchmark_nav": float(row.benchmark_nav),

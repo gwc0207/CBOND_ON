@@ -269,7 +269,7 @@ python cbond_on/run/backtest.py
 - 回测图像报告
 
 关键行为：
-- 成本模型：`twap_bps + fee_bps`
+- 成本模型：`buy_cost_bps = max(0, fee_bps - buy_slippage_bps)`，`sell_cost_bps = max(0, fee_bps - sell_slippage_bps)`
 - 策略语义和 live 共用
 
 ### 5.8 实盘单次执行（`run/live.py`）

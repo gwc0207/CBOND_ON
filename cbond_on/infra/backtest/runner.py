@@ -9,10 +9,10 @@ import pandas as pd
 
 from cbond_on.core.universe import filter_tradable
 from cbond_on.core.utils import progress
-from cbond_on.infra.benchmark.service import compute_benchmark_return_for_day
+from cbond_on.infra.benchmark.service import compute_benchmark_breakdown_for_day
 from cbond_on.infra.data.io import read_table_range, read_trading_calendar, iter_clean_dates
 from cbond_on.infra.model.score_io import load_scores_by_date
-from .execution import apply_twap_bps
+from .execution import apply_twap_bps, split_cycle_return_by_bridge
 
 
 @dataclass
@@ -65,6 +65,18 @@ def _read_twap_daily(raw_data_root: str, day: date) -> pd.DataFrame:
     return df
 
 
+def _read_price_daily(raw_data_root: str, day: date) -> pd.DataFrame:
+    df = read_table_range(raw_data_root, "market_cbond.daily_price", day, day)
+    if df.empty:
+        return df
+    if "code" not in df.columns and "instrument_code" in df.columns and "exchange_code" in df.columns:
+        df = df.copy()
+        df["code"] = (
+            df["instrument_code"].astype(str) + "." + df["exchange_code"].astype(str)
+        )
+    return df
+
+
 def run_backtest(
     *,
     raw_data_root: str,
@@ -74,8 +86,9 @@ def run_backtest(
     score_path: str,
     buy_twap_col: str,
     sell_twap_col: str,
-    twap_bps: float,
     fee_bps: float,
+    buy_slippage_bps: float,
+    sell_slippage_bps: float,
     bin_source: str,
     bin_top_k: int,
     bin_lookback_days: int,
@@ -108,7 +121,8 @@ def run_backtest(
     bin_records: list[dict] = []
     bin_time_records: list[dict] = []
     bin_dir_records: list[dict] = []
-    cost_bps = float(twap_bps) + float(fee_bps)
+    buy_cost_bps = max(0.0, float(fee_bps) - float(buy_slippage_bps))
+    sell_cost_bps = max(0.0, float(fee_bps) - float(sell_slippage_bps))
     bin_source = str(bin_source or "auto").lower()
     bin_top_k = max(1, int(bin_top_k))
     bin_lookback_days = max(1, int(bin_lookback_days))
@@ -130,20 +144,29 @@ def run_backtest(
 
         buy_df = _read_twap_daily(raw_data_root, day)
         sell_df = _read_twap_daily(raw_data_root, next_day)
+        bridge_df = _read_price_daily(raw_data_root, next_day)
         if buy_df.empty or sell_df.empty:
             diagnostics.append({"trade_date": day, "status": "skip", "reason": "missing_clean"})
             continue
+        if bridge_df.empty or "prev_close_price" not in bridge_df.columns:
+            diagnostics.append({"trade_date": day, "status": "skip", "reason": "missing_bridge_price"})
+            continue
 
-        benchmark_return = compute_benchmark_return_for_day(
+        benchmark_breakdown = compute_benchmark_breakdown_for_day(
             raw_data_root=raw_data_root,
             trade_day=day,
             next_day=next_day,
-            buy_bps=cost_bps,
-            sell_bps=cost_bps,
+            buy_bps=buy_cost_bps,
+            sell_bps=sell_cost_bps,
         )
 
         merged = buy_df.merge(
             sell_df[["code", sell_twap_col]].rename(columns={sell_twap_col: sell_next_col}),
+            on="code",
+            how="left",
+        )
+        merged = merged.merge(
+            bridge_df[["code", "prev_close_price"]].rename(columns={"prev_close_price": "bridge_prev_close"}),
             on="code",
             how="left",
         )
@@ -164,13 +187,21 @@ def run_backtest(
                 raise KeyError(f"missing twap columns: {missing_cols}")
 
         merged = merged[merged["score"].notna()]
+        merged = merged[
+            merged["bridge_prev_close"].notna()
+            & (pd.to_numeric(merged["bridge_prev_close"], errors="coerce") > 0)
+        ]
         if merged.empty:
             diagnostics.append({"trade_date": day, "status": "skip", "reason": "no_tradable"})
             continue
 
-        buy_all = apply_twap_bps(merged[buy_twap_col], cost_bps, side="buy")
-        sell_all = apply_twap_bps(merged[sell_next_col], cost_bps, side="sell")
-        returns_all = (sell_all - buy_all) / buy_all
+        buy_all = apply_twap_bps(merged[buy_twap_col], buy_cost_bps, side="buy")
+        sell_all = apply_twap_bps(merged[sell_next_col], sell_cost_bps, side="sell")
+        _, _, returns_all = split_cycle_return_by_bridge(
+            buy_all,
+            sell_all,
+            pd.to_numeric(merged["bridge_prev_close"], errors="coerce"),
+        )
         ic_val = merged["score"].corr(returns_all, method="pearson")
         rank_ic_val = _rank_ic(merged["score"], returns_all)
         ic_records.append(
@@ -265,13 +296,22 @@ def run_backtest(
         live_total_weight = float("nan")
         live_count = int(len(picks_live))
         if live_count > 0:
-            buy_live = apply_twap_bps(picks_live[buy_twap_col], cost_bps, side="buy")
-            sell_live = apply_twap_bps(picks_live[sell_next_col], cost_bps, side="sell")
-            returns_live = (sell_live - buy_live) / buy_live
+            buy_live = apply_twap_bps(picks_live[buy_twap_col], buy_cost_bps, side="buy")
+            sell_live = apply_twap_bps(picks_live[sell_next_col], sell_cost_bps, side="sell")
+            buy_leg_live, sell_leg_live, returns_live = split_cycle_return_by_bridge(
+                buy_live,
+                sell_live,
+                pd.to_numeric(picks_live["bridge_prev_close"], errors="coerce"),
+            )
             live_avg_return = float(returns_live.mean()) if not returns_live.empty else float("nan")
             w_live = min(1.0 / live_count, max_weight)
             live_day_return = float((returns_live * w_live).sum())
+            live_day_buy_leg_ret = float((buy_leg_live * w_live).sum())
+            live_day_sell_leg_ret = float((sell_leg_live * w_live).sum())
             live_total_weight = float(w_live * live_count)
+        else:
+            live_day_buy_leg_ret = float("nan")
+            live_day_sell_leg_ret = float("nan")
 
         if bin_source == "auto" and bin_history:
             lookback = bin_history[-bin_lookback_days:] if len(bin_history) > bin_lookback_days else bin_history
@@ -324,11 +364,17 @@ def run_backtest(
             )
             continue
 
-        buy_px = apply_twap_bps(picks[buy_twap_col], cost_bps, side="buy")
-        sell_px = apply_twap_bps(picks[sell_next_col], cost_bps, side="sell")
-        returns = (sell_px - buy_px) / buy_px
+        buy_px = apply_twap_bps(picks[buy_twap_col], buy_cost_bps, side="buy")
+        sell_px = apply_twap_bps(picks[sell_next_col], sell_cost_bps, side="sell")
+        buy_leg_ret, sell_leg_ret, returns = split_cycle_return_by_bridge(
+            buy_px,
+            sell_px,
+            pd.to_numeric(picks["bridge_prev_close"], errors="coerce"),
+        )
         weight = min(1.0 / len(picks), max_weight)
         day_return = float((returns * weight).sum())
+        day_buy_leg_ret = float((buy_leg_ret * weight).sum())
+        day_sell_leg_ret = float((sell_leg_ret * weight).sum())
         total_weight = float(weight * len(picks))
 
         daily_records.append(
@@ -337,11 +383,19 @@ def run_backtest(
                 "count": int(len(picks)),
                 "avg_return": float(returns.mean()),
                 "day_return": day_return,
-                "benchmark_return": benchmark_return,
+                "full_cycle_ret_net": day_return,
+                "buy_leg_ret_net": day_buy_leg_ret,
+                "sell_leg_ret_net": day_sell_leg_ret,
+                "benchmark_return": float(benchmark_breakdown.full_cycle_ret_net),
+                "benchmark_full_cycle_ret_net": float(benchmark_breakdown.full_cycle_ret_net),
+                "benchmark_buy_leg_ret_net": float(benchmark_breakdown.buy_leg_ret_net),
+                "benchmark_sell_leg_ret_net": float(benchmark_breakdown.sell_leg_ret_net),
                 "total_weight": total_weight,
                 "live_count": live_count,
                 "live_avg_return": live_avg_return,
                 "live_day_return": live_day_return,
+                "live_buy_leg_ret_net": live_day_buy_leg_ret,
+                "live_sell_leg_ret_net": live_day_sell_leg_ret,
                 "live_total_weight": live_total_weight,
             }
         )
@@ -354,6 +408,10 @@ def run_backtest(
                     "weight": weight,
                     "buy_price": float(buy_px.loc[idx]),
                     "sell_price": float(sell_px.loc[idx]),
+                    "bridge_prev_close": float(row["bridge_prev_close"]),
+                    "buy_leg_ret_net": float(buy_leg_ret.loc[idx]),
+                    "sell_leg_ret_net": float(sell_leg_ret.loc[idx]),
+                    "full_cycle_ret_net": float(returns.loc[idx]),
                     "return": float(returns.loc[idx]),
                 }
             )

@@ -9,9 +9,12 @@ import pandas as pd
 
 from cbond_on.core.config import load_config_file
 from cbond_on.core.trading_days import list_available_trading_days_from_raw
-from cbond_on.infra.backtest.execution import apply_twap_bps
+from cbond_on.infra.backtest.execution import (
+    apply_twap_bps,
+    split_cycle_return_by_bridge,
+)
 from cbond_on.infra.data.io import read_table_range
-from cbond_on.infra.io.market_twap import read_twap_daily
+from cbond_on.infra.io.market_twap import read_price_daily, read_twap_daily
 
 
 @dataclass(frozen=True)
@@ -22,6 +25,14 @@ class BenchmarkPoolConfig:
     positive_field: str
     positive_fallback_field: str
     positive_threshold: float
+
+
+@dataclass(frozen=True)
+class BenchmarkReturnBreakdown:
+    full_cycle_ret_net: float
+    buy_leg_ret_net: float
+    sell_leg_ret_net: float
+    count: int
 
 
 def load_benchmark_pool_config(cfg: dict | None = None) -> BenchmarkPoolConfig:
@@ -95,6 +106,26 @@ def compute_benchmark_return_for_day(
     sell_bps: float,
     pool_cfg: BenchmarkPoolConfig | None = None,
 ) -> float:
+    breakdown = compute_benchmark_breakdown_for_day(
+        raw_data_root=raw_data_root,
+        trade_day=trade_day,
+        next_day=next_day,
+        buy_bps=buy_bps,
+        sell_bps=sell_bps,
+        pool_cfg=pool_cfg,
+    )
+    return float(breakdown.full_cycle_ret_net)
+
+
+def compute_benchmark_breakdown_for_day(
+    *,
+    raw_data_root: str | Path,
+    trade_day: date,
+    next_day: date,
+    buy_bps: float,
+    sell_bps: float,
+    pool_cfg: BenchmarkPoolConfig | None = None,
+) -> BenchmarkReturnBreakdown:
     cfg = pool_cfg or load_benchmark_pool_config()
     pool_codes = _load_benchmark_pool_day_codes(
         raw_data_root=raw_data_root,
@@ -104,34 +135,47 @@ def compute_benchmark_return_for_day(
 
     buy_df = read_twap_daily(str(raw_data_root), trade_day)
     sell_df = read_twap_daily(str(raw_data_root), next_day)
+    bridge_df = read_price_daily(str(raw_data_root), next_day)
     if buy_df.empty:
         raise RuntimeError(f"benchmark twap missing buy day: {trade_day:%Y-%m-%d}")
     if sell_df.empty:
         raise RuntimeError(f"benchmark twap missing sell day: {next_day:%Y-%m-%d}")
+    if bridge_df.empty:
+        raise RuntimeError(f"benchmark daily_price missing next day: {next_day:%Y-%m-%d}")
     if cfg.buy_twap_col not in buy_df.columns:
         raise RuntimeError(f"benchmark twap missing buy column: {cfg.buy_twap_col}")
     if cfg.sell_twap_col not in sell_df.columns:
         raise RuntimeError(f"benchmark twap missing sell column: {cfg.sell_twap_col}")
+    bridge_col = "prev_close_price"
+    if bridge_col not in bridge_df.columns:
+        raise RuntimeError(f"benchmark daily_price missing bridge column: {bridge_col}")
 
     buy = buy_df.copy()
     sell = sell_df.copy()
+    bridge = bridge_df.copy()
     if "code" not in buy.columns:
         raise RuntimeError("benchmark buy twap missing code column")
     if "code" not in sell.columns:
         raise RuntimeError("benchmark sell twap missing code column")
+    if "code" not in bridge.columns:
+        raise RuntimeError("benchmark daily_price missing code column")
     buy["code"] = _normalize_code_series(buy["code"])
     sell["code"] = _normalize_code_series(sell["code"])
+    bridge["code"] = _normalize_code_series(bridge["code"])
 
     pool_df = pd.DataFrame({"code": pool_codes.values})
     merged = (
         pool_df.merge(buy[["code", cfg.buy_twap_col]], on="code", how="inner")
         .merge(sell[["code", cfg.sell_twap_col]], on="code", how="inner")
+        .merge(bridge[["code", bridge_col]], on="code", how="inner")
     )
     merged = merged[
         merged[cfg.buy_twap_col].notna()
         & merged[cfg.sell_twap_col].notna()
+        & merged[bridge_col].notna()
         & (merged[cfg.buy_twap_col] > 0)
         & (merged[cfg.sell_twap_col] > 0)
+        & (merged[bridge_col] > 0)
     ]
     if merged.empty:
         raise RuntimeError(
@@ -140,14 +184,25 @@ def compute_benchmark_return_for_day(
         )
     buy_px = apply_twap_bps(merged[cfg.buy_twap_col], float(buy_bps), side="buy")
     sell_px = apply_twap_bps(merged[cfg.sell_twap_col], float(sell_bps), side="sell")
-    ret = (sell_px - buy_px) / buy_px
-    out = float(pd.to_numeric(ret, errors="coerce").mean())
-    if pd.isna(out):
+    buy_leg, sell_leg, full_cycle = split_cycle_return_by_bridge(
+        buy_px,
+        sell_px,
+        pd.to_numeric(merged[bridge_col], errors="coerce"),
+    )
+    full_out = float(pd.to_numeric(full_cycle, errors="coerce").mean())
+    if pd.isna(full_out):
         raise RuntimeError(
             "benchmark return is NaN after computation: "
             f"trade_day={trade_day:%Y-%m-%d} next_day={next_day:%Y-%m-%d}"
         )
-    return out
+    buy_out = float(pd.to_numeric(buy_leg, errors="coerce").mean())
+    sell_out = float(pd.to_numeric(sell_leg, errors="coerce").mean())
+    return BenchmarkReturnBreakdown(
+        full_cycle_ret_net=full_out,
+        buy_leg_ret_net=buy_out,
+        sell_leg_ret_net=sell_out,
+        count=int(len(merged)),
+    )
 
 
 def _build_next_day_map(

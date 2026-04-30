@@ -21,3 +21,13 @@ def read_twap_daily(raw_root: str, day: date) -> pd.DataFrame:
         df["code"] = df["instrument_code"].astype(str) + "." + df["exchange_code"].astype(str)
     return df
 
+
+def read_price_daily(raw_root: str, day: date) -> pd.DataFrame:
+    df = read_table_range(raw_root, "market_cbond.daily_price", day, day)
+    if df.empty:
+        return df
+    if "code" not in df.columns and "instrument_code" in df.columns and "exchange_code" in df.columns:
+        df = df.copy()
+        df["code"] = df["instrument_code"].astype(str) + "." + df["exchange_code"].astype(str)
+    return df
+
