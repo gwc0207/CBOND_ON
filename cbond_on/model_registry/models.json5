@@ -1,0 +1,17 @@
+{
+  // Lightweight registry scaffold. Versioned model artifacts remain in the
+  // existing results/model directories until a dedicated registry writer lands.
+  models: [
+    {
+      model_name: "lgbm_factor_MSE_live",
+      alias: "production",
+      version: "current",
+      artifact_path: "",
+      status: "tracked_by_existing_live_config",
+      train_run_id: null,
+      feature_contract_hash: null,
+      config_hash: null,
+    },
+  ]
+}
+

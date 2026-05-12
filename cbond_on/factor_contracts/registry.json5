@@ -1,0 +1,26 @@
+{
+  // First production registry cut. The current implementation source of truth
+  // remains cbond_on/config/live/live_factors_config.json5 during phase 1.
+  factors: [
+    { name: "order_flow_imbalance_v1", implementation: "order_flow_imbalance_v1", family: "order_flow", uses_ohlc_rebuild: false, live_enabled: true, model_enabled: true },
+    { name: "depth_weighted_imbalance_v1", implementation: "depth_weighted_imbalance_v1", family: "order_book", uses_ohlc_rebuild: false, live_enabled: true, model_enabled: true },
+    { name: "intraday_momentum_v1", implementation: "intraday_momentum_v1", family: "momentum", uses_ohlc_rebuild: false, live_enabled: true, model_enabled: true },
+    { name: "volatility_scaled_return_v1", implementation: "volatility_scaled_return_v1", family: "return_risk", uses_ohlc_rebuild: true, live_enabled: true, model_enabled: true },
+    { name: "volume_price_trend_v1", implementation: "volume_price_trend_v1", family: "volume_price", uses_ohlc_rebuild: true, live_enabled: true, model_enabled: true },
+    { name: "trade_intensity_v1", implementation: "trade_intensity_v1", family: "liquidity", uses_ohlc_rebuild: true, live_enabled: true, model_enabled: true },
+    { name: "price_level_position_v1", implementation: "price_level_position_v1", family: "price_position", uses_ohlc_rebuild: false, live_enabled: true, model_enabled: true },
+    { name: "stock_bond_momentum_gap_v1", implementation: "stock_bond_momentum_gap_v1", family: "stock_bond", uses_ohlc_rebuild: true, live_enabled: true, model_enabled: true },
+    { name: "bid_ask_spread_v1", implementation: "bid_ask_spread_v1", family: "liquidity", uses_ohlc_rebuild: false, live_enabled: true, model_enabled: true },
+    { name: "premium_momentum_proxy_v1", implementation: "premium_momentum_proxy_v1", family: "premium", uses_ohlc_rebuild: true, live_enabled: true, model_enabled: true },
+    { name: "alpha001_signed_power_v1", implementation: "alpha001_signed_power_v1", family: "alpha", uses_ohlc_rebuild: true, live_enabled: true, model_enabled: true },
+    { name: "alpha002_corr_volume_return_v1", implementation: "alpha002_corr_volume_return_v1", family: "alpha", uses_ohlc_rebuild: true, live_enabled: true, model_enabled: true },
+    { name: "alpha003_corr_open_volume_v1", implementation: "alpha003_corr_open_volume_v1", family: "alpha", uses_ohlc_rebuild: true, live_enabled: true, model_enabled: true },
+    { name: "alpha004_ts_rank_low_v1", implementation: "alpha004_ts_rank_low_v1", family: "alpha", uses_ohlc_rebuild: true, live_enabled: true, model_enabled: true },
+    { name: "alpha005_vwap_gap_v1", implementation: "alpha005_vwap_gap_v1", family: "alpha", uses_ohlc_rebuild: true, live_enabled: true, model_enabled: true },
+    { name: "alpha006_corr_open_volume_neg_v1", implementation: "alpha006_corr_open_volume_neg_v1", family: "alpha", uses_ohlc_rebuild: true, live_enabled: true, model_enabled: true },
+    { name: "alpha008_open_return_momentum_v1", implementation: "alpha008_open_return_momentum_v1", family: "alpha", uses_ohlc_rebuild: true, live_enabled: true, model_enabled: true },
+    { name: "alpha009_close_change_filter_v1", implementation: "alpha009_close_change_filter_v1", family: "alpha", uses_ohlc_rebuild: false, live_enabled: true, model_enabled: true },
+    { name: "alpha010_close_change_rank_v1", implementation: "alpha010_close_change_rank_v1", family: "alpha", uses_ohlc_rebuild: false, live_enabled: true, model_enabled: true },
+  ]
+}
+

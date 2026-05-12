@@ -1,19 +1,6 @@
 from __future__ import annotations
 
-import argparse
-
-from cbond_on.app.pipelines.live_pipeline import execute as run_live_pipeline
-
-
-def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(description="CBOND_ON live pipeline")
-    parser.add_argument("--start", help="start date (YYYY-MM-DD)")
-    parser.add_argument("--target", help="target date (YYYY-MM-DD)")
-    parser.add_argument("--mode", default="default", help="run mode")
-    args = parser.parse_args(argv)
-
-    out_dir = run_live_pipeline(start=args.start, target=args.target, mode=args.mode)
-    print(f"saved: {out_dir}")
+from cbond_on.cli.live import main
 
 
 if __name__ == "__main__":

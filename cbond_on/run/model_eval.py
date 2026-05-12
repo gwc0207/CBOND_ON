@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import argparse
 import sys
 from pathlib import Path
 
@@ -8,21 +7,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from cbond_on.interfaces.cli.model_eval import main
+from cbond_on.cli.model_eval import cli_main
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Run model evaluation and hyperparameter tuning")
-    parser.add_argument("--config", default="score/model_eval")
-    parser.add_argument("--model-id")
-    parser.add_argument("--start")
-    parser.add_argument("--end")
-    parser.add_argument("--label-cutoff")
-    args = parser.parse_args()
-    main(
-        config_name=args.config,
-        model_id=args.model_id,
-        start=args.start,
-        end=args.end,
-        label_cutoff=args.label_cutoff,
-    )
+    cli_main()

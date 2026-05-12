@@ -1,0 +1,25 @@
+{
+  registry: "../registry.json5",
+  factors: [
+    "order_flow_imbalance_v1",
+    "depth_weighted_imbalance_v1",
+    "intraday_momentum_v1",
+    "volatility_scaled_return_v1",
+    "volume_price_trend_v1",
+    "trade_intensity_v1",
+    "price_level_position_v1",
+    "stock_bond_momentum_gap_v1",
+    "bid_ask_spread_v1",
+    "premium_momentum_proxy_v1",
+    "alpha001_signed_power_v1",
+    "alpha002_corr_volume_return_v1",
+    "alpha003_corr_open_volume_v1",
+    "alpha004_ts_rank_low_v1",
+    "alpha005_vwap_gap_v1",
+    "alpha006_corr_open_volume_neg_v1",
+    "alpha008_open_return_momentum_v1",
+    "alpha009_close_change_filter_v1",
+    "alpha010_close_change_rank_v1",
+  ]
+}
+
