@@ -39,6 +39,18 @@ except Exception:  # pragma: no cover
 WIN_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 _PROCESS_CACHE: dict = {"items": []}
 _PROCESS_CACHE_LOCK = threading.Lock()
+HEARTBEAT_STALE_SECONDS = 120
+LIVE_STATUS_API_VERSION = 1
+TIMELINE_STEPS: tuple[tuple[str, str], ...] = (
+    ("trade_day", "Trade Day"),
+    ("ready_gate", "Ready Gate"),
+    ("build_panel", "Build Panel"),
+    ("compute_factors", "Compute Factors"),
+    ("model_score", "Model Score"),
+    ("strategy_select", "Strategy Select"),
+    ("trade_list", "Trade List"),
+    ("db_write", "DB Write"),
+)
 
 
 def _process_cache_loop() -> None:
@@ -573,6 +585,34 @@ def _append_dashboard_log(action: str, message: str) -> None:
         return
 
 
+def _audit_dashboard_action(
+    action: str,
+    *,
+    status_before: str | None = None,
+    result: str = "unknown",
+    message: str = "",
+    extra: dict | None = None,
+) -> None:
+    now = datetime.now()
+    record = {
+        "time": now.isoformat(timespec="seconds"),
+        "action": action,
+        "source_ip": request.remote_addr if request else "",
+        "user_agent": request.headers.get("User-Agent", "") if request else "",
+        "status_before": status_before or "",
+        "result": result,
+        "message": message,
+        "extra": extra or {},
+    }
+    try:
+        audit_path = _results_live_root() / "scheduler" / "audit.jsonl"
+        audit_path.parent.mkdir(parents=True, exist_ok=True)
+        with audit_path.open("a", encoding="utf-8") as fp:
+            fp.write(json.dumps(record, ensure_ascii=False) + "\n")
+    except Exception:
+        return
+
+
 def _live_cfg_path() -> Path:
     return PROJECT_ROOT / "cbond_on" / "config" / "live" / "live_config.json5"
 
@@ -600,7 +640,34 @@ def _config_meta(cfg: dict) -> dict:
             types[key] = "array"
         else:
             types[key] = "str"
-    return {"read_only": [], "types": types}
+    write_enabled = os.getenv("CBOND_ON_DASHBOARD_ALLOW_CONFIG_WRITE", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    return {
+        "read_only": [] if write_enabled else sorted(cfg.keys()),
+        "types": types,
+        "write_enabled": write_enabled,
+        "mode": "editable" if write_enabled else "read_only",
+    }
+
+
+def _is_secret_key(key: str) -> bool:
+    low = key.lower()
+    return any(token in low for token in ("password", "passwd", "secret", "token", "credential"))
+
+
+def _mask_config_secrets(value):
+    if isinstance(value, dict):
+        out = {}
+        for key, val in value.items():
+            out[key] = "********" if _is_secret_key(str(key)) else _mask_config_secrets(val)
+        return out
+    if isinstance(value, list):
+        return [_mask_config_secrets(item) for item in value]
+    return value
 
 
 def _set_by_path(target: dict, dotted_key: str, value) -> None:
@@ -643,11 +710,593 @@ def _heartbeat_info(state: dict) -> dict:
         try:
             hb_dt = datetime.fromisoformat(hb_text)
             hb_age = max(0, int((datetime.now() - hb_dt).total_seconds()))
-            hb_stale = hb_age > 120
+            hb_stale = hb_age > HEARTBEAT_STALE_SECONDS
         except Exception:
             hb_age = None
             hb_stale = True
     return {"at": hb_text, "age_seconds": hb_age, "stale": hb_stale}
+
+
+def _status_item(
+    *,
+    state: str,
+    status: str,
+    health: str,
+    label: str,
+    reason: str,
+    updated_at: str | None = None,
+    **extra,
+) -> dict:
+    out = {
+        "state": state,
+        "status": status,
+        "health": health,
+        "label": label,
+        "reason": reason,
+    }
+    if updated_at:
+        out["updated_at"] = updated_at
+    out.update(extra)
+    return out
+
+
+def _unknown_item(label: str, reason: str = "not_available", **extra) -> dict:
+    return _status_item(
+        state="unknown",
+        status="unknown",
+        health="unknown",
+        label=label,
+        reason=reason,
+        **extra,
+    )
+
+
+def _live_profile_summary(live_cfg: dict) -> dict:
+    data_cfg = dict(live_cfg.get("data", {}))
+    source_cfg = dict(live_cfg.get("source", {}))
+    intraday_cfg = dict(source_cfg.get("intraday", {}))
+    hub_cfg = dict(live_cfg.get("data_hub", {}))
+    model_cfg = dict(live_cfg.get("model_score", {}))
+    strategy_cfg = dict(live_cfg.get("strategy", {}))
+    output_cfg = dict(live_cfg.get("output", {}))
+    data_mode = str(intraday_cfg.get("type") or data_cfg.get("snapshot_source") or "unknown")
+    if bool(data_cfg.get("redis_incremental", intraday_cfg.get("incremental", False))):
+        data_mode = f"{data_mode} incremental"
+    elif bool(data_cfg.get("redis_full_day", intraday_cfg.get("full_day", False))):
+        data_mode = f"{data_mode} full-day"
+    return {
+        "profile": "live/live_config.json5",
+        "model_ref": str(model_cfg.get("model_id") or model_cfg.get("config") or "unknown"),
+        "strategy": str(strategy_cfg.get("strategy_id") or "unknown"),
+        "factor_profile": str(dict(live_cfg.get("factor", {})).get("config", "unknown")),
+        "data_mode": data_mode,
+        "ready_gate": "enabled" if bool(hub_cfg.get("ready_gate_enabled", False)) else "disabled",
+        "db_write": "enabled" if bool(output_cfg.get("db_write", False)) else "disabled by config",
+    }
+
+
+def _factor_card_for_state(raw_status: str, live_cfg: dict) -> dict:
+    total = 0
+    reason = "factor profile not available"
+    try:
+        factor_key = str(dict(live_cfg.get("factor", {})).get("config", "live/live_factors")).strip()
+        factor_cfg = load_config_file(factor_key)
+        total = len(factor_cfg.get("factors", []) or [])
+        reason = f"loaded factor profile {factor_key}"
+    except Exception as exc:
+        return _unknown_item("Unknown", f"factor_profile_error: {exc}", total=0, ready=None, missing=None)
+
+    if raw_status in {"success", "idle_after_run"}:
+        return _status_item(
+            state="factor_compute_completed",
+            status="success",
+            health="ok",
+            label=f"{total} expected",
+            reason=reason,
+            total=total,
+            ready=None,
+            missing=None,
+        )
+    if raw_status == "running_live":
+        return _status_item(
+            state="factor_compute_pending",
+            status="running",
+            health="ok",
+            label=f"{total} expected",
+            reason="live pipeline running; no separate factor step marker yet",
+            total=total,
+            ready=None,
+            missing=None,
+        )
+    return _status_item(
+        state="factor_profile_loaded",
+        status="unknown",
+        health="unknown",
+        label=f"{total} expected",
+        reason=reason,
+        total=total,
+        ready=None,
+        missing=None,
+    )
+
+
+def _db_write_card_for_state(raw_status: str, live_cfg: dict) -> dict:
+    output_cfg = dict(live_cfg.get("output", {}))
+    enabled = bool(output_cfg.get("db_write", False))
+    if not enabled:
+        return _status_item(
+            state="db_write_disabled_by_config",
+            status="disabled",
+            health="ok",
+            label="Disabled by config",
+            reason="output.db_write is false",
+            enabled=False,
+        )
+    if raw_status in {"success", "idle_after_run"}:
+        return _status_item(
+            state="db_write_completed",
+            status="success",
+            health="ok",
+            label="Run succeeded",
+            reason="live run completed with db_write enabled",
+            enabled=True,
+        )
+    return _status_item(
+        state="db_write_enabled_by_config",
+        status="unknown",
+        health="unknown",
+        label="Enabled by config",
+        reason="no separate DB write marker yet",
+        enabled=True,
+    )
+
+
+def _trade_list_card_for_state(raw_status: str, target_day: str) -> dict:
+    count = 0
+    if target_day:
+        try:
+            count = len(_read_holdings(day=target_day))
+        except Exception:
+            count = 0
+    if raw_status in {"success", "idle_after_run"}:
+        if count > 0:
+            return _status_item(
+                state="trade_list_generated",
+                status="success",
+                health="ok",
+                label=f"{count} rows",
+                reason=f"latest trade list found for {target_day}",
+                count=count,
+            )
+        return _status_item(
+            state="trade_list_unknown",
+            status="unknown",
+            health="unknown",
+            label="No file marker",
+            reason="live run succeeded but no trade_list.csv was found",
+            count=0,
+        )
+    return _status_item(
+        state="trade_list_not_generated",
+        status="not_started",
+        health="unknown",
+        label="Not Generated",
+        reason="waiting for strategy output",
+        count=0,
+    )
+
+
+def _model_card_for_state(raw_status: str, live_cfg: dict) -> dict:
+    model_cfg = dict(live_cfg.get("model_score", {}))
+    model_ref = str(model_cfg.get("model_id") or model_cfg.get("config") or "production")
+    if raw_status in {"success", "idle_after_run"}:
+        return _status_item(
+            state="model_score_completed",
+            status="success",
+            health="ok",
+            label="Completed",
+            reason="live run completed",
+            ref=model_ref,
+        )
+    if raw_status == "running_live":
+        return _status_item(
+            state="model_score_pending",
+            status="running",
+            health="ok",
+            label="Running",
+            reason="live pipeline running; no separate model step marker yet",
+            ref=model_ref,
+        )
+    if raw_status == "failed":
+        return _status_item(
+            state="model_score_unknown_after_failure",
+            status="unknown",
+            health="unknown",
+            label="Unknown",
+            reason="live run failed; inspect logs",
+            ref=model_ref,
+        )
+    return _status_item(
+        state="model_score_not_started",
+        status="not_started",
+        health="unknown",
+        label="Not Run",
+        reason="waiting for factors",
+        ref=model_ref,
+    )
+
+
+def _data_ready_card_for_state(raw_status: str, hb_stale: bool) -> dict:
+    if hb_stale:
+        return _status_item(
+            state="heartbeat_stale",
+            status="stale",
+            health="error",
+            label="Stale",
+            reason="scheduler heartbeat is stale",
+        )
+    if raw_status == "waiting_cutoff":
+        return _status_item(
+            state="waiting_cutoff",
+            status="waiting",
+            health="ok",
+            label="Waiting",
+            reason="cutoff time not reached",
+        )
+    if raw_status in {"running_live", "success", "idle_after_run"}:
+        return _status_item(
+            state="ready_gate_passed",
+            status="success",
+            health="ok",
+            label="Ready",
+            reason="ready gate has passed for current live cycle",
+        )
+    if raw_status == "failed":
+        return _status_item(
+            state="live_run_failed",
+            status="failed",
+            health="error",
+            label="Failed",
+            reason="live run failed; inspect logs",
+        )
+    return _unknown_item("Unknown", "no scheduler state")
+
+
+def _scheduler_item(pid: int | None, process_alive: bool, state: dict, hb: dict) -> dict:
+    raw_status = str(state.get("status", "") or "unknown")
+    last_heartbeat = hb.get("at")
+    if not process_alive:
+        return _status_item(
+            state="process_missing",
+            status="failed",
+            health="error",
+            label="Stopped",
+            reason="scheduler process is not running",
+            pid=None,
+            raw_state=raw_status,
+            last_heartbeat=last_heartbeat,
+        )
+    if not last_heartbeat:
+        return _status_item(
+            state="heartbeat_missing",
+            status="running",
+            health="warning",
+            label="Running",
+            reason="process exists but heartbeat has not been written",
+            pid=pid,
+            raw_state=raw_status,
+            last_heartbeat=None,
+        )
+    if bool(hb.get("stale")):
+        return _status_item(
+            state="heartbeat_stale",
+            status="stale",
+            health="error",
+            label="Stale",
+            reason=f"last heartbeat was {hb.get('age_seconds')} seconds ago",
+            pid=pid,
+            raw_state=raw_status,
+            last_heartbeat=last_heartbeat,
+        )
+    return _status_item(
+        state=raw_status,
+        status="running",
+        health="ok",
+        label="Running",
+        reason="process exists and heartbeat is fresh",
+        pid=pid,
+        raw_state=raw_status,
+        last_heartbeat=last_heartbeat,
+    )
+
+
+def _build_timeline(raw_status: str, db_card: dict) -> list[dict]:
+    items = {
+        key: _status_item(
+            state=f"{key}_not_started",
+            status="not_started",
+            health="unknown",
+            label=label,
+            reason="waiting for previous step",
+        )
+        for key, label in TIMELINE_STEPS
+    }
+    items["trade_day"] = _status_item(
+        state="trade_day_detected",
+        status="success",
+        health="ok",
+        label="Trade Day",
+        reason="scheduler has resolved current trade day",
+    )
+
+    if raw_status == "waiting_cutoff":
+        items["ready_gate"] = _status_item(
+            state="waiting_cutoff",
+            status="waiting",
+            health="ok",
+            label="Ready Gate",
+            reason="cutoff time not reached",
+        )
+    elif raw_status == "running_live":
+        items["ready_gate"] = _status_item(
+            state="ready_gate_passed",
+            status="success",
+            health="ok",
+            label="Ready Gate",
+            reason="cutoff passed and live run started",
+        )
+        items["build_panel"] = _status_item(
+            state="live_pipeline_running",
+            status="running",
+            health="ok",
+            label="Build Panel",
+            reason="live pipeline running; detailed step marker not available yet",
+        )
+    elif raw_status in {"success", "idle_after_run"}:
+        for key in ("ready_gate", "build_panel", "compute_factors", "model_score", "strategy_select", "trade_list"):
+            items[key] = _status_item(
+                state=f"{key}_completed",
+                status="success",
+                health="ok",
+                label=dict(TIMELINE_STEPS)[key],
+                reason="live run completed",
+            )
+        items["db_write"] = _status_item(
+            state=db_card.get("state", "db_write_unknown"),
+            status=db_card.get("status", "unknown"),
+            health=db_card.get("health", "unknown"),
+            label="DB Write",
+            reason=db_card.get("reason", ""),
+        )
+    elif raw_status == "failed":
+        items["ready_gate"] = _status_item(
+            state="ready_gate_passed",
+            status="success",
+            health="ok",
+            label="Ready Gate",
+            reason="live run started",
+        )
+        items["build_panel"] = _status_item(
+            state="live_run_failed",
+            status="failed",
+            health="error",
+            label="Build Panel",
+            reason="live run failed; inspect logs for exact failing step",
+        )
+
+    if db_card.get("status") == "disabled":
+        items["db_write"] = _status_item(
+            state=db_card.get("state", "db_write_disabled_by_config"),
+            status="disabled",
+            health="ok",
+            label="DB Write",
+            reason=db_card.get("reason", "disabled by config"),
+        )
+    return [items[key] | {"key": key, "label": label} for key, label in TIMELINE_STEPS]
+
+
+def _summarize_logs(lines: list[str]) -> dict:
+    errors: list[dict] = []
+    warnings: list[dict] = []
+    events: list[dict] = []
+    heartbeat_count = 0
+    last_heartbeat = ""
+    for line in lines[-200:]:
+        low = line.lower()
+        if "[heartbeat]" in low:
+            heartbeat_count += 1
+            last_heartbeat = line
+            continue
+        event = {
+            "message": line,
+            "level": "info",
+        }
+        if "error" in low or "failed" in low or "traceback" in low:
+            event["level"] = "error"
+            errors.append(event)
+        elif "warning" in low or "warn" in low:
+            event["level"] = "warning"
+            warnings.append(event)
+        if "[run]" in low or "[dashboard]" in low or event["level"] != "info":
+            events.append(event)
+    return {
+        "errors": len(errors),
+        "warnings": len(warnings),
+        "items": (errors + warnings)[-10:],
+        "recent_events": events[-12:],
+        "heartbeat": {
+            "count": heartbeat_count,
+            "last": last_heartbeat,
+            "summary": f"heartbeat repeated {heartbeat_count} times" if heartbeat_count else "",
+        },
+    }
+
+
+def _build_live_status_payload(state_path: Path, pid_path: Path) -> dict:
+    now = datetime.now()
+    live_cfg = _load_live_cfg()
+    state = _read_json(state_path)
+    pid_info = _read_json(pid_path)
+    raw_status = str(state.get("status", "") or "unknown")
+    pid = int(pid_info.get("pid", 0) or 0)
+    process_alive = _is_pid_alive(pid)
+    if not process_alive:
+        processes = _list_daemon_processes()
+        if processes:
+            pid = int(processes[0].get("pid", 0) or 0)
+            process_alive = pid > 0
+    hb = _heartbeat_info(state)
+    scheduler = _scheduler_item(pid if process_alive else None, process_alive, state, hb)
+    hb_stale = bool(scheduler.get("state") == "heartbeat_stale")
+    today = _normalize_day_tag(state.get("today")) or _today_day_tag()
+    target = _normalize_day_tag(state.get("target")) or today
+    factor_card = _factor_card_for_state(raw_status, live_cfg)
+    model_card = _model_card_for_state(raw_status, live_cfg)
+    trade_list_card = _trade_list_card_for_state(raw_status, target)
+    db_write_card = _db_write_card_for_state(raw_status, live_cfg)
+    data_ready_card = _data_ready_card_for_state(raw_status, hb_stale)
+    if hb_stale:
+        live = _status_item(
+            state="heartbeat_stale",
+            status="stale",
+            health="error",
+            label="Heartbeat Stale",
+            reason=scheduler.get("reason", "scheduler heartbeat is stale"),
+        )
+        current_step = "ready_gate"
+    elif raw_status == "waiting_cutoff":
+        live = _status_item(
+            state="waiting_cutoff",
+            status="waiting",
+            health="ok",
+            label="Waiting Cutoff",
+            reason="cutoff time not reached",
+            updated_at=hb.get("at"),
+        )
+        current_step = "ready_gate"
+    elif raw_status == "running_live":
+        live = _status_item(
+            state="running_live",
+            status="running",
+            health="ok",
+            label="Live Running",
+            reason="live pipeline is running",
+            updated_at=state.get("run_started_at") or hb.get("at"),
+        )
+        current_step = "build_panel"
+    elif raw_status in {"success", "idle_after_run"}:
+        live = _status_item(
+            state=raw_status,
+            status="success",
+            health="ok",
+            label="Live Completed" if raw_status == "success" else "Idle After Run",
+            reason="latest live cycle completed" if raw_status == "success" else "target already ran",
+            updated_at=state.get("run_finished_at") or hb.get("at"),
+        )
+        current_step = "db_write" if db_write_card.get("status") != "disabled" else "trade_list"
+    elif raw_status == "failed":
+        live = _status_item(
+            state="live_run_failed",
+            status="failed",
+            health="error",
+            label="Live Failed",
+            reason="live run failed; inspect logs",
+            updated_at=state.get("run_finished_at") or hb.get("at"),
+        )
+        current_step = "build_panel"
+    else:
+        live = _unknown_item("Unknown", "no scheduler state")
+        current_step = "trade_day"
+
+    freshness = _status_item(
+        state="heartbeat_fresh" if hb.get("at") and not bool(hb.get("stale")) else "heartbeat_stale",
+        status="fresh" if hb.get("at") and not bool(hb.get("stale")) else "stale",
+        health="ok" if hb.get("at") and not bool(hb.get("stale")) else "error",
+        label="Fresh" if hb.get("at") and not bool(hb.get("stale")) else "Stale",
+        reason="heartbeat is fresh" if hb.get("at") and not bool(hb.get("stale")) else "heartbeat missing or stale",
+        heartbeat_age_sec=hb.get("age_seconds"),
+        last_heartbeat=hb.get("at"),
+    )
+
+    _, log_lines = _read_latest_log(day=today)
+    alerts = _summarize_logs(log_lines)
+    if live.get("health") == "error" and alerts["errors"] == 0:
+        alerts["errors"] = 1
+        alerts["items"].append({"level": "error", "message": str(live.get("reason", ""))})
+
+    actions = {
+        "start_open": {
+            "enabled": bool(not process_alive or raw_status not in {"waiting_cutoff", "running_live"}),
+            "reason": "available"
+            if not process_alive
+            else (
+                "waiting for cutoff"
+                if raw_status == "waiting_cutoff"
+                else "scheduler running; action will restart the open cycle"
+            ),
+            "level": "primary",
+        },
+        "sync_holdings": {
+            "enabled": True,
+            "reason": "manual sync available",
+            "level": "primary",
+        },
+        "restart_scheduler": {
+            "enabled": True,
+            "reason": "manual restart available",
+            "confirm": True,
+            "level": "maintenance",
+        },
+        "shutdown_ui": {
+            "enabled": True,
+            "reason": "stops only the dashboard UI server",
+            "confirm": True,
+            "level": "maintenance",
+        },
+        "emergency_stop": {
+            "enabled": True,
+            "reason": "sets STOP flag and kills scheduler process",
+            "confirm": True,
+            "level": "danger",
+        },
+        "save_config": {
+            "enabled": bool(_config_meta(live_cfg).get("write_enabled", False)),
+            "reason": "disabled in production; set CBOND_ON_DASHBOARD_ALLOW_CONFIG_WRITE=1 to enable",
+            "confirm": True,
+            "level": "maintenance",
+        },
+    }
+
+    return {
+        "api_version": LIVE_STATUS_API_VERSION,
+        "asof": now.isoformat(timespec="seconds"),
+        "env": os.getenv("CBOND_ON_ENV", "production"),
+        "profile": "live/live_config.json5",
+        "trade_date": today,
+        "target_date": target,
+        "live": live,
+        "freshness": freshness,
+        "scheduler": scheduler,
+        "cards": {
+            "scheduler": scheduler,
+            "data_ready": data_ready_card,
+            "factors": factor_card,
+            "model": model_card,
+            "trade_list": trade_list_card,
+            "db_write": db_write_card,
+        },
+        "current_step": current_step,
+        "timeline": _build_timeline(raw_status, db_write_card),
+        "next_action": {
+            "type": "wait" if live.get("health") == "ok" else "check",
+            "label": "Waiting for cutoff" if raw_status == "waiting_cutoff" else ("Check scheduler" if live.get("health") == "error" else "Monitor"),
+            "reason": "no manual action required" if raw_status == "waiting_cutoff" else str(live.get("reason", "")),
+        },
+        "actions": actions,
+        "alerts": alerts,
+        "profile_summary": _live_profile_summary(live_cfg),
+        "raw_state": state,
+    }
 
 
 def _list_daemon_processes() -> list[dict]:
@@ -858,6 +1507,10 @@ def create_app() -> Flask:
             }
         )
 
+    @app.get("/api/live_status")
+    def api_live_status():
+        return jsonify(_build_live_status_payload(state_path, _PID_PATH))
+
     @app.get("/api/processes")
     def api_processes():
         with _PROCESS_CACHE_LOCK:
@@ -868,12 +1521,26 @@ def create_app() -> Flask:
     def api_config_get():
         cfg = _load_live_cfg()
         meta = _config_meta(cfg)
-        return jsonify({"config": cfg, "meta": meta})
+        return jsonify({"config": _mask_config_secrets(cfg), "meta": meta})
 
     @app.post("/api/config")
     def api_config_update():
         cfg = _load_live_cfg()
         meta = _config_meta(cfg)
+        if not bool(meta.get("write_enabled", False)):
+            _audit_dashboard_action(
+                "save_config",
+                status_before=str(_read_json(state_path).get("status", "")),
+                result="blocked",
+                message="config write disabled in production dashboard",
+            )
+            return jsonify(
+                {
+                    "ok": False,
+                    "error": "config write is disabled in production dashboard",
+                    "hint": "set CBOND_ON_DASHBOARD_ALLOW_CONFIG_WRITE=1 to enable local debug edits",
+                }
+            ), 403
         payload = request.get_json(force=True) or {}
         payload = _expand_dotted_payload(payload)
         updated = {}
@@ -907,6 +1574,12 @@ def create_app() -> Flask:
                 cfg[key] = val
                 updated[key] = val
         _save_live_cfg(cfg)
+        _audit_dashboard_action(
+            "save_config",
+            status_before=str(_read_json(state_path).get("status", "")),
+            result="success",
+            message=f"updated keys={sorted(updated.keys())}",
+        )
         return jsonify({"ok": True, "updated": updated})
 
     @app.post("/api/start")
@@ -917,6 +1590,12 @@ def create_app() -> Flask:
             _write_json(
                 _PID_PATH,
                 {"pid": pid, "started_at": datetime.now().isoformat(timespec="seconds")},
+            )
+            _audit_dashboard_action(
+                "start_scheduler",
+                status_before=str(_read_json(state_path).get("status", "")),
+                result="already_running",
+                message=f"pid={pid}",
             )
             return jsonify({"ok": True, "message": "already running", "pid": pid})
 
@@ -943,12 +1622,20 @@ def create_app() -> Flask:
             {"pid": proc.pid, "started_at": datetime.now().isoformat(timespec="seconds")},
         )
         _append_dashboard_log("start", f"scheduler pid={proc.pid}")
+        _audit_dashboard_action(
+            "start_scheduler",
+            status_before=str(_read_json(state_path).get("status", "")),
+            result="success",
+            message=f"pid={proc.pid}",
+        )
         return jsonify({"ok": True, "message": "started", "pid": proc.pid})
 
     @app.post("/api/stop")
     def api_stop():
+        before = str(_read_json(state_path).get("status", ""))
         killed = _stop_scheduler_processes()
         _append_dashboard_log("stop", f"killed={killed}")
+        _audit_dashboard_action("stop_scheduler", status_before=before, result="success", message=f"killed={killed}")
         return jsonify({"ok": True, "killed": killed})
 
     @app.post("/api/restart")
@@ -959,6 +1646,7 @@ def create_app() -> Flask:
 
     @app.post("/api/start_open")
     def api_start_open():
+        before = str(_read_json(state_path).get("status", ""))
         removed, failed = _clear_stop_flags_for_cycle()
         if removed:
             _append_dashboard_log("start_open", f"removed STOP flags: {removed}")
@@ -968,10 +1656,17 @@ def create_app() -> Flask:
         time.sleep(0.5)
         res = api_start()
         _append_dashboard_log("start_open", "scheduler started")
+        _audit_dashboard_action(
+            "start_open",
+            status_before=before,
+            result="success",
+            message=f"removed_stop_flags={removed}; failed={failed}",
+        )
         return res
 
     @app.post("/api/emergency_stop")
     def api_emergency_stop():
+        before = str(_read_json(state_path).get("status", ""))
         stop_flag = _stop_flag_path()
         stop_flag_error = ""
         try:
@@ -987,6 +1682,12 @@ def create_app() -> Flask:
             )
         else:
             _append_dashboard_log("emergency_stop", f"set STOP at {stop_flag} killed={killed}")
+        _audit_dashboard_action(
+            "emergency_stop",
+            status_before=before,
+            result="partial" if stop_flag_error else "success",
+            message=f"stop_flag={stop_flag}; killed={killed}; error={stop_flag_error}",
+        )
         out = {"ok": True, "stop_flag": str(stop_flag), "killed": killed}
         if stop_flag_error:
             out["stop_flag_error"] = stop_flag_error
@@ -994,6 +1695,7 @@ def create_app() -> Flask:
 
     @app.post("/api/restart_scheduler")
     def api_restart_scheduler():
+        before = str(_read_json(state_path).get("status", ""))
         removed, failed = _clear_stop_flags_for_cycle()
         if removed:
             _append_dashboard_log("restart_scheduler", f"removed STOP flags: {removed}")
@@ -1003,20 +1705,30 @@ def create_app() -> Flask:
         time.sleep(0.5)
         res = api_start()
         _append_dashboard_log("restart_scheduler", "scheduler restarted")
+        _audit_dashboard_action(
+            "restart_scheduler",
+            status_before=before,
+            result="success",
+            message=f"removed_stop_flags={removed}; failed={failed}",
+        )
         return res
 
     @app.post("/api/sync_holdings")
     def api_sync_holdings():
+        before = str(_read_json(state_path).get("status", ""))
         today = _today_day_tag()
         st = _read_json(state_path)
         resolved = _resolve_holdings_day_for_today(st, today)
         rows = _read_holdings(day=resolved) if resolved else []
         _append_dashboard_log("sync_holdings", f"rows={len(rows)}")
+        _audit_dashboard_action("sync_holdings", status_before=before, result="success", message=f"rows={len(rows)}")
         return jsonify({"ok": True, "count": len(rows)})
 
     @app.post("/api/shutdown")
     def api_shutdown():
+        before = str(_read_json(state_path).get("status", ""))
         _append_dashboard_log("shutdown", "ui shutdown requested")
+        _audit_dashboard_action("shutdown_ui", status_before=before, result="requested", message="ui shutdown requested")
         func = request.environ.get("werkzeug.server.shutdown")
         if func is None:
 
