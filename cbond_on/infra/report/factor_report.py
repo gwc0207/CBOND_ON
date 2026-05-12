@@ -93,8 +93,19 @@ def _mask_trading_times(index: pd.Series) -> pd.Series:
     return morning | afternoon
 
 
+def _has_intraday_clock(index: pd.Series) -> bool:
+    ts = pd.to_datetime(index, errors="coerce")
+    valid = ts.dropna()
+    if valid.empty:
+        return False
+    midnight = pd.Timestamp("00:00").time()
+    return bool((valid.dt.time != midnight).any())
+
+
 def _filter_trading_times(df: pd.DataFrame, col: str) -> pd.DataFrame:
     if df.empty or col not in df.columns:
+        return df
+    if not _has_intraday_clock(df[col]):
         return df
     return df[_mask_trading_times(df[col])]
 
