@@ -22,6 +22,12 @@ wandb/
 rust/factor_engine/wandb/
 *.log
 
+# Local generated reports and exported docs
+docs/*.docx
+docs/assets/
+docs/live_strategy_chain_report*.md
+docs/codex_project_memory.md
+
 # Local secrets / machine-specific configs
 .env
 .env.*
