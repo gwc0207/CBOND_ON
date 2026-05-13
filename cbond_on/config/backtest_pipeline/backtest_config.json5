@@ -1,9 +1,9 @@
 {
-  start: "2025-01-02",
-  end: "2026-03-17",
-  batch_id: "Backtest",
+  start: "2024-01-01",
+  end: "2026-05-11",
+  batch_id: "Backtest_linear_screened_20260511",
   score_source: {
-    model_id: "lgbm_factor_ranker"
+    model_id: "linear_screened_20260511"
   },
   strategy_id: "strategy01_topk_turnover",
   strategy_config_path: "strategies/strategy01/strategy01",

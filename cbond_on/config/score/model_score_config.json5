@@ -1,8 +1,8 @@
 {
-  default_model_id: "lob_st_default",
-  model_id: "lob_st_default",
-  start: "2025-06-01",
-  end: "2026-03-30",
+  default_model_id: "linear_screened_20260511",
+  model_id: "linear_screened_20260511",
+  start: "2024-01-01",
+  end: "2026-05-11",
   label_cutoff: null,
   execution: {
     // Refit cadence in trading-day steps (1 = refit every target day).
@@ -47,6 +47,10 @@
     linear_factor_default: {
       model_type: "linear",
       model_config: "models/linear/linear_factor_default"
+    },
+    linear_screened_20260511: {
+      model_type: "linear",
+      model_config: "models/linear/linear_screened_20260511"
     },
     lgbm_factor_MSE: {
       model_type: "lgbm",

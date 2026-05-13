@@ -274,6 +274,8 @@ def run(
     daily_df.to_csv(out_dir / "daily_returns.csv", index=False)
     nav_df.to_csv(out_dir / "nav_curve.csv", index=False)
     positions_df.to_csv(out_dir / "positions.csv", index=False)
+    if not ic_df.empty:
+        ic_df.to_csv(out_dir / "ic.csv", index=False)
     if not diag_df.empty:
         diag_df.to_csv(out_dir / "diagnostics.csv", index=False)
     write_backtest_report_image(
@@ -281,6 +283,10 @@ def run(
         daily_df=daily_df,
         nav_df=nav_df,
         ic_df=ic_df if not ic_df.empty else None,
+        positions_df=positions_df if not positions_df.empty else None,
+        diagnostics_df=diag_df if not diag_df.empty else None,
+        configured_start=start_day,
+        configured_end=end_day,
     )
 
     return BacktestRunResult(out_dir=out_dir, days=int(len(daily_df)))

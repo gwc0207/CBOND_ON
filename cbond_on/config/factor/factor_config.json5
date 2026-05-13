@@ -1,13 +1,16 @@
 ﻿{
   start: "2024-01-01",
-  end: "2026-05-08",
+  end: "2026-05-11",
   panel_name: "T1430",
   factor_time: "14:30",
   label_time: "14:42",
   refresh: false,
-  overwrite: false,
+  overwrite: true,
   workers: 1,
   factor_workers: 2,
+  // Use an empty disabled list for full-universe factor backtest.
+  // The default disabled file excludes alpha007_volume_breakout_v1.
+  disabled_factors_file: "factor/factor_disabled_factors_empty.json",
   compute: {
     engine: "rust", // rust | rust_shm_exp
     backend: "cpu", // default cpu; set torch/auto to use GPU path
@@ -17,8 +20,8 @@
     debug_log_each_record: false
   },
   factor_files: [
-    // Live production factor pack: 19 factors used by lgbm_factor_MSE_live.
-    "live/live_factors_config.json5"
+    // Full merged factor pack: 122 factor specs across base, daily, v1 and alpha factors.
+    "factor/factors_all_in_one.json5"
   ],
   backtest_enabled: true,
   factors: [],
