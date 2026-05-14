@@ -1,0 +1,7 @@
+{
+  "enabled": true,
+  "codes": [
+    "113575.SH"
+  ],
+  "note": "Global security-level banlist. Codes listed here are removed from live and backtest universes."
+}

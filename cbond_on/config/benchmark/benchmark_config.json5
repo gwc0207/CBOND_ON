@@ -1,16 +1,25 @@
 {
-  // Upstream daily tradable pool (already filtered upstream).
+  // Strict benchmark calibrated in CBOND_DATA_HUB benchmark_calibration_lab.ipynb.
+  method: "strict_official_prev_close",
+
+  // Upstream daily benchmark pool. For trade day T, use pool from T-1 open trading day.
   pool_table: "quant_factor_dev.researcher_xuvb.o_0005",
-  // For trade day T, use pool from T-1 open trading day.
   pool_lag_trading_days: 1,
   pool_asset: "cbond",
 
-  // Unified benchmark return window.
+  // Strict benchmark return windows.
+  use_window_data: true,
+  window_data_root: "\\\\nfs\\10.1.30.100\\data\\yinhe-data\\kline\\cbond\\window-data",
   buy_twap_col: "twap_1442_1457",
-  sell_twap_col: "twap_0930_0945",
+  sell_twap_col: "twap_0930_0939",
 
-  // Keep rows with positive membership signal.
+  // The calibrated benchmark does not apply extra local price/security filters.
+  min_price: null,
+  max_price: null,
+
+  // Keep rows with positive membership signal; default benchmark uses equal weights after valid buy/close filtering.
   positive_field: "factor_value",
   positive_fallback_field: "weight",
-  positive_threshold: 0.0
+  positive_threshold: 0.0,
+  use_pool_weight: false
 }

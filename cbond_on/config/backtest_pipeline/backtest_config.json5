@@ -9,7 +9,22 @@
   strategy_config_path: "strategies/strategy01/strategy01",
   buy_twap_col: "twap_1442_1457",
   sell_twap_col: "twap_0930_0945",
+  allowlist: {
+    enabled: true,
+    table: "quant_factor_dev.researcher_xuvb.o_0005",
+    lag_trading_days: 1,
+    asset: "cbond",
+    flag_field: "factor_value",
+    fallback_field: "weight",
+    threshold: 0.0
+  },
+  security_banlist: {
+    enabled: true,
+    file: "universe/security_banlist.json"
+  },
   filter_tradable: true,
+  min_price: 100,
+  max_price: null,
   min_amount: 0,
   min_volume: 0
 }

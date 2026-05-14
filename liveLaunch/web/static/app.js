@@ -19,6 +19,8 @@ const coverageSummary = el("coverage-summary");
 const logBox = el("log-box");
 const logPath = el("log-path");
 const holdingsEl = el("holdings");
+const returnOverviewEl = el("return-overview");
+const returnRankingEl = el("return-ranking");
 const syncStatus = el("sync-status");
 const logFollow = el("log-follow");
 const logDaySelect = el("log-day");
@@ -32,6 +34,8 @@ const configMode = el("config-mode");
 
 let perfMetricsChart = null;
 let perfNavChart = null;
+let returnDistributionChart = null;
+let contributionDonutChart = null;
 let calendarSelectedDay = "";
 let followLogs = true;
 let latestLiveStatus = null;
@@ -496,39 +500,460 @@ if (dataCalendar) {
   });
 }
 
+document.querySelectorAll('button[data-bs-toggle="tab"]').forEach((button) => {
+  button.addEventListener("shown.bs.tab", () => {
+    if (returnDistributionChart) returnDistributionChart.resize();
+    if (contributionDonutChart) contributionDonutChart.resize();
+  });
+});
+
+function fmtFixed(value, digits = 4) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return "-";
+  return Number(value).toFixed(digits);
+}
+
+function fmtPct(value) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return "-";
+  const num = Number(value);
+  const sign = num > 0 ? "+" : "";
+  return `${sign}${(num * 100).toFixed(2)}%`;
+}
+
+function holdingsStatusLabel(row) {
+  const status = String(row?.status || "unknown");
+  if (row?.status_label) return row.status_label;
+  if (status === "ready") return "已出收益";
+  if (status === "pending") return "等待收益";
+  if (status === "halted") return "停牌";
+  if (status === "unavailable") return "缺少行情";
+  return "未知";
+}
+
+function returnClass(value) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return "return-muted";
+  const num = Number(value);
+  if (num > 0) return "return-positive";
+  if (num < 0) return "return-negative";
+  return "return-flat";
+}
+
+function numberValue(value) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return null;
+  return Number(value);
+}
+
+function median(values) {
+  const arr = values.filter((x) => Number.isFinite(Number(x))).map(Number).sort((a, b) => a - b);
+  if (!arr.length) return null;
+  const mid = Math.floor(arr.length / 2);
+  return arr.length % 2 ? arr[mid] : (arr[mid - 1] + arr[mid]) / 2;
+}
+
+function mean(values) {
+  const arr = values.filter((x) => Number.isFinite(Number(x))).map(Number);
+  if (!arr.length) return null;
+  return arr.reduce((a, b) => a + b, 0) / arr.length;
+}
+
+function sum(values) {
+  return values.filter((x) => Number.isFinite(Number(x))).map(Number).reduce((a, b) => a + b, 0);
+}
+
+function clamp01(value) {
+  return Math.min(1, Math.max(0, Number(value) || 0));
+}
+
+function hexToRgb(hex) {
+  const clean = String(hex || "").replace("#", "");
+  const value = Number.parseInt(clean, 16);
+  return {
+    r: (value >> 16) & 255,
+    g: (value >> 8) & 255,
+    b: value & 255,
+  };
+}
+
+function rgbToHex({ r, g, b }) {
+  const part = (value) => Math.round(value).toString(16).padStart(2, "0");
+  return `#${part(r)}${part(g)}${part(b)}`;
+}
+
+function mixHexColor(light, dark, ratio) {
+  const t = clamp01(ratio);
+  const a = hexToRgb(light);
+  const b = hexToRgb(dark);
+  return rgbToHex({
+    r: a.r + (b.r - a.r) * t,
+    g: a.g + (b.g - a.g) * t,
+    b: a.b + (b.b - a.b) * t,
+  });
+}
+
+function contributionColor(value, maxAbs) {
+  const absValue = Math.abs(Number(value) || 0);
+  const ratio = maxAbs > 0 ? 0.18 + 0.82 * (absValue / maxAbs) : 0.18;
+  if (Number(value) >= 0) return mixHexColor("#fee2e2", "#991b1b", ratio);
+  return mixHexColor("#dcfce7", "#166534", ratio);
+}
+
+function returnRows(rows) {
+  return (rows || []).filter((row) => row.status === "ready" && numberValue(row.return_net) !== null);
+}
+
+function returnSummary(rows, payload) {
+  const ready = returnRows(rows);
+  const returns = ready.map((row) => Number(row.return_net));
+  const contributions = ready.map((row) => Number(row.weighted_return || 0));
+  const positiveRows = ready.filter((row) => Number(row.return_net) > 0);
+  const negativeRows = ready.filter((row) => Number(row.return_net) < 0);
+  const best = ready.length ? ready.reduce((a, b) => (Number(a.return_net) > Number(b.return_net) ? a : b)) : null;
+  const worst = ready.length ? ready.reduce((a, b) => (Number(a.return_net) < Number(b.return_net) ? a : b)) : null;
+  return {
+    ready,
+    returns,
+    contributions,
+    dayReturn: ready.length ? sum(contributions) : null,
+    avgReturn: mean(returns),
+    medianReturn: median(returns),
+    positiveCount: positiveRows.length,
+    negativeCount: negativeRows.length,
+    pendingCount: Number(payload?.pending_count || rows.filter((row) => row.status === "pending").length || 0),
+    haltedCount: Number(payload?.halted_count || rows.filter((row) => row.status === "halted").length || 0),
+    unavailableCount: Number(payload?.unavailable_count || rows.filter((row) => row.status === "unavailable").length || 0),
+    best,
+    worst,
+    positiveContribution: ready.length ? sum(positiveRows.map((row) => row.weighted_return || 0)) : 0,
+    negativeContribution: ready.length ? sum(negativeRows.map((row) => row.weighted_return || 0)) : 0,
+  };
+}
+
+function analysisEmpty(title, text) {
+  return `
+    <div class="analysis-card">
+      <div class="empty-state">
+        <div class="empty-title">${escapeHtml(title)}</div>
+        <div class="empty-text">${escapeHtml(text)}</div>
+      </div>
+    </div>
+  `;
+}
+
+function buildSignedBins(values, maxBins, color) {
+  if (!values.length) return [];
+  let minVal = Math.min(...values);
+  let maxVal = Math.max(...values);
+  if (minVal === maxVal) {
+    const pad = Math.max(Math.abs(minVal) * 0.08, 0.05);
+    minVal -= pad;
+    maxVal += pad;
+  }
+  const binCount = Math.min(maxBins, Math.max(3, Math.ceil(Math.sqrt(values.length) * 1.5)));
+  const step = (maxVal - minVal) / binCount;
+  const counts = new Array(binCount).fill(0);
+  values.forEach((value) => {
+    const idx = Math.min(binCount - 1, Math.max(0, Math.floor((value - minVal) / step)));
+    counts[idx] += 1;
+  });
+  return counts.map((count, idx) => {
+    const left = minVal + step * idx;
+    const right = left + step;
+    return {
+      label: `${left.toFixed(1)}~${right.toFixed(1)}`,
+      count,
+      color,
+    };
+  });
+}
+
+function buildHistogram(values) {
+  const arr = values.filter((x) => Number.isFinite(Number(x))).map((x) => Number(x) * 100);
+  if (!arr.length) return { labels: [], counts: [], colors: [] };
+  const negative = arr.filter((value) => value < 0);
+  const zeroCount = arr.filter((value) => value === 0).length;
+  const positive = arr.filter((value) => value > 0);
+  const hasBothSides = negative.length > 0 && positive.length > 0;
+  const maxSideBins = hasBothSides ? 7 : 12;
+  const bins = [
+    ...buildSignedBins(negative, maxSideBins, "#16a34a"),
+    ...(hasBothSides || zeroCount ? [{ label: "0", count: zeroCount, color: "#cbd5e1" }] : []),
+    ...buildSignedBins(positive, maxSideBins, "#dc2626"),
+  ];
+  const labels = bins.map((bin) => bin.label);
+  const counts = bins.map((bin) => bin.count);
+  const colors = bins.map((bin) => bin.color);
+  return { labels, counts, colors };
+}
+
+function renderReturnOverview(rows, payload) {
+  if (!returnOverviewEl) return;
+  if (returnDistributionChart) {
+    returnDistributionChart.destroy();
+    returnDistributionChart = null;
+  }
+  if (!rows.length) {
+    returnOverviewEl.innerHTML = analysisEmpty("暂无收益总览", "所选日期没有可分析的持仓数据。");
+    return;
+  }
+  const s = returnSummary(rows, payload);
+  returnOverviewEl.innerHTML = `
+    <div class="analysis-card overview-card">
+      <div class="analysis-head">
+        <div>
+          <div class="analysis-title">当日收益总览</div>
+          <div class="analysis-subtitle">日期 ${escapeHtml(payload?.day || "-")} · 卖出日 ${escapeHtml(payload?.next_day || "-")}</div>
+        </div>
+        <div class="analysis-status-line">已出 ${s.ready.length} · 等待 ${s.pendingCount} · 停牌 ${s.haltedCount} · 缺行情 ${s.unavailableCount}</div>
+      </div>
+      <div class="overview-layout">
+        <div class="overview-metrics">
+          <div class="metric-tile metric-primary"><span>当日组合收益</span><strong class="${returnClass(s.dayReturn)}">${escapeHtml(fmtPct(s.dayReturn))}</strong></div>
+          <div class="metric-tile"><span>平均单券收益</span><strong class="${returnClass(s.avgReturn)}">${escapeHtml(fmtPct(s.avgReturn))}</strong></div>
+          <div class="metric-tile"><span>中位数收益</span><strong class="${returnClass(s.medianReturn)}">${escapeHtml(fmtPct(s.medianReturn))}</strong></div>
+          <div class="metric-tile"><span>正/负收益</span><strong>${s.positiveCount} / ${s.negativeCount}</strong></div>
+          <div class="metric-tile"><span>最好单券</span><strong class="${returnClass(s.best?.return_net)}">${escapeHtml(s.best ? `${s.best.symbol} ${fmtPct(s.best.return_net)}` : "-")}</strong></div>
+          <div class="metric-tile"><span>最差单券</span><strong class="${returnClass(s.worst?.return_net)}">${escapeHtml(s.worst ? `${s.worst.symbol} ${fmtPct(s.worst.return_net)}` : "-")}</strong></div>
+        </div>
+        <div class="analysis-chart-box return-distribution-box">
+          <div class="chart-title">收益分布（票数）</div>
+          ${s.ready.length ? '<canvas id="return-distribution-chart"></canvas>' : '<div class="empty-mini">当天收益尚未出齐，等待 T+1 早盘 TWAP。</div>'}
+        </div>
+      </div>
+    </div>
+  `;
+  if (!s.ready.length) return;
+  const hist = buildHistogram(s.returns);
+  const canvas = el("return-distribution-chart");
+  if (!canvas) return;
+  returnDistributionChart = new Chart(canvas.getContext("2d"), {
+    type: "bar",
+    data: {
+      labels: hist.labels,
+      datasets: [{
+        label: "票数",
+        data: hist.counts,
+        backgroundColor: hist.colors,
+        borderRadius: 6,
+        borderSkipped: false,
+        categoryPercentage: 0.72,
+        barPercentage: 0.9,
+      }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      layout: { padding: { top: 6, right: 8, bottom: 0, left: 4 } },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            title: (items) => (items.length ? `${items[0].label}%` : ""),
+            label: (ctx) => `票数：${ctx.raw}`,
+          },
+        },
+      },
+      scales: {
+        x: {
+          grid: { display: false },
+          ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: 8, font: { size: 12, weight: 650 } },
+          title: { display: true, text: "单券收益区间（%）", color: "#64748b", font: { size: 12, weight: 700 } },
+        },
+        y: {
+          beginAtZero: true,
+          suggestedMax: Math.max(...hist.counts, 1) + 1,
+          ticks: { precision: 0, stepSize: 1, font: { size: 12, weight: 650 } },
+          title: { display: true, text: "票数", color: "#64748b", font: { size: 12, weight: 700 } },
+        },
+      },
+    },
+  });
+}
+
+function rankingRowsHtml(rows, title) {
+  if (!rows.length) {
+    return `<div class="ranking-list"><div class="ranking-title">${escapeHtml(title)}</div><div class="empty-mini">暂无数据</div></div>`;
+  }
+  return `
+    <div class="ranking-list">
+      <div class="ranking-title">${escapeHtml(title)}</div>
+      <table class="table table-sm ranking-table">
+        <thead><tr><th>代码</th><th class="text-end">收益</th><th class="text-end">贡献</th><th class="text-end">权重</th></tr></thead>
+        <tbody>
+          ${rows.map((row) => `
+            <tr class="position-row-${escapeHtml(row.status || "")}">
+              <td><span class="bond-code">${escapeHtml(row.symbol || "")}</span></td>
+              <td class="text-end"><span class="${returnClass(row.return_net)}">${escapeHtml(fmtPct(row.return_net))}</span></td>
+              <td class="text-end"><span class="${returnClass(row.weighted_return)}">${escapeHtml(fmtPct(row.weighted_return))}</span></td>
+              <td class="text-end">${escapeHtml(fmtFixed(row.weight, 4))}</td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function renderReturnRanking(rows, payload) {
+  if (!returnRankingEl) return;
+  if (contributionDonutChart) {
+    contributionDonutChart.destroy();
+    contributionDonutChart = null;
+  }
+  if (!rows.length) {
+    returnRankingEl.innerHTML = analysisEmpty("暂无排名与贡献", "所选日期没有可分析的持仓数据。");
+    return;
+  }
+  const s = returnSummary(rows, payload);
+  const ready = returnRows(rows);
+  const positiveRows = [...ready]
+    .filter((row) => Number(row.return_net || 0) > 0)
+    .sort((a, b) => Number(b.return_net || 0) - Number(a.return_net || 0));
+  const negativeRows = [...ready]
+    .filter((row) => Number(row.return_net || 0) < 0)
+    .sort((a, b) => Number(a.return_net || 0) - Number(b.return_net || 0));
+  const positiveContributionRows = [...ready]
+    .filter((row) => Number(row.weighted_return || 0) > 0)
+    .sort((a, b) => Number(b.weighted_return || 0) - Number(a.weighted_return || 0));
+  const negativeContributionRows = [...ready]
+    .filter((row) => Number(row.weighted_return || 0) < 0)
+    .sort((a, b) => Number(a.weighted_return || 0) - Number(b.weighted_return || 0));
+  const contributionRows = [...positiveContributionRows, ...negativeContributionRows];
+  const maxAbsContribution = Math.max(...contributionRows.map((row) => Math.abs(Number(row.weighted_return || 0))), 0);
+  const contributionLabels = contributionRows.map((row) => row.symbol || "-");
+  const contributionValues = contributionRows.map((row) => Math.abs(Number(row.weighted_return || 0)));
+  const contributionColors = contributionRows.map((row) => contributionColor(row.weighted_return, maxAbsContribution));
+  const hasContribution = contributionValues.some((value) => value > 0);
+  returnRankingEl.innerHTML = `
+    <div class="analysis-card">
+      <div class="analysis-head">
+        <div>
+          <div class="analysis-title">收益排名与贡献</div>
+          <div class="analysis-subtitle">左侧按单券收益分组，右侧看正负收益对应的贡献结构和数据状态。</div>
+        </div>
+        <div class="analysis-status-line">日期 ${escapeHtml(payload?.day || "-")} · 组合收益 ${escapeHtml(fmtPct(s.dayReturn))}</div>
+      </div>
+      <div class="ranking-contribution-layout">
+        <div class="ranking-stack">
+          ${rankingRowsHtml(positiveRows, `正收益全部 ${positiveRows.length}`)}
+          ${rankingRowsHtml(negativeRows, `负收益全部 ${negativeRows.length}`)}
+        </div>
+        <div class="contribution-side contribution-merged">
+          <div class="analysis-chart-box contribution-chart-box">
+            <div class="chart-title">逐券贡献圆环</div>
+            ${hasContribution ? '<div class="donut-canvas-wrap"><canvas id="contribution-donut-chart"></canvas></div><div class="chart-note">红色为正贡献，绿色为负贡献；颜色越深，贡献绝对值越大。</div>' : '<div class="empty-mini">当天收益尚未出齐，贡献结构等待计算。</div>'}
+          </div>
+          <div class="status-breakdown">
+            <span>已出 ${s.ready.length}</span>
+            <span>等待 ${s.pendingCount}</span>
+            <span>停牌 ${s.haltedCount}</span>
+            <span>缺行情 ${s.unavailableCount}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+  if (!hasContribution) return;
+  const canvas = el("contribution-donut-chart");
+  if (!canvas) return;
+  contributionDonutChart = new Chart(canvas.getContext("2d"), {
+    type: "doughnut",
+    data: {
+      labels: contributionLabels,
+      datasets: [{
+        data: contributionValues,
+        backgroundColor: contributionColors,
+        borderColor: "#ffffff",
+        borderWidth: 2,
+      }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      aspectRatio: 1,
+      cutout: "62%",
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => {
+              const row = contributionRows[ctx.dataIndex] || {};
+              return `${ctx.label}: 贡献 ${fmtPct(row.weighted_return)}，收益 ${fmtPct(row.return_net)}`;
+            },
+          },
+        },
+      },
+    },
+  });
+}
+
 async function refreshHoldings() {
   if (!holdingsEl) return;
   const selectedDay = logDaySelect && logDaySelect.value ? logDaySelect.value : "";
   const res = await axios.get("/api/holdings", { params: selectedDay ? { day: selectedDay } : {} });
   const rows = res.data.rows || [];
   if (!rows.length) {
+    renderReturnOverview([], res.data || {});
+    renderReturnRanking([], res.data || {});
     holdingsEl.innerHTML = `
       <div class="empty-state">
         <div class="empty-title">暂无持仓数据</div>
-        <div class="empty-text">最近同步：-</div>
-        <div class="empty-text">实盘链路完成后，可点击“同步持仓”加载当前持仓。</div>
+        <div class="empty-text">所选日期尚未生成 trade_list.csv，或当前目标日还未完成。</div>
       </div>
     `;
     return;
   }
+  const meta = [
+    `日期 ${res.data.day || "-"}`,
+    res.data.next_day ? `卖出日 ${res.data.next_day}` : "卖出日 -",
+    `已出 ${res.data.ready_count || 0}`,
+    `等待 ${res.data.pending_count || 0}`,
+    `停牌 ${res.data.halted_count || 0}`,
+  ].join(" · ");
   holdingsEl.innerHTML = `
+    <div class="position-return-meta">${escapeHtml(meta)}</div>
     <div class="table-responsive">
-      <table class="table table-sm align-middle position-table">
+      <table class="table table-sm align-middle position-table position-return-table">
         <colgroup>
           <col class="position-code-col">
+          <col class="position-rank-col">
           <col class="position-weight-col">
+          <col class="position-score-col">
+          <col class="position-price-col">
+          <col class="position-price-col">
+          <col class="position-return-col">
+          <col class="position-return-col">
+          <col class="position-status-col">
         </colgroup>
         <thead>
-          <tr><th>转债代码</th><th class="text-end">权重</th></tr>
+          <tr>
+            <th>转债代码</th>
+            <th class="text-end">排名</th>
+            <th class="text-end">权重</th>
+            <th class="text-end">分数</th>
+            <th class="text-end">买入TWAP</th>
+            <th class="text-end">卖出TWAP</th>
+            <th class="text-end">单券收益</th>
+            <th class="text-end">贡献</th>
+            <th class="text-end">状态</th>
+          </tr>
         </thead>
         <tbody>
           ${rows
             .map((row) => {
-              const w = row.weight == null ? "-" : Number(row.weight).toFixed(6);
+              const w = row.weight == null ? "-" : Number(row.weight).toFixed(4);
+              const retClass = returnClass(row.return_net);
+              const contribClass = returnClass(row.weighted_return);
+              const status = String(row.status || "unknown");
               return `
-                <tr>
+                <tr class="position-row-${escapeHtml(status)}" title="${escapeHtml(row.reason || "")}">
                   <td><span class="bond-code">${escapeHtml(row.symbol || "")}</span></td>
+                  <td class="text-end">${escapeHtml(row.rank ?? "-")}</td>
                   <td class="text-end"><span class="weight-value">${escapeHtml(w)}</span></td>
+                  <td class="text-end">${escapeHtml(fmtFixed(row.score, 6))}</td>
+                  <td class="text-end">${escapeHtml(fmtFixed(row.buy_twap, 3))}</td>
+                  <td class="text-end">${escapeHtml(fmtFixed(row.sell_twap_next, 3))}</td>
+                  <td class="text-end"><span class="${retClass}">${escapeHtml(fmtPct(row.return_net))}</span></td>
+                  <td class="text-end"><span class="${contribClass}">${escapeHtml(fmtPct(row.weighted_return))}</span></td>
+                  <td class="text-end"><span class="position-status-pill status-${escapeHtml(status)}">${escapeHtml(holdingsStatusLabel(row))}</span></td>
                 </tr>
               `;
             })
@@ -537,6 +962,8 @@ async function refreshHoldings() {
       </table>
     </div>
   `;
+  renderReturnOverview(rows, res.data || {});
+  renderReturnRanking(rows, res.data || {});
 }
 
 function destroyCharts() {

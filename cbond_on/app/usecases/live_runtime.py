@@ -1,15 +1,20 @@
 ﻿from __future__ import annotations
 
+import json
 from datetime import date
 from pathlib import Path
 
 from cbond_on.core.config import load_config_file, parse_date, resolve_output_path
-from cbond_on.core.universe import filter_tradable
+from cbond_on.core.universe import filter_tradable, normalize_price_bound
 from cbond_on.infra.data.io import read_clean_daily
 from cbond_on.infra.universe.pool_filter import (
-    apply_pool_filter_to_universe,
+    apply_allowlist_filter_to_universe,
     load_upstream_pool_config,
     resolve_pool_codes_for_trade_day,
+)
+from cbond_on.infra.universe.security_banlist import (
+    apply_security_banlist_to_universe,
+    load_security_banlist,
 )
 from cbond_on.domain.signals.service import SignalSelectionRequest, select_signals
 from cbond_on.infra.model.score_io import load_scores_by_date
@@ -36,6 +41,33 @@ from cbond_on.infra.live.publish_gate import (
 from cbond_on.infra.live.score import resolve_score_df_for_target
 
 
+def _allowlist_diagnostics(pool_info: dict, pre_count: int, post_count: int) -> dict:
+    return {
+        "allowlist_table": pool_info.get("allowlist_table") or pool_info.get("pool_table"),
+        "allowlist_lag_trading_days": pool_info.get("allowlist_lag_trading_days")
+        or pool_info.get("pool_lag_trading_days"),
+        "allowlist_day_expected": pool_info.get("allowlist_day_expected") or pool_info.get("pool_day_expected"),
+        "allowlist_day_used": pool_info.get("allowlist_day_used") or pool_info.get("pool_day_used"),
+        "allowlist_applied": bool(pool_info.get("allowlist_applied") or pool_info.get("pool_enabled")),
+        "allowlist_codes_count": int(pool_info.get("allowlist_codes_count") or pool_info.get("pool_codes_count") or 0),
+        "allowlist_fallback_no_filter": bool(
+            pool_info.get("allowlist_fallback_no_filter") or pool_info.get("fallback_no_filter")
+        ),
+        "allowlist_fallback_reason": pool_info.get("allowlist_fallback_reason") or pool_info.get("fallback_reason", ""),
+        "pre_allowlist_count": int(pre_count),
+        "post_allowlist_count": int(post_count),
+    }
+
+
+def _security_banlist_diagnostics(ban_info: dict, pre_count: int, post_count: int) -> dict:
+    return {
+        **ban_info,
+        "pre_security_banlist_count": int(pre_count),
+        "post_security_banlist_count": int(post_count),
+        "security_banlist_removed_count": int(pre_count - post_count),
+    }
+
+
 def run_once(
     *,
     start: str | date | None = None,
@@ -48,9 +80,18 @@ def run_once(
 
     schedule_cfg = dict(live_cfg.get("schedule", {}))
     data_cfg = dict(live_cfg.get("data", {}))
+    min_price = normalize_price_bound(data_cfg.get("min_price", 0.0))
+    max_price = normalize_price_bound(data_cfg.get("max_price"))
     model_cfg = dict(live_cfg.get("model_score", {}))
     strategy_cfg = dict(live_cfg.get("strategy", {}))
     output_cfg = dict(live_cfg.get("output", {}))
+    allowlist_raw = live_cfg.get("allowlist", {})
+    allowlist_cfg = allowlist_raw if isinstance(allowlist_raw, dict) else {}
+    allowlist_enabled = bool(allowlist_cfg.get("enabled", True)) if isinstance(allowlist_raw, dict) else bool(allowlist_raw)
+    security_banlist_cfg = live_cfg.get("security_banlist", {})
+    banned_codes, security_banlist_info = load_security_banlist(
+        security_banlist_cfg if isinstance(security_banlist_cfg, dict) else {"enabled": bool(security_banlist_cfg)}
+    )
     factor_cfg_key, live_factor_cfg = load_live_factor_runtime(live_cfg)
     model_cfg_key, live_model_score_cfg, model_id = load_live_model_runtime(live_cfg)
 
@@ -167,6 +208,12 @@ def run_once(
     score_cache = load_scores_by_date(score_path)
     score_df = resolve_score_df_for_target(score_cache, score_day, score_path)
 
+    buy_col = str(
+        output_cfg.get("buy_twap_col", data_cfg.get("buy_twap_col", "twap_1442_1457"))
+    )
+    sell_col = str(
+        output_cfg.get("sell_twap_col", data_cfg.get("sell_twap_col", "twap_0930_0945"))
+    )
     clean_daily = read_clean_daily(clean_root, score_day)
     if clean_daily.empty:
         universe = score_df[["code", "score"]].copy()
@@ -174,37 +221,46 @@ def run_once(
         universe = clean_daily.merge(score_df[["code", "score"]], on="code", how="inner")
         if universe.empty:
             raise ValueError("no score matched to clean data")
-        buy_col = str(
-            output_cfg.get("buy_twap_col", data_cfg.get("buy_twap_col", "twap_1442_1457"))
-        )
-        sell_col = str(
-            output_cfg.get("sell_twap_col", data_cfg.get("sell_twap_col", "twap_0930_0945"))
-        )
-        if buy_col in universe.columns and sell_col in universe.columns:
-            universe = filter_tradable(
-                universe,
-                buy_twap_col=buy_col,
-                sell_twap_col=sell_col,
-                min_amount=float(data_cfg.get("min_amount", 0.0)),
-                min_volume=float(data_cfg.get("min_volume", 0.0)),
-            )
-    pool_cfg = load_upstream_pool_config()
+
+    pool_cfg = load_upstream_pool_config(allowlist_cfg or None)
     pool_codes, pool_info = resolve_pool_codes_for_trade_day(
         raw_data_root=raw_root,
         trade_day=score_day,
         pool_cfg=pool_cfg,
+        enabled=allowlist_enabled,
     )
     if bool(pool_info.get("fallback_no_filter", False)):
         print(
-            "[pool_filter] fallback_no_filter",
+            "[allowlist] fallback_no_filter",
             f"trade_day={score_day:%Y-%m-%d}",
             f"expected_pool_day={pool_info.get('pool_day_expected')}",
             f"reason={pool_info.get('fallback_reason')}",
             f"nearest_pool_day={pool_info.get('nearest_pool_day')}",
         )
-    universe = apply_pool_filter_to_universe(universe, pool_codes=pool_codes)
+    pre_allowlist_count = int(len(universe))
+    universe = apply_allowlist_filter_to_universe(universe, allowlist_codes=pool_codes)
+    allowlist_diag = _allowlist_diagnostics(pool_info, pre_allowlist_count, int(len(universe)))
     if universe.empty:
-        raise ValueError("live universe is empty after filters")
+        raise ValueError("live universe is empty after allowlist filter")
+
+    pre_banlist_count = int(len(universe))
+    universe = apply_security_banlist_to_universe(universe, banned_codes=banned_codes)
+    banlist_diag = _security_banlist_diagnostics(security_banlist_info, pre_banlist_count, int(len(universe)))
+    if universe.empty:
+        raise ValueError("live universe is empty after security banlist filter")
+
+    if buy_col in universe.columns and sell_col in universe.columns:
+        universe = filter_tradable(
+            universe,
+            buy_twap_col=buy_col,
+            sell_twap_col=sell_col,
+            min_amount=float(data_cfg.get("min_amount", 0.0)),
+            min_volume=float(data_cfg.get("min_volume", 0.0)),
+            min_price=min_price,
+            max_price=max_price,
+        )
+    if universe.empty:
+        raise ValueError("live universe is empty after tradable filter")
 
     strategy_id = str(strategy_cfg.get("strategy_id", "strategy01_topk_turnover"))
     strategy_config = load_strategy_config(strategy_cfg.get("strategy_config_path"))
@@ -227,6 +283,19 @@ def run_once(
     picks = picks.copy()
     picks["trade_date"] = target_day
     picks.to_csv(out_dir / "trade_list.csv", index=False)
+    allowlist_summary = {
+        **allowlist_diag,
+        **banlist_diag,
+        "target_day": target_day,
+        "score_day": score_day,
+        "min_price": min_price,
+        "max_price": max_price,
+        "post_tradable_count": int(len(universe)),
+        "picks_count": int(len(picks)),
+    }
+    summary_text = json.dumps(allowlist_summary, ensure_ascii=False, indent=2, default=str)
+    (out_dir / "allowlist_summary.json").write_text(summary_text, encoding="utf-8")
+    (out_dir / "universe_filter_summary.json").write_text(summary_text, encoding="utf-8")
 
     if bool(output_cfg.get("db_write", False)):
         if not output_cfg.get("db_table"):

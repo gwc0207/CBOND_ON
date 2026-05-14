@@ -7,18 +7,21 @@ from pathlib import Path
 import pandas as pd
 
 from cbond_on.infra.backtest.execution import (
-    apply_twap_bps,
-    split_cycle_return_by_bridge,
+    split_cycle_return_by_bridge_with_cost,
 )
 from cbond_on.core.config import load_config_file, parse_date
 from cbond_on.core.fees import load_fees_buy_sell_bps
 from cbond_on.core.trading_days import next_trading_days_from_raw
-from cbond_on.core.universe import filter_tradable
-from cbond_on.infra.benchmark.service import compute_benchmark_breakdown_for_day
+from cbond_on.core.universe import filter_tradable, normalize_price_bound
+from cbond_on.infra.benchmark.service import compute_benchmark_breakdowns_for_days
 from cbond_on.infra.universe.pool_filter import (
-    apply_pool_filter_to_universe,
+    apply_allowlist_filter_to_universe,
     load_upstream_pool_config,
     resolve_pool_codes_for_trade_day,
+)
+from cbond_on.infra.universe.security_banlist import (
+    apply_security_banlist_to_universe,
+    load_security_banlist,
 )
 from cbond_on.domain.portfolio.service import normalize_weights, to_prev_positions
 from cbond_on.domain.signals.service import SignalSelectionRequest, select_signals
@@ -32,6 +35,34 @@ from cbond_on.infra.report.backtest_plot import write_backtest_report_image
 class BacktestRunResult:
     out_dir: Path
     days: int
+
+
+def _allowlist_diagnostics(pool_info: dict, pre_count: int, post_count: int) -> dict:
+    return {
+        "allowlist_table": pool_info.get("allowlist_table") or pool_info.get("pool_table"),
+        "allowlist_lag_trading_days": pool_info.get("allowlist_lag_trading_days")
+        or pool_info.get("pool_lag_trading_days"),
+        "allowlist_day_expected": pool_info.get("allowlist_day_expected") or pool_info.get("pool_day_expected"),
+        "allowlist_day_used": pool_info.get("allowlist_day_used") or pool_info.get("pool_day_used"),
+        "allowlist_applied": bool(pool_info.get("allowlist_applied") or pool_info.get("pool_enabled")),
+        "allowlist_codes_count": int(pool_info.get("allowlist_codes_count") or pool_info.get("pool_codes_count") or 0),
+        "allowlist_fallback_no_filter": bool(
+            pool_info.get("allowlist_fallback_no_filter") or pool_info.get("fallback_no_filter")
+        ),
+        "allowlist_fallback_reason": pool_info.get("allowlist_fallback_reason") or pool_info.get("fallback_reason", ""),
+        "pre_allowlist_count": int(pre_count),
+        "post_allowlist_count": int(post_count),
+    }
+
+
+def _security_banlist_diagnostics(ban_info: dict, pre_count: int, post_count: int) -> dict:
+    return {
+        **ban_info,
+        "pre_security_banlist_count": int(pre_count),
+        "post_security_banlist_count": int(post_count),
+        "security_banlist_removed_count": int(pre_count - post_count),
+    }
+
 
 def run(
     *,
@@ -63,8 +94,17 @@ def run(
     )
     min_amount = float(bt_cfg.get("min_amount", 0.0))
     min_volume = float(bt_cfg.get("min_volume", 0.0))
+    min_price = normalize_price_bound(bt_cfg.get("min_price", 0.0))
+    max_price = normalize_price_bound(bt_cfg.get("max_price"))
     filter_flag = bool(bt_cfg.get("filter_tradable", True))
-    pool_cfg = load_upstream_pool_config()
+    allowlist_raw = bt_cfg.get("allowlist", {})
+    allowlist_cfg = allowlist_raw if isinstance(allowlist_raw, dict) else {}
+    allowlist_enabled = bool(allowlist_cfg.get("enabled", True)) if isinstance(allowlist_raw, dict) else bool(allowlist_raw)
+    pool_cfg = load_upstream_pool_config(allowlist_cfg or None)
+    security_banlist_cfg = bt_cfg.get("security_banlist", {})
+    banned_codes, security_banlist_info = load_security_banlist(
+        security_banlist_cfg if isinstance(security_banlist_cfg, dict) else {"enabled": bool(security_banlist_cfg)}
+    )
 
     raw_root = paths_cfg["raw_data_root"]
     days = iter_open_days(raw_root, start_day, end_day)
@@ -73,6 +113,24 @@ def run(
         days = sorted(set(days + tail_day))
     if len(days) < 2:
         raise ValueError("not enough trading days for backtest")
+
+    benchmark_days = [day for day in days if start_day <= day <= end_day]
+    benchmark_daily = compute_benchmark_breakdowns_for_days(
+        raw_data_root=raw_root,
+        trade_days=benchmark_days,
+        buy_bps=buy_cost_bps,
+        sell_bps=sell_cost_bps,
+        skip_failed_days=True,
+    )
+    benchmark_by_day: dict[date, pd.Series] = {}
+    if not benchmark_daily.empty:
+        benchmark_lookup = benchmark_daily.copy()
+        benchmark_lookup["trade_date"] = pd.to_datetime(benchmark_lookup["trade_date"], errors="coerce").dt.date
+        benchmark_lookup = benchmark_lookup.dropna(subset=["trade_date"])
+        benchmark_by_day = {
+            row["trade_date"]: row
+            for _, row in benchmark_lookup.iterrows()
+        }
 
     daily_rows: list[dict] = []
     pos_rows: list[dict] = []
@@ -114,18 +172,42 @@ def run(
             raw_data_root=raw_root,
             trade_day=day,
             pool_cfg=pool_cfg,
+            enabled=allowlist_enabled,
         )
         if bool(pool_info.get("fallback_no_filter", False)):
             print(
-                "[pool_filter] fallback_no_filter",
+                "[allowlist] fallback_no_filter",
                 f"trade_day={day:%Y-%m-%d}",
                 f"expected_pool_day={pool_info.get('pool_day_expected')}",
                 f"reason={pool_info.get('fallback_reason')}",
                 f"nearest_pool_day={pool_info.get('nearest_pool_day')}",
             )
-        merged = apply_pool_filter_to_universe(merged, pool_codes=pool_codes)
+        pre_allowlist_count = int(len(merged))
+        merged = apply_allowlist_filter_to_universe(merged, allowlist_codes=pool_codes)
+        allowlist_diag = _allowlist_diagnostics(pool_info, pre_allowlist_count, int(len(merged)))
         if merged.empty:
-            diag_rows.append({"trade_date": day, "status": "skip", "reason": "empty_pool_filtered_universe"})
+            diag_rows.append(
+                {
+                    "trade_date": day,
+                    "status": "skip",
+                    "reason": "empty_allowlist_filtered_universe",
+                    **allowlist_diag,
+                }
+            )
+            continue
+        pre_banlist_count = int(len(merged))
+        merged = apply_security_banlist_to_universe(merged, banned_codes=banned_codes)
+        banlist_diag = _security_banlist_diagnostics(security_banlist_info, pre_banlist_count, int(len(merged)))
+        filter_diag = {**allowlist_diag, **banlist_diag, "min_price": min_price, "max_price": max_price}
+        if merged.empty:
+            diag_rows.append(
+                {
+                    "trade_date": day,
+                    "status": "skip",
+                    "reason": "empty_security_banlist_filtered_universe",
+                    **filter_diag,
+                }
+            )
             continue
         merged = merged.merge(score_df[["code", "score"]], on="code", how="inner")
         if filter_flag:
@@ -135,6 +217,8 @@ def run(
                 sell_twap_col=f"{sell_col}_next",
                 min_amount=min_amount,
                 min_volume=min_volume,
+                min_price=min_price,
+                max_price=max_price,
             )
         else:
             merged = merged[
@@ -145,11 +229,15 @@ def run(
                 & (merged[f"{sell_col}_next"] > 0)
                 & (merged["bridge_prev_close"] > 0)
             ]
+            if min_price > 0:
+                merged = merged[pd.to_numeric(merged[buy_col], errors="coerce") >= min_price]
+            if max_price > 0:
+                merged = merged[pd.to_numeric(merged[buy_col], errors="coerce") <= max_price]
         merged = merged[
             merged["bridge_prev_close"].notna() & (pd.to_numeric(merged["bridge_prev_close"], errors="coerce") > 0)
         ]
         if merged.empty:
-            diag_rows.append({"trade_date": day, "status": "skip", "reason": "empty_universe"})
+            diag_rows.append({"trade_date": day, "status": "skip", "reason": "empty_universe", **filter_diag})
             continue
 
         picks = select_signals(
@@ -162,7 +250,7 @@ def run(
             )
         )
         if picks.empty:
-            diag_rows.append({"trade_date": day, "status": "skip", "reason": "empty_picks"})
+            diag_rows.append({"trade_date": day, "status": "skip", "reason": "empty_picks", **filter_diag})
             continue
 
         picks = picks.merge(
@@ -171,17 +259,17 @@ def run(
             how="left",
         ).dropna(subset=[buy_col, f"{sell_col}_next", "bridge_prev_close"])
         if picks.empty:
-            diag_rows.append({"trade_date": day, "status": "skip", "reason": "missing_trade_price"})
+            diag_rows.append({"trade_date": day, "status": "skip", "reason": "missing_trade_price", **filter_diag})
             continue
 
         picks = normalize_weights(picks, weight_col="weight")
 
-        buy_px = apply_twap_bps(picks[buy_col], buy_cost_bps, side="buy")
-        sell_px = apply_twap_bps(picks[f"{sell_col}_next"], sell_cost_bps, side="sell")
-        buy_leg_ret, sell_leg_ret, full_cycle_ret = split_cycle_return_by_bridge(
-            buy_px,
-            sell_px,
+        buy_leg_ret, sell_leg_ret, full_cycle_ret = split_cycle_return_by_bridge_with_cost(
+            picks[buy_col],
+            picks[f"{sell_col}_next"],
             pd.to_numeric(picks["bridge_prev_close"], errors="coerce"),
+            buy_bps=buy_cost_bps,
+            sell_bps=sell_cost_bps,
         )
         picks["buy_leg_ret_net"] = buy_leg_ret
         picks["sell_leg_ret_net"] = sell_leg_ret
@@ -191,13 +279,10 @@ def run(
         day_sell_leg_ret = float((picks["sell_leg_ret_net"] * picks["weight"]).sum())
         day_return = float((picks["full_cycle_ret_net"] * picks["weight"]).sum())
 
-        benchmark_breakdown = compute_benchmark_breakdown_for_day(
-            raw_data_root=raw_root,
-            trade_day=day,
-            next_day=next_day,
-            buy_bps=buy_cost_bps,
-            sell_bps=sell_cost_bps,
-        )
+        benchmark_row = benchmark_by_day.get(day)
+        if benchmark_row is None:
+            diag_rows.append({"trade_date": day, "status": "skip", "reason": "missing_benchmark", **filter_diag})
+            continue
         daily_rows.append(
             {
                 "trade_date": day,
@@ -206,21 +291,26 @@ def run(
                 "full_cycle_ret_net": day_return,
                 "buy_leg_ret_net": day_buy_leg_ret,
                 "sell_leg_ret_net": day_sell_leg_ret,
-                "benchmark_return": float(benchmark_breakdown.full_cycle_ret_net),
-                "benchmark_full_cycle_ret_net": float(benchmark_breakdown.full_cycle_ret_net),
-                "benchmark_buy_leg_ret_net": float(benchmark_breakdown.buy_leg_ret_net),
-                "benchmark_sell_leg_ret_net": float(benchmark_breakdown.sell_leg_ret_net),
+                "benchmark_return": float(benchmark_row["benchmark_return"]),
+                "benchmark_full_cycle_ret_net": float(benchmark_row["benchmark_return"]),
+                "benchmark_buy_leg_ret_net": float(benchmark_row["buy_leg_ret_net"]),
+                "benchmark_sell_leg_ret_net": float(benchmark_row["sell_leg_ret_net"]),
+                "benchmark_buy_count": int(benchmark_row.get("buy_count", benchmark_row.get("count", 0))),
+                "benchmark_sell_count": int(benchmark_row.get("sell_count", 0)),
+                "benchmark_fallback_sell_codes": int(benchmark_row.get("fallback_sell_codes", 0)),
+                "benchmark_fallback_sell_weight": float(benchmark_row.get("fallback_sell_weight", 0.0)),
+                "benchmark_method": str(benchmark_row.get("benchmark_method", "strict_official_prev_close")),
                 "avg_return": float(picks["return"].mean()),
                 "total_weight": float(picks["weight"].sum()),
             }
         )
 
-        full_buy = apply_twap_bps(merged[buy_col], buy_cost_bps, side="buy")
-        full_sell = apply_twap_bps(merged[f"{sell_col}_next"], sell_cost_bps, side="sell")
-        _, _, full_ret = split_cycle_return_by_bridge(
-            full_buy,
-            full_sell,
+        _, _, full_ret = split_cycle_return_by_bridge_with_cost(
+            merged[buy_col],
+            merged[f"{sell_col}_next"],
             pd.to_numeric(merged["bridge_prev_close"], errors="coerce"),
+            buy_bps=buy_cost_bps,
+            sell_bps=sell_cost_bps,
         )
         ic_rows.append(
             {
@@ -230,7 +320,7 @@ def run(
                 "count": int(len(merged)),
             }
         )
-        diag_rows.append({"trade_date": day, "status": "ok", "reason": "", "count": int(len(picks))})
+        diag_rows.append({"trade_date": day, "status": "ok", "reason": "", "count": int(len(picks)), **filter_diag})
 
         for _, row in picks.iterrows():
             pos_rows.append(

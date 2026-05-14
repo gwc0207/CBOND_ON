@@ -207,10 +207,65 @@ def _summary_tables(
     diag_rows = int(len(diagnostics)) if diagnostics is not None else 0
     skip_days = 0
     missing_score_days = 0
+    allowlist_table = ""
+    allowlist_lag_trading_days = ""
+    allowlist_applied_days = 0
+    allowlist_fallback_days = 0
+    avg_allowlist_count = float("nan")
+    avg_pre_allowlist_count = float("nan")
+    avg_post_allowlist_count = float("nan")
+    security_banlist_file = ""
+    security_banlist_codes_count = 0
+    security_banlist_removed_total = 0
+    security_banlist_removed_days = 0
+    min_price = float("nan")
+    max_price = float("nan")
     if diagnostics is not None and not diagnostics.empty and "status" in diagnostics.columns:
         skip_days = int((diagnostics["status"].astype(str) != "ok").sum())
         if "reason" in diagnostics.columns:
             missing_score_days = int((diagnostics["reason"].fillna("").astype(str) == "missing_score").sum())
+        if "allowlist_table" in diagnostics.columns:
+            values = diagnostics["allowlist_table"].dropna().astype(str)
+            values = values[values != ""]
+            allowlist_table = values.iloc[0] if not values.empty else ""
+        if "allowlist_lag_trading_days" in diagnostics.columns:
+            values = diagnostics["allowlist_lag_trading_days"].dropna()
+            allowlist_lag_trading_days = str(values.iloc[0]) if not values.empty else ""
+        if "allowlist_applied" in diagnostics.columns:
+            allowlist_applied_days = int(diagnostics["allowlist_applied"].fillna(False).astype(bool).sum())
+        if "allowlist_fallback_no_filter" in diagnostics.columns:
+            allowlist_fallback_days = int(diagnostics["allowlist_fallback_no_filter"].fillna(False).astype(bool).sum())
+        if "allowlist_codes_count" in diagnostics.columns:
+            counts = _num(diagnostics["allowlist_codes_count"])
+            counts = counts[counts > 0]
+            avg_allowlist_count = float(counts.mean()) if not counts.empty else float("nan")
+        if "pre_allowlist_count" in diagnostics.columns:
+            counts = _num(diagnostics["pre_allowlist_count"])
+            counts = counts[counts > 0]
+            avg_pre_allowlist_count = float(counts.mean()) if not counts.empty else float("nan")
+        if "post_allowlist_count" in diagnostics.columns:
+            counts = _num(diagnostics["post_allowlist_count"])
+            counts = counts[counts > 0]
+            avg_post_allowlist_count = float(counts.mean()) if not counts.empty else float("nan")
+        if "security_banlist_file" in diagnostics.columns:
+            values = diagnostics["security_banlist_file"].dropna().astype(str)
+            values = values[values != ""]
+            security_banlist_file = values.iloc[0] if not values.empty else ""
+        if "security_banlist_codes_count" in diagnostics.columns:
+            counts = _num(diagnostics["security_banlist_codes_count"]).dropna()
+            security_banlist_codes_count = int(counts.max()) if not counts.empty else 0
+        if "security_banlist_removed_count" in diagnostics.columns:
+            removed = _num(diagnostics["security_banlist_removed_count"]).fillna(0)
+            security_banlist_removed_total = int(removed.sum())
+            security_banlist_removed_days = int((removed > 0).sum())
+        if "min_price" in diagnostics.columns:
+            values = _num(diagnostics["min_price"]).dropna()
+            values = values[values > 0]
+            min_price = float(values.iloc[0]) if not values.empty else float("nan")
+        if "max_price" in diagnostics.columns:
+            values = _num(diagnostics["max_price"]).dropna()
+            values = values[values > 0]
+            max_price = float(values.iloc[0]) if not values.empty else float("nan")
 
     ic_stats = _ic_summary(ic_df)
     ic_mean = float("nan")
@@ -293,6 +348,19 @@ def _summary_tables(
                 "skip_days": skip_days,
                 "missing_score_days": missing_score_days,
                 "avg_count": float(_num(daily["count"]).mean()) if "count" in daily.columns else float("nan"),
+                "allowlist_table": allowlist_table,
+                "allowlist_lag_trading_days": allowlist_lag_trading_days,
+                "allowlist_applied_days": allowlist_applied_days,
+                "allowlist_fallback_days": allowlist_fallback_days,
+                "avg_allowlist_count": avg_allowlist_count,
+                "avg_pre_allowlist_count": avg_pre_allowlist_count,
+                "avg_post_allowlist_count": avg_post_allowlist_count,
+                "security_banlist_file": security_banlist_file,
+                "security_banlist_codes_count": security_banlist_codes_count,
+                "security_banlist_removed_total": security_banlist_removed_total,
+                "security_banlist_removed_days": security_banlist_removed_days,
+                "min_price": min_price,
+                "max_price": max_price,
                 "avg_turnover": avg_turnover,
                 "median_turnover": median_turnover,
                 "ic_mean": ic_mean,
@@ -454,10 +522,36 @@ def write_backtest_report_image(
     table.auto_set_font_size(False)
     table.set_fontsize(9)
     table.scale(1.0, 1.35)
+    allowlist_note = ""
+    if np.isfinite(_finite(meta.get("avg_allowlist_count"))):
+        allowlist_note = (
+            f" | allowlist_avg={_fmt_num(meta.get('avg_allowlist_count'), 0)}"
+            f" fallback={meta.get('allowlist_fallback_days', '-')}"
+        )
+    banlist_note = ""
+    if int(_finite(meta.get("security_banlist_codes_count")) if np.isfinite(_finite(meta.get("security_banlist_codes_count"))) else 0) > 0:
+        banlist_note = (
+            f" | banlist={int(meta.get('security_banlist_codes_count', 0))}"
+            f" removed={int(meta.get('security_banlist_removed_total', 0))}"
+        )
+    price_note = ""
+    has_min_price = np.isfinite(_finite(meta.get("min_price")))
+    has_max_price = np.isfinite(_finite(meta.get("max_price")))
+    if has_min_price and has_max_price:
+        price_min = _fmt_num(meta.get("min_price"), 0) if np.isfinite(_finite(meta.get("min_price"))) else "-"
+        price_max = _fmt_num(meta.get("max_price"), 0) if np.isfinite(_finite(meta.get("max_price"))) else "-"
+        price_note = f" | price={price_min}-{price_max}"
+    elif has_min_price:
+        price_note = f" | price>={_fmt_num(meta.get('min_price'), 0)}"
+    elif has_max_price:
+        price_note = f" | price<={_fmt_num(meta.get('max_price'), 0)}"
     title = (
         f"Backtest Report | configured {meta.get('configured_start', '')} to {meta.get('configured_end', '')} | "
         f"actual {meta.get('actual_start', '')} to {meta.get('actual_end', '')} | "
         f"days={meta.get('trading_days', '-')} skip={meta.get('skip_days', '-')}"
+        f"{allowlist_note}"
+        f"{banlist_note}"
+        f"{price_note}"
     )
     ax_summary.set_title(title, fontsize=13, fontweight="bold", pad=12)
 

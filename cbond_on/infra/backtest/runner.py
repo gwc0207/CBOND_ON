@@ -17,7 +17,7 @@ from cbond_on.infra.universe.pool_filter import (
     resolve_pool_codes_for_trade_day,
 )
 from cbond_on.infra.model.score_io import load_scores_by_date
-from .execution import apply_twap_bps, split_cycle_return_by_bridge
+from .execution import split_cycle_return_by_bridge_with_cost
 
 
 @dataclass
@@ -218,12 +218,12 @@ def run_backtest(
             diagnostics.append({"trade_date": day, "status": "skip", "reason": "no_tradable"})
             continue
 
-        buy_all = apply_twap_bps(merged[buy_twap_col], buy_cost_bps, side="buy")
-        sell_all = apply_twap_bps(merged[sell_next_col], sell_cost_bps, side="sell")
-        _, _, returns_all = split_cycle_return_by_bridge(
-            buy_all,
-            sell_all,
+        _, _, returns_all = split_cycle_return_by_bridge_with_cost(
+            merged[buy_twap_col],
+            merged[sell_next_col],
             pd.to_numeric(merged["bridge_prev_close"], errors="coerce"),
+            buy_bps=buy_cost_bps,
+            sell_bps=sell_cost_bps,
         )
         ic_val = merged["score"].corr(returns_all, method="pearson")
         rank_ic_val = _rank_ic(merged["score"], returns_all)
@@ -319,12 +319,12 @@ def run_backtest(
         live_total_weight = float("nan")
         live_count = int(len(picks_live))
         if live_count > 0:
-            buy_live = apply_twap_bps(picks_live[buy_twap_col], buy_cost_bps, side="buy")
-            sell_live = apply_twap_bps(picks_live[sell_next_col], sell_cost_bps, side="sell")
-            buy_leg_live, sell_leg_live, returns_live = split_cycle_return_by_bridge(
-                buy_live,
-                sell_live,
+            buy_leg_live, sell_leg_live, returns_live = split_cycle_return_by_bridge_with_cost(
+                picks_live[buy_twap_col],
+                picks_live[sell_next_col],
                 pd.to_numeric(picks_live["bridge_prev_close"], errors="coerce"),
+                buy_bps=buy_cost_bps,
+                sell_bps=sell_cost_bps,
             )
             live_avg_return = float(returns_live.mean()) if not returns_live.empty else float("nan")
             w_live = min(1.0 / live_count, max_weight)
@@ -387,12 +387,12 @@ def run_backtest(
             )
             continue
 
-        buy_px = apply_twap_bps(picks[buy_twap_col], buy_cost_bps, side="buy")
-        sell_px = apply_twap_bps(picks[sell_next_col], sell_cost_bps, side="sell")
-        buy_leg_ret, sell_leg_ret, returns = split_cycle_return_by_bridge(
-            buy_px,
-            sell_px,
+        buy_leg_ret, sell_leg_ret, returns = split_cycle_return_by_bridge_with_cost(
+            picks[buy_twap_col],
+            picks[sell_next_col],
             pd.to_numeric(picks["bridge_prev_close"], errors="coerce"),
+            buy_bps=buy_cost_bps,
+            sell_bps=sell_cost_bps,
         )
         weight = min(1.0 / len(picks), max_weight)
         day_return = float((returns * weight).sum())
@@ -429,8 +429,8 @@ def run_backtest(
                     "code": row["code"],
                     "score": float(row["score"]),
                     "weight": weight,
-                    "buy_price": float(buy_px.loc[idx]),
-                    "sell_price": float(sell_px.loc[idx]),
+                    "buy_price": float(row[buy_twap_col]),
+                    "sell_price": float(row[sell_next_col]),
                     "bridge_prev_close": float(row["bridge_prev_close"]),
                     "buy_leg_ret_net": float(buy_leg_ret.loc[idx]),
                     "sell_leg_ret_net": float(sell_leg_ret.loc[idx]),

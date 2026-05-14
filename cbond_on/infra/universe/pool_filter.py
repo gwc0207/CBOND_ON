@@ -26,12 +26,12 @@ class UpstreamPoolConfig:
 def load_upstream_pool_config(cfg: dict | None = None) -> UpstreamPoolConfig:
     raw = dict(cfg or load_config_file("benchmark"))
     return UpstreamPoolConfig(
-        pool_table=str(raw.get("pool_table", "quant_factor_dev.researcher_xuvb.o_0005")),
-        positive_field=str(raw.get("positive_field", "factor_value")),
-        positive_fallback_field=str(raw.get("positive_fallback_field", "weight")),
-        positive_threshold=float(raw.get("positive_threshold", 0.0)),
-        pool_lag_trading_days=max(0, int(raw.get("pool_lag_trading_days", 1))),
-        pool_asset=str(raw.get("pool_asset", "cbond")),
+        pool_table=str(raw.get("pool_table", raw.get("table", "quant_factor_dev.researcher_xuvb.o_0005"))),
+        positive_field=str(raw.get("positive_field", raw.get("flag_field", "factor_value"))),
+        positive_fallback_field=str(raw.get("positive_fallback_field", raw.get("fallback_field", "weight"))),
+        positive_threshold=float(raw.get("positive_threshold", raw.get("threshold", 0.0))),
+        pool_lag_trading_days=max(0, int(raw.get("pool_lag_trading_days", raw.get("lag_trading_days", 1)))),
+        pool_asset=str(raw.get("pool_asset", raw.get("asset", "cbond"))),
     )
 
 
@@ -135,6 +135,7 @@ def resolve_pool_codes_for_trade_day(
 ) -> tuple[set[str] | None, dict[str, Any]]:
     cfg = pool_cfg or load_upstream_pool_config()
     info: dict[str, Any] = {
+        "filter_kind": "allowlist",
         "trade_day": trade_day,
         "pool_table": cfg.pool_table,
         "pool_lag_trading_days": int(cfg.pool_lag_trading_days),
@@ -145,10 +146,20 @@ def resolve_pool_codes_for_trade_day(
         "fallback_no_filter": False,
         "fallback_reason": "",
         "nearest_pool_day": None,
+        "allowlist_table": cfg.pool_table,
+        "allowlist_lag_trading_days": int(cfg.pool_lag_trading_days),
+        "allowlist_applied": False,
+        "allowlist_codes_count": 0,
+        "allowlist_day_expected": None,
+        "allowlist_day_used": None,
+        "allowlist_fallback_no_filter": False,
+        "allowlist_fallback_reason": "",
     }
     if not enabled:
         info["fallback_no_filter"] = True
         info["fallback_reason"] = "pool_filter_disabled"
+        info["allowlist_fallback_no_filter"] = True
+        info["allowlist_fallback_reason"] = "allowlist_disabled"
         return None, info
 
     lag = max(0, int(cfg.pool_lag_trading_days))
@@ -165,6 +176,7 @@ def resolve_pool_codes_for_trade_day(
         )
         expected_pool_day = prev_days[-1] if len(prev_days) >= lag else None
     info["pool_day_expected"] = expected_pool_day
+    info["allowlist_day_expected"] = expected_pool_day
 
     available_days = _pool_available_days(str(raw_data_root), cfg.pool_table)
     nearest_day = _nearest_available_pool_day(expected_pool_day or trade_day, available_days)
@@ -173,6 +185,8 @@ def resolve_pool_codes_for_trade_day(
     if expected_pool_day is None:
         info["fallback_no_filter"] = True
         info["fallback_reason"] = "missing_prev_trading_day"
+        info["allowlist_fallback_no_filter"] = True
+        info["allowlist_fallback_reason"] = "missing_prev_trading_day"
         return None, info
 
     pool_codes, status = _load_pool_codes_for_pool_day(
@@ -183,11 +197,16 @@ def resolve_pool_codes_for_trade_day(
     if pool_codes is None:
         info["fallback_no_filter"] = True
         info["fallback_reason"] = status
+        info["allowlist_fallback_no_filter"] = True
+        info["allowlist_fallback_reason"] = status
         return None, info
 
     info["pool_enabled"] = True
     info["pool_codes_count"] = int(len(pool_codes))
     info["pool_day_used"] = expected_pool_day
+    info["allowlist_applied"] = True
+    info["allowlist_codes_count"] = int(len(pool_codes))
+    info["allowlist_day_used"] = expected_pool_day
     return pool_codes, info
 
 
@@ -203,3 +222,11 @@ def apply_pool_filter_to_universe(
     work = universe_df.copy()
     work["code"] = _normalize_code_series(work["code"])
     return work[work["code"].isin(pool_codes)]
+
+
+def apply_allowlist_filter_to_universe(
+    universe_df: pd.DataFrame,
+    *,
+    allowlist_codes: set[str] | None,
+) -> pd.DataFrame:
+    return apply_pool_filter_to_universe(universe_df, pool_codes=allowlist_codes)

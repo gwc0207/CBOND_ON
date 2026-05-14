@@ -17,6 +17,7 @@ from cbond_on.core.utils import progress
 from cbond_on.infra.factors.pipeline import run_factor_pipeline
 from cbond_on.infra.factors.quality import load_factor_specs_from_cfg, resolve_disabled_factor_names
 from cbond_on.infra.benchmark.service import compute_benchmark_returns_for_days
+from cbond_on.infra.backtest.execution import apply_cost_to_full_cycle_return
 from cbond_on.domain.factors.spec import FactorSpec, build_factor_col
 from cbond_on.domain.factors.storage import FactorStore
 from cbond_on.infra.report.factor_report import save_single_factor_report
@@ -874,13 +875,7 @@ def _apply_cost_to_return_series(
     buy_bps: float,
     sell_bps: float,
 ) -> pd.Series:
-    s = pd.to_numeric(series, errors="coerce")
-    buy_adj = 1.0 + max(0.0, float(buy_bps)) / 10000.0
-    sell_adj = 1.0 - max(0.0, float(sell_bps)) / 10000.0
-    if buy_adj <= 0 or sell_adj <= 0:
-        return s
-    # net_ret = ((1 + gross_ret) * sell_adj / buy_adj) - 1
-    return ((1.0 + s) * sell_adj / buy_adj) - 1.0
+    return apply_cost_to_full_cycle_return(series, buy_bps=buy_bps, sell_bps=sell_bps)
 
 
 def _resolve_factor_backtest_cost_bps() -> tuple[float, float, str]:

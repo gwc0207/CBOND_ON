@@ -8,6 +8,8 @@
     overwrite: false,
     lookback_days: 5,
     kline_enabled: true,
+    min_price: 100,
+    max_price: null,
     min_amount: 0,
     min_volume: 0,
     snapshot_source: "redis",
@@ -66,6 +68,19 @@
     config: "live/live_models",
     model_id: "lgbm_factor_MSE_live",
     label_cutoff: null
+  },
+  allowlist: {
+    enabled: true,
+    table: "quant_factor_dev.researcher_xuvb.o_0005",
+    lag_trading_days: 1,
+    asset: "cbond",
+    flag_field: "factor_value",
+    fallback_field: "weight",
+    threshold: 0.0
+  },
+  security_banlist: {
+    enabled: true,
+    file: "universe/security_banlist.json"
   },
   strategy: {
     strategy_id: "strategy01_topk_turnover",

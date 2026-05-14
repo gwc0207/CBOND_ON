@@ -22,7 +22,10 @@ from flask import Flask, jsonify, render_template, request
 
 from cbond_on.core.config import load_config_file
 from cbond_on.core.fees import load_fees_buy_sell_bps
-from cbond_on.infra.backtest.execution import apply_twap_bps, split_cycle_return_by_bridge
+from cbond_on.infra.backtest.execution import (
+    apply_cost_to_full_cycle_return,
+    split_cycle_return_by_bridge_with_cost,
+)
 from cbond_on.infra.benchmark.service import compute_benchmark_breakdown_for_day
 from cbond_on.infra.data.io import read_table_range, read_trading_calendar
 from cbond_on.infra.factors.quality import (
@@ -145,6 +148,50 @@ def _day_tag_to_iso(day: str) -> str:
     return _to_iso_day_tag(day)
 
 
+def _safe_float(value: object) -> float | None:
+    try:
+        out = float(value)
+    except Exception:
+        return None
+    if math.isnan(out) or math.isinf(out):
+        return None
+    return out
+
+
+def _next_open_day(raw_data_root: str | Path, trade_day: date) -> date | None:
+    days = _load_open_days(raw_data_root)
+    for item in days:
+        if item > trade_day:
+            return item
+    return None
+
+
+def _is_halted_price_row(row: pd.Series | None) -> bool:
+    if row is None:
+        return False
+    for col in ("volume", "amount", "deal"):
+        if col in row.index:
+            val = _safe_float(row.get(col))
+            if val is not None and val <= 0:
+                return True
+    prices = []
+    for col in ("open_price", "high_price", "low_price"):
+        if col in row.index:
+            val = _safe_float(row.get(col))
+            if val is not None:
+                prices.append(val)
+    return bool(prices) and all(val <= 0 for val in prices)
+
+
+def _status_label(status: str) -> str:
+    return {
+        "ready": "已出收益",
+        "pending": "等待收益",
+        "halted": "停牌",
+        "unavailable": "缺少行情",
+    }.get(status, "未知")
+
+
 def _read_holdings(day: str | None = None) -> list[dict]:
     iso_day = _to_iso_day_tag(day)
     live_day_root = _results_live_root() / iso_day
@@ -161,12 +208,94 @@ def _read_holdings(day: str | None = None) -> list[dict]:
         return []
     if "weight" not in df.columns:
         df["weight"] = pd.NA
+    trade_day = _parse_day_to_date(iso_day)
+    paths_cfg = load_config_file("paths")
+    raw_root = paths_cfg["raw_data_root"]
+    live_cfg = _load_live_cfg()
+    data_cfg = dict(live_cfg.get("data", {}))
+    output_cfg = dict(live_cfg.get("output", {}))
+    buy_col = str(output_cfg.get("buy_twap_col", data_cfg.get("buy_twap_col", "twap_1442_1457")))
+    sell_col = str(output_cfg.get("sell_twap_col", data_cfg.get("sell_twap_col", "twap_0930_0945")))
+    buy_cost_bps, sell_cost_bps, _ = load_fees_buy_sell_bps()
+    next_day = _next_open_day(raw_root, trade_day)
+
+    buy_lookup: dict[str, float | None] = {}
+    sell_lookup: dict[str, float | None] = {}
+    next_price_lookup: dict[str, pd.Series] = {}
+    sell_data_available = False
+    if next_day is not None:
+        buy_df = _read_twap_daily(raw_root, trade_day)
+        sell_df = _read_twap_daily(raw_root, next_day)
+        price_df = _read_price_daily(raw_root, next_day)
+        if not buy_df.empty and buy_col in buy_df.columns and "code" in buy_df.columns:
+            buy_lookup = {
+                str(row.code): _safe_float(getattr(row, buy_col))
+                for row in buy_df[["code", buy_col]].itertuples(index=False)
+            }
+        if not sell_df.empty and sell_col in sell_df.columns and "code" in sell_df.columns:
+            sell_data_available = True
+            sell_lookup = {
+                str(row.code): _safe_float(getattr(row, sell_col))
+                for row in sell_df[["code", sell_col]].itertuples(index=False)
+            }
+        if not price_df.empty and "code" in price_df.columns:
+            next_price_lookup = {
+                str(row["code"]): row
+                for _, row in price_df.iterrows()
+            }
+
+    today = datetime.now().date()
     rows = []
     for _, row in df.iterrows():
+        code = str(row.get("code", ""))
+        buy_twap = buy_lookup.get(code)
+        sell_twap = sell_lookup.get(code)
+        next_price_row = next_price_lookup.get(code)
+        halted = _is_halted_price_row(next_price_row)
+        status = "ready"
+        reason = ""
+        return_gross = None
+        return_net = None
+        weighted_return = None
+        if next_day is None or next_day > today or not sell_data_available:
+            status = "pending"
+            reason = "next trading day data not available yet"
+        elif halted:
+            status = "halted"
+            reason = "next trading day appears halted"
+        elif buy_twap is None or buy_twap <= 0:
+            status = "unavailable"
+            reason = f"missing or invalid {buy_col}"
+        elif sell_twap is None or sell_twap <= 0:
+            status = "unavailable"
+            reason = f"missing or invalid next-day {sell_col}"
+        else:
+            return_gross = sell_twap / buy_twap - 1.0
+            return_net = float(
+                apply_cost_to_full_cycle_return(
+                    pd.Series([return_gross]),
+                    buy_bps=buy_cost_bps,
+                    sell_bps=sell_cost_bps,
+                ).iloc[0]
+            )
+            weight_val = _safe_float(row.get("weight"))
+            weighted_return = None if weight_val is None else weight_val * return_net
         rows.append(
             {
-                "symbol": str(row.get("code", "")),
+                "symbol": code,
                 "weight": None if pd.isna(row.get("weight")) else float(row.get("weight")),
+                "score": None if "score" not in df.columns or pd.isna(row.get("score")) else float(row.get("score")),
+                "rank": None if "rank" not in df.columns or pd.isna(row.get("rank")) else int(row.get("rank")),
+                "trade_date": iso_day,
+                "next_day": None if next_day is None else f"{next_day:%Y-%m-%d}",
+                "buy_twap": buy_twap,
+                "sell_twap_next": sell_twap,
+                "return_gross": return_gross,
+                "return_net": return_net,
+                "weighted_return": weighted_return,
+                "status": status,
+                "status_label": _status_label(status),
+                "reason": reason,
             }
         )
     return rows
@@ -442,12 +571,12 @@ def _build_perf_summary(*, raw_data_root: str | Path, day: str | None, lookback:
         if merged.empty:
             continue
 
-        buy_px = apply_twap_bps(merged[buy_col], buy_cost_bps, side="buy")
-        sell_px = apply_twap_bps(merged[sell_col], sell_cost_bps, side="sell")
-        buy_leg_ret, sell_leg_ret, strat_ret = split_cycle_return_by_bridge(
-            buy_px,
-            sell_px,
+        buy_leg_ret, sell_leg_ret, strat_ret = split_cycle_return_by_bridge_with_cost(
+            merged[buy_col],
+            merged[sell_col],
             pd.to_numeric(merged["bridge_prev_close"], errors="coerce"),
+            buy_bps=buy_cost_bps,
+            sell_bps=sell_cost_bps,
         )
         w = _normalize_weights(merged["weight"])
         strategy_return = float((strat_ret * w).sum())
@@ -1420,7 +1549,7 @@ def create_app() -> Flask:
         for item in live_root.iterdir():
             if not item.is_dir():
                 continue
-            if not (item / "logs").exists():
+            if not (item / "logs").exists() and not (item / "trade_list.csv").exists():
                 continue
             try:
                 datetime.strptime(item.name, "%Y-%m-%d")
@@ -1455,7 +1584,18 @@ def create_app() -> Flask:
         resolved = _resolve_holdings_day_for_today(st, requested_day)
         if resolved is None:
             return jsonify({"rows": [], "day": requested_day})
-        return jsonify({"rows": _read_holdings(day=resolved), "day": resolved})
+        rows = _read_holdings(day=resolved)
+        return jsonify(
+            {
+                "rows": rows,
+                "day": resolved,
+                "next_day": next((row.get("next_day") for row in rows if row.get("next_day")), None),
+                "ready_count": sum(1 for row in rows if row.get("status") == "ready"),
+                "pending_count": sum(1 for row in rows if row.get("status") == "pending"),
+                "halted_count": sum(1 for row in rows if row.get("status") == "halted"),
+                "unavailable_count": sum(1 for row in rows if row.get("status") == "unavailable"),
+            }
+        )
 
     @app.get("/api/perf_summary")
     def api_perf_summary():
