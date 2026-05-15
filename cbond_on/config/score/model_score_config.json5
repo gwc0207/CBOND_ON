@@ -1,7 +1,7 @@
 {
-  default_model_id: "linear_screened_no_winsor_20260511",
-  model_id: "linear_screened_no_winsor_20260511",
-  start: "2024-01-01",
+  default_model_id: "lgbm_screened_no_winsor_20260511",
+  model_id: "lgbm_screened_no_winsor_20260511",
+  start: "2026-01-01",
   end: "2026-05-11",
   label_cutoff: null,
   execution: {
