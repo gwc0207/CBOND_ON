@@ -22,6 +22,7 @@ from cbond_on.core.trading_days import list_trading_days_from_raw, prev_trading_
 from cbond_on.domain.factors.storage import FactorStore
 from cbond_on.infra.model.wandb_utils import init_wandb_logger
 from cbond_on.infra.model.score_io import load_scores_by_date, write_scores_by_date
+from cbond_on.infra.model.preprocess_config import parse_winsor_bounds
 from cbond_on.infra.model.score_guard import (
     score_guard_bin_stats,
     score_guard_flags,
@@ -131,8 +132,8 @@ def _build_daily_split_cache(
     label_root: Path,
     factor_cols: list[str],
     min_count: int,
-    winsor_lower: float,
-    winsor_upper: float,
+    winsor_lower: float | None,
+    winsor_upper: float | None,
     zscore: bool,
     factor_time: str,
     label_time: str,
@@ -465,9 +466,7 @@ def main(
         sample = sample.reset_index()
     factor_cols = _select_factor_cols(sample, cfg)
 
-    winsor = cfg.get("winsor", {})
-    winsor_lower = float(winsor.get("lower", 0.01))
-    winsor_upper = float(winsor.get("upper", 0.99))
+    winsor_lower, winsor_upper = parse_winsor_bounds(cfg.get("winsor", {}))
     zscore = bool(cfg.get("zscore", True))
     min_count = int(cfg.get("min_count", 30))
     bins = int(cfg.get("bins", 5))

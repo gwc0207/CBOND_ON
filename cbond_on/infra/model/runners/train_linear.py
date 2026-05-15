@@ -15,6 +15,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from cbond_on.core.config import load_config_file, parse_date, resolve_output_path
 from cbond_on.domain.factors.storage import FactorStore
 from cbond_on.infra.model.wandb_utils import init_wandb_logger
+from cbond_on.infra.model.preprocess_config import parse_winsor_bounds
 from cbond_on.infra.model.impl.lgbm.trainer import (
     _iter_existing_label_days,
     _read_label_day,
@@ -88,9 +89,7 @@ def main(
         sample = sample.reset_index()
     factor_cols = _select_factor_cols(sample, cfg)
 
-    winsor = cfg.get("winsor", {})
-    winsor_lower = float(winsor.get("lower", 0.01))
-    winsor_upper = float(winsor.get("upper", 0.99))
+    winsor_lower, winsor_upper = parse_winsor_bounds(cfg.get("winsor", {}))
     zscore = bool(cfg.get("zscore", True))
     min_count = int(cfg.get("min_count", 30))
     bins = int(cfg.get("bins", 5))
@@ -132,8 +131,8 @@ def main(
     wandb_logger.log(
         {
             "factor_count": int(len(factor_cols)),
-            "winsor_lower": float(winsor_lower),
-            "winsor_upper": float(winsor_upper),
+            "winsor_lower": winsor_lower,
+            "winsor_upper": winsor_upper,
             "zscore": bool(zscore),
             "min_count": int(min_count),
             "bins": int(bins),

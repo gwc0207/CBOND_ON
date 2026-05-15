@@ -71,8 +71,8 @@ def _apply_winsor_zscore(
     df: pd.DataFrame,
     factor_cols: list[str],
     *,
-    lower_q: float,
-    upper_q: float,
+    lower_q: float | None,
+    upper_q: float | None,
     zscore: bool,
 ) -> pd.DataFrame:
     def _process(group: pd.DataFrame) -> pd.DataFrame:
@@ -82,9 +82,10 @@ def _apply_winsor_zscore(
             s = g[col]
             if s.isna().all():
                 continue
-            lo = s.quantile(lower_q)
-            hi = s.quantile(upper_q)
-            s = s.clip(lower=lo, upper=hi)
+            if lower_q is not None or upper_q is not None:
+                lo = s.quantile(lower_q) if lower_q is not None else None
+                hi = s.quantile(upper_q) if upper_q is not None else None
+                s = s.clip(lower=lo, upper=hi)
             if zscore:
                 mean = s.mean()
                 std = s.std(ddof=0)
@@ -166,8 +167,8 @@ def _score_day(
     label_root: Path,
     *,
     factor_cols: list[str],
-    winsor_lower: float,
-    winsor_upper: float,
+    winsor_lower: float | None,
+    winsor_upper: float | None,
     zscore: bool,
     min_count: int,
     factor_time: str,
@@ -215,8 +216,8 @@ def run_linear_score(
     factor_time: str,
     label_time: str,
     min_count: int,
-    winsor_lower: float,
-    winsor_upper: float,
+    winsor_lower: float | None,
+    winsor_upper: float | None,
     zscore: bool,
     lookback_days: int,
     refit_freq: int,
