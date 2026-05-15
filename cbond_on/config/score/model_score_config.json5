@@ -64,6 +64,10 @@
       model_type: "lgbm",
       model_config: "models/lgbm/lgbm_screened_no_winsor_20260511"
     },
+    lgbm_live_factors_no_winsor_20260511: {
+      model_type: "lgbm",
+      model_config: "models/lgbm/lgbm_live_factors_no_winsor_20260511"
+    },
     lgbm_factor_MSE: {
       model_type: "lgbm",
       model_config: "models/lgbm/lgbm_factor_MSE"

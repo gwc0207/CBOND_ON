@@ -1,17 +1,17 @@
 {
-  model_id: "lgbm_factor_MSE_live",
-  default_model_id: "lgbm_factor_MSE_live",
-  start: "2025-12-01",
-  end: "2026-03-30",
+  model_id: "lgbm_screened_no_winsor_live",
+  default_model_id: "lgbm_screened_no_winsor_live",
+  start: "2024-01-01",
+  end: "2026-05-11",
   label_cutoff: null,
   execution: {
     // Refit cadence in trading-day steps (1 = refit every target day).
     refit_every_n_days: 1
   },
   models: {
-    lgbm_factor_MSE_live: {
+    lgbm_screened_no_winsor_live: {
       model_type: "lgbm",
-      model_config: "live/live_lgbm_factor_MSE"
+      model_config: "live/live_lgbm_screened_no_winsor"
     }
   }
 }
