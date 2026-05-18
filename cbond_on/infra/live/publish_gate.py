@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from bisect import bisect_left
 import json
 import time
 from datetime import date
@@ -8,8 +7,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from cbond_on.core.config import parse_date, resolve_output_path
-from cbond_on.core.trading_days import list_available_trading_days_from_raw
+from cbond_on.core.config import resolve_output_path
 
 
 def today_shanghai() -> date:
@@ -32,26 +30,6 @@ def _parse_redis_symbols(value: object) -> list[str]:
     return sorted(set(out))
 
 
-def redis_snapshot_enabled(data_cfg: dict, live_cfg: dict | None = None) -> bool:
-    source_raw = data_cfg.get("snapshot_source")
-    if source_raw in (None, "") and live_cfg:
-        source_cfg = dict(live_cfg.get("source", {}))
-        intraday_cfg = dict(source_cfg.get("intraday", {}))
-        source_raw = intraday_cfg.get("type")
-    source = str(source_raw or "raw").strip().lower()
-    return source in {"redis", "redis_snapshot"}
-
-
-def resolve_redis_sync_day(data_cfg: dict, target_day: date) -> date:
-    mode_raw = str(data_cfg.get("redis_sync_day", "today")).strip()
-    mode = mode_raw.lower()
-    if mode in ("", "today", "current"):
-        return today_shanghai()
-    if mode == "target":
-        return target_day
-    return parse_date(mode_raw)
-
-
 def _default_manifest_root(raw_root: str, clean_root: str) -> Path:
     raw_parent = Path(raw_root).resolve().parent
     clean_parent = Path(clean_root).resolve().parent
@@ -71,7 +49,7 @@ def data_hub_runtime_from_live(live_cfg: dict, *, raw_root: str, clean_root: str
     )
     require_datasets = [str(x).strip().lower() for x in _parse_redis_symbols(cfg.get("require_datasets"))]
     if not require_datasets:
-        require_datasets = ["raw", "clean"]
+        require_datasets = ["clean"]
     return {
         "manifest_root": manifest_root,
         "require_datasets": require_datasets,
@@ -79,33 +57,6 @@ def data_hub_runtime_from_live(live_cfg: dict, *, raw_root: str, clean_root: str
         "require_done_marker": bool(cfg.get("require_done_marker", True)),
         "ready_gate_enabled": bool(cfg.get("ready_gate_enabled", True)),
     }
-
-
-def resolve_rebuild_window(
-    *,
-    raw_root: str,
-    run_day: date,
-    lookback_days: int,
-) -> tuple[date, date]:
-    days = list_available_trading_days_from_raw(
-        raw_root,
-        kind="snapshot",
-        asset="cbond",
-    )
-    if not days:
-        raise RuntimeError(f"no trading days found from raw root: {raw_root}")
-
-    idx = bisect_left(days, run_day)
-    prev_idx = max(0, idx - 1)
-    prev_trade_day = days[prev_idx]
-
-    lookback_n = max(0, int(lookback_days))
-    if lookback_n <= 0:
-        lookback_start = run_day
-    else:
-        start_idx = max(0, idx - lookback_n)
-        lookback_start = days[start_idx] if start_idx < len(days) else run_day
-    return lookback_start, prev_trade_day
 
 
 def _publish_ready(status: dict, *, require_done_marker: bool) -> bool:

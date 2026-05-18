@@ -4,45 +4,10 @@
     target_policy: "next_trading_day_after_cutoff"
   },
   data: {
-    refresh: false,
-    overwrite: false,
-    lookback_days: 5,
-    kline_enabled: true,
     min_price: 100,
     max_price: null,
     min_amount: 0,
-    min_volume: 0,
-    snapshot_source: "redis",
-    raw_sync_mode_when_redis: "both",
-    redis_sync_day: "today",
-    redis_source: "combiner",
-    redis_stage: "raw",
-    redis_asset_type: "cbond",
-    redis_incremental: true,
-    redis_full_day: false
-  },
-  source: {
-    history: {
-      nfs_required: true,
-      db_optional: true
-    },
-    intraday: {
-      type: "redis_snapshot",
-      source: "combiner",
-      stage: "raw",
-      asset: "cbond",
-      incremental: true,
-      full_day: false,
-      watermark_path: ""
-    }
-  },
-  redis: {
-    host: "10.1.30.11",
-    port: 6379,
-    db: 0,
-    password: "@QjFs39@k^wA",
-    socket_timeout: 5,
-    watermark_path: ""
+    min_volume: 0
   },
   data_hub: {
     project_root: {
@@ -56,7 +21,7 @@
       windows: "D:/cbond_data_hub/manifests",
       linux: "/mnt/cbond_data_hub_ro/manifests"
     },
-    require_datasets: ["raw", "clean"],
+    require_datasets: ["clean"],
     allow_partial_manifest: false,
     require_done_marker: true,
     ready_gate_enabled: true

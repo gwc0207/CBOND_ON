@@ -190,12 +190,12 @@ def _build_one_day(
         pool_cfg=pool_cfg,
     )
     if bool(pool_info.get("fallback_no_filter", False)):
-        print(
-            "[pool_filter] fallback_no_filter",
-            f"trade_day={day.date()}",
-            f"expected_pool_day={pool_info.get('pool_day_expected')}",
-            f"reason={pool_info.get('fallback_reason')}",
-            f"nearest_pool_day={pool_info.get('nearest_pool_day')}",
+        raise RuntimeError(
+            "[pool_filter] required pool is unavailable; no-filter fallback is disabled: "
+            f"trade_day={day.date()} "
+            f"expected_pool_day={pool_info.get('pool_day_expected')} "
+            f"reason={pool_info.get('fallback_reason')} "
+            f"nearest_pool_day={pool_info.get('nearest_pool_day')}"
         )
     merged_twap = apply_pool_filter_to_universe(merged_twap, pool_codes=pool_codes)
     if merged_twap.empty:

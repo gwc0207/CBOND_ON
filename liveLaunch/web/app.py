@@ -46,9 +46,9 @@ HEARTBEAT_STALE_SECONDS = 120
 LIVE_STATUS_API_VERSION = 1
 TIMELINE_STEPS: tuple[tuple[str, str], ...] = (
     ("trade_day", "Trade Day"),
-    ("ready_gate", "Ready Gate"),
-    ("build_panel", "Build Panel"),
-    ("compute_factors", "Compute Factors"),
+    ("ready_gate", "DataHub Ready"),
+    ("build_panel", "Load Clean Data"),
+    ("compute_factors", "Load Factors"),
     ("model_score", "Model Score"),
     ("strategy_select", "Strategy Select"),
     ("trade_list", "Trade List"),
@@ -166,6 +166,16 @@ def _next_open_day(raw_data_root: str | Path, trade_day: date) -> date | None:
     return None
 
 
+def _prev_open_day(raw_data_root: str | Path, trade_day: date) -> date | None:
+    days = _load_open_days(raw_data_root)
+    prev = None
+    for item in days:
+        if item >= trade_day:
+            return prev
+        prev = item
+    return prev
+
+
 def _is_halted_price_row(row: pd.Series | None) -> bool:
     if row is None:
         return False
@@ -192,32 +202,143 @@ def _status_label(status: str) -> str:
     }.get(status, "未知")
 
 
-def _read_holdings(day: str | None = None) -> list[dict]:
-    iso_day = _to_iso_day_tag(day)
-    live_day_root = _results_live_root() / iso_day
-    if not live_day_root.exists():
-        return []
-    files = sorted(live_day_root.glob("**/trade_list.csv"))
-    if not files:
-        return []
-    latest = files[-1]
-    df = pd.read_csv(latest)
-    if df.empty:
-        return []
-    if "code" not in df.columns:
-        return []
+def _coerce_live_date(value: object) -> date | None:
+    if value is None:
+        return None
+    try:
+        if pd.isna(value):
+            return None
+    except Exception:
+        pass
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        return datetime.strptime(_to_iso_day_tag(text[:10]), "%Y-%m-%d").date()
+    except Exception:
+        return None
+
+
+def _first_date_from_columns(df: pd.DataFrame, columns: tuple[str, ...]) -> date | None:
+    for col in columns:
+        if col not in df.columns:
+            continue
+        for val in df[col].dropna().tolist():
+            parsed = _coerce_live_date(val)
+            if parsed is not None:
+                return parsed
+    return None
+
+
+def _live_day_from_path(path: Path) -> date | None:
+    for part in reversed(path.parts):
+        parsed = _coerce_live_date(part)
+        if parsed is not None:
+            return parsed
+    return None
+
+
+def _live_day_root_from_path(path: Path) -> Path | None:
+    live_root = _results_live_root()
+    parsed_day = _live_day_from_path(path)
+    if parsed_day is None:
+        return None
+    candidate = live_root / f"{parsed_day:%Y-%m-%d}"
+    return candidate if candidate.exists() else path.parent
+
+
+def _read_trade_list_context(path: Path, *, raw_data_root: str | Path | None = None) -> dict | None:
+    try:
+        df = pd.read_csv(path)
+    except Exception:
+        return None
+    if df.empty or "code" not in df.columns:
+        return None
     if "weight" not in df.columns:
         df["weight"] = pd.NA
-    trade_day = _parse_day_to_date(iso_day)
+
+    live_day_root = _live_day_root_from_path(path)
+    folder_day = _live_day_from_path(path)
+    summary = _read_json(live_day_root / "allowlist_summary.json") if live_day_root else {}
+    if not summary and live_day_root:
+        summary = _read_json(live_day_root / "universe_filter_summary.json")
+
+    buy_day = (
+        _first_date_from_columns(df, ("buy_day", "signal_day", "score_day"))
+        or _coerce_live_date(summary.get("buy_day"))
+        or _coerce_live_date(summary.get("signal_day"))
+        or _coerce_live_date(summary.get("score_day"))
+    )
+    sell_day = (
+        _first_date_from_columns(df, ("sell_day", "target_day"))
+        or _coerce_live_date(summary.get("sell_day"))
+        or _coerce_live_date(summary.get("target_day"))
+        or folder_day
+    )
+    if buy_day is None and sell_day is not None and raw_data_root is not None:
+        buy_day = _prev_open_day(raw_data_root, sell_day)
+    if buy_day is None:
+        buy_day = folder_day
+    if sell_day is None and buy_day is not None and raw_data_root is not None:
+        sell_day = _next_open_day(raw_data_root, buy_day)
+    if buy_day is None:
+        return None
+
+    return {
+        "df": df,
+        "path": path,
+        "folder_day": folder_day,
+        "buy_day": buy_day,
+        "sell_day": sell_day,
+        "summary": summary,
+    }
+
+
+def _iter_trade_list_contexts(*, raw_data_root: str | Path | None = None) -> list[dict]:
+    live_root = _results_live_root()
+    if not live_root.exists():
+        return []
+    contexts: list[dict] = []
+    for path in sorted(live_root.glob("**/trade_list.csv")):
+        ctx = _read_trade_list_context(path, raw_data_root=raw_data_root)
+        if ctx is not None:
+            contexts.append(ctx)
+    return contexts
+
+
+def _read_trade_list_context_for_buy_day(day: date, *, raw_data_root: str | Path | None = None) -> dict | None:
+    contexts = [
+        ctx
+        for ctx in _iter_trade_list_contexts(raw_data_root=raw_data_root)
+        if ctx.get("buy_day") == day
+    ]
+    if contexts:
+        return sorted(contexts, key=lambda x: str(x.get("path")))[-1]
+
+    # Backward-compatible fallback for very old files that only used folder dates.
+    fallback_path = _results_live_root() / f"{day:%Y-%m-%d}" / "trade_list.csv"
+    if fallback_path.exists():
+        return _read_trade_list_context(fallback_path, raw_data_root=raw_data_root)
+    return None
+
+
+def _read_holdings(day: str | None = None) -> list[dict]:
+    iso_day = _to_iso_day_tag(day)
     paths_cfg = load_config_file("paths")
     raw_root = paths_cfg["raw_data_root"]
+    requested_day = datetime.strptime(iso_day, "%Y-%m-%d").date()
+    ctx = _read_trade_list_context_for_buy_day(requested_day, raw_data_root=raw_root)
+    if ctx is None:
+        return []
+    df = ctx["df"]
+    trade_day = ctx["buy_day"]
     live_cfg = _load_live_cfg()
     data_cfg = dict(live_cfg.get("data", {}))
     output_cfg = dict(live_cfg.get("output", {}))
     buy_col = str(output_cfg.get("buy_twap_col", data_cfg.get("buy_twap_col", "twap_1442_1457")))
     sell_col = str(output_cfg.get("sell_twap_col", data_cfg.get("sell_twap_col", "twap_0930_0945")))
     buy_cost_bps, sell_cost_bps, _ = load_fees_buy_sell_bps()
-    next_day = _next_open_day(raw_root, trade_day)
+    next_day = ctx.get("sell_day") or _next_open_day(raw_root, trade_day)
 
     buy_lookup: dict[str, float | None] = {}
     sell_lookup: dict[str, float | None] = {}
@@ -286,8 +407,10 @@ def _read_holdings(day: str | None = None) -> list[dict]:
                 "weight": None if pd.isna(row.get("weight")) else float(row.get("weight")),
                 "score": None if "score" not in df.columns or pd.isna(row.get("score")) else float(row.get("score")),
                 "rank": None if "rank" not in df.columns or pd.isna(row.get("rank")) else int(row.get("rank")),
-                "trade_date": iso_day,
+                "trade_date": f"{trade_day:%Y-%m-%d}",
+                "buy_day": f"{trade_day:%Y-%m-%d}",
                 "next_day": None if next_day is None else f"{next_day:%Y-%m-%d}",
+                "sell_day": None if next_day is None else f"{next_day:%Y-%m-%d}",
                 "buy_twap": buy_twap,
                 "sell_twap_next": sell_twap,
                 "return_gross": return_gross,
@@ -302,19 +425,12 @@ def _read_holdings(day: str | None = None) -> list[dict]:
 
 
 def _read_trade_list(day: date) -> pd.DataFrame:
-    live_day_root = _results_live_root() / f"{day:%Y-%m-%d}"
-    if not live_day_root.exists():
+    paths_cfg = load_config_file("paths")
+    raw_root = paths_cfg["raw_data_root"]
+    ctx = _read_trade_list_context_for_buy_day(day, raw_data_root=raw_root)
+    if ctx is None:
         return pd.DataFrame()
-    files = sorted(live_day_root.glob("**/trade_list.csv"))
-    if not files:
-        return pd.DataFrame()
-    try:
-        df = pd.read_csv(files[-1])
-    except Exception:
-        return pd.DataFrame()
-    if df.empty or "code" not in df.columns:
-        return pd.DataFrame()
-    work = df.copy()
+    work = ctx["df"].copy()
     if "weight" not in work.columns:
         work["weight"] = pd.NA
     return work[["code", "weight"]]
@@ -520,29 +636,27 @@ def _build_perf_summary(*, raw_data_root: str | Path, day: str | None, lookback:
         }
     next_day_map = {open_days[i]: open_days[i + 1] for i in range(len(open_days) - 1)}
 
-    live_root = _results_live_root()
-    candidates: list[date] = []
-    if live_root.exists():
-        for item in live_root.iterdir():
-            if not item.is_dir():
-                continue
-            try:
-                d = datetime.strptime(item.name, "%Y-%m-%d").date()
-            except ValueError:
-                continue
-            if d <= asof_day:
-                candidates.append(d)
-    candidates = sorted(candidates)[-lookback:]
+    contexts = _iter_trade_list_contexts(raw_data_root=raw_data_root)
+    candidates = sorted(
+        {
+            ctx["buy_day"]
+            for ctx in contexts
+            if ctx.get("buy_day") is not None and ctx["buy_day"] <= asof_day
+        }
+    )[-lookback:]
 
     rows: list[dict] = []
     for trade_day in candidates:
-        next_day = next_day_map.get(trade_day)
-        if next_day is None:
+        ctx = _read_trade_list_context_for_buy_day(trade_day, raw_data_root=raw_data_root)
+        next_day = (ctx or {}).get("sell_day") or next_day_map.get(trade_day)
+        if next_day is None or next_day > asof_day:
             continue
 
-        picks = _read_trade_list(trade_day)
+        picks = (ctx or {}).get("df", pd.DataFrame()).copy()
         if picks.empty:
             continue
+        if "weight" not in picks.columns:
+            picks["weight"] = pd.NA
 
         buy_df = _read_twap_daily(raw_data_root, trade_day)
         sell_df = _read_twap_daily(raw_data_root, next_day)
@@ -881,24 +995,16 @@ def _unknown_item(label: str, reason: str = "not_available", **extra) -> dict:
 
 
 def _live_profile_summary(live_cfg: dict) -> dict:
-    data_cfg = dict(live_cfg.get("data", {}))
-    source_cfg = dict(live_cfg.get("source", {}))
-    intraday_cfg = dict(source_cfg.get("intraday", {}))
     hub_cfg = dict(live_cfg.get("data_hub", {}))
     model_cfg = dict(live_cfg.get("model_score", {}))
     strategy_cfg = dict(live_cfg.get("strategy", {}))
     output_cfg = dict(live_cfg.get("output", {}))
-    data_mode = str(intraday_cfg.get("type") or data_cfg.get("snapshot_source") or "unknown")
-    if bool(data_cfg.get("redis_incremental", intraday_cfg.get("incremental", False))):
-        data_mode = f"{data_mode} incremental"
-    elif bool(data_cfg.get("redis_full_day", intraday_cfg.get("full_day", False))):
-        data_mode = f"{data_mode} full-day"
     return {
         "profile": "live/live_config.json5",
         "model_ref": str(model_cfg.get("model_id") or model_cfg.get("config") or "unknown"),
         "strategy": str(strategy_cfg.get("strategy_id") or "unknown"),
         "factor_profile": str(dict(live_cfg.get("factor", {})).get("config", "unknown")),
-        "data_mode": data_mode,
+        "data_mode": "DataHub clean consumer",
         "ready_gate": "enabled" if bool(hub_cfg.get("ready_gate_enabled", False)) else "disabled",
         "db_write": "enabled" if bool(output_cfg.get("db_write", False)) else "disabled by config",
     }
@@ -1178,8 +1284,8 @@ def _build_timeline(raw_status: str, db_card: dict) -> list[dict]:
             state="live_pipeline_running",
             status="running",
             health="ok",
-            label="Build Panel",
-            reason="live pipeline running; detailed step marker not available yet",
+            label="Load Clean Data",
+            reason="consumer-only live pipeline running; waiting for downstream status",
         )
     elif raw_status in {"success", "idle_after_run"}:
         for key in ("ready_gate", "build_panel", "compute_factors", "model_score", "strategy_select", "trade_list"):
@@ -1209,7 +1315,7 @@ def _build_timeline(raw_status: str, db_card: dict) -> list[dict]:
             state="live_run_failed",
             status="failed",
             health="error",
-            label="Build Panel",
+            label="Load Clean Data",
             reason="live run failed; inspect logs for exact failing step",
         )
 
@@ -1556,7 +1662,12 @@ def create_app() -> Flask:
             except ValueError:
                 continue
             days.append(item.name)
+        for ctx in _iter_trade_list_contexts(raw_data_root=paths_cfg["raw_data_root"]):
+            buy_day = ctx.get("buy_day")
+            if buy_day is not None:
+                days.append(f"{buy_day:%Y-%m-%d}")
         days.sort(reverse=True)
+        days = list(dict.fromkeys(days))
         if current_day not in days:
             days = [current_day] + days
         return jsonify({"days": days, "current_day": current_day})

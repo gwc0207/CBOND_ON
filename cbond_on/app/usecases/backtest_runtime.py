@@ -175,12 +175,12 @@ def run(
             enabled=allowlist_enabled,
         )
         if bool(pool_info.get("fallback_no_filter", False)):
-            print(
-                "[allowlist] fallback_no_filter",
-                f"trade_day={day:%Y-%m-%d}",
-                f"expected_pool_day={pool_info.get('pool_day_expected')}",
-                f"reason={pool_info.get('fallback_reason')}",
-                f"nearest_pool_day={pool_info.get('nearest_pool_day')}",
+            raise RuntimeError(
+                "[allowlist] required pool is unavailable; backtest does not allow no-filter fallback: "
+                f"trade_day={day:%Y-%m-%d} "
+                f"expected_pool_day={pool_info.get('pool_day_expected')} "
+                f"reason={pool_info.get('fallback_reason')} "
+                f"nearest_pool_day={pool_info.get('nearest_pool_day')}"
             )
         pre_allowlist_count = int(len(merged))
         merged = apply_allowlist_filter_to_universe(merged, allowlist_codes=pool_codes)

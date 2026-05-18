@@ -5,6 +5,7 @@ from datetime import date
 from pathlib import Path
 
 from cbond_on.core.config import load_config_file, parse_date, resolve_output_path
+from cbond_on.core.trading_days import prev_trading_days_from_raw
 from cbond_on.core.universe import filter_tradable, normalize_price_bound
 from cbond_on.infra.data.io import read_clean_daily
 from cbond_on.infra.universe.pool_filter import (
@@ -18,9 +19,6 @@ from cbond_on.infra.universe.security_banlist import (
 )
 from cbond_on.domain.signals.service import SignalSelectionRequest, select_signals
 from cbond_on.infra.model.score_io import load_scores_by_date
-from cbond_on.app.usecases.label_runtime import run as run_label
-from cbond_on.app.usecases.panel_runtime import run as run_panel
-from cbond_on.app.usecases.factor_build_runtime import run as run_factor_build
 from cbond_on.app.usecases.model_score_runtime import run as run_model_score
 from cbond_on.infra.live.config import (
     assert_no_date_fields_in_live_config,
@@ -33,9 +31,6 @@ from cbond_on.infra.live.holdings import load_previous_holdings
 from cbond_on.infra.live.publish_gate import (
     data_hub_runtime_from_live,
     ensure_publish_ready,
-    redis_snapshot_enabled,
-    resolve_rebuild_window,
-    resolve_redis_sync_day,
     today_shanghai,
 )
 from cbond_on.infra.live.score import resolve_score_df_for_target
@@ -68,6 +63,53 @@ def _security_banlist_diagnostics(ban_info: dict, pre_count: int, post_count: in
     }
 
 
+def _assert_consumer_only_live_config(live_cfg: dict) -> None:
+    """Live must consume DataHub outputs only; it must not own raw/snapshot processing."""
+
+    forbidden_top_level = {"source", "redis"}
+    present_top_level = sorted(k for k in forbidden_top_level if k in live_cfg)
+    if present_top_level:
+        raise ValueError(
+            "live_config is consumer-only; remove local source/redis processing sections: "
+            + ", ".join(present_top_level)
+        )
+
+    data_cfg = dict(live_cfg.get("data", {}))
+    forbidden_data_keys = {
+        "refresh",
+        "overwrite",
+        "lookback_days",
+        "kline_enabled",
+        "snapshot_source",
+        "raw_sync_mode_when_redis",
+        "redis_sync_day",
+        "redis_source",
+        "redis_stage",
+        "redis_asset_type",
+        "redis_incremental",
+        "redis_full_day",
+    }
+    present_data_keys = sorted(k for k in forbidden_data_keys if k in data_cfg)
+    if present_data_keys:
+        raise ValueError(
+            "live_config.data is consumer-only; remove local data rebuild/snapshot keys: "
+            + ", ".join(present_data_keys)
+        )
+
+
+def _prev_trading_day(raw_root: str, day: date) -> date:
+    prev_days = prev_trading_days_from_raw(
+        raw_root,
+        day,
+        1,
+        kind="snapshot",
+        asset="cbond",
+    )
+    if not prev_days:
+        raise RuntimeError(f"cannot resolve previous trading day before {day}")
+    return prev_days[-1]
+
+
 def run_once(
     *,
     start: str | date | None = None,
@@ -77,6 +119,7 @@ def run_once(
     _ = mode
     paths_cfg = load_config_file("paths")
     live_cfg = load_config_file("live")
+    _assert_consumer_only_live_config(live_cfg)
 
     schedule_cfg = dict(live_cfg.get("schedule", {}))
     data_cfg = dict(live_cfg.get("data", {}))
@@ -99,12 +142,9 @@ def run_once(
 
     today = today_shanghai()
     target_day = parse_date(target) if target is not None else today
-    start_day = parse_date(start) if start is not None else target_day
-
-    refresh_data = bool(data_cfg.get("refresh", False))
-    overwrite_data = bool(data_cfg.get("overwrite", False))
-    lookback_days = max(0, int(data_cfg.get("lookback_days", 0)))
-    use_redis_snapshot = redis_snapshot_enabled(data_cfg, live_cfg)
+    score_day = parse_date(start) if start is not None else (
+        today if target_day >= today else target_day
+    )
 
     raw_root = str(paths_cfg["raw_data_root"])
     clean_root = str(paths_cfg.get("cleaned_data_root") or paths_cfg.get("clean_data_root"))
@@ -114,78 +154,33 @@ def run_once(
         clean_root=clean_root,
     )
 
-    run_day = resolve_redis_sync_day(data_cfg, target_day) if use_redis_snapshot else target_day
-    rebuild_start_day, prev_trade_day = resolve_rebuild_window(
-        raw_root=raw_root,
-        run_day=run_day,
-        lookback_days=lookback_days,
+    prev_trade_day = _prev_trading_day(raw_root, score_day)
+
+    print(
+        "live run window:",
+        f"score_day={score_day}",
+        f"target_day={target_day}",
+        f"prev_trading_day={prev_trade_day}",
+        "mode=consumer_only",
     )
 
-    if use_redis_snapshot:
-        print(
-            "live run window:",
-            f"run_day={run_day}",
-            f"target_day={target_day}",
-            f"lookback_start={rebuild_start_day}",
-            f"prev_trading_day={prev_trade_day}",
-        )
-
-    gate_day = run_day if use_redis_snapshot else target_day
     if not bool(data_hub.get("ready_gate_enabled", True)):
         raise ValueError("live_config.data_hub.ready_gate_enabled must be true in consumer-only mode")
     ensure_publish_ready(
         runtime=data_hub,
-        trade_day=gate_day,
+        trade_day=score_day,
     )
 
-    if use_redis_snapshot:
-        run_panel(
-            start=rebuild_start_day,
-            end=run_day,
-            refresh=refresh_data,
-            overwrite=overwrite_data,
-        )
-        if prev_trade_day >= rebuild_start_day:
-            run_label(
-                start=rebuild_start_day,
-                end=prev_trade_day,
-                refresh=refresh_data,
-                overwrite=overwrite_data,
-            )
-        run_factor_build(
-            start=rebuild_start_day,
-            end=run_day,
-            refresh=refresh_data,
-            overwrite=overwrite_data,
-            cfg=live_factor_cfg,
-        )
-    else:
-        label_end = prev_trade_day
-        run_panel(start=start_day, end=target_day, refresh=refresh_data, overwrite=overwrite_data)
-        if label_end >= start_day:
-            run_label(start=start_day, end=label_end, refresh=refresh_data, overwrite=overwrite_data)
-        run_factor_build(
-            start=start_day,
-            end=target_day,
-            refresh=refresh_data,
-            overwrite=overwrite_data,
-            cfg=live_factor_cfg,
-        )
-
-    model_start = start_day
-    model_end = target_day
+    model_start = score_day
+    model_end = score_day
     model_label_cutoff = model_cfg.get("label_cutoff")
-    score_day = target_day
-    if use_redis_snapshot:
-        model_start = run_day
-        model_end = run_day
+    if model_label_cutoff is None:
         model_label_cutoff = prev_trade_day
-        score_day = run_day
-        print(
-            "model score window:",
-            f"score_day={score_day}",
-            f"label_cutoff={model_label_cutoff}",
-        )
+    print(
+        "model score window:",
+        f"score_day={score_day}",
+        f"label_cutoff={model_label_cutoff}",
+    )
     print(
         "live config profile:",
         f"factors={factor_cfg_key}",
@@ -216,11 +211,12 @@ def run_once(
     )
     clean_daily = read_clean_daily(clean_root, score_day)
     if clean_daily.empty:
-        universe = score_df[["code", "score"]].copy()
-    else:
-        universe = clean_daily.merge(score_df[["code", "score"]], on="code", how="inner")
-        if universe.empty:
-            raise ValueError("no score matched to clean data")
+        raise RuntimeError(
+            f"clean daily data missing for {score_day}; live is consumer-only and will not fall back to score-only universe"
+        )
+    universe = clean_daily.merge(score_df[["code", "score"]], on="code", how="inner")
+    if universe.empty:
+        raise ValueError("no score matched to clean data")
 
     pool_cfg = load_upstream_pool_config(allowlist_cfg or None)
     pool_codes, pool_info = resolve_pool_codes_for_trade_day(
@@ -230,12 +226,12 @@ def run_once(
         enabled=allowlist_enabled,
     )
     if bool(pool_info.get("fallback_no_filter", False)):
-        print(
-            "[allowlist] fallback_no_filter",
-            f"trade_day={score_day:%Y-%m-%d}",
-            f"expected_pool_day={pool_info.get('pool_day_expected')}",
-            f"reason={pool_info.get('fallback_reason')}",
-            f"nearest_pool_day={pool_info.get('nearest_pool_day')}",
+        raise RuntimeError(
+            "[allowlist] required pool is unavailable; consumer-only live does not allow no-filter fallback: "
+            f"trade_day={score_day:%Y-%m-%d} "
+            f"expected_pool_day={pool_info.get('pool_day_expected')} "
+            f"reason={pool_info.get('fallback_reason')} "
+            f"nearest_pool_day={pool_info.get('nearest_pool_day')}"
         )
     pre_allowlist_count = int(len(universe))
     universe = apply_allowlist_filter_to_universe(universe, allowlist_codes=pool_codes)
@@ -281,6 +277,11 @@ def run_once(
     out_dir = Path(paths_cfg["results_root"]) / "live" / f"{target_day:%Y-%m-%d}"
     out_dir.mkdir(parents=True, exist_ok=True)
     picks = picks.copy()
+    picks["signal_day"] = score_day
+    picks["buy_day"] = score_day
+    picks["sell_day"] = target_day
+    picks["target_day"] = target_day
+    picks["score_day"] = score_day
     picks["trade_date"] = target_day
     picks.to_csv(out_dir / "trade_list.csv", index=False)
     allowlist_summary = {

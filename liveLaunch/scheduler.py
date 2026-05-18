@@ -223,7 +223,7 @@ def main() -> None:
             with redirect_stdout(fp), redirect_stderr(fp):
                 print(f"{datetime.now():%Y-%m-%d %H:%M:%S} [run] start target={target}")
                 try:
-                    out_path = run_once(start=target, target=target, mode="scheduler")
+                    out_path = run_once(start=today, target=target, mode="scheduler")
                     out_dir = str(out_path)
                     print(f"{datetime.now():%Y-%m-%d %H:%M:%S} [run] success out={out_dir}")
                 except Exception as exc:
