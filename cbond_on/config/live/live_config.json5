@@ -3,12 +3,6 @@
     cutoff_time: "14:29",
     target_policy: "next_trading_day_after_cutoff"
   },
-  data: {
-    min_price: 100,
-    max_price: null,
-    min_amount: 0,
-    min_volume: 0
-  },
   data_hub: {
     project_root: {
       windows: "C:/Users/BaiYang/CBOND_DATA_HUB",
@@ -42,10 +36,6 @@
     flag_field: "factor_value",
     fallback_field: "weight",
     threshold: 0.0
-  },
-  security_banlist: {
-    enabled: true,
-    file: "universe/security_banlist.json"
   },
   strategy: {
     strategy_id: "strategy01_topk_turnover",

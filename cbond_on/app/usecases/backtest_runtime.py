@@ -12,16 +12,11 @@ from cbond_on.infra.backtest.execution import (
 from cbond_on.core.config import load_config_file, parse_date
 from cbond_on.core.fees import load_fees_buy_sell_bps
 from cbond_on.core.trading_days import next_trading_days_from_raw
-from cbond_on.core.universe import filter_tradable, normalize_price_bound
 from cbond_on.infra.benchmark.service import compute_benchmark_breakdowns_for_days
 from cbond_on.infra.universe.pool_filter import (
     apply_allowlist_filter_to_universe,
     load_upstream_pool_config,
     resolve_pool_codes_for_trade_day,
-)
-from cbond_on.infra.universe.security_banlist import (
-    apply_security_banlist_to_universe,
-    load_security_banlist,
 )
 from cbond_on.domain.portfolio.service import normalize_weights, to_prev_positions
 from cbond_on.domain.signals.service import SignalSelectionRequest, select_signals
@@ -35,6 +30,9 @@ from cbond_on.infra.report.backtest_plot import write_backtest_report_image
 class BacktestRunResult:
     out_dir: Path
     days: int
+
+
+O005_ALLOWLIST_TABLE = "quant_factor_dev.researcher_xuvb.o_0005"
 
 
 def _allowlist_diagnostics(pool_info: dict, pre_count: int, post_count: int) -> dict:
@@ -55,13 +53,33 @@ def _allowlist_diagnostics(pool_info: dict, pre_count: int, post_count: int) -> 
     }
 
 
-def _security_banlist_diagnostics(ban_info: dict, pre_count: int, post_count: int) -> dict:
-    return {
-        **ban_info,
-        "pre_security_banlist_count": int(pre_count),
-        "post_security_banlist_count": int(post_count),
-        "security_banlist_removed_count": int(pre_count - post_count),
+def _assert_o005_only_universe_config(bt_cfg: dict) -> None:
+    forbidden_keys = {
+        "security_banlist",
+        "filter_tradable",
+        "min_price",
+        "max_price",
+        "min_amount",
+        "min_volume",
     }
+    present = sorted(k for k in forbidden_keys if k in bt_cfg)
+    if present:
+        raise ValueError(
+            "backtest universe filter must only use o_0005 allowlist; remove: "
+            + ", ".join(present)
+        )
+
+    allowlist_raw = bt_cfg.get("allowlist")
+    if not isinstance(allowlist_raw, dict):
+        raise ValueError("backtest allowlist must be configured as an o_0005 allowlist block")
+    if not bool(allowlist_raw.get("enabled", True)):
+        raise ValueError("backtest allowlist must be enabled; o_0005 is the only allowed universe filter")
+    table = str(allowlist_raw.get("table", allowlist_raw.get("pool_table", ""))).strip()
+    if table != O005_ALLOWLIST_TABLE:
+        raise ValueError(
+            "backtest allowlist table must be "
+            f"{O005_ALLOWLIST_TABLE}; got {table or '<missing>'}"
+        )
 
 
 def run(
@@ -72,6 +90,7 @@ def run(
 ) -> BacktestRunResult:
     paths_cfg = load_config_file("paths")
     bt_cfg = dict(cfg or load_config_file("backtest"))
+    _assert_o005_only_universe_config(bt_cfg)
 
     start_day = parse_date(start or bt_cfg.get("start"))
     end_day = parse_date(end or bt_cfg.get("end"))
@@ -92,19 +111,10 @@ def run(
         f"sell_bps={sell_cost_bps:.4f}",
         f"source={fee_source}",
     )
-    min_amount = float(bt_cfg.get("min_amount", 0.0))
-    min_volume = float(bt_cfg.get("min_volume", 0.0))
-    min_price = normalize_price_bound(bt_cfg.get("min_price", 0.0))
-    max_price = normalize_price_bound(bt_cfg.get("max_price"))
-    filter_flag = bool(bt_cfg.get("filter_tradable", True))
     allowlist_raw = bt_cfg.get("allowlist", {})
     allowlist_cfg = allowlist_raw if isinstance(allowlist_raw, dict) else {}
     allowlist_enabled = bool(allowlist_cfg.get("enabled", True)) if isinstance(allowlist_raw, dict) else bool(allowlist_raw)
     pool_cfg = load_upstream_pool_config(allowlist_cfg or None)
-    security_banlist_cfg = bt_cfg.get("security_banlist", {})
-    banned_codes, security_banlist_info = load_security_banlist(
-        security_banlist_cfg if isinstance(security_banlist_cfg, dict) else {"enabled": bool(security_banlist_cfg)}
-    )
 
     raw_root = paths_cfg["raw_data_root"]
     days = iter_open_days(raw_root, start_day, end_day)
@@ -195,47 +205,8 @@ def run(
                 }
             )
             continue
-        pre_banlist_count = int(len(merged))
-        merged = apply_security_banlist_to_universe(merged, banned_codes=banned_codes)
-        banlist_diag = _security_banlist_diagnostics(security_banlist_info, pre_banlist_count, int(len(merged)))
-        filter_diag = {**allowlist_diag, **banlist_diag, "min_price": min_price, "max_price": max_price}
-        if merged.empty:
-            diag_rows.append(
-                {
-                    "trade_date": day,
-                    "status": "skip",
-                    "reason": "empty_security_banlist_filtered_universe",
-                    **filter_diag,
-                }
-            )
-            continue
+        filter_diag = {**allowlist_diag, "universe_filter": "o_0005_only"}
         merged = merged.merge(score_df[["code", "score"]], on="code", how="inner")
-        if filter_flag:
-            merged = filter_tradable(
-                merged,
-                buy_twap_col=buy_col,
-                sell_twap_col=f"{sell_col}_next",
-                min_amount=min_amount,
-                min_volume=min_volume,
-                min_price=min_price,
-                max_price=max_price,
-            )
-        else:
-            merged = merged[
-                merged[buy_col].notna()
-                & merged[f"{sell_col}_next"].notna()
-                & merged["bridge_prev_close"].notna()
-                & (merged[buy_col] > 0)
-                & (merged[f"{sell_col}_next"] > 0)
-                & (merged["bridge_prev_close"] > 0)
-            ]
-            if min_price > 0:
-                merged = merged[pd.to_numeric(merged[buy_col], errors="coerce") >= min_price]
-            if max_price > 0:
-                merged = merged[pd.to_numeric(merged[buy_col], errors="coerce") <= max_price]
-        merged = merged[
-            merged["bridge_prev_close"].notna() & (pd.to_numeric(merged["bridge_prev_close"], errors="coerce") > 0)
-        ]
         if merged.empty:
             diag_rows.append({"trade_date": day, "status": "skip", "reason": "empty_universe", **filter_diag})
             continue
@@ -257,7 +228,11 @@ def run(
             merged[["code", buy_col, f"{sell_col}_next", "bridge_prev_close"]],
             on="code",
             how="left",
-        ).dropna(subset=[buy_col, f"{sell_col}_next", "bridge_prev_close"])
+        )
+        price_cols = [buy_col, f"{sell_col}_next", "bridge_prev_close"]
+        for col in price_cols:
+            picks[col] = pd.to_numeric(picks[col], errors="coerce")
+        picks = picks[(picks[price_cols] > 0).all(axis=1)]
         if picks.empty:
             diag_rows.append({"trade_date": day, "status": "skip", "reason": "missing_trade_price", **filter_diag})
             continue
@@ -305,21 +280,26 @@ def run(
             }
         )
 
-        _, _, full_ret = split_cycle_return_by_bridge_with_cost(
-            merged[buy_col],
-            merged[f"{sell_col}_next"],
-            pd.to_numeric(merged["bridge_prev_close"], errors="coerce"),
-            buy_bps=buy_cost_bps,
-            sell_bps=sell_cost_bps,
-        )
-        ic_rows.append(
-            {
-                "trade_date": day,
-                "ic": float(merged["score"].corr(full_ret, method="pearson")),
-                "rank_ic": float(merged["score"].corr(full_ret, method="spearman")),
-                "count": int(len(merged)),
-            }
-        )
+        ic_base = merged.copy()
+        for col in [buy_col, f"{sell_col}_next", "bridge_prev_close"]:
+            ic_base[col] = pd.to_numeric(ic_base[col], errors="coerce")
+        ic_base = ic_base[(ic_base[[buy_col, f"{sell_col}_next", "bridge_prev_close"]] > 0).all(axis=1)]
+        if not ic_base.empty:
+            _, _, full_ret = split_cycle_return_by_bridge_with_cost(
+                ic_base[buy_col],
+                ic_base[f"{sell_col}_next"],
+                pd.to_numeric(ic_base["bridge_prev_close"], errors="coerce"),
+                buy_bps=buy_cost_bps,
+                sell_bps=sell_cost_bps,
+            )
+            ic_rows.append(
+                {
+                    "trade_date": day,
+                    "ic": float(ic_base["score"].corr(full_ret, method="pearson")),
+                    "rank_ic": float(ic_base["score"].corr(full_ret, method="spearman")),
+                    "count": int(len(ic_base)),
+                }
+            )
         diag_rows.append({"trade_date": day, "status": "ok", "reason": "", "count": int(len(picks)), **filter_diag})
 
         for _, row in picks.iterrows():

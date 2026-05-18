@@ -1,7 +1,6 @@
 ﻿
 from __future__ import annotations
 
-from bisect import bisect_right
 from dataclasses import dataclass
 from datetime import date, datetime, time as dt_time
 from pathlib import Path
@@ -17,16 +16,12 @@ except Exception as exc:  # pragma: no cover
     lgb = None
     _LIGHTGBM_IMPORT_ERROR = exc
 
-from cbond_on.core.trading_days import list_available_trading_days_from_raw
-from cbond_on.core.universe import filter_tradable
 from cbond_on.domain.factors.storage import FactorStore
 from cbond_on.infra.universe.pool_filter import (
     UpstreamPoolConfig,
-    apply_pool_filter_to_universe,
     load_upstream_pool_config,
     resolve_pool_codes_for_trade_day,
 )
-from cbond_on.infra.data.io import read_table_range
 
 
 _GPU_HINTS = (
@@ -119,25 +114,6 @@ def _read_label_day(label_root: Path, day: date, *, factor_time: str, label_time
     return df
 
 
-def _read_daily_twap_day(
-    raw_data_root: str | Path,
-    twap_table: str,
-    day: date,
-) -> pd.DataFrame:
-    df = read_table_range(raw_data_root, twap_table, day, day)
-    if df.empty:
-        return df
-    if "code" not in df.columns:
-        if "instrument_code" in df.columns and "exchange_code" in df.columns:
-            df = df.copy()
-            df["code"] = (
-                df["instrument_code"].astype(str) + "." + df["exchange_code"].astype(str)
-            )
-        else:
-            return pd.DataFrame()
-    return df
-
-
 def build_tradable_code_map(
     *,
     raw_data_root: str | Path,
@@ -150,50 +126,16 @@ def build_tradable_code_map(
     asset: str = "cbond",
     pool_cfg: UpstreamPoolConfig | None = None,
 ) -> dict[date, set[str]]:
+    # Compatibility parameters are intentionally ignored here.
+    # Eligibility must come only from the T-1 o_0005 allowlist.
+    _ = (buy_twap_col, sell_twap_col, min_amount, min_volume, twap_table, asset)
     unique_days = sorted(set(days))
     if not unique_days:
-        return {}
-    open_days = list_available_trading_days_from_raw(
-        raw_data_root,
-        kind="snapshot",
-        asset=asset,
-    )
-    if not open_days:
         return {}
     upstream_pool_cfg = pool_cfg or load_upstream_pool_config()
 
     out: dict[date, set[str]] = {}
     for day in unique_days:
-        pos = bisect_right(open_days, day)
-        if pos >= len(open_days):
-            continue
-        next_day = open_days[pos]
-        buy_df = _read_daily_twap_day(raw_data_root, twap_table, day)
-        sell_df = _read_daily_twap_day(raw_data_root, twap_table, next_day)
-        if buy_df.empty or sell_df.empty:
-            continue
-        if buy_twap_col not in buy_df.columns or sell_twap_col not in sell_df.columns:
-            continue
-
-        left_cols = ["code", buy_twap_col]
-        if "amount" in buy_df.columns:
-            left_cols.append("amount")
-        if "volume" in buy_df.columns:
-            left_cols.append("volume")
-        merged = buy_df[left_cols].merge(
-            sell_df[["code", sell_twap_col]].rename(columns={sell_twap_col: "__sell_twap"}),
-            on="code",
-            how="inner",
-        )
-        if merged.empty:
-            continue
-        filtered = filter_tradable(
-            merged,
-            buy_twap_col=buy_twap_col,
-            sell_twap_col="__sell_twap",
-            min_amount=float(min_amount),
-            min_volume=float(min_volume),
-        )
         pool_codes, pool_info = resolve_pool_codes_for_trade_day(
             raw_data_root=raw_data_root,
             trade_day=day,
@@ -207,10 +149,9 @@ def build_tradable_code_map(
                 f"reason={pool_info.get('fallback_reason')} "
                 f"nearest_pool_day={pool_info.get('nearest_pool_day')}"
             )
-        filtered = apply_pool_filter_to_universe(filtered, pool_codes=pool_codes)
-        if filtered.empty:
+        if not pool_codes:
             continue
-        out[day] = set(filtered["code"].astype(str).tolist())
+        out[day] = set(str(code) for code in pool_codes)
     return out
 
 

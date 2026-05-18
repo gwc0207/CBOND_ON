@@ -6,16 +6,11 @@ from pathlib import Path
 
 from cbond_on.core.config import load_config_file, parse_date, resolve_output_path
 from cbond_on.core.trading_days import prev_trading_days_from_raw
-from cbond_on.core.universe import filter_tradable, normalize_price_bound
 from cbond_on.infra.data.io import read_clean_daily
 from cbond_on.infra.universe.pool_filter import (
     apply_allowlist_filter_to_universe,
     load_upstream_pool_config,
     resolve_pool_codes_for_trade_day,
-)
-from cbond_on.infra.universe.security_banlist import (
-    apply_security_banlist_to_universe,
-    load_security_banlist,
 )
 from cbond_on.domain.signals.service import SignalSelectionRequest, select_signals
 from cbond_on.infra.model.score_io import load_scores_by_date
@@ -36,6 +31,9 @@ from cbond_on.infra.live.publish_gate import (
 from cbond_on.infra.live.score import resolve_score_df_for_target
 
 
+O005_ALLOWLIST_TABLE = "quant_factor_dev.researcher_xuvb.o_0005"
+
+
 def _allowlist_diagnostics(pool_info: dict, pre_count: int, post_count: int) -> dict:
     return {
         "allowlist_table": pool_info.get("allowlist_table") or pool_info.get("pool_table"),
@@ -51,15 +49,6 @@ def _allowlist_diagnostics(pool_info: dict, pre_count: int, post_count: int) -> 
         "allowlist_fallback_reason": pool_info.get("allowlist_fallback_reason") or pool_info.get("fallback_reason", ""),
         "pre_allowlist_count": int(pre_count),
         "post_allowlist_count": int(post_count),
-    }
-
-
-def _security_banlist_diagnostics(ban_info: dict, pre_count: int, post_count: int) -> dict:
-    return {
-        **ban_info,
-        "pre_security_banlist_count": int(pre_count),
-        "post_security_banlist_count": int(post_count),
-        "security_banlist_removed_count": int(pre_count - post_count),
     }
 
 
@@ -88,12 +77,31 @@ def _assert_consumer_only_live_config(live_cfg: dict) -> None:
         "redis_asset_type",
         "redis_incremental",
         "redis_full_day",
+        "min_price",
+        "max_price",
+        "min_amount",
+        "min_volume",
     }
     present_data_keys = sorted(k for k in forbidden_data_keys if k in data_cfg)
     if present_data_keys:
         raise ValueError(
             "live_config.data is consumer-only; remove local data rebuild/snapshot keys: "
             + ", ".join(present_data_keys)
+        )
+
+    if "security_banlist" in live_cfg:
+        raise ValueError("live universe filter must only use o_0005 allowlist; remove security_banlist")
+
+    allowlist_raw = live_cfg.get("allowlist")
+    if not isinstance(allowlist_raw, dict):
+        raise ValueError("live allowlist must be configured as an o_0005 allowlist block")
+    if not bool(allowlist_raw.get("enabled", True)):
+        raise ValueError("live allowlist must be enabled; o_0005 is the only allowed universe filter")
+    table = str(allowlist_raw.get("table", allowlist_raw.get("pool_table", ""))).strip()
+    if table != O005_ALLOWLIST_TABLE:
+        raise ValueError(
+            "live allowlist table must be "
+            f"{O005_ALLOWLIST_TABLE}; got {table or '<missing>'}"
         )
 
 
@@ -122,19 +130,12 @@ def run_once(
     _assert_consumer_only_live_config(live_cfg)
 
     schedule_cfg = dict(live_cfg.get("schedule", {}))
-    data_cfg = dict(live_cfg.get("data", {}))
-    min_price = normalize_price_bound(data_cfg.get("min_price", 0.0))
-    max_price = normalize_price_bound(data_cfg.get("max_price"))
     model_cfg = dict(live_cfg.get("model_score", {}))
     strategy_cfg = dict(live_cfg.get("strategy", {}))
     output_cfg = dict(live_cfg.get("output", {}))
     allowlist_raw = live_cfg.get("allowlist", {})
     allowlist_cfg = allowlist_raw if isinstance(allowlist_raw, dict) else {}
     allowlist_enabled = bool(allowlist_cfg.get("enabled", True)) if isinstance(allowlist_raw, dict) else bool(allowlist_raw)
-    security_banlist_cfg = live_cfg.get("security_banlist", {})
-    banned_codes, security_banlist_info = load_security_banlist(
-        security_banlist_cfg if isinstance(security_banlist_cfg, dict) else {"enabled": bool(security_banlist_cfg)}
-    )
     factor_cfg_key, live_factor_cfg = load_live_factor_runtime(live_cfg)
     model_cfg_key, live_model_score_cfg, model_id = load_live_model_runtime(live_cfg)
 
@@ -203,12 +204,6 @@ def run_once(
     score_cache = load_scores_by_date(score_path)
     score_df = resolve_score_df_for_target(score_cache, score_day, score_path)
 
-    buy_col = str(
-        output_cfg.get("buy_twap_col", data_cfg.get("buy_twap_col", "twap_1442_1457"))
-    )
-    sell_col = str(
-        output_cfg.get("sell_twap_col", data_cfg.get("sell_twap_col", "twap_0930_0945"))
-    )
     clean_daily = read_clean_daily(clean_root, score_day)
     if clean_daily.empty:
         raise RuntimeError(
@@ -239,25 +234,6 @@ def run_once(
     if universe.empty:
         raise ValueError("live universe is empty after allowlist filter")
 
-    pre_banlist_count = int(len(universe))
-    universe = apply_security_banlist_to_universe(universe, banned_codes=banned_codes)
-    banlist_diag = _security_banlist_diagnostics(security_banlist_info, pre_banlist_count, int(len(universe)))
-    if universe.empty:
-        raise ValueError("live universe is empty after security banlist filter")
-
-    if buy_col in universe.columns and sell_col in universe.columns:
-        universe = filter_tradable(
-            universe,
-            buy_twap_col=buy_col,
-            sell_twap_col=sell_col,
-            min_amount=float(data_cfg.get("min_amount", 0.0)),
-            min_volume=float(data_cfg.get("min_volume", 0.0)),
-            min_price=min_price,
-            max_price=max_price,
-        )
-    if universe.empty:
-        raise ValueError("live universe is empty after tradable filter")
-
     strategy_id = str(strategy_cfg.get("strategy_id", "strategy01_topk_turnover"))
     strategy_config = load_strategy_config(strategy_cfg.get("strategy_config_path"))
     strategy_config = strategy_config or {k: v for k, v in strategy_cfg.items() if k != "strategy_id"}
@@ -286,12 +262,9 @@ def run_once(
     picks.to_csv(out_dir / "trade_list.csv", index=False)
     allowlist_summary = {
         **allowlist_diag,
-        **banlist_diag,
+        "universe_filter": "o_0005_only",
         "target_day": target_day,
         "score_day": score_day,
-        "min_price": min_price,
-        "max_price": max_price,
-        "post_tradable_count": int(len(universe)),
         "picks_count": int(len(picks)),
     }
     summary_text = json.dumps(allowlist_summary, ensure_ascii=False, indent=2, default=str)

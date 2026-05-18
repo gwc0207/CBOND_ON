@@ -7,7 +7,6 @@ from typing import Iterable
 
 import pandas as pd
 
-from cbond_on.core.universe import filter_tradable
 from cbond_on.core.utils import progress
 from cbond_on.infra.benchmark.service import compute_benchmark_breakdown_for_day
 from cbond_on.infra.data.io import read_table_range, read_trading_calendar, iter_clean_dates
@@ -99,9 +98,6 @@ def run_backtest(
     bin_lookback_days: int,
     min_count: int,
     max_weight: float,
-    filter_tradable_flag: bool,
-    min_amount: float,
-    min_volume: float,
     ic_bins: int,
     live_bin_source: str | None = None,
     live_bin_top_k: int | None = None,
@@ -195,19 +191,10 @@ def run_backtest(
             diagnostics.append({"trade_date": day, "status": "skip", "reason": "empty_pool_filtered_universe"})
             continue
 
-        if filter_tradable_flag:
-            merged = filter_tradable(
-                merged,
-                buy_twap_col=buy_twap_col,
-                sell_twap_col=sell_next_col,
-                min_amount=min_amount,
-                min_volume=min_volume,
-            )
-        else:
-            required = [buy_twap_col, sell_next_col]
-            missing_cols = [c for c in required if c not in merged.columns]
-            if missing_cols:
-                raise KeyError(f"missing twap columns: {missing_cols}")
+        required = [buy_twap_col, sell_next_col]
+        missing_cols = [c for c in required if c not in merged.columns]
+        if missing_cols:
+            raise KeyError(f"missing twap columns: {missing_cols}")
 
         merged = merged[merged["score"].notna()]
         merged = merged[
