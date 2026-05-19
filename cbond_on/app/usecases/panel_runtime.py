@@ -41,6 +41,12 @@ def run(
     panel_mode = str(panel_cfg.get("panel_mode", "snapshot_sequence"))
     count_points = int(panel_cfg.get("count_points", 3000))
     max_lookback_days = int(panel_cfg.get("max_lookback_days", 3))
+    raw_asset_overrides = panel_cfg.get("asset_overrides", {})
+    asset_overrides = {
+        str(k).strip().lower(): dict(v)
+        for k, v in (raw_asset_overrides.items() if isinstance(raw_asset_overrides, dict) else [])
+        if str(k).strip() and isinstance(v, dict)
+    }
     workers = int(panel_cfg.get("workers", 1))
     snapshot_columns = panel_cfg.get("snapshot_columns")
     lead_minutes = int(panel_cfg.get("lead_minutes", 0))
@@ -52,6 +58,9 @@ def run(
     missing_snapshot_days = 0
     by_asset: dict[str, dict[str, int]] = {}
     for asset in assets:
+        asset_cfg = asset_overrides.get(asset, {})
+        asset_count_points = int(asset_cfg.get("count_points", count_points))
+        asset_max_lookback_days = int(asset_cfg.get("max_lookback_days", max_lookback_days))
         asset_written = 0
         asset_skipped = 0
         asset_diag_rows = 0
@@ -70,8 +79,8 @@ def run(
                 asset=asset,
                 overwrite=overwrite_val,
                 panel_mode=panel_mode,
-                count_points=count_points,
-                max_lookback_days=max_lookback_days,
+                count_points=asset_count_points,
+                max_lookback_days=asset_max_lookback_days,
                 workers=workers,
                 snapshot_columns=snapshot_columns,
                 lead_minutes=lead_minutes,
@@ -90,6 +99,8 @@ def run(
             "skipped": asset_skipped,
             "diagnostics_rows": asset_diag_rows,
             "missing_snapshot_days": asset_missing_days,
+            "count_points": asset_count_points,
+            "max_lookback_days": asset_max_lookback_days,
         }
 
     return {
