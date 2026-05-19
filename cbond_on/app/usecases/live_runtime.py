@@ -14,7 +14,10 @@ from cbond_on.infra.universe.pool_filter import (
 )
 from cbond_on.domain.signals.service import SignalSelectionRequest, select_signals
 from cbond_on.infra.model.score_io import load_scores_by_date
+from cbond_on.app.usecases.factor_build_runtime import run as run_factor_build
+from cbond_on.app.usecases.label_runtime import run as run_label_build
 from cbond_on.app.usecases.model_score_runtime import run as run_model_score
+from cbond_on.app.usecases.panel_runtime import run as run_panel_build
 from cbond_on.infra.live.config import (
     assert_no_date_fields_in_live_config,
     load_live_factor_runtime,
@@ -32,6 +35,51 @@ from cbond_on.infra.live.score import resolve_score_df_for_target
 
 
 O005_ALLOWLIST_TABLE = "quant_factor_dev.researcher_xuvb.o_0005"
+
+
+def _month_day_path(root: str | Path, day: date, *, filename_root: str = "") -> Path:
+    month = f"{day.year:04d}-{day.month:02d}"
+    filename = f"{day.strftime('%Y%m%d')}.parquet"
+    base = Path(root)
+    return base / filename_root / month / filename if filename_root else base / month / filename
+
+
+def _panel_day_path(paths_cfg: dict, day: date, *, asset: str, panel_name: str) -> Path:
+    return (
+        Path(paths_cfg["panel_data_root"])
+        / "panels"
+        / asset
+        / panel_name
+        / f"{day.year:04d}-{day.month:02d}"
+        / f"{day.strftime('%Y%m%d')}.parquet"
+    )
+
+
+def _factor_day_path(paths_cfg: dict, day: date, *, panel_name: str) -> Path:
+    return (
+        Path(paths_cfg["factor_data_root"])
+        / "factors"
+        / panel_name
+        / f"{day.year:04d}-{day.month:02d}"
+        / f"{day.strftime('%Y%m%d')}.parquet"
+    )
+
+
+def _label_day_path(paths_cfg: dict, day: date) -> Path:
+    return _month_day_path(paths_cfg["label_data_root"], day)
+
+
+def _require_existing(path: Path, *, name: str) -> None:
+    if not path.exists():
+        raise RuntimeError(f"{name} missing after live build: {path}")
+
+
+def _normalize_assets(value: object) -> list[str]:
+    if isinstance(value, str):
+        return [x.strip().lower() for x in value.replace(";", ",").split(",") if x.strip()]
+    if isinstance(value, (list, tuple)):
+        return [str(x).strip().lower() for x in value if str(x).strip()]
+    return []
 
 
 def _allowlist_diagnostics(pool_info: dict, pre_count: int, post_count: int) -> dict:
@@ -52,14 +100,14 @@ def _allowlist_diagnostics(pool_info: dict, pre_count: int, post_count: int) -> 
     }
 
 
-def _assert_consumer_only_live_config(live_cfg: dict) -> None:
-    """Live must consume DataHub outputs only; it must not own raw/snapshot processing."""
+def _assert_live_data_boundary(live_cfg: dict) -> None:
+    """Live consumes DataHub clean data, then builds CBOND_ON local derived artifacts."""
 
     forbidden_top_level = {"source", "redis"}
     present_top_level = sorted(k for k in forbidden_top_level if k in live_cfg)
     if present_top_level:
         raise ValueError(
-            "live_config is consumer-only; remove local source/redis processing sections: "
+            "live_config must not own raw/redis processing; remove sections: "
             + ", ".join(present_top_level)
         )
 
@@ -85,7 +133,7 @@ def _assert_consumer_only_live_config(live_cfg: dict) -> None:
     present_data_keys = sorted(k for k in forbidden_data_keys if k in data_cfg)
     if present_data_keys:
         raise ValueError(
-            "live_config.data is consumer-only; remove local data rebuild/snapshot keys: "
+            "live_config.data must not own raw/redis processing; remove keys: "
             + ", ".join(present_data_keys)
         )
 
@@ -127,7 +175,7 @@ def run_once(
     _ = mode
     paths_cfg = load_config_file("paths")
     live_cfg = load_config_file("live")
-    _assert_consumer_only_live_config(live_cfg)
+    _assert_live_data_boundary(live_cfg)
 
     schedule_cfg = dict(live_cfg.get("schedule", {}))
     model_cfg = dict(live_cfg.get("model_score", {}))
@@ -162,7 +210,7 @@ def run_once(
         f"score_day={score_day}",
         f"target_day={target_day}",
         f"prev_trading_day={prev_trade_day}",
-        "mode=consumer_only",
+        "mode=clean_consumer_build_local",
     )
 
     if not bool(data_hub.get("ready_gate_enabled", True)):
@@ -171,6 +219,61 @@ def run_once(
         runtime=data_hub,
         trade_day=score_day,
     )
+
+    panel_cfg = dict(load_config_file("panel"))
+    panel_cfg["start"] = score_day
+    panel_cfg["end"] = score_day
+    panel_cfg["refresh"] = True
+    panel_cfg["overwrite"] = True
+    panel_name = str(panel_cfg.get("panel_name") or live_factor_cfg.get("panel_name") or "T1430")
+    panel_cfg["panel_name"] = panel_name
+
+    print("live build panel:", f"day={score_day}", f"panel={panel_name}")
+    panel_result = run_panel_build(
+        start=score_day,
+        end=score_day,
+        refresh=True,
+        overwrite=True,
+        cfg=panel_cfg,
+    )
+    _require_existing(_panel_day_path(paths_cfg, score_day, asset="cbond", panel_name=panel_name), name="cbond panel")
+    if "stock" in _normalize_assets(panel_cfg.get("assets", [])):
+        _require_existing(_panel_day_path(paths_cfg, score_day, asset="stock", panel_name=panel_name), name="stock panel")
+    print("live build panel done:", panel_result)
+
+    label_cfg = dict(load_config_file("label"))
+    label_cfg["start"] = prev_trade_day
+    label_cfg["end"] = score_day
+    label_cfg["refresh"] = True
+    label_cfg["overwrite"] = True
+    print("live build labels:", f"day={prev_trade_day}", f"next_day={score_day}")
+    label_result = run_label_build(
+        start=prev_trade_day,
+        end=score_day,
+        refresh=True,
+        overwrite=True,
+        cfg=label_cfg,
+        panel_cfg=panel_cfg,
+    )
+    _require_existing(_label_day_path(paths_cfg, prev_trade_day), name="label")
+    print("live build labels done:", label_result)
+
+    factor_runtime_cfg = dict(live_factor_cfg)
+    factor_runtime_cfg["start"] = score_day
+    factor_runtime_cfg["end"] = score_day
+    factor_runtime_cfg["refresh"] = True
+    factor_runtime_cfg["overwrite"] = True
+    factor_runtime_cfg["panel_name"] = panel_name
+    print("live build factors:", f"day={score_day}", f"panel={panel_name}")
+    factor_result = run_factor_build(
+        start=score_day,
+        end=score_day,
+        refresh=True,
+        overwrite=True,
+        cfg=factor_runtime_cfg,
+    )
+    _require_existing(_factor_day_path(paths_cfg, score_day, panel_name=panel_name), name="factor")
+    print("live build factors done:", factor_result)
 
     model_start = score_day
     model_end = score_day
@@ -207,7 +310,7 @@ def run_once(
     clean_daily = read_clean_daily(clean_root, score_day)
     if clean_daily.empty:
         raise RuntimeError(
-            f"clean daily data missing for {score_day}; live is consumer-only and will not fall back to score-only universe"
+            f"clean daily data missing for {score_day}; live will not fall back to score-only universe"
         )
     universe = clean_daily.merge(score_df[["code", "score"]], on="code", how="inner")
     if universe.empty:
@@ -222,7 +325,7 @@ def run_once(
     )
     if bool(pool_info.get("fallback_no_filter", False)):
         raise RuntimeError(
-            "[allowlist] required pool is unavailable; consumer-only live does not allow no-filter fallback: "
+            "[allowlist] required pool is unavailable; live does not allow no-filter fallback: "
             f"trade_day={score_day:%Y-%m-%d} "
             f"expected_pool_day={pool_info.get('pool_day_expected')} "
             f"reason={pool_info.get('fallback_reason')} "
