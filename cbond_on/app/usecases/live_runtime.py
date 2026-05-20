@@ -4,6 +4,7 @@ import json
 from datetime import date
 from pathlib import Path
 
+from cbond_on.common.config_utils import load_json_like, resolve_config_path
 from cbond_on.core.config import load_config_file, parse_date, resolve_output_path
 from cbond_on.core.trading_days import prev_trading_days_from_raw
 from cbond_on.infra.data.io import read_clean_daily
@@ -80,6 +81,166 @@ def _normalize_assets(value: object) -> list[str]:
     if isinstance(value, (list, tuple)):
         return [str(x).strip().lower() for x in value if str(x).strip()]
     return []
+
+
+def _missing_days(days: list[date], *, path_builder) -> list[date]:
+    return [day for day in days if not path_builder(day).exists()]
+
+
+def _build_day_span(days: list[date]) -> tuple[date, date]:
+    ordered = sorted(set(days))
+    return ordered[0], ordered[-1]
+
+
+def _parse_live_model_window_days(live_model_score_cfg: dict, model_id: str) -> int:
+    models_raw = live_model_score_cfg.get("models", {})
+    if not isinstance(models_raw, dict):
+        return 0
+    model_entry_raw = models_raw.get(model_id, {})
+    if not isinstance(model_entry_raw, dict):
+        return 0
+    model_cfg_key = str(model_entry_raw.get("model_config", "")).strip()
+    if not model_cfg_key:
+        return 0
+    model_cfg = load_json_like(resolve_config_path(model_cfg_key))
+    rolling_cfg = model_cfg.get("rolling", {})
+    if not isinstance(rolling_cfg, dict):
+        return 0
+    if not bool(rolling_cfg.get("enabled", False)):
+        return 0
+    return int(rolling_cfg.get("window_days", 0))
+
+
+def _backfill_live_history(
+    *,
+    paths_cfg: dict,
+    raw_root: str,
+    score_day: date,
+    prev_trade_day: date,
+    panel_cfg: dict,
+    label_cfg: dict,
+    factor_cfg: dict,
+    panel_name: str,
+    window_days: int,
+) -> None:
+    history_days = prev_trading_days_from_raw(
+        raw_root,
+        score_day,
+        max(1, int(window_days)),
+        kind="snapshot",
+        asset="cbond",
+    )
+    if not history_days:
+        history_days = [prev_trade_day]
+    history_days = sorted(set(history_days))
+
+    assets = _normalize_assets(panel_cfg.get("assets", []))
+    if not assets:
+        assets = ["cbond"]
+
+    missing_panel_by_asset: dict[str, list[date]] = {}
+    for asset in assets:
+        missing_panel_days = _missing_days(
+            history_days,
+            path_builder=lambda d, _asset=asset: _panel_day_path(paths_cfg, d, asset=_asset, panel_name=panel_name),
+        )
+        if missing_panel_days:
+            missing_panel_by_asset[asset] = missing_panel_days
+
+    if missing_panel_by_asset:
+        all_missing_panel_days = sorted(
+            {
+                day
+                for asset_days in missing_panel_by_asset.values()
+                for day in asset_days
+            }
+        )
+        panel_start, panel_end = _build_day_span(all_missing_panel_days)
+        panel_backfill_cfg = dict(panel_cfg)
+        panel_backfill_cfg["start"] = panel_start
+        panel_backfill_cfg["end"] = panel_end
+        panel_backfill_cfg["refresh"] = False
+        panel_backfill_cfg["overwrite"] = False
+        print(
+            "live backfill panel:",
+            f"start={panel_start}",
+            f"end={panel_end}",
+            f"assets={','.join(sorted(missing_panel_by_asset.keys()))}",
+            f"missing_days={len(all_missing_panel_days)}",
+        )
+        panel_result = run_panel_build(
+            start=panel_start,
+            end=panel_end,
+            refresh=False,
+            overwrite=False,
+            cfg=panel_backfill_cfg,
+        )
+        print("live backfill panel done:", panel_result)
+        for asset, asset_days in missing_panel_by_asset.items():
+            for day in asset_days:
+                _require_existing(
+                    _panel_day_path(paths_cfg, day, asset=asset, panel_name=panel_name),
+                    name=f"{asset} panel(backfill)",
+                )
+
+    missing_label_days = _missing_days(
+        history_days,
+        path_builder=lambda d: _label_day_path(paths_cfg, d),
+    )
+    if missing_label_days:
+        label_start, _ = _build_day_span(missing_label_days)
+        label_end = score_day
+        label_backfill_cfg = dict(label_cfg)
+        label_backfill_cfg["start"] = label_start
+        label_backfill_cfg["end"] = label_end
+        label_backfill_cfg["refresh"] = False
+        label_backfill_cfg["overwrite"] = False
+        print(
+            "live backfill labels:",
+            f"start={label_start}",
+            f"end={label_end}",
+            f"missing_days={len(missing_label_days)}",
+        )
+        label_result = run_label_build(
+            start=label_start,
+            end=label_end,
+            refresh=False,
+            overwrite=False,
+            cfg=label_backfill_cfg,
+            panel_cfg=panel_cfg,
+        )
+        print("live backfill labels done:", label_result)
+        for day in missing_label_days:
+            _require_existing(_label_day_path(paths_cfg, day), name="label(backfill)")
+
+    missing_factor_days = _missing_days(
+        history_days,
+        path_builder=lambda d: _factor_day_path(paths_cfg, d, panel_name=panel_name),
+    )
+    if missing_factor_days:
+        factor_start, factor_end = _build_day_span(missing_factor_days)
+        factor_backfill_cfg = dict(factor_cfg)
+        factor_backfill_cfg["start"] = factor_start
+        factor_backfill_cfg["end"] = factor_end
+        factor_backfill_cfg["refresh"] = False
+        factor_backfill_cfg["overwrite"] = False
+        factor_backfill_cfg["panel_name"] = panel_name
+        print(
+            "live backfill factors:",
+            f"start={factor_start}",
+            f"end={factor_end}",
+            f"missing_days={len(missing_factor_days)}",
+        )
+        factor_result = run_factor_build(
+            start=factor_start,
+            end=factor_end,
+            refresh=False,
+            overwrite=False,
+            cfg=factor_backfill_cfg,
+        )
+        print("live backfill factors done:", factor_result)
+        for day in missing_factor_days:
+            _require_existing(_factor_day_path(paths_cfg, day, panel_name=panel_name), name="factor(backfill)")
 
 
 def _allowlist_diagnostics(pool_info: dict, pre_count: int, post_count: int) -> dict:
@@ -228,6 +389,38 @@ def run_once(
     panel_name = str(panel_cfg.get("panel_name") or live_factor_cfg.get("panel_name") or "T1430")
     panel_cfg["panel_name"] = panel_name
 
+    label_cfg = dict(load_config_file("label"))
+    label_cfg["start"] = prev_trade_day
+    label_cfg["end"] = score_day
+    label_cfg["refresh"] = True
+    label_cfg["overwrite"] = True
+
+    factor_runtime_cfg = dict(live_factor_cfg)
+    factor_runtime_cfg["start"] = score_day
+    factor_runtime_cfg["end"] = score_day
+    factor_runtime_cfg["refresh"] = True
+    factor_runtime_cfg["overwrite"] = True
+    factor_runtime_cfg["panel_name"] = panel_name
+
+    window_days = _parse_live_model_window_days(live_model_score_cfg, model_id)
+    if window_days > 0:
+        print(
+            "live backfill check:",
+            f"window_days={window_days}",
+            f"score_day={score_day}",
+        )
+        _backfill_live_history(
+            paths_cfg=paths_cfg,
+            raw_root=raw_root,
+            score_day=score_day,
+            prev_trade_day=prev_trade_day,
+            panel_cfg=panel_cfg,
+            label_cfg=label_cfg,
+            factor_cfg=factor_runtime_cfg,
+            panel_name=panel_name,
+            window_days=window_days,
+        )
+
     print("live build panel:", f"day={score_day}", f"panel={panel_name}")
     panel_result = run_panel_build(
         start=score_day,
@@ -241,11 +434,6 @@ def run_once(
         _require_existing(_panel_day_path(paths_cfg, score_day, asset="stock", panel_name=panel_name), name="stock panel")
     print("live build panel done:", panel_result)
 
-    label_cfg = dict(load_config_file("label"))
-    label_cfg["start"] = prev_trade_day
-    label_cfg["end"] = score_day
-    label_cfg["refresh"] = True
-    label_cfg["overwrite"] = True
     print("live build labels:", f"day={prev_trade_day}", f"next_day={score_day}")
     label_result = run_label_build(
         start=prev_trade_day,
@@ -258,12 +446,6 @@ def run_once(
     _require_existing(_label_day_path(paths_cfg, prev_trade_day), name="label")
     print("live build labels done:", label_result)
 
-    factor_runtime_cfg = dict(live_factor_cfg)
-    factor_runtime_cfg["start"] = score_day
-    factor_runtime_cfg["end"] = score_day
-    factor_runtime_cfg["refresh"] = True
-    factor_runtime_cfg["overwrite"] = True
-    factor_runtime_cfg["panel_name"] = panel_name
     print("live build factors:", f"day={score_day}", f"panel={panel_name}")
     factor_result = run_factor_build(
         start=score_day,
