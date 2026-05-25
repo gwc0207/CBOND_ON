@@ -24,6 +24,8 @@ const returnRankingEl = el("return-ranking");
 const syncStatus = el("sync-status");
 const logFollow = el("log-follow");
 const logDaySelect = el("log-day");
+const sellTwapSelect = el("sell-twap-col");
+const tradeRefreshBtn = el("btn-trade-refresh");
 const calendarAnchor = el("calendar-anchor");
 const dataCalendar = el("data-calendar");
 const perfLookbackInput = el("perf-lookback");
@@ -39,6 +41,19 @@ let contributionDonutChart = null;
 let calendarSelectedDay = "";
 let followLogs = true;
 let latestLiveStatus = null;
+const SELL_TWAP_STORAGE_KEY = "cbond_on.dashboard.sell_twap_col";
+const SELL_TWAP_OPTIONS = [
+  "twap_0930_0935",
+  "twap_0930_0938",
+  "twap_0930_0939",
+  "twap_0930_0945",
+  "twap_0930_1000",
+];
+
+function markTradeFilterDirty() {
+  if (!syncStatus) return;
+  syncStatus.textContent = "筛选已修改，点击“刷新”更新持仓与绩效。";
+}
 
 function escapeHtml(text) {
   return String(text ?? "")
@@ -51,6 +66,51 @@ function escapeHtml(text) {
 
 function normalizeDay(value) {
   return String(value ?? "").replaceAll("-", "").trim();
+}
+
+function isValidTwapCol(value) {
+  return /^twap_\d{4}_\d{4}$/.test(String(value ?? "").trim());
+}
+
+function formatTwapCol(col) {
+  const text = String(col ?? "").trim();
+  const m = /^twap_(\d{4})_(\d{4})$/.exec(text);
+  if (!m) return text || "-";
+  const from = `${m[1].slice(0, 2)}:${m[1].slice(2, 4)}`;
+  const to = `${m[2].slice(0, 2)}:${m[2].slice(2, 4)}`;
+  return `${from}-${to}`;
+}
+
+function getSelectedSellTwapCol() {
+  const value = String(sellTwapSelect?.value || "").trim();
+  return isValidTwapCol(value) ? value : "";
+}
+
+function ensureSellTwapOption(col) {
+  if (!sellTwapSelect || !isValidTwapCol(col)) return;
+  for (const opt of Array.from(sellTwapSelect.options || [])) {
+    if (String(opt.value).trim() === col) return;
+  }
+  const option = document.createElement("option");
+  option.value = col;
+  option.textContent = formatTwapCol(col);
+  sellTwapSelect.appendChild(option);
+}
+
+function initSellTwapSelector(defaultSellCol) {
+  if (!sellTwapSelect) return;
+  sellTwapSelect.innerHTML = SELL_TWAP_OPTIONS
+    .map((col) => `<option value="${escapeHtml(col)}">${escapeHtml(formatTwapCol(col))}</option>`)
+    .join("");
+  const saved = String(window.localStorage.getItem(SELL_TWAP_STORAGE_KEY) || "").trim();
+  const selected = isValidTwapCol(saved)
+    ? saved
+    : (isValidTwapCol(defaultSellCol) ? String(defaultSellCol).trim() : SELL_TWAP_OPTIONS[0]);
+  ensureSellTwapOption(selected);
+  sellTwapSelect.value = selected;
+  if (!sellTwapSelect.value) {
+    sellTwapSelect.value = SELL_TWAP_OPTIONS[0];
+  }
 }
 
 function atBottom(node) {
@@ -483,6 +543,14 @@ async function refreshBySelectedDay() {
   await refreshLiveStatus();
 }
 
+async function refreshTradeWindowOnly() {
+  const results = await Promise.allSettled([
+    refreshHoldings(),
+    refreshPerformance(),
+  ]);
+  return results.every((x) => x.status === "fulfilled");
+}
+
 async function onCalendarDayClick(day) {
   calendarSelectedDay = normalizeDay(day);
   const ok = await applyCalendarDay(day);
@@ -888,7 +956,12 @@ function renderReturnRanking(rows, payload) {
 async function refreshHoldings() {
   if (!holdingsEl) return;
   const selectedDay = logDaySelect && logDaySelect.value ? logDaySelect.value : "";
-  const res = await axios.get("/api/holdings", { params: selectedDay ? { day: selectedDay } : {} });
+  const selectedSellCol = getSelectedSellTwapCol();
+  const params = {
+    ...(selectedDay ? { day: selectedDay } : {}),
+    ...(selectedSellCol ? { sell_col: selectedSellCol } : {}),
+  };
+  const res = await axios.get("/api/holdings", { params });
   const rows = res.data.rows || [];
   if (!rows.length) {
     renderReturnOverview([], res.data || {});
@@ -908,8 +981,9 @@ async function refreshHoldings() {
     `等待 ${res.data.pending_count || 0}`,
     `停牌 ${res.data.halted_count || 0}`,
   ].join(" · ");
+  const metaWithSell = [meta, `卖出列 ${formatTwapCol(res.data.sell_col || selectedSellCol || "-")}`].join(" · ");
   holdingsEl.innerHTML = `
-    <div class="position-return-meta">${escapeHtml(meta)}</div>
+    <div class="position-return-meta">${escapeHtml(metaWithSell)}</div>
     <div class="table-responsive">
       <table class="table table-sm align-middle position-table position-return-table">
         <colgroup>
@@ -930,7 +1004,7 @@ async function refreshHoldings() {
             <th class="text-end">权重</th>
             <th class="text-end">分数</th>
             <th class="text-end">买入TWAP</th>
-            <th class="text-end">卖出TWAP</th>
+            <th class="text-end">${escapeHtml(`卖出TWAP(${formatTwapCol(res.data.sell_col || selectedSellCol || "")})`)}</th>
             <th class="text-end">单券收益</th>
             <th class="text-end">贡献</th>
             <th class="text-end">状态</th>
@@ -981,11 +1055,16 @@ async function refreshPerformance() {
   if (!perfLookbackInput || !perfMeta || !perfMetricsCanvas || !perfNavCanvas) return;
   try {
     const selectedDay = logDaySelect && logDaySelect.value ? logDaySelect.value : "";
+    const selectedSellCol = getSelectedSellTwapCol();
     let lookback = Number.parseInt(perfLookbackInput.value || "20", 10);
     if (!Number.isFinite(lookback) || lookback <= 0) lookback = 20;
     perfLookbackInput.value = String(lookback);
     const res = await axios.get("/api/perf_summary", {
-      params: { ...(selectedDay ? { day: selectedDay } : {}), lookback },
+      params: {
+        ...(selectedDay ? { day: selectedDay } : {}),
+        ...(selectedSellCol ? { sell_col: selectedSellCol } : {}),
+        lookback,
+      },
     });
     const payload = res.data || {};
     const series = payload.series || [];
@@ -1002,7 +1081,7 @@ async function refreshPerformance() {
     const labels = series.map((x) => x.trade_date);
     const nav = series.map((x) => Number(x.strategy_nav || 0));
     const benchNav = series.map((x) => Number(x.benchmark_nav || 0));
-    perfMeta.textContent = `截至 ${payload.asof_day || "-"} · 样本 ${payload.count_days || 0} · 回看 ${payload.lookback || lookback}`;
+    perfMeta.textContent = `截至 ${payload.asof_day || "-"} · 样本 ${payload.count_days || 0} · 回看 ${payload.lookback || lookback} · 卖出列 ${formatTwapCol(payload.sell_col || selectedSellCol || "-")}`;
 
     if (perfMetricsChart) perfMetricsChart.destroy();
     perfMetricsChart = new Chart(perfMetricsCanvas.getContext("2d"), {
@@ -1157,6 +1236,8 @@ async function loadConfig() {
     saveBtn.disabled = !writeEnabled;
     saveBtn.className = writeEnabled ? "btn btn-sm btn-primary" : "btn btn-sm btn-outline-secondary";
   }
+  const defaultSellCol = String(cfg?.output?.sell_twap_col || cfg?.data?.sell_twap_col || "").trim();
+  initSellTwapSelector(defaultSellCol);
   if (!list) return;
 
   const rows = [];
@@ -1289,9 +1370,47 @@ function bindActions() {
 }
 
 if (logDaySelect) {
-  logDaySelect.addEventListener("change", async () => {
+  logDaySelect.addEventListener("change", () => {
     calendarSelectedDay = normalizeDay(logDaySelect.value);
-    await refreshBySelectedDay();
+    markTradeFilterDirty();
+  });
+}
+
+if (sellTwapSelect) {
+  sellTwapSelect.addEventListener("change", () => {
+    const selected = getSelectedSellTwapCol();
+    if (selected) {
+      window.localStorage.setItem(SELL_TWAP_STORAGE_KEY, selected);
+    } else {
+      window.localStorage.removeItem(SELL_TWAP_STORAGE_KEY);
+    }
+    markTradeFilterDirty();
+  });
+}
+
+if (tradeRefreshBtn) {
+  tradeRefreshBtn.addEventListener("click", async () => {
+    tradeRefreshBtn.disabled = true;
+    const prevText = tradeRefreshBtn.textContent;
+    tradeRefreshBtn.textContent = "刷新中...";
+    const unlockTimer = setTimeout(() => {
+      tradeRefreshBtn.disabled = false;
+      tradeRefreshBtn.textContent = prevText || "刷新";
+    }, 15000);
+    try {
+      const ok = await refreshTradeWindowOnly();
+      if (syncStatus) {
+        syncStatus.textContent = ok ? "持仓与绩效已刷新。" : "部分模块刷新失败，请重试。";
+      }
+    } catch (err) {
+      if (syncStatus) {
+        syncStatus.textContent = `刷新失败：${err?.message || err}`;
+      }
+    } finally {
+      clearTimeout(unlockTimer);
+      tradeRefreshBtn.disabled = false;
+      tradeRefreshBtn.textContent = prevText || "刷新";
+    }
   });
 }
 
@@ -1301,12 +1420,12 @@ perfLookbackInput?.addEventListener("change", refreshPerformance);
 async function bootstrapDashboard() {
   bindActions();
   await loadLogDays();
+  await loadConfig();
   await refreshLiveStatus();
   await refreshLogsSafe();
   await refreshHoldings();
   await refreshPerformance();
   await refreshDataCalendar();
-  await loadConfig();
 }
 
 bootstrapDashboard();

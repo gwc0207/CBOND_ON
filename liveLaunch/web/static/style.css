@@ -141,16 +141,50 @@ body {
   letter-spacing: 0;
 }
 
-.date-filter {
-  flex: 0 0 auto;
+.trade-filter-bar {
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  gap: 10px 12px;
+  flex-wrap: wrap;
+}
+
+.trade-filter-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 160px;
+}
+
+.trade-filter-item label {
+  margin: 0;
+  color: #6b7280;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.2;
+  letter-spacing: 0;
   white-space: nowrap;
 }
 
-.date-filter label {
-  display: inline-block;
-  min-width: 28px;
-  white-space: nowrap;
-  text-align: right;
+.trade-filter-select {
+  min-width: 160px;
+  height: 38px;
+  font-size: 17px;
+  line-height: 1.2;
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+
+#sell-twap-col.trade-filter-select {
+  min-width: 190px;
+}
+
+.trade-filter-refresh {
+  height: 38px;
+  min-width: 76px;
+  font-size: 14px;
+  font-weight: 650;
+  padding: 6px 14px;
 }
 
 .status-card-grid {
@@ -1329,5 +1363,19 @@ button.cal-cell {
 
   .action-group .d-grid {
     grid-template-columns: 1fr;
+  }
+
+  .trade-filter-bar {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .trade-filter-item {
+    min-width: 138px;
+    flex: 1 1 138px;
+  }
+
+  .trade-filter-refresh {
+    width: 100%;
   }
 }

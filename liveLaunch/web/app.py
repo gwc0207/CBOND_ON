@@ -4,6 +4,7 @@ import calendar
 import json
 import math
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -44,6 +45,7 @@ _PROCESS_CACHE: dict = {"items": []}
 _PROCESS_CACHE_LOCK = threading.Lock()
 HEARTBEAT_STALE_SECONDS = 120
 LIVE_STATUS_API_VERSION = 1
+_TWAP_COL_RE = re.compile(r"^twap_\d{4}_\d{4}$")
 TIMELINE_STEPS: tuple[tuple[str, str], ...] = (
     ("trade_day", "Trade Day"),
     ("ready_gate", "DataHub Ready"),
@@ -54,6 +56,13 @@ TIMELINE_STEPS: tuple[tuple[str, str], ...] = (
     ("trade_list", "Trade List"),
     ("db_write", "DB Write"),
 )
+
+
+def _normalize_twap_col(value: str | None, *, fallback: str) -> str:
+    text = str(value or "").strip()
+    if text and _TWAP_COL_RE.match(text):
+        return text
+    return str(fallback).strip()
 
 
 def _process_cache_loop() -> None:
@@ -322,21 +331,22 @@ def _read_trade_list_context_for_buy_day(day: date, *, raw_data_root: str | Path
     return None
 
 
-def _read_holdings(day: str | None = None) -> list[dict]:
+def _read_holdings(day: str | None = None, *, sell_col_override: str | None = None) -> tuple[list[dict], str]:
     iso_day = _to_iso_day_tag(day)
     paths_cfg = load_config_file("paths")
     raw_root = paths_cfg["raw_data_root"]
-    requested_day = datetime.strptime(iso_day, "%Y-%m-%d").date()
-    ctx = _read_trade_list_context_for_buy_day(requested_day, raw_data_root=raw_root)
-    if ctx is None:
-        return []
-    df = ctx["df"]
-    trade_day = ctx["buy_day"]
     live_cfg = _load_live_cfg()
     data_cfg = dict(live_cfg.get("data", {}))
     output_cfg = dict(live_cfg.get("output", {}))
+    sell_col_default = str(output_cfg.get("sell_twap_col", data_cfg.get("sell_twap_col", "twap_0930_0945")))
+    sell_col = _normalize_twap_col(sell_col_override, fallback=sell_col_default)
+    requested_day = datetime.strptime(iso_day, "%Y-%m-%d").date()
+    ctx = _read_trade_list_context_for_buy_day(requested_day, raw_data_root=raw_root)
+    if ctx is None:
+        return [], sell_col
+    df = ctx["df"]
+    trade_day = ctx["buy_day"]
     buy_col = str(output_cfg.get("buy_twap_col", data_cfg.get("buy_twap_col", "twap_1442_1457")))
-    sell_col = str(output_cfg.get("sell_twap_col", data_cfg.get("sell_twap_col", "twap_0930_0945")))
     buy_cost_bps, sell_cost_bps, _ = load_fees_buy_sell_bps()
     next_day = ctx.get("sell_day") or _next_open_day(raw_root, trade_day)
 
@@ -421,7 +431,7 @@ def _read_holdings(day: str | None = None) -> list[dict]:
                 "reason": reason,
             }
         )
-    return rows
+    return rows, sell_col
 
 
 def _read_trade_list(day: date) -> pd.DataFrame:
@@ -614,12 +624,19 @@ def _normalize_weights(w: pd.Series) -> pd.Series:
     return pd.Series([1.0 / len(s)] * len(s), index=s.index, dtype=float)
 
 
-def _build_perf_summary(*, raw_data_root: str | Path, day: str | None, lookback: int | None) -> dict:
+def _build_perf_summary(
+    *,
+    raw_data_root: str | Path,
+    day: str | None,
+    lookback: int | None,
+    sell_col_override: str | None = None,
+) -> dict:
     live_cfg = _load_live_cfg()
     data_cfg = dict(live_cfg.get("data", {}))
     output_cfg = dict(live_cfg.get("output", {}))
     buy_col = str(output_cfg.get("buy_twap_col", data_cfg.get("buy_twap_col", "twap_1442_1457")))
-    sell_col = str(output_cfg.get("sell_twap_col", data_cfg.get("sell_twap_col", "twap_0930_0945")))
+    sell_col_default = str(output_cfg.get("sell_twap_col", data_cfg.get("sell_twap_col", "twap_0930_0945")))
+    sell_col = _normalize_twap_col(sell_col_override, fallback=sell_col_default)
     buy_cost_bps, sell_cost_bps, _ = load_fees_buy_sell_bps()
     default_lb = int(data_cfg.get("perf_lookback_days", 20))
     lookback = max(1, int(lookback if lookback is not None else default_lb))
@@ -631,6 +648,7 @@ def _build_perf_summary(*, raw_data_root: str | Path, day: str | None, lookback:
             "asof_day": f"{asof_day:%Y-%m-%d}",
             "lookback": lookback,
             "count_days": 0,
+            "sell_col": sell_col,
             "metrics": {},
             "series": [],
         }
@@ -725,6 +743,7 @@ def _build_perf_summary(*, raw_data_root: str | Path, day: str | None, lookback:
             "asof_day": f"{asof_day:%Y-%m-%d}",
             "lookback": lookback,
             "count_days": 0,
+            "sell_col": sell_col,
             "metrics": {},
             "series": [],
         }
@@ -770,6 +789,7 @@ def _build_perf_summary(*, raw_data_root: str | Path, day: str | None, lookback:
         "asof_day": f"{asof_day:%Y-%m-%d}",
         "lookback": lookback,
         "count_days": int(len(series)),
+        "sell_col": sell_col,
         "metrics": metrics,
         "series": series,
     }
@@ -1090,7 +1110,8 @@ def _trade_list_card_for_state(raw_status: str, target_day: str) -> dict:
     count = 0
     if target_day:
         try:
-            count = len(_read_holdings(day=target_day))
+            rows, _ = _read_holdings(day=target_day)
+            count = len(rows)
         except Exception:
             count = 0
     if raw_status in {"success", "idle_after_run"}:
@@ -1686,6 +1707,7 @@ def create_app() -> Flask:
     @app.get("/api/holdings")
     def api_holdings():
         raw_day = request.args.get("day", "").strip() or None
+        sell_col_override = request.args.get("sell_col", "").strip() or None
         try:
             requested_day = _to_iso_day_tag(raw_day) if raw_day else _today_day_tag()
         except ValueError:
@@ -1694,12 +1716,14 @@ def create_app() -> Flask:
         st = _read_json(state_path)
         resolved = _resolve_holdings_day_for_today(st, requested_day)
         if resolved is None:
-            return jsonify({"rows": [], "day": requested_day})
-        rows = _read_holdings(day=resolved)
+            rows, sell_col = _read_holdings(day=requested_day, sell_col_override=sell_col_override)
+            return jsonify({"rows": [], "day": requested_day, "sell_col": sell_col})
+        rows, sell_col = _read_holdings(day=resolved, sell_col_override=sell_col_override)
         return jsonify(
             {
                 "rows": rows,
                 "day": resolved,
+                "sell_col": sell_col,
                 "next_day": next((row.get("next_day") for row in rows if row.get("next_day")), None),
                 "ready_count": sum(1 for row in rows if row.get("status") == "ready"),
                 "pending_count": sum(1 for row in rows if row.get("status") == "pending"),
@@ -1711,6 +1735,7 @@ def create_app() -> Flask:
     @app.get("/api/perf_summary")
     def api_perf_summary():
         day = request.args.get("day", "").strip() or None
+        sell_col_override = request.args.get("sell_col", "").strip() or None
         lookback_raw = request.args.get("lookback", "").strip()
         lookback = None
         if lookback_raw:
@@ -1723,6 +1748,7 @@ def create_app() -> Flask:
                 raw_data_root=paths_cfg["raw_data_root"],
                 day=day,
                 lookback=lookback,
+                sell_col_override=sell_col_override,
             )
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
@@ -1970,7 +1996,7 @@ def create_app() -> Flask:
         today = _today_day_tag()
         st = _read_json(state_path)
         resolved = _resolve_holdings_day_for_today(st, today)
-        rows = _read_holdings(day=resolved) if resolved else []
+        rows, _ = _read_holdings(day=resolved) if resolved else ([], "")
         _append_dashboard_log("sync_holdings", f"rows={len(rows)}")
         _audit_dashboard_action("sync_holdings", status_before=before, result="success", message=f"rows={len(rows)}")
         return jsonify({"ok": True, "count": len(rows)})
