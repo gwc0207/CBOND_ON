@@ -151,6 +151,9 @@ const LABEL_ZH = {
   Fresh: "正常",
   Stale: "过期",
   "Trade Day": "交易日",
+  "DataHub Ready": "数据就绪",
+  "Load Clean Data": "加载清洗数据",
+  "Load Factors": "加载因子",
   "Ready Gate": "就绪检查",
   "Build Panel": "构建面板",
   "Compute Factors": "计算因子",
@@ -544,11 +547,22 @@ async function refreshBySelectedDay() {
 }
 
 async function refreshTradeWindowOnly() {
-  const results = await Promise.allSettled([
-    refreshHoldings(),
-    refreshPerformance(),
-  ]);
-  return results.every((x) => x.status === "fulfilled");
+  const tasks = [
+    { name: "持仓", run: refreshHoldings },
+    { name: "绩效", run: refreshPerformance },
+  ];
+  const results = await Promise.allSettled(tasks.map((task) => task.run()));
+  const failed = results.flatMap((result, idx) => {
+    if (result.status === "fulfilled") return [];
+    const reason = result.reason;
+    const apiErr = reason?.response?.data?.error;
+    const msg = String(apiErr || reason?.message || reason || "未知错误");
+    return [{ module: tasks[idx].name, error: msg }];
+  });
+  return {
+    ok: failed.length === 0,
+    failed,
+  };
 }
 
 async function onCalendarDayClick(day) {
@@ -982,8 +996,17 @@ async function refreshHoldings() {
     `停牌 ${res.data.halted_count || 0}`,
   ].join(" · ");
   const metaWithSell = [meta, `卖出列 ${formatTwapCol(res.data.sell_col || selectedSellCol || "-")}`].join(" · ");
+  const fallbackHtml = res.data.is_fallback
+    ? `
+      <div class="position-fallback-alert">
+        <strong>当前使用上一交易日清单</strong>
+        <span>所选日期 ${escapeHtml(res.data.requested_day || res.data.day || "-")} 没有本日买入清单，当前展示的是 ${escapeHtml(res.data.actual_buy_day || "-")} 买入、${escapeHtml(res.data.actual_sell_day || res.data.next_day || "-")} 卖出的收益。</span>
+      </div>
+    `
+    : "";
   holdingsEl.innerHTML = `
     <div class="position-return-meta">${escapeHtml(metaWithSell)}</div>
+    ${fallbackHtml}
     <div class="table-responsive">
       <table class="table table-sm align-middle position-table position-return-table">
         <colgroup>
@@ -1398,9 +1421,15 @@ if (tradeRefreshBtn) {
       tradeRefreshBtn.textContent = prevText || "刷新";
     }, 15000);
     try {
-      const ok = await refreshTradeWindowOnly();
+      const result = await refreshTradeWindowOnly();
       if (syncStatus) {
-        syncStatus.textContent = ok ? "持仓与绩效已刷新。" : "部分模块刷新失败，请重试。";
+        if (result.ok) {
+          syncStatus.textContent = "持仓与绩效已刷新。";
+        } else {
+          const detail = result.failed.map((x) => `${x.module}失败`).join("、");
+          const reason = result.failed.map((x) => `${x.module}: ${x.error}`).join("；");
+          syncStatus.textContent = `部分模块刷新失败：${detail}。原因：${reason}`;
+        }
       }
     } catch (err) {
       if (syncStatus) {

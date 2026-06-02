@@ -324,10 +324,19 @@ def _read_trade_list_context_for_buy_day(day: date, *, raw_data_root: str | Path
     if contexts:
         return sorted(contexts, key=lambda x: str(x.get("path")))[-1]
 
-    # Backward-compatible fallback for very old files that only used folder dates.
     fallback_path = _results_live_root() / f"{day:%Y-%m-%d}" / "trade_list.csv"
     if fallback_path.exists():
-        return _read_trade_list_context(fallback_path, raw_data_root=raw_data_root)
+        ctx = _read_trade_list_context(fallback_path, raw_data_root=raw_data_root)
+        if ctx is not None:
+            ctx = dict(ctx)
+            ctx["requested_buy_day"] = day
+            ctx["is_fallback"] = True
+            ctx["fallback_reason"] = "missing_requested_buy_day_trade_list"
+            ctx["fallback_message"] = (
+                f"{day:%Y-%m-%d} 没有本日买入清单；"
+                f"当前展示的是 {ctx.get('buy_day')} 买入、{ctx.get('sell_day')} 卖出的收益。"
+            )
+            return ctx
     return None
 
 
@@ -421,14 +430,19 @@ def _read_holdings(day: str | None = None, *, sell_col_override: str | None = No
                 "buy_day": f"{trade_day:%Y-%m-%d}",
                 "next_day": None if next_day is None else f"{next_day:%Y-%m-%d}",
                 "sell_day": None if next_day is None else f"{next_day:%Y-%m-%d}",
+                "requested_day": f"{requested_day:%Y-%m-%d}",
+                "source_day": None if ctx.get("folder_day") is None else f"{ctx.get('folder_day'):%Y-%m-%d}",
+                "is_fallback": bool(ctx.get("is_fallback", False)),
+                "fallback_reason": str(ctx.get("fallback_reason", "")),
+                "fallback_message": str(ctx.get("fallback_message", "")),
                 "buy_twap": buy_twap,
                 "sell_twap_next": sell_twap,
                 "return_gross": return_gross,
                 "return_net": return_net,
                 "weighted_return": weighted_return,
                 "status": status,
-                "status_label": _status_label(status),
-                "reason": reason,
+                "status_label": "沿用清单" if bool(ctx.get("is_fallback", False)) and status == "ready" else _status_label(status),
+                "reason": reason or str(ctx.get("fallback_message", "")),
             }
         )
     return rows, sell_col
@@ -812,7 +826,8 @@ def _resolve_holdings_day_for_today(state: dict, requested_day: str) -> str | No
     """
     For requested 'today', holdings should only appear after today's live run completes.
     Before completion, return None so UI shows No holdings.
-    After completion, show holdings generated for today's scheduler target.
+    After completion, show holdings bought on today. Live stores the file under
+    target/sell day, but the dashboard date selector is buy-day based.
     """
     today = _today_day_tag()
     if requested_day != today:
@@ -824,7 +839,7 @@ def _resolve_holdings_day_for_today(state: dict, requested_day: str) -> str | No
 
     # Only expose current-cycle holdings after success/idle_after_run.
     if target_day and last_target_run == target_day and status in {"success", "idle_after_run"}:
-        return target_day
+        return today
     return None
 
 
@@ -1106,11 +1121,11 @@ def _db_write_card_for_state(raw_status: str, live_cfg: dict) -> dict:
     )
 
 
-def _trade_list_card_for_state(raw_status: str, target_day: str) -> dict:
+def _trade_list_card_for_state(raw_status: str, buy_day: str) -> dict:
     count = 0
-    if target_day:
+    if buy_day:
         try:
-            rows, _ = _read_holdings(day=target_day)
+            rows, _ = _read_holdings(day=buy_day)
             count = len(rows)
         except Exception:
             count = 0
@@ -1121,7 +1136,7 @@ def _trade_list_card_for_state(raw_status: str, target_day: str) -> dict:
                 status="success",
                 health="ok",
                 label=f"{count} rows",
-                reason=f"latest trade list found for {target_day}",
+                reason=f"latest trade list found for buy_day={buy_day}",
                 count=count,
             )
         return _status_item(
@@ -1408,7 +1423,7 @@ def _build_live_status_payload(state_path: Path, pid_path: Path) -> dict:
     target = _normalize_day_tag(state.get("target")) or today
     factor_card = _factor_card_for_state(raw_status, live_cfg)
     model_card = _model_card_for_state(raw_status, live_cfg)
-    trade_list_card = _trade_list_card_for_state(raw_status, target)
+    trade_list_card = _trade_list_card_for_state(raw_status, today)
     db_write_card = _db_write_card_for_state(raw_status, live_cfg)
     data_ready_card = _data_ready_card_for_state(raw_status, hb_stale)
     if hb_stale:
@@ -1717,13 +1732,30 @@ def create_app() -> Flask:
         resolved = _resolve_holdings_day_for_today(st, requested_day)
         if resolved is None:
             rows, sell_col = _read_holdings(day=requested_day, sell_col_override=sell_col_override)
-            return jsonify({"rows": [], "day": requested_day, "sell_col": sell_col})
+            return jsonify(
+                {
+                    "rows": [],
+                    "day": requested_day,
+                    "requested_day": requested_day,
+                    "sell_col": sell_col,
+                    "is_fallback": False,
+                    "fallback_message": "",
+                }
+            )
         rows, sell_col = _read_holdings(day=resolved, sell_col_override=sell_col_override)
+        first_row = rows[0] if rows else {}
         return jsonify(
             {
                 "rows": rows,
                 "day": resolved,
+                "requested_day": requested_day,
+                "actual_buy_day": first_row.get("buy_day"),
+                "actual_sell_day": first_row.get("sell_day"),
+                "source_day": first_row.get("source_day"),
                 "sell_col": sell_col,
+                "is_fallback": bool(first_row.get("is_fallback", False)),
+                "fallback_reason": str(first_row.get("fallback_reason", "")),
+                "fallback_message": str(first_row.get("fallback_message", "")),
                 "next_day": next((row.get("next_day") for row in rows if row.get("next_day")), None),
                 "ready_count": sum(1 for row in rows if row.get("status") == "ready"),
                 "pending_count": sum(1 for row in rows if row.get("status") == "pending"),
