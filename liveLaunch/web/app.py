@@ -10,6 +10,7 @@ import subprocess
 import sys
 import threading
 import time
+from dataclasses import replace
 from datetime import date, datetime
 from pathlib import Path
 
@@ -27,7 +28,11 @@ from cbond_on.infra.backtest.execution import (
     apply_cost_to_full_cycle_return,
     split_cycle_return_by_bridge_with_cost,
 )
-from cbond_on.infra.benchmark.service import compute_benchmark_breakdown_for_day
+from cbond_on.infra.benchmark.service import (
+    compute_benchmark_breakdown_for_day,
+    compute_benchmark_detail_for_day,
+    load_benchmark_pool_config,
+)
 from cbond_on.infra.data.io import read_table_range, read_trading_calendar
 from cbond_on.infra.factors.quality import (
     expected_factor_columns_from_cfg,
@@ -334,7 +339,7 @@ def _read_trade_list_context_for_buy_day(day: date, *, raw_data_root: str | Path
             ctx["fallback_reason"] = "missing_requested_buy_day_trade_list"
             ctx["fallback_message"] = (
                 f"{day:%Y-%m-%d} 没有本日买入清单；"
-                f"当前展示的是 {ctx.get('buy_day')} 买入、{ctx.get('sell_day')} 卖出的收益。"
+                f"当前沿用 {ctx.get('buy_day')} 的选票。"
             )
             return ctx
     return None
@@ -354,10 +359,21 @@ def _read_holdings(day: str | None = None, *, sell_col_override: str | None = No
     if ctx is None:
         return [], sell_col
     df = ctx["df"]
-    trade_day = ctx["buy_day"]
+    source_buy_day = ctx["buy_day"]
+    source_sell_day = ctx.get("sell_day")
+    is_fallback = bool(ctx.get("is_fallback", False))
+    trade_day = requested_day if is_fallback else source_buy_day
     buy_col = str(output_cfg.get("buy_twap_col", data_cfg.get("buy_twap_col", "twap_1442_1457")))
     buy_cost_bps, sell_cost_bps, _ = load_fees_buy_sell_bps()
-    next_day = ctx.get("sell_day") or _next_open_day(raw_root, trade_day)
+    next_day = _next_open_day(raw_root, trade_day) if is_fallback else source_sell_day or _next_open_day(raw_root, trade_day)
+    fallback_message = ""
+    if is_fallback:
+        sell_day_text = f"{next_day:%Y-%m-%d}" if next_day is not None else "下一交易日"
+        fallback_message = (
+            f"{requested_day:%Y-%m-%d} 没有本日买入清单；"
+            f"当前沿用 {source_buy_day:%Y-%m-%d} 的选票，"
+            f"按 {trade_day:%Y-%m-%d} 买入、{sell_day_text} 卖出计算收益。"
+        )
 
     buy_lookup: dict[str, float | None] = {}
     sell_lookup: dict[str, float | None] = {}
@@ -432,17 +448,19 @@ def _read_holdings(day: str | None = None, *, sell_col_override: str | None = No
                 "sell_day": None if next_day is None else f"{next_day:%Y-%m-%d}",
                 "requested_day": f"{requested_day:%Y-%m-%d}",
                 "source_day": None if ctx.get("folder_day") is None else f"{ctx.get('folder_day'):%Y-%m-%d}",
-                "is_fallback": bool(ctx.get("is_fallback", False)),
+                "source_buy_day": f"{source_buy_day:%Y-%m-%d}",
+                "source_sell_day": None if source_sell_day is None else f"{source_sell_day:%Y-%m-%d}",
+                "is_fallback": is_fallback,
                 "fallback_reason": str(ctx.get("fallback_reason", "")),
-                "fallback_message": str(ctx.get("fallback_message", "")),
+                "fallback_message": fallback_message or str(ctx.get("fallback_message", "")),
                 "buy_twap": buy_twap,
                 "sell_twap_next": sell_twap,
                 "return_gross": return_gross,
                 "return_net": return_net,
                 "weighted_return": weighted_return,
                 "status": status,
-                "status_label": "沿用清单" if bool(ctx.get("is_fallback", False)) and status == "ready" else _status_label(status),
-                "reason": reason or str(ctx.get("fallback_message", "")),
+                "status_label": "沿用选票" if is_fallback and status == "ready" else _status_label(status),
+                "reason": reason or fallback_message or str(ctx.get("fallback_message", "")),
             }
         )
     return rows, sell_col
@@ -638,6 +656,74 @@ def _normalize_weights(w: pd.Series) -> pd.Series:
     return pd.Series([1.0 / len(s)] * len(s), index=s.index, dtype=float)
 
 
+def _build_single_day_benchmark(
+    *,
+    raw_data_root: str | Path,
+    trade_day: date | None,
+    next_day: date | None,
+    buy_col: str,
+    sell_col: str,
+    buy_bps: float,
+    sell_bps: float,
+) -> dict:
+    if trade_day is None or next_day is None:
+        return {"available": False, "error": "missing_trade_or_sell_day"}
+    try:
+        pool_cfg = replace(
+            load_benchmark_pool_config(),
+            buy_twap_col=buy_col,
+            sell_twap_col=sell_col,
+            use_window_data=False,
+        )
+        detail = compute_benchmark_detail_for_day(
+            raw_data_root=raw_data_root,
+            trade_day=trade_day,
+            next_day=next_day,
+            buy_bps=buy_bps,
+            sell_bps=sell_bps,
+            pool_cfg=pool_cfg,
+        )
+        return_net = float(pd.to_numeric(detail["weighted_return"], errors="coerce").sum())
+        rows = [
+            {
+                "symbol": str(row.code),
+                "weight": float(row.weight),
+                "buy_twap": float(row.buy_price),
+                "sell_twap": float(row.sell_price),
+                "return_net": float(row.return_net),
+                "weighted_return": float(row.weighted_return),
+            }
+            for row in detail.sort_values("code", kind="mergesort").itertuples(index=False)
+            if pd.notna(row.return_net)
+        ]
+        return {
+            "available": True,
+            "trade_day": f"{trade_day:%Y-%m-%d}",
+            "source_buy_day": f"{trade_day:%Y-%m-%d}",
+            "next_day": f"{next_day:%Y-%m-%d}",
+            "buy_col": buy_col,
+            "sell_col": sell_col,
+            "return_net": return_net,
+            "full_cycle_ret_net": return_net,
+            "count": int(detail["code"].nunique()),
+            "buy_count": int(detail["code"].nunique()),
+            "sell_count": int(detail["code"].nunique()),
+            "buy_leg_ret_net": float(pd.to_numeric(detail["weighted_buy_leg_ret_net"], errors="coerce").sum()),
+            "sell_leg_ret_net": float(pd.to_numeric(detail["weighted_sell_leg_ret_net"], errors="coerce").sum()),
+            "rows": rows,
+        }
+    except Exception as exc:
+        return {
+            "available": False,
+            "trade_day": f"{trade_day:%Y-%m-%d}",
+            "next_day": f"{next_day:%Y-%m-%d}",
+            "buy_col": buy_col,
+            "sell_col": sell_col,
+            "error": str(exc),
+            "rows": [],
+        }
+
+
 def _build_perf_summary(
     *,
     raw_data_root: str | Path,
@@ -728,12 +814,19 @@ def _build_perf_summary(
         strategy_return = float((strat_ret * w).sum())
         strategy_buy_leg_ret = float((buy_leg_ret * w).sum())
         strategy_sell_leg_ret = float((sell_leg_ret * w).sum())
+        benchmark_cfg = replace(
+            load_benchmark_pool_config(),
+            buy_twap_col=buy_col,
+            sell_twap_col=sell_col,
+            use_window_data=False,
+        )
         benchmark = compute_benchmark_breakdown_for_day(
             raw_data_root=raw_data_root,
             trade_day=trade_day,
             next_day=next_day,
             buy_bps=buy_cost_bps,
             sell_bps=sell_cost_bps,
+            pool_cfg=benchmark_cfg,
         )
 
         rows.append(
@@ -1740,10 +1833,26 @@ def create_app() -> Flask:
                     "sell_col": sell_col,
                     "is_fallback": False,
                     "fallback_message": "",
+                    "benchmark": {"available": False, "error": "holdings_not_resolved"},
                 }
             )
         rows, sell_col = _read_holdings(day=resolved, sell_col_override=sell_col_override)
         first_row = rows[0] if rows else {}
+        paths_cfg = load_config_file("paths")
+        live_cfg = _load_live_cfg()
+        data_cfg = dict(live_cfg.get("data", {}))
+        output_cfg = dict(live_cfg.get("output", {}))
+        buy_col = str(output_cfg.get("buy_twap_col", data_cfg.get("buy_twap_col", "twap_1442_1457")))
+        buy_cost_bps, sell_cost_bps, _ = load_fees_buy_sell_bps()
+        benchmark = _build_single_day_benchmark(
+            raw_data_root=paths_cfg["raw_data_root"],
+            trade_day=_coerce_live_date(first_row.get("buy_day")),
+            next_day=_coerce_live_date(first_row.get("sell_day")),
+            buy_col=buy_col,
+            sell_col=sell_col,
+            buy_bps=buy_cost_bps,
+            sell_bps=sell_cost_bps,
+        )
         return jsonify(
             {
                 "rows": rows,
@@ -1752,6 +1861,8 @@ def create_app() -> Flask:
                 "actual_buy_day": first_row.get("buy_day"),
                 "actual_sell_day": first_row.get("sell_day"),
                 "source_day": first_row.get("source_day"),
+                "source_buy_day": first_row.get("source_buy_day"),
+                "source_sell_day": first_row.get("source_sell_day"),
                 "sell_col": sell_col,
                 "is_fallback": bool(first_row.get("is_fallback", False)),
                 "fallback_reason": str(first_row.get("fallback_reason", "")),
@@ -1761,6 +1872,7 @@ def create_app() -> Flask:
                 "pending_count": sum(1 for row in rows if row.get("status") == "pending"),
                 "halted_count": sum(1 for row in rows if row.get("status") == "halted"),
                 "unavailable_count": sum(1 for row in rows if row.get("status") == "unavailable"),
+                "benchmark": benchmark,
             }
         )
 

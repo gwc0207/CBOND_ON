@@ -1,6 +1,7 @@
 {
   // Strict benchmark calibrated in CBOND_DATA_HUB benchmark_calibration_lab.ipynb.
-  method: "strict_official_prev_close",
+  // Return = weighted average of each bond's full overnight net return.
+  method: "strict_full_overnight_net",
 
   // Upstream daily benchmark pool. For trade day T, use pool from T-1 open trading day.
   pool_table: "quant_factor_dev.researcher_xuvb.o_0005",

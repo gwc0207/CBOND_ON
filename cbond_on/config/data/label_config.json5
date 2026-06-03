@@ -7,6 +7,7 @@
   close_window: { start: "14:42", end: "14:57" },
   next_open_window: { start: "09:30", end: "09:45" },
   // Label y is gross overnight return from daily_twap.
+  // Costs are applied later by research/backtest/reporting code.
   twap_table: "market_cbond.daily_twap",
   // If null, resolve from window automatically (e.g. 14:42-14:57 -> twap_1442_1457)
   close_twap_col: null,

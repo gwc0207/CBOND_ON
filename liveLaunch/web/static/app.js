@@ -41,6 +41,7 @@ let contributionDonutChart = null;
 let calendarSelectedDay = "";
 let followLogs = true;
 let latestLiveStatus = null;
+let tradeRefreshInFlight = false;
 const SELL_TWAP_STORAGE_KEY = "cbond_on.dashboard.sell_twap_col";
 const SELL_TWAP_OPTIONS = [
   "twap_0930_0935",
@@ -548,8 +549,7 @@ async function refreshBySelectedDay() {
 
 async function refreshTradeWindowOnly() {
   const tasks = [
-    { name: "持仓", run: refreshHoldings },
-    { name: "绩效", run: refreshPerformance },
+    { name: "持仓与收益分析", run: refreshHoldings },
   ];
   const results = await Promise.allSettled(tasks.map((task) => task.run()));
   const failed = results.flatMap((result, idx) => {
@@ -741,29 +741,58 @@ function buildSignedBins(values, maxBins, color) {
     const right = left + step;
     return {
       label: `${left.toFixed(1)}~${right.toFixed(1)}`,
+      left,
+      right,
       count,
       color,
     };
   });
 }
 
-function buildHistogram(values) {
+function benchmarkReturnValue(payload) {
+  const value = payload?.benchmark?.return_net ?? payload?.benchmark?.full_cycle_ret_net;
+  return numberValue(value);
+}
+
+function benchmarkReturnRows(payload) {
+  return (payload?.benchmark?.rows || [])
+    .map((row) => numberValue(row.return_net))
+    .filter((value) => value !== null);
+}
+
+function buildHistogram(values, benchmarkValues = []) {
   const arr = values.filter((x) => Number.isFinite(Number(x))).map((x) => Number(x) * 100);
   if (!arr.length) return { labels: [], counts: [], colors: [] };
+  const benchmarkArr = benchmarkValues.filter((x) => Number.isFinite(Number(x))).map((x) => Number(x) * 100);
+  const rangeArr = benchmarkArr.length ? [...arr, ...benchmarkArr] : arr;
   const negative = arr.filter((value) => value < 0);
   const zeroCount = arr.filter((value) => value === 0).length;
   const positive = arr.filter((value) => value > 0);
-  const hasBothSides = negative.length > 0 && positive.length > 0;
-  const maxSideBins = hasBothSides ? 7 : 12;
+  const rangeNegative = rangeArr.filter((value) => value < 0);
+  const rangePositive = rangeArr.filter((value) => value > 0);
+  const rangeHasBothSides = rangeNegative.length > 0 && rangePositive.length > 0;
+  const rangeMaxSideBins = rangeHasBothSides ? 7 : 12;
+  const countInBin = (source, bin, idx, list) => source.filter((value) => {
+    if (bin.left === bin.right) return value === bin.left;
+    if (idx === list.length - 1) return value >= bin.left && value <= bin.right;
+    return value >= bin.left && value < bin.right;
+  }).length;
   const bins = [
-    ...buildSignedBins(negative, maxSideBins, "#16a34a"),
-    ...(hasBothSides || zeroCount ? [{ label: "0", count: zeroCount, color: "#cbd5e1" }] : []),
-    ...buildSignedBins(positive, maxSideBins, "#dc2626"),
+    ...buildSignedBins(rangeNegative, rangeMaxSideBins, "#16a34a").map((bin, idx, list) => ({
+      ...bin,
+      count: countInBin(negative, bin, idx, list),
+    })),
+    ...(rangeHasBothSides || zeroCount ? [{ label: "0", left: 0, right: 0, count: zeroCount, color: "#cbd5e1" }] : []),
+    ...buildSignedBins(rangePositive, rangeMaxSideBins, "#dc2626").map((bin, idx, list) => ({
+      ...bin,
+      count: countInBin(positive, bin, idx, list),
+    })),
   ];
   const labels = bins.map((bin) => bin.label);
   const counts = bins.map((bin) => bin.count);
   const colors = bins.map((bin) => bin.color);
-  return { labels, counts, colors };
+  const benchmarkCounts = bins.map((bin, idx) => countInBin(benchmarkArr, bin, idx, bins));
+  return { labels, counts, colors, benchmarkCounts };
 }
 
 function renderReturnOverview(rows, payload) {
@@ -777,19 +806,22 @@ function renderReturnOverview(rows, payload) {
     return;
   }
   const s = returnSummary(rows, payload);
+  const benchmarkReturn = benchmarkReturnValue(payload);
+  const benchmarkRows = benchmarkReturnRows(payload);
+  const benchmarkAvailable = payload?.benchmark?.available && benchmarkReturn !== null && benchmarkRows.length > 0;
   returnOverviewEl.innerHTML = `
     <div class="analysis-card overview-card">
       <div class="analysis-head">
         <div>
           <div class="analysis-title">当日收益总览</div>
-          <div class="analysis-subtitle">日期 ${escapeHtml(payload?.day || "-")} · 卖出日 ${escapeHtml(payload?.next_day || "-")}</div>
+          <div class="analysis-subtitle">日期 ${escapeHtml(payload?.day || "-")} · 卖出日 ${escapeHtml(payload?.next_day || "-")} · Benchmark ${benchmarkAvailable ? `${escapeHtml(fmtPct(benchmarkReturn))} / ${benchmarkRows.length}票` : "-"}</div>
         </div>
         <div class="analysis-status-line">已出 ${s.ready.length} · 等待 ${s.pendingCount} · 停牌 ${s.haltedCount} · 缺行情 ${s.unavailableCount}</div>
       </div>
       <div class="overview-layout">
         <div class="overview-metrics">
           <div class="metric-tile metric-primary"><span>当日组合收益</span><strong class="${returnClass(s.dayReturn)}">${escapeHtml(fmtPct(s.dayReturn))}</strong></div>
-          <div class="metric-tile"><span>平均单券收益</span><strong class="${returnClass(s.avgReturn)}">${escapeHtml(fmtPct(s.avgReturn))}</strong></div>
+          <div class="metric-tile"><span>Benchmark</span><strong class="${returnClass(benchmarkReturn)}">${benchmarkAvailable ? escapeHtml(fmtPct(benchmarkReturn)) : "-"}</strong></div>
           <div class="metric-tile"><span>中位数收益</span><strong class="${returnClass(s.medianReturn)}">${escapeHtml(fmtPct(s.medianReturn))}</strong></div>
           <div class="metric-tile"><span>正/负收益</span><strong>${s.positiveCount} / ${s.negativeCount}</strong></div>
           <div class="metric-tile"><span>最好单券</span><strong class="${returnClass(s.best?.return_net)}">${escapeHtml(s.best ? `${s.best.symbol} ${fmtPct(s.best.return_net)}` : "-")}</strong></div>
@@ -803,33 +835,52 @@ function renderReturnOverview(rows, payload) {
     </div>
   `;
   if (!s.ready.length) return;
-  const hist = buildHistogram(s.returns);
+  const hist = buildHistogram(s.returns, benchmarkRows);
   const canvas = el("return-distribution-chart");
   if (!canvas) return;
   returnDistributionChart = new Chart(canvas.getContext("2d"), {
     type: "bar",
     data: {
       labels: hist.labels,
-      datasets: [{
-        label: "票数",
-        data: hist.counts,
-        backgroundColor: hist.colors,
-        borderRadius: 6,
-        borderSkipped: false,
-        categoryPercentage: 0.72,
-        barPercentage: 0.9,
-      }],
+      datasets: [
+        {
+          label: "票数",
+          data: hist.counts,
+          backgroundColor: hist.colors,
+          borderRadius: 6,
+          borderSkipped: false,
+          categoryPercentage: 0.72,
+          barPercentage: 0.9,
+        },
+        ...(benchmarkAvailable ? [{
+          label: "Benchmark票数",
+          data: hist.benchmarkCounts || [],
+          backgroundColor: "rgba(37, 99, 235, 0.28)",
+          borderColor: "rgba(37, 99, 235, 0.45)",
+          borderWidth: 1,
+          borderRadius: 6,
+          borderSkipped: false,
+          categoryPercentage: 0.72,
+          barPercentage: 0.7,
+        }] : []),
+      ],
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
       layout: { padding: { top: 6, right: 8, bottom: 0, left: 4 } },
       plugins: {
-        legend: { display: false },
+        legend: {
+          display: true,
+          position: "top",
+          labels: { boxWidth: 10, boxHeight: 10, font: { size: 12, weight: 650 } },
+        },
         tooltip: {
           callbacks: {
             title: (items) => (items.length ? `${items[0].label}%` : ""),
-            label: (ctx) => `票数：${ctx.raw}`,
+            label: (ctx) => ctx.dataset.label === "Benchmark票数"
+              ? `Benchmark票数：${ctx.raw}`
+              : `票数：${ctx.raw}`,
           },
         },
       },
@@ -841,7 +892,7 @@ function renderReturnOverview(rows, payload) {
         },
         y: {
           beginAtZero: true,
-          suggestedMax: Math.max(...hist.counts, 1) + 1,
+          suggestedMax: Math.max(...hist.counts, ...(hist.benchmarkCounts || []), 1) + 1,
           ticks: { precision: 0, stepSize: 1, font: { size: 12, weight: 650 } },
           title: { display: true, text: "票数", color: "#64748b", font: { size: 12, weight: 700 } },
         },
@@ -995,12 +1046,21 @@ async function refreshHoldings() {
     `等待 ${res.data.pending_count || 0}`,
     `停牌 ${res.data.halted_count || 0}`,
   ].join(" · ");
-  const metaWithSell = [meta, `卖出列 ${formatTwapCol(res.data.sell_col || selectedSellCol || "-")}`].join(" · ");
+  const metaItems = [
+    meta,
+    `卖出列 ${formatTwapCol(res.data.sell_col || selectedSellCol || "-")}`,
+  ];
+  if (res.data.is_fallback) {
+    metaItems.push(`选票来源 ${res.data.source_buy_day || "-"}`);
+    metaItems.push(`计算买入 ${res.data.actual_buy_day || "-"}`);
+    metaItems.push(`计算卖出 ${res.data.actual_sell_day || res.data.next_day || "-"}`);
+  }
+  const metaWithSell = metaItems.join(" · ");
   const fallbackHtml = res.data.is_fallback
     ? `
       <div class="position-fallback-alert">
-        <strong>当前使用上一交易日清单</strong>
-        <span>所选日期 ${escapeHtml(res.data.requested_day || res.data.day || "-")} 没有本日买入清单，当前展示的是 ${escapeHtml(res.data.actual_buy_day || "-")} 买入、${escapeHtml(res.data.actual_sell_day || res.data.next_day || "-")} 卖出的收益。</span>
+        <strong>所选日期未生成本日选票</strong>
+        <span>当前沿用 ${escapeHtml(res.data.source_buy_day || "-")} 的选票，只用于复盘 ${escapeHtml(res.data.requested_day || res.data.day || "-")} 的隔夜收益；收益按 ${escapeHtml(res.data.actual_buy_day || "-")} 买入、${escapeHtml(res.data.actual_sell_day || res.data.next_day || "-")} 卖出计算。</span>
       </div>
     `
     : "";
@@ -1413,10 +1473,13 @@ if (sellTwapSelect) {
 
 if (tradeRefreshBtn) {
   tradeRefreshBtn.addEventListener("click", async () => {
+    if (tradeRefreshInFlight) return;
+    tradeRefreshInFlight = true;
     tradeRefreshBtn.disabled = true;
     const prevText = tradeRefreshBtn.textContent;
     tradeRefreshBtn.textContent = "刷新中...";
     const unlockTimer = setTimeout(() => {
+      tradeRefreshInFlight = false;
       tradeRefreshBtn.disabled = false;
       tradeRefreshBtn.textContent = prevText || "刷新";
     }, 15000);
@@ -1424,7 +1487,7 @@ if (tradeRefreshBtn) {
       const result = await refreshTradeWindowOnly();
       if (syncStatus) {
         if (result.ok) {
-          syncStatus.textContent = "持仓与绩效已刷新。";
+          syncStatus.textContent = "持仓与收益分析已刷新。";
         } else {
           const detail = result.failed.map((x) => `${x.module}失败`).join("、");
           const reason = result.failed.map((x) => `${x.module}: ${x.error}`).join("；");
@@ -1437,6 +1500,7 @@ if (tradeRefreshBtn) {
       }
     } finally {
       clearTimeout(unlockTimer);
+      tradeRefreshInFlight = false;
       tradeRefreshBtn.disabled = false;
       tradeRefreshBtn.textContent = prevText || "刷新";
     }

@@ -1,0 +1,175 @@
+{
+  // Research-only AI factor candidate generator.
+  // Dify only returns candidate JSON and code drafts; this project validates and stages them.
+  dify: {
+    endpoint: "https://api.dify.ai/v1/workflows/run",
+    api_key_env: "DIFY_API_KEY",
+    response_mode: "streaming",
+    user: "cbond_on_ai_factor_factory"
+  },
+  generation: {
+    max_candidates_per_batch: 5,
+    default_status: "research_only",
+    factor_time: "14:30",
+    label_time: "14:42",
+    panel_name: "T1430"
+  },
+  output: {
+    // Relative to results_root unless absolute.
+    candidate_root: "ai_factor_factory/candidates"
+  },
+  review: {
+    allow_try_except: false,
+    allow_fillna_zero: false,
+    allow_live_status: false,
+    forbidden_imports: [
+      "os",
+      "pathlib",
+      "redis",
+      "psycopg2",
+      "sqlalchemy",
+      "requests",
+      "httpx",
+      "urllib",
+      "cbond_on.infra.data",
+      "cbond_on.infra.live",
+      "cbond_on.infra.io"
+    ],
+    forbidden_calls: [
+      "open",
+      "read_parquet",
+      "read_csv",
+      "read_table_range",
+      "connect",
+      "fetch_table"
+    ],
+    panel_fields: [
+      "trade_time",
+      "pre_close",
+      "last",
+      "open",
+      "high",
+      "low",
+      "close",
+      "volume",
+      "amount",
+      "num_trades",
+      "high_limited",
+      "low_limited",
+      "ask_price1",
+      "ask_volume1",
+      "bid_price1",
+      "bid_volume1",
+      "ask_price2",
+      "ask_volume2",
+      "bid_price2",
+      "bid_volume2",
+      "ask_price3",
+      "ask_volume3",
+      "bid_price3",
+      "bid_volume3",
+      "ask_price4",
+      "ask_volume4",
+      "bid_price4",
+      "bid_volume4",
+      "ask_price5",
+      "ask_volume5",
+      "bid_price5",
+      "bid_volume5",
+      "iopv",
+      "trading_phase_code"
+    ],
+    daily_sources: {
+      "market_cbond.daily_twap": {
+        visible_on_t: [
+          "twap_0930_1000",
+          "twap_0930_0945",
+          "twap_0930_1030",
+          "twap_0930_1015",
+          "twap_0935_1000",
+          "twap_0945_1015",
+          "twap_1000_1030",
+          "twap_1030_1100",
+          "twap_1100_1130",
+          "twap_0935_1005",
+          "twap_0945_1000",
+          "twap_0935_0950",
+          "twap_0935_1030",
+          "twap_0930_0935",
+          "twap_0930_0938",
+          "twap_0930_0936",
+          "twap_0930_0939",
+          "twap_1125_1130",
+          "twap_1120_1130",
+          "twap_1300_1305",
+          "twap_1300_1310"
+        ],
+        historical_only: [
+          "twap_1442_1457",
+          "twap_1447_1457",
+          "twap_1452_1457",
+          "twap_1300_1330",
+          "twap_1330_1400",
+          "twap_1400_1430",
+          "twap_1430_1500",
+          "twap_1430_1442",
+          "twap_1430_1457",
+          "twap_1433_1457",
+          "twap_1436_1457",
+          "twap_1439_1457"
+        ]
+      },
+      "market_cbond.daily_price": {
+        visible_on_t: ["prev_close_price", "act_prev_close_price"],
+        historical_only: [
+          "close_price",
+          "open_price",
+          "high_price",
+          "low_price",
+          "volume",
+          "amount",
+          "deal"
+        ]
+      },
+      "market_cbond.daily_base": {
+        visible_on_t: [
+          "year_to_mat",
+          "remain_size",
+          "current_yield",
+          "cb_conv_price",
+          "cb_put_price",
+          "stock_code",
+          "rating"
+        ],
+        historical_only: [
+          "turnover_rate",
+          "stock_close_price",
+          "bond_prem_ratio",
+          "debt_puredebt_ratio",
+          "puredebt_prem_ratio",
+          "conv_value",
+          "ytm",
+          "duration",
+          "modify_duration",
+          "convexity",
+          "stock_volatility",
+          "cb_close_price",
+          "cb_volume",
+          "cb_amount",
+          "stk_close_price",
+          "stk_volume",
+          "stk_amount"
+        ]
+      }
+    },
+    forbidden_semantic_inputs: [
+      "label",
+      "y",
+      "future_return",
+      "backtest_return",
+      "trade_list",
+      "o_0005",
+      "o005"
+    ]
+  }
+}

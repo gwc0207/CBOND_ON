@@ -274,7 +274,7 @@ def run(
                 "benchmark_sell_count": int(benchmark_row.get("sell_count", 0)),
                 "benchmark_fallback_sell_codes": int(benchmark_row.get("fallback_sell_codes", 0)),
                 "benchmark_fallback_sell_weight": float(benchmark_row.get("fallback_sell_weight", 0.0)),
-                "benchmark_method": str(benchmark_row.get("benchmark_method", "strict_official_prev_close")),
+                "benchmark_method": str(benchmark_row.get("benchmark_method", "strict_full_overnight_net")),
                 "avg_return": float(picks["return"].mean()),
                 "total_weight": float(picks["weight"].sum()),
             }
