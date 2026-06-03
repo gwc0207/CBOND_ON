@@ -203,6 +203,10 @@ static_review.json
 - 非白名单 panel 字段。
 - 本轮 request 限制字段外的字段。
 - 本轮 request 禁止 daily_data / stock_panel。
+- 面板因子没有按 `(dt, code)` 输出单个标量。
+- 面板因子没有使用 `ensure_trade_time` / `_group_scalar`。
+- 面板因子直接返回 `(dt, code, seq)` 级别的 snapshot 序列。
+- 除法类公式没有显式处理价格、成交量、分母 `<=0` 的情况。
 - 非白名单 daily source / daily field。
 - forbidden semantic inputs：`label`、`y`、`future_return`、`backtest_return`、`trade_list`、`o_0005`、`o005`。
 - forbidden imports / calls。

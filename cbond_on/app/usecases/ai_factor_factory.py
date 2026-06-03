@@ -202,7 +202,7 @@ def candidate_output_schema() -> dict[str, Any]:
                     "factor": "lower_snake_v1",
                     "params": {"window": 20},
                 },
-                "python_code": "complete Python factor implementation draft",
+                "python_code": "complete Python factor implementation draft; intraday panel candidates must use ensure_trade_time and _group_scalar to return one scalar per (dt, code)",
                 "risk_notes": ["risk 1"],
                 "batch_validation_command": "python cbond_on/run/factor_batch.py",
             }
@@ -309,6 +309,55 @@ def _literal_string(node: ast.AST) -> str | None:
     return None
 
 
+def _imported_symbols(tree: ast.AST) -> set[str]:
+    symbols: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                symbols.add(alias.asname or alias.name.rsplit(".", 1)[-1])
+        elif isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                symbols.add(alias.asname or alias.name)
+    return symbols
+
+
+def _is_intraday_panel_candidate(candidate: FactorCandidateDraft) -> bool:
+    return bool(candidate.used_panel_fields)
+
+
+def _has_dt_code_scalar_pattern(code: str) -> bool:
+    if "_group_scalar" in code:
+        return True
+    compact = re.sub(r"\s+", "", code)
+    return bool(
+        re.search(r"groupby\([^)]*(?:level=)?(?:\[)?[\"']dt[\"'],[\"']code[\"']", compact)
+        or re.search(r"groupby\([^)]*(?:level=)?(?:\[)?0,1", compact)
+    )
+
+
+def _has_positive_value_guard(code: str) -> bool:
+    lowered = code.lower()
+    if "replace(0" in lowered or ".where(" in lowered or ".mask(" in lowered:
+        return True
+    guarded_name = r"(?:last|price|volume|denom|denominator|bid|ask|sum|total|depth|end|start)[a-z0-9_]*"
+    return bool(
+        re.search(rf"{guarded_name}\s*(?:<=|<|==)\s*0", lowered)
+        or re.search(rf"{guarded_name}\s*>\s*0", lowered)
+    )
+
+
+def _is_windowed_panel_candidate(candidate: FactorCandidateDraft) -> bool:
+    text = "\n".join(
+        [
+            candidate.formula,
+            candidate.rationale,
+            candidate.time_visibility,
+            json.dumps(candidate.config_spec, ensure_ascii=False),
+        ]
+    ).lower()
+    return bool(re.search(r"\b(window|minutes?|分钟|rolling|lookback)\b", text))
+
+
 def review_candidate(candidate: FactorCandidateDraft, *, review_cfg: dict[str, Any] | None = None) -> list[ReviewFinding]:
     cfg = dict(review_cfg or load_config_file("ai_factor_factory").get("review", {}))
     findings: list[ReviewFinding] = []
@@ -386,9 +435,15 @@ def review_candidate(candidate: FactorCandidateDraft, *, review_cfg: dict[str, A
     forbidden_calls = set(str(x) for x in cfg.get("forbidden_calls", []))
     allow_try_except = bool(cfg.get("allow_try_except", False))
     allow_fillna_zero = bool(cfg.get("allow_fillna_zero", False))
+    require_dt_code_scalar_output = bool(cfg.get("require_dt_code_scalar_output", True))
+    require_intraday_utils = bool(cfg.get("require_intraday_utils_for_panel_candidates", True))
+    require_positive_guards = bool(cfg.get("require_positive_value_guards", True))
+    require_slice_window = bool(cfg.get("require_slice_window_for_windowed_panel_candidates", True))
+    required_intraday_helpers = set(str(x) for x in cfg.get("required_intraday_helpers", []))
     returned_series_hint = False
     registry_seen = False
     factor_base_seen = False
+    imported_symbols = _imported_symbols(tree)
 
     for node in ast.walk(tree):
         if isinstance(node, (ast.Import, ast.ImportFrom)):
@@ -426,6 +481,41 @@ def review_candidate(candidate: FactorCandidateDraft, *, review_cfg: dict[str, A
         findings.append(ReviewFinding("error", "return", "compute() must return a pd.Series"))
     if "read_parquet" in candidate.python_code or "Path(" in candidate.python_code:
         findings.append(ReviewFinding("error", "direct_io", "factor code must not read files or use Path"))
+    if _is_intraday_panel_candidate(candidate):
+        if require_dt_code_scalar_output and not _has_dt_code_scalar_pattern(candidate.python_code):
+            findings.append(
+                ReviewFinding(
+                    "error",
+                    "output_granularity",
+                    "intraday panel candidates must return exactly one scalar per (dt, code); use _group_scalar or an explicit dt/code groupby, not a seq-level panel Series",
+                )
+            )
+        if require_intraday_utils:
+            missing_helpers = sorted(required_intraday_helpers - imported_symbols)
+            if missing_helpers:
+                findings.append(
+                    ReviewFinding(
+                        "error",
+                        "intraday_helpers",
+                        f"intraday panel candidates must import/use required helpers: {missing_helpers}",
+                    )
+                )
+        if require_positive_guards and "/" in candidate.python_code and not _has_positive_value_guard(candidate.python_code):
+            findings.append(
+                ReviewFinding(
+                    "error",
+                    "positive_value_guard",
+                    "division-based panel factors must explicitly guard invalid price/volume/denominator values",
+                )
+            )
+        if require_slice_window and _is_windowed_panel_candidate(candidate) and "slice_window(" not in candidate.python_code:
+            findings.append(
+                ReviewFinding(
+                    "error",
+                    "window_slice",
+                    "windowed intraday panel candidates must call slice_window inside the dt/code calculation",
+                )
+            )
 
     return findings
 

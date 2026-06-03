@@ -51,23 +51,28 @@ You must strictly follow these rules:
 22. Python code may only use these project import paths:
     - from cbond_on.core.registry import FactorRegistry
     - from cbond_on.domain.factors.base import Factor, FactorComputeContext
+    - from cbond_on.domain.factors.defs._intraday_utils import ensure_trade_time, _group_scalar, slice_window
 23. Do not use non-existent or non-standard project paths such as cbond_on.factor_engine.*.
 24. Python code must inherit Factor and implement compute(self, ctx: FactorComputeContext) -> pd.Series.
-25. Python code must return a pd.Series aligned to the input panel index.
-26. Before using any field, python_code must explicitly check that the field exists. Missing fields must raise KeyError.
-27. Broad try/except blocks are not allowed.
-28. Silent fallback behavior is not allowed.
-29. fillna(0) is not allowed to hide missing values.
-30. factor_key must be lower snake_case and end with _vN.
-31. factor_name should normally equal factor_key.
-32. config_spec.name should normally equal factor_name.
-33. config_spec.factor must equal factor_key.
-34. Every candidate must include formula, rationale, time_visibility, and risk_notes.
-35. Do not stack unnecessarily complex formulas. Do not generate factors unrelated to the topic.
-36. Output strict JSON only. Do not output Markdown, code fences, or explanatory text.
-37. The top-level output must be an object with the exact shape {"candidates":[...]}.
-38. The number of candidates must not exceed max_candidates.
-39. Every candidate must include all fields required by output_schema.
+25. Intraday panel factors must return exactly one scalar per (dt, code), not one value per snapshot seq.
+26. Intraday panel factors must use ensure_trade_time(ctx.panel) and _group_scalar(panel, _calc). Use slice_window inside _calc when a window is requested.
+27. Do not directly return panel["field"], amount / (last * volume), or any Series indexed by (dt, code, seq).
+28. The returned Series index must be (dt, code). The local factory will reject seq-level output.
+29. Before using any field, python_code must explicitly check that the field exists. Missing fields must raise KeyError.
+30. Division-based formulas must explicitly guard invalid price, volume, or denominator values such as <=0.
+31. Broad try/except blocks are not allowed.
+32. Silent fallback behavior is not allowed.
+33. fillna(0) is not allowed to hide missing values.
+34. factor_key must be lower snake_case and end with _vN.
+35. factor_name should normally equal factor_key.
+36. config_spec.name should normally equal factor_name.
+37. config_spec.factor must equal factor_key.
+38. Every candidate must include formula, rationale, time_visibility, and risk_notes.
+39. Do not stack unnecessarily complex formulas. Do not generate factors unrelated to the topic.
+40. Output strict JSON only. Do not output Markdown, code fences, or explanatory text.
+41. The top-level output must be an object with the exact shape {"candidates":[...]}.
+42. The number of candidates must not exceed max_candidates.
+43. Every candidate must include all fields required by output_schema.
 ```
 
 ## LLM 1 User
@@ -143,10 +148,14 @@ Check each item:
 18. Does python_code use the correct import paths:
     - from cbond_on.core.registry import FactorRegistry
     - from cbond_on.domain.factors.base import Factor, FactorComputeContext
-19. Does python_code incorrectly use cbond_on.factor_engine.* or any other non-standard path?
-20. Does python_code import and use Factor and FactorComputeContext?
-21. Does python_code return pd.Series?
-22. Does python_code raise KeyError when required fields are missing?
+    - from cbond_on.domain.factors.defs._intraday_utils import ensure_trade_time, _group_scalar, slice_window
+19. For intraday panel candidates, does python_code use ensure_trade_time and _group_scalar to return one scalar per (dt, code)?
+20. Does python_code avoid returning any Series indexed by (dt, code, seq)?
+21. Does python_code explicitly guard invalid price, volume, or denominator values for division-based formulas?
+22. Does python_code incorrectly use cbond_on.factor_engine.* or any other non-standard path?
+23. Does python_code import and use Factor and FactorComputeContext?
+24. Does python_code return pd.Series?
+25. Does python_code raise KeyError when required fields are missing?
 
 If a candidate violates the request-level field restriction, remove it from candidate_json and add an error review_note.
 If a candidate violates MACHINE_READABLE_REQUEST_RULES_JSON, remove it from candidate_json and add an error review_note.

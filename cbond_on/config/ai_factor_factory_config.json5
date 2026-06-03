@@ -22,6 +22,10 @@
     allow_try_except: false,
     allow_fillna_zero: false,
     allow_live_status: false,
+    require_dt_code_scalar_output: true,
+    require_intraday_utils_for_panel_candidates: true,
+    require_positive_value_guards: true,
+    require_slice_window_for_windowed_panel_candidates: true,
     forbidden_imports: [
       "os",
       "pathlib",
@@ -42,6 +46,10 @@
       "read_table_range",
       "connect",
       "fetch_table"
+    ],
+    required_intraday_helpers: [
+      "ensure_trade_time",
+      "_group_scalar"
     ],
     panel_fields: [
       "trade_time",
