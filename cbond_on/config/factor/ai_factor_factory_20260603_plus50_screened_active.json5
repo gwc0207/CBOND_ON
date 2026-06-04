@@ -1,0 +1,14 @@
+{
+  // Screened by stable_bin_alpha on 2025-01-01..2026-06-02.
+  // Source run:
+  // D:/cbond_on/results/ai_factor_factory/plus50_20250101/results/2025-01-01_2026-06-02/Single_Factor/20260603_191012
+  factors: [
+    {name: "t1430_volume_max_v1", factor: "t1430_volume_max_v1", params: {window_minutes: 30}},
+    {name: "t1430_volume_max_tick_v1", factor: "t1430_volume_max_tick_v1", params: {window_minutes: 30}},
+    {name: "t1430_volume_max_v2", factor: "t1430_volume_max_v2", params: {window_minutes: 30}},
+    {name: "t1430_volume_weighted_avg_size_v1", factor: "t1430_volume_weighted_avg_size_v1", params: {window_minutes: 30}},
+    {name: "t1430_volume_min_v1", factor: "t1430_volume_min_v1", params: {window_minutes: 30}},
+    {name: "t1430_volume_min_v2", factor: "t1430_volume_min_v2", params: {window_minutes: 30}},
+    {name: "t1430_price_range_30m_v1", factor: "t1430_price_range_30m_v1", params: {window_minutes: 30}}
+  ]
+}

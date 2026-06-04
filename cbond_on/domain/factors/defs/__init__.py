@@ -107,7 +107,92 @@ from cbond_on.domain.factors.defs.t1430_price_range_30m_v1 import T1430PriceRang
 from cbond_on.domain.factors.defs.t1430_spread_change_30m_v1 import T1430SpreadChange30mV1
 from cbond_on.domain.factors.defs.t1430_spread_mean_guarded_30m_v1 import T1430SpreadMeanGuarded30mV1
 from cbond_on.domain.factors.defs.t1430_window_vwap_last_gap_v1 import T1430WindowVwapLastGapV1
+from cbond_on.domain.factors.defs.t1430_cumulative_volume_ratio_v1 import T1430CumulativeVolumeRatioV1
+from cbond_on.domain.factors.defs.t1430_volume_gini_coefficient_v1 import T1430VolumeGiniCoefficientV1
+from cbond_on.domain.factors.defs.t1430_volume_autocorrelation_v1 import T1430VolumeAutocorrelationV1
+from cbond_on.domain.factors.defs.t1430_volume_momentum_v1 import T1430VolumeMomentumV1
+from cbond_on.domain.factors.defs.t1430_volume_std_dev_v1 import T1430VolumeStdDevV1
+from cbond_on.domain.factors.defs.t1430_volume_skewness_v1 import T1430VolumeSkewnessV1
+from cbond_on.domain.factors.defs.t1430_volume_kurtosis_v1 import T1430VolumeKurtosisV1
+from cbond_on.domain.factors.defs.t1430_volume_count_v1 import T1430VolumeCountV1
+from cbond_on.domain.factors.defs.t1430_volume_cumsum_v1 import T1430VolumeCumsumV1
+from cbond_on.domain.factors.defs.t1430_volume_mean_v1 import T1430VolumeMeanV1
+from cbond_on.domain.factors.defs.t1430_volume_max_v1 import T1430VolumeMaxV1
+from cbond_on.domain.factors.defs.t1430_volume_min_v1 import T1430VolumeMinV1
+from cbond_on.domain.factors.defs.t1430_volume_count_v2 import T1430VolumeCountV2
+from cbond_on.domain.factors.defs.t1430_volume_acceleration_v1 import T1430VolumeAccelerationV1
+from cbond_on.domain.factors.defs.t1430_volume_concentration_hhi_v1 import T1430VolumeConcentrationHhiV1
+from cbond_on.domain.factors.defs.t1430_volume_cv_v1 import T1430VolumeCvV1
+from cbond_on.domain.factors.defs.t1430_volume_entropy_v1 import T1430VolumeEntropyV1
+from cbond_on.domain.factors.defs.t1430_volume_gini_simple_v1 import T1430VolumeGiniSimpleV1
+from cbond_on.domain.factors.defs.t1430_volume_concentration_gini_v1 import T1430VolumeConcentrationGiniV1
+from cbond_on.domain.factors.defs.t1430_volume_weighted_avg_size_v1 import T1430VolumeWeightedAvgSizeV1
+from cbond_on.domain.factors.defs.t1430_volume_hhi_v1 import T1430VolumeHhiV1
+from cbond_on.domain.factors.defs.t1430_volume_hhi_v2 import T1430VolumeHhiV2
+from cbond_on.domain.factors.defs.t1430_volume_entropy_v2 import T1430VolumeEntropyV2
+from cbond_on.domain.factors.defs.t1430_volume_cumsum_slope_v1 import T1430VolumeCumsumSlopeV1
+from cbond_on.domain.factors.defs.t1430_volume_recent_share_v1 import T1430VolumeRecentShareV1
+from cbond_on.domain.factors.defs.t1430_volume_weighted_time_center_v1 import T1430VolumeWeightedTimeCenterV1
+from cbond_on.domain.factors.defs.t1430_volume_moment_v1 import T1430VolumeMomentV1
+from cbond_on.domain.factors.defs.t1430_volume_sum_v1 import T1430VolumeSumV1
+from cbond_on.domain.factors.defs.t1430_volume_max_tick_v1 import T1430VolumeMaxTickV1
+from cbond_on.domain.factors.defs.t1430_volume_range_v1 import T1430VolumeRangeV1
+from cbond_on.domain.factors.defs.t1430_volume_count_v3 import T1430VolumeCountV3
+from cbond_on.domain.factors.defs.t1430_volume_mean_v2 import T1430VolumeMeanV2
+from cbond_on.domain.factors.defs.t1430_volume_std_dev_v2 import T1430VolumeStdDevV2
+from cbond_on.domain.factors.defs.t1430_volume_max_v2 import T1430VolumeMaxV2
+from cbond_on.domain.factors.defs.t1430_volume_min_v2 import T1430VolumeMinV2
 
+from cbond_on.domain.factors.defs.microprice_dev_liquidity_v1 import MicropriceDevLiquidityV1
+from cbond_on.domain.factors.defs.ob_pressure_spread_recovery_v1 import ObPressureSpreadRecoveryV1
+from cbond_on.domain.factors.defs.ob_pressure_spread_v1 import ObPressureSpreadV1
+from cbond_on.domain.factors.defs.microprice_deviation_v1 import MicropriceDeviationV1
+from cbond_on.domain.factors.defs.microprice_deviation_liq_cond_v1 import MicropriceDeviationLiqCondV1
+from cbond_on.domain.factors.defs.spread_depth_pressure_v1 import SpreadDepthPressureV1
+from cbond_on.domain.factors.defs.microprice_deviation_liq_v1 import MicropriceDeviationLiqV1
+from cbond_on.domain.factors.defs.vwap_deviation_liquidity_cond_v1 import VwapDeviationLiquidityCondV1
+from cbond_on.domain.factors.defs.tail_volume_absorption_v1 import TailVolumeAbsorptionV1
+from cbond_on.domain.factors.defs.ob_pressure_spread_persistence_v1 import ObPressureSpreadPersistenceV1
+from cbond_on.domain.factors.defs.t1430_pv_interaction_v1 import T1430PvInteractionV1
+from cbond_on.domain.factors.defs.t1430_range_vol_norm_v1 import T1430RangeVolNormV1
+from cbond_on.domain.factors.defs.t1430_tail_pressure_v1 import T1430TailPressureV1
+from cbond_on.domain.factors.defs.t1430_range_volume_v1 import T1430RangeVolumeV1
+from cbond_on.domain.factors.defs.t1430_amount_intensity_v1 import T1430AmountIntensityV1
+from cbond_on.domain.factors.defs.t1430_close_position_v1 import T1430ClosePositionV1
+from cbond_on.domain.factors.defs.t1430_pv_ratio_v1 import T1430PvRatioV1
+from cbond_on.domain.factors.defs.t1430_range_volume_norm_v1 import T1430RangeVolumeNormV1
+from cbond_on.domain.factors.defs.t1430_range_norm_volume_v1 import T1430RangeNormVolumeV1
+from cbond_on.domain.factors.defs.t1430_amount_vol_ratio_v1 import T1430AmountVolRatioV1
+from cbond_on.domain.factors.defs.t1430_close_range_position_v1 import T1430CloseRangePositionV1
+from cbond_on.domain.factors.defs.t1430_volatility_turnover_v1 import T1430VolatilityTurnoverV1
+from cbond_on.domain.factors.defs.t1430_vwap_deviation_v1 import T1430VwapDeviationV1
+from cbond_on.domain.factors.defs.t1430_vol_turnover_ratio_v1 import T1430VolTurnoverRatioV1
+from cbond_on.domain.factors.defs.t1430_spread_liquidity_ratio_v1 import T1430SpreadLiquidityRatioV1
+from cbond_on.domain.factors.defs.t1430_microprice_mid_deviation_v1 import T1430MicropriceMidDeviationV1
+from cbond_on.domain.factors.defs.t1430_orderflow_imbalance_v1 import T1430OrderflowImbalanceV1
+from cbond_on.domain.factors.defs.t1430_depth_weighted_mid_v1 import T1430DepthWeightedMidV1
+from cbond_on.domain.factors.defs.t1430_bid_ask_imbalance_v1 import T1430BidAskImbalanceV1
+from cbond_on.domain.factors.defs.t1430_microprice_midpoint_dev_v1 import T1430MicropriceMidpointDevV1
+from cbond_on.domain.factors.defs.t1430_order_flow_toxicity_v1 import T1430OrderFlowToxicityV1
+from cbond_on.domain.factors.defs.t1430_bid_ask_spread_v1 import T1430BidAskSpreadV1
+from cbond_on.domain.factors.defs.t1430_order_imbalance_v1 import T1430OrderImbalanceV1
+from cbond_on.domain.factors.defs.t1430_micro_price_deviation_v1 import T1430MicroPriceDeviationV1
+from cbond_on.domain.factors.defs.t1430_relative_strength_v1 import T1430RelativeStrengthV1
+from cbond_on.domain.factors.defs.t1430_volume_weighted_price_deviation_v1 import T1430VolumeWeightedPriceDeviationV1
+from cbond_on.domain.factors.defs.t1430_mid_price_return_v1 import T1430MidPriceReturnV1
+from cbond_on.domain.factors.defs.t1430_spread_width_norm_v1 import T1430SpreadWidthNormV1
+from cbond_on.domain.factors.defs.t1430_microprice_mid_spread_v1 import T1430MicropriceMidSpreadV1
+from cbond_on.domain.factors.defs.t1430_order_flow_imbalance_v1 import T1430OrderFlowImbalanceV1
+from cbond_on.domain.factors.defs.t1430_relative_bid_ask_strength_v1 import T1430RelativeBidAskStrengthV1
+from cbond_on.domain.factors.defs.t1430_liq_adj_spread_v1 import T1430LiqAdjSpreadV1
+from cbond_on.domain.factors.defs.t1430_microprice_imbalance_v1 import T1430MicropriceImbalanceV1
+from cbond_on.domain.factors.defs.t1430_volume_weighted_mid_v1 import T1430VolumeWeightedMidV1
+from cbond_on.domain.factors.defs.t1430_microprice_liquidity_v1 import T1430MicropriceLiquidityV1
+from cbond_on.domain.factors.defs.t1430_ob_imbalance_flow_v1 import T1430ObImbalanceFlowV1
+from cbond_on.domain.factors.defs.t1430_spread_volatility_ratio_v1 import T1430SpreadVolatilityRatioV1
+from cbond_on.domain.factors.defs.t1430_relative_strength_vwap_v1 import T1430RelativeStrengthVwapV1
+from cbond_on.domain.factors.defs.t1430_depth_pressure_return_v1 import T1430DepthPressureReturnV1
+from cbond_on.domain.factors.defs.t1430_price_range_depth_ratio_v1 import T1430PriceRangeDepthRatioV1
 __all__ = [
     "AacbFactor",
     "VolenFactor",
@@ -218,5 +303,55 @@ __all__ = [
     "T1430SpreadChange30mV1",
     "T1430SpreadMeanGuarded30mV1",
     "T1430WindowVwapLastGapV1",
+    "MicropriceDevLiquidityV1",
+    "ObPressureSpreadRecoveryV1",
+    "ObPressureSpreadV1",
+    "MicropriceDeviationV1",
+    "MicropriceDeviationLiqCondV1",
+    "SpreadDepthPressureV1",
+    "MicropriceDeviationLiqV1",
+    "VwapDeviationLiquidityCondV1",
+    "TailVolumeAbsorptionV1",
+    "ObPressureSpreadPersistenceV1",
+    "T1430PvInteractionV1",
+    "T1430RangeVolNormV1",
+    "T1430TailPressureV1",
+    "T1430RangeVolumeV1",
+    "T1430AmountIntensityV1",
+    "T1430ClosePositionV1",
+    "T1430PvRatioV1",
+    "T1430RangeVolumeNormV1",
+    "T1430RangeNormVolumeV1",
+    "T1430AmountVolRatioV1",
+    "T1430CloseRangePositionV1",
+    "T1430VolatilityTurnoverV1",
+    "T1430VwapDeviationV1",
+    "T1430VolTurnoverRatioV1",
+    "T1430SpreadLiquidityRatioV1",
+    "T1430MicropriceMidDeviationV1",
+    "T1430OrderflowImbalanceV1",
+    "T1430DepthWeightedMidV1",
+    "T1430BidAskImbalanceV1",
+    "T1430MicropriceMidpointDevV1",
+    "T1430OrderFlowToxicityV1",
+    "T1430BidAskSpreadV1",
+    "T1430OrderImbalanceV1",
+    "T1430MicroPriceDeviationV1",
+    "T1430RelativeStrengthV1",
+    "T1430VolumeWeightedPriceDeviationV1",
+    "T1430MidPriceReturnV1",
+    "T1430SpreadWidthNormV1",
+    "T1430MicropriceMidSpreadV1",
+    "T1430OrderFlowImbalanceV1",
+    "T1430RelativeBidAskStrengthV1",
+    "T1430LiqAdjSpreadV1",
+    "T1430MicropriceImbalanceV1",
+    "T1430VolumeWeightedMidV1",
+    "T1430MicropriceLiquidityV1",
+    "T1430ObImbalanceFlowV1",
+    "T1430SpreadVolatilityRatioV1",
+    "T1430RelativeStrengthVwapV1",
+    "T1430DepthPressureReturnV1",
+    "T1430PriceRangeDepthRatioV1",
 ]
 

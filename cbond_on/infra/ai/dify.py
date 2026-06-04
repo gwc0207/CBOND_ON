@@ -88,6 +88,7 @@ class DifyWorkflowClient:
 
 def _parse_streaming_response(body: str) -> dict[str, Any]:
     last_event: dict[str, Any] | None = None
+    node_outputs: list[dict[str, Any]] = []
     for raw_line in body.splitlines():
         line = raw_line.strip()
         if not line.startswith("data:"):
@@ -101,15 +102,33 @@ def _parse_streaming_response(body: str) -> dict[str, Any]:
             continue
         if isinstance(event, dict):
             last_event = event
+            data = event.get("data")
+            if event.get("event") == "node_finished" and isinstance(data, dict):
+                outputs = data.get("outputs")
+                if isinstance(outputs, dict):
+                    node_outputs.append(
+                        {
+                            "title": data.get("title") or data.get("node_title") or "",
+                            "node_type": data.get("node_type") or "",
+                            "outputs": outputs,
+                        }
+                    )
             if event.get("event") in {"workflow_finished", "message_end"}:
-                data = event.get("data")
                 if isinstance(data, dict):
                     outputs = data.get("outputs")
                     if isinstance(outputs, dict):
-                        return {"data": {"outputs": outputs}, "stream_event": event}
+                        return {
+                            "data": {"outputs": outputs},
+                            "stream_event": event,
+                            "node_outputs": node_outputs,
+                        }
     if last_event is None:
         raise RuntimeError("Dify streaming response contained no JSON events")
     data = last_event.get("data")
     if isinstance(data, dict) and isinstance(data.get("outputs"), dict):
-        return {"data": {"outputs": data["outputs"]}, "stream_event": last_event}
+        return {
+            "data": {"outputs": data["outputs"]},
+            "stream_event": last_event,
+            "node_outputs": node_outputs,
+        }
     raise RuntimeError(f"Dify streaming response ended without outputs: {last_event}")

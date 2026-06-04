@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from cbond_on.core.config import load_config_file, resolve_output_path
+from cbond_on.infra.factors.quality import load_factor_specs_from_cfg
 from cbond_on.infra.ai.dify import DifyWorkflowClient
 
 
@@ -244,7 +245,20 @@ def _extract_candidates_from_dify_response(resp: dict[str, Any]) -> list[dict[st
         if text.startswith("```"):
             text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.IGNORECASE)
             text = re.sub(r"\s*```$", "", text)
-        return json.loads(text)
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            return json.JSONDecoder(strict=False).decode(text)
+
+    def extract_embedded_candidate_json(value: str) -> str | None:
+        match = re.search(r'"candidate_json"\s*:\s*"((?:\\.|[^"\\])*)"', value, flags=re.DOTALL)
+        if not match:
+            return None
+        try:
+            nested = json.loads(f'"{match.group(1)}"', strict=False)
+        except json.JSONDecodeError:
+            return None
+        return nested if isinstance(nested, str) else None
 
     def unpack(value: Any) -> list[dict[str, Any]] | None:
         if isinstance(value, list):
@@ -260,20 +274,42 @@ def _extract_candidates_from_dify_response(resp: dict[str, Any]) -> list[dict[st
                         return nested
             return None
         if isinstance(value, str) and value.strip():
-            parsed = parse_jsonish(value)
+            try:
+                parsed = parse_jsonish(value)
+            except json.JSONDecodeError:
+                embedded = extract_embedded_candidate_json(value)
+                if embedded is None:
+                    raise
+                parsed = embedded
             return unpack(parsed)
         return None
 
     outputs = resp.get("data", {}).get("outputs") if isinstance(resp.get("data"), dict) else None
+    saw_empty_candidates = False
     if isinstance(outputs, dict):
         for key in ("candidates", "candidate_json", "result", "text"):
             value = outputs.get(key)
             candidates = unpack(value)
-            if candidates is not None:
+            if candidates:
                 return candidates
+            if candidates == []:
+                saw_empty_candidates = True
+    for node in resp.get("node_outputs", []) or []:
+        node_outputs = node.get("outputs") if isinstance(node, dict) else None
+        if not isinstance(node_outputs, dict):
+            continue
+        for key in ("candidates", "candidate_json", "result", "text", "output"):
+            value = node_outputs.get(key)
+            candidates = unpack(value)
+            if candidates:
+                return candidates
+            if candidates == []:
+                saw_empty_candidates = True
     candidates = unpack(resp)
-    if candidates is not None:
+    if candidates:
         return candidates
+    if candidates == [] or saw_empty_candidates:
+        return []
     raise KeyError("cannot find candidates in Dify response")
 
 
@@ -325,6 +361,202 @@ def _is_intraday_panel_candidate(candidate: FactorCandidateDraft) -> bool:
     return bool(candidate.used_panel_fields)
 
 
+def _normalize_formula_op(name: str) -> str | None:
+    text = str(name or "").strip().lower()
+    aliases = {
+        "nanmax": "max",
+        "amax": "max",
+        "nanmin": "min",
+        "amin": "min",
+        "average": "mean",
+        "nanmean": "mean",
+        "nansum": "sum",
+        "size": "count",
+        "len": "count",
+        "nanstd": "std",
+        "stddev": "std",
+        "std_dev": "std",
+        "var": "std",
+        "nanvar": "std",
+        "kurt": "kurtosis",
+    }
+    text = aliases.get(text, text)
+    if text in {"max", "min", "mean", "sum", "count", "std", "skew", "kurtosis", "gini", "hhi", "entropy", "cumsum"}:
+        return text
+    return None
+
+
+def _field_from_expr(expr: ast.AST, aliases: dict[str, str], panel_fields: set[str]) -> str | None:
+    if isinstance(expr, ast.Name):
+        return aliases.get(expr.id)
+    if isinstance(expr, ast.Subscript):
+        if isinstance(expr.value, ast.Name) and expr.value.id in aliases:
+            return aliases[expr.value.id]
+        key = _literal_string(expr.slice)
+        if key in panel_fields:
+            return key
+        return _field_from_expr(expr.value, aliases, panel_fields)
+    if isinstance(expr, ast.Attribute):
+        return _field_from_expr(expr.value, aliases, panel_fields)
+    if isinstance(expr, ast.Call):
+        if isinstance(expr.func, ast.Attribute):
+            field = _field_from_expr(expr.func.value, aliases, panel_fields)
+            if field:
+                return field
+        for arg in expr.args:
+            field = _field_from_expr(arg, aliases, panel_fields)
+            if field:
+                return field
+    if isinstance(expr, ast.BinOp):
+        return _field_from_expr(expr.left, aliases, panel_fields) or _field_from_expr(expr.right, aliases, panel_fields)
+    if isinstance(expr, ast.UnaryOp):
+        return _field_from_expr(expr.operand, aliases, panel_fields)
+    if isinstance(expr, ast.Compare):
+        field = _field_from_expr(expr.left, aliases, panel_fields)
+        if field:
+            return field
+        for comparator in expr.comparators:
+            field = _field_from_expr(comparator, aliases, panel_fields)
+            if field:
+                return field
+    return None
+
+
+def _collect_field_aliases(tree: ast.AST, panel_fields: set[str]) -> dict[str, str]:
+    aliases: dict[str, str] = {}
+    changed = True
+    while changed:
+        changed = False
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Assign):
+                continue
+            field = _field_from_expr(node.value, aliases, panel_fields)
+            if not field:
+                continue
+            for target in node.targets:
+                if isinstance(target, ast.Name) and aliases.get(target.id) != field:
+                    aliases[target.id] = field
+                    changed = True
+    return aliases
+
+
+def _extract_formula_families(
+    *,
+    candidate: FactorCandidateDraft,
+    tree: ast.AST,
+    panel_fields: set[str],
+) -> set[str]:
+    aliases = _collect_field_aliases(tree, panel_fields)
+    families: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        name = _call_name(node)
+        op = _normalize_formula_op(name)
+        if not op:
+            continue
+        field: str | None = None
+        if isinstance(node.func, ast.Attribute):
+            field = _field_from_expr(node.func.value, aliases, panel_fields)
+        if field is None:
+            for arg in node.args:
+                field = _field_from_expr(arg, aliases, panel_fields)
+                if field:
+                    break
+        if field:
+            families.add(f"{field}:{op}")
+
+    lowered = (
+        candidate.factor_key
+        + "\n"
+        + candidate.factor_name
+        + "\n"
+        + candidate.formula
+        + "\n"
+        + candidate.rationale
+        + "\n"
+        + candidate.python_code
+    ).lower()
+    uses_volume = "volume" in candidate.used_panel_fields or re.search(r"(?<![a-z0-9_])volume(?![a-z0-9_])", lowered)
+    if uses_volume:
+        semantic_ops = {
+            "gini": ("gini",),
+            "hhi": ("hhi", "herfindahl"),
+            "entropy": ("entropy",),
+            "skew": ("skew", "skewness"),
+            "kurtosis": ("kurt", "kurtosis"),
+            "std": ("std", "std_dev", "standard deviation", "volatility"),
+            "cumsum": ("cumsum", "cumulative"),
+            "count": ("count", "tick count"),
+        }
+        for op, tokens in semantic_ops.items():
+            if any(token in lowered for token in tokens):
+                families.add(f"volume:{op}")
+    return families
+
+
+def _fields_referenced_in_tree(tree: ast.AST, panel_fields: set[str]) -> set[str]:
+    out: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Subscript):
+            key = _literal_string(node.slice)
+            if key in panel_fields:
+                out.add(key)
+    return out
+
+
+def _has_cross_field_arithmetic(tree: ast.AST, panel_fields: set[str]) -> bool:
+    aliases = _collect_field_aliases(tree, panel_fields)
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.BinOp) or not isinstance(node.op, (ast.Mult, ast.Div, ast.Sub, ast.Add)):
+            continue
+        left = _field_from_expr(node.left, aliases, panel_fields)
+        right = _field_from_expr(node.right, aliases, panel_fields)
+        if left and right and left != right:
+            return True
+    return False
+
+
+def _is_cross_field_candidate(candidate: FactorCandidateDraft, tree: ast.AST, panel_fields: set[str]) -> bool:
+    fields = _fields_referenced_in_tree(tree, panel_fields).difference({"trade_time"})
+    if len(fields) < 2:
+        return False
+    lowered = f"{candidate.factor_key}\n{candidate.formula}\n{candidate.rationale}".lower()
+    interaction_tokens = (
+        "interaction",
+        "conditional",
+        "condition",
+        "ratio",
+        "share",
+        "pressure",
+        "absorption",
+        "divergence",
+        "contrast",
+        "deviation",
+        "combined",
+    )
+    return _has_cross_field_arithmetic(tree, panel_fields) or any(token in lowered for token in interaction_tokens)
+
+
+def _load_existing_factor_keys(dedupe_cfg: dict[str, Any]) -> set[str]:
+    keys: set[str] = set()
+    for ref in dedupe_cfg.get("existing_factor_files", []) or []:
+        ref_text = str(ref).strip()
+        if not ref_text:
+            continue
+        try:
+            cfg = load_config_file(ref_text)
+            specs = load_factor_specs_from_cfg(cfg)
+        except Exception:
+            continue
+        for spec in specs:
+            if str(spec.name).strip():
+                keys.add(str(spec.name).strip())
+            if str(spec.factor).strip():
+                keys.add(str(spec.factor).strip())
+    return keys
+
+
 def _has_dt_code_scalar_pattern(code: str) -> bool:
     if "_group_scalar" in code:
         return True
@@ -361,11 +593,23 @@ def _is_windowed_panel_candidate(candidate: FactorCandidateDraft) -> bool:
 def review_candidate(candidate: FactorCandidateDraft, *, review_cfg: dict[str, Any] | None = None) -> list[ReviewFinding]:
     cfg = dict(review_cfg or load_config_file("ai_factor_factory").get("review", {}))
     findings: list[ReviewFinding] = []
+    dedupe_cfg = dict(cfg.get("dedupe", {}) or {})
+    dedupe_enabled = bool(dedupe_cfg.get("enabled", False))
 
     if not _FACTOR_KEY_RE.match(candidate.factor_key):
         findings.append(ReviewFinding("error", "factor_key", "factor_key must be lower snake_case and end with _vN"))
     if not _SNAKE_RE.match(candidate.factor_name):
         findings.append(ReviewFinding("error", "factor_name", "factor_name must be lower snake_case"))
+    if dedupe_enabled and bool(dedupe_cfg.get("reject_existing_factor_key", True)):
+        existing_keys = _load_existing_factor_keys(dedupe_cfg)
+        if candidate.factor_key in existing_keys or candidate.factor_name in existing_keys:
+            findings.append(
+                ReviewFinding(
+                    "error",
+                    "existing_factor_key",
+                    f"factor key/name already exists in configured AI factor packs: {candidate.factor_key}",
+                )
+            )
     if candidate.status != "research_only" and not bool(cfg.get("allow_live_status", False)):
         findings.append(ReviewFinding("error", "status", "new AI candidates must start as research_only"))
     if candidate.requires_stock_panel and not candidate.requires_bond_stock_map:
@@ -442,8 +686,28 @@ def review_candidate(candidate: FactorCandidateDraft, *, review_cfg: dict[str, A
     required_intraday_helpers = set(str(x) for x in cfg.get("required_intraday_helpers", []))
     returned_series_hint = False
     registry_seen = False
+    registry_decorator_seen = False
     factor_base_seen = False
     imported_symbols = _imported_symbols(tree)
+
+    if dedupe_enabled and bool(dedupe_cfg.get("reject_existing_formula_family", True)):
+        forbidden_families = {str(x).strip() for x in dedupe_cfg.get("forbidden_formula_families", []) if str(x).strip()}
+        formula_families = _extract_formula_families(
+            candidate=candidate,
+            tree=tree,
+            panel_fields=panel_fields,
+        )
+        duplicated = sorted(formula_families.intersection(forbidden_families))
+        if duplicated and _is_cross_field_candidate(candidate, tree, panel_fields):
+            duplicated = []
+        for family in duplicated:
+            findings.append(
+                ReviewFinding(
+                    "error",
+                    "duplicate_formula_family",
+                    f"formula family already covered by existing AI factors: {family}",
+                )
+            )
 
     for node in ast.walk(tree):
         if isinstance(node, (ast.Import, ast.ImportFrom)):
@@ -460,10 +724,41 @@ def review_candidate(candidate: FactorCandidateDraft, *, review_cfg: dict[str, A
                 findings.append(ReviewFinding("error", "forbidden_call", f"forbidden call: {name}"))
             if name == "register":
                 registry_seen = True
+            if name == "slice_window":
+                if node.keywords or len(node.args) < 2:
+                    findings.append(
+                        ReviewFinding(
+                            "error",
+                            "slice_window_signature",
+                            "slice_window must be called as slice_window(frame, window_minutes) without keyword arguments",
+                        )
+                    )
             if name == "fillna" and not allow_fillna_zero:
                 for arg in node.args:
                     if isinstance(arg, ast.Constant) and arg.value == 0:
                         findings.append(ReviewFinding("error", "fillna_zero", "fillna(0) is not allowed"))
+            if name in {"where", "mask"} and not allow_fillna_zero:
+                zero_args = [
+                    arg
+                    for arg in node.args[1:]
+                    if isinstance(arg, ast.Constant) and arg.value == 0
+                ]
+                zero_kwargs = [
+                    kw
+                    for kw in node.keywords
+                    if kw.arg == "other" and isinstance(kw.value, ast.Constant) and kw.value.value == 0
+                ]
+                if zero_args or zero_kwargs:
+                    findings.append(
+                        ReviewFinding(
+                            "error",
+                            "zero_imputation",
+                            "where/mask(..., 0) is not allowed to hide invalid values",
+                        )
+                    )
+        elif isinstance(node, ast.ClassDef):
+            if any(isinstance(decorator, ast.Call) and _call_name(decorator) == "register" for decorator in node.decorator_list):
+                registry_decorator_seen = True
         elif isinstance(node, ast.Subscript):
             key = _literal_string(node.slice)
             if key and key not in panel_fields and key not in {"dt", "code", "seq"}:
@@ -475,6 +770,8 @@ def review_candidate(candidate: FactorCandidateDraft, *, review_cfg: dict[str, A
 
     if "FactorRegistry.register" not in candidate.python_code and not registry_seen:
         findings.append(ReviewFinding("error", "registry", "python_code must register via FactorRegistry.register"))
+    if not registry_decorator_seen:
+        findings.append(ReviewFinding("error", "registry_decorator", "FactorRegistry.register must be used as a class decorator"))
     if "FactorComputeContext" not in candidate.python_code or not factor_base_seen:
         findings.append(ReviewFinding("error", "factor_base", "python_code must import/use Factor and FactorComputeContext"))
     if not returned_series_hint:

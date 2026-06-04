@@ -26,6 +26,28 @@
     require_intraday_utils_for_panel_candidates: true,
     require_positive_value_guards: true,
     require_slice_window_for_windowed_panel_candidates: true,
+    dedupe: {
+      enabled: true,
+      reject_existing_factor_key: true,
+      reject_existing_formula_family: true,
+      existing_factor_files: [
+        "factor/ai_factor_factory_20260603_plus50.json5"
+      ],
+      forbidden_formula_families: [
+        "volume:max",
+        "volume:min",
+        "volume:mean",
+        "volume:sum",
+        "volume:count",
+        "volume:std",
+        "volume:skew",
+        "volume:kurtosis",
+        "volume:gini",
+        "volume:hhi",
+        "volume:entropy",
+        "volume:cumsum"
+      ]
+    },
     forbidden_imports: [
       "os",
       "pathlib",
