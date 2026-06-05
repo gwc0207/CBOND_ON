@@ -21,11 +21,11 @@
     ready_gate_enabled: true
   },
   factor: {
-    config: "live/live_factors"
+    config: "live/live_factors_old19"
   },
   model_score: {
     config: "live/live_models",
-    model_id: "lgbm_screened_no_winsor_live",
+    model_id: "lgbm_live_factors_old19_live",
     label_cutoff: null
   },
   allowlist: {
