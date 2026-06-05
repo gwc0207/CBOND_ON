@@ -11,6 +11,17 @@ import pandas as pd
 from cbond_on.core.plotting import compress_lunch
 
 
+def _merge_best_bin_metrics(result: Any, summary: dict[str, float]) -> dict[str, float]:
+    best_metrics = getattr(result, "best_bin_metrics", {}) or {}
+    if isinstance(best_metrics, dict):
+        for key, value in best_metrics.items():
+            try:
+                summary[str(key)] = float(value)
+            except (TypeError, ValueError):
+                continue
+    return summary
+
+
 def _summary_stats(result: Any) -> dict[str, float]:
     rets = pd.to_numeric(result.returns, errors="coerce").dropna()
     benchmark_rets = pd.to_numeric(
@@ -28,7 +39,7 @@ def _summary_stats(result: Any) -> dict[str, float]:
     else:
         win_rate = 0.0
     if rets.empty:
-        return {
+        return _merge_best_bin_metrics(result, {
             "sharpe": 0.0,
             "benchmark_sharpe": 0.0,
             "alpha_sharpe": 0.0,
@@ -41,7 +52,19 @@ def _summary_stats(result: Any) -> dict[str, float]:
             "ret_total": 0.0,
             "benchmark_ret_total": 0.0,
             "alpha_ret_total": 0.0,
-        }
+        })
+    rets_for_alpha = rets.copy()
+    rets_idx = pd.to_datetime(rets_for_alpha.index, errors="coerce")
+    if rets_idx.notna().any():
+        rets_for_alpha = pd.Series(rets_for_alpha.values, index=rets_idx).dropna()
+        rets_for_alpha.index = rets_for_alpha.index.normalize()
+        rets_for_alpha = rets_for_alpha.groupby(rets_for_alpha.index).mean().sort_index()
+    benchmark_for_alpha = benchmark_rets.copy()
+    bench_idx = pd.to_datetime(benchmark_for_alpha.index, errors="coerce")
+    if bench_idx.notna().any():
+        benchmark_for_alpha = pd.Series(benchmark_for_alpha.values, index=bench_idx).dropna()
+        benchmark_for_alpha.index = benchmark_for_alpha.index.normalize()
+        benchmark_for_alpha = benchmark_for_alpha.groupby(benchmark_for_alpha.index).mean().sort_index()
 
     nav = (1.0 + rets).cumprod()
     running_max = nav.cummax()
@@ -63,13 +86,17 @@ def _summary_stats(result: Any) -> dict[str, float]:
         if benchmark_std > 0
         else 0.0
     )
-    common_idx = rets.index.intersection(benchmark_rets.index)
-    alpha_rets = rets.loc[common_idx] - benchmark_rets.loc[common_idx] if len(common_idx) else pd.Series(dtype=float)
+    common_idx = rets_for_alpha.index.intersection(benchmark_for_alpha.index)
+    alpha_rets = (
+        rets_for_alpha.loc[common_idx] - benchmark_for_alpha.loc[common_idx]
+        if len(common_idx)
+        else pd.Series(dtype=float)
+    )
     alpha_mean = float(alpha_rets.mean()) if not alpha_rets.empty else 0.0
     alpha_std = float(alpha_rets.std(ddof=0)) if not alpha_rets.empty else 0.0
     alpha_sharpe = float((alpha_mean / alpha_std) * np.sqrt(252.0)) if alpha_std > 0 else 0.0
     alpha_nav = (1.0 + alpha_rets).cumprod() if not alpha_rets.empty else pd.Series(dtype=float)
-    return {
+    return _merge_best_bin_metrics(result, {
         "sharpe": sharpe,
         "benchmark_sharpe": benchmark_sharpe,
         "alpha_sharpe": alpha_sharpe,
@@ -82,7 +109,7 @@ def _summary_stats(result: Any) -> dict[str, float]:
         "ret_total": float(nav.iloc[-1] - 1.0) if not nav.empty else 0.0,
         "benchmark_ret_total": float(benchmark_nav.iloc[-1] - 1.0) if not benchmark_nav.empty else 0.0,
         "alpha_ret_total": float(alpha_nav.iloc[-1] - 1.0) if not alpha_nav.empty else 0.0,
-    }
+    })
 
 
 def _mask_trading_times(index: pd.Series) -> pd.Series:
@@ -376,8 +403,19 @@ def save_single_factor_report(
     ax.tick_params(axis="x", labelrotation=20)
 
     ax = axes[0, 2]
-    benchmark_line_plotted = False
+    any_nav_line_plotted = False
+    strategy_plot: pd.Series | None = None
     benchmark_plot: pd.Series | None = None
+    if not nav_series.empty:
+        strat_plot = pd.Series(
+            nav_series.values,
+            index=pd.to_datetime(nav_series.index, errors="coerce"),
+        ).dropna()
+        if not strat_plot.empty:
+            strat_plot.index = strat_plot.index.normalize()
+            strat_plot = strat_plot.groupby(strat_plot.index).last().sort_index()
+            if not strat_plot.empty:
+                strategy_plot = strat_plot
     if not benchmark_nav_series.empty:
         bench_plot = pd.Series(
             benchmark_nav_series.values,
@@ -388,6 +426,16 @@ def save_single_factor_report(
             bench_plot = bench_plot.groupby(bench_plot.index).last().sort_index()
             if not bench_plot.empty:
                 benchmark_plot = bench_plot
+    if strategy_plot is not None:
+        ax.plot(
+            strategy_plot.index,
+            strategy_plot.values,
+            label="wf_strategy(net)",
+            color="black",
+            linewidth=2.4,
+            zorder=12,
+        )
+        any_nav_line_plotted = True
     if not bin_time_df.empty:
         day_df = bin_time_df.copy()
         day_df["trade_date"] = pd.to_datetime(day_df["trade_time"], errors="coerce").dt.normalize()
@@ -417,7 +465,7 @@ def save_single_factor_report(
                     linewidth=2.0,
                     zorder=10,
                 )
-                benchmark_line_plotted = True
+                any_nav_line_plotted = True
             locator = mdates.AutoDateLocator()
             ax.xaxis.set_major_locator(locator)
             ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(locator))
@@ -426,7 +474,10 @@ def save_single_factor_report(
             if handles:
                 order = sorted(
                     range(len(labels)),
-                    key=lambda i: (0 if labels[i] == "benchmark" else 1, labels[i]),
+                    key=lambda i: (
+                        0 if labels[i] == "wf_strategy(net)" else 1 if labels[i] == "benchmark" else 2,
+                        labels[i],
+                    ),
                 )
                 ax.legend(
                     [handles[i] for i in order],
@@ -445,8 +496,8 @@ def save_single_factor_report(
                     linewidth=2.0,
                     zorder=10,
                 )
-                benchmark_line_plotted = True
-            if not benchmark_line_plotted:
+                any_nav_line_plotted = True
+            if not any_nav_line_plotted:
                 ax.text(0.5, 0.5, "No bin NAV", ha="center", va="center", transform=ax.transAxes)
             else:
                 ax.legend(fontsize=7, ncol=2)
@@ -461,12 +512,12 @@ def save_single_factor_report(
                 linewidth=2.0,
                 zorder=10,
             )
-            benchmark_line_plotted = True
-        if not benchmark_line_plotted:
+            any_nav_line_plotted = True
+        if not any_nav_line_plotted:
             ax.text(0.5, 0.5, "No bin data", ha="center", va="center", transform=ax.transAxes)
         else:
             ax.legend(fontsize=7, ncol=2)
-    ax.set_title("Bin Cumulative NAV")
+    ax.set_title("Bin NAV + WF Strategy (Strict Official Split Net)")
     ax.grid(True, alpha=0.3)
 
     ax = axes[1, 0]
@@ -493,28 +544,31 @@ def save_single_factor_report(
     ax.grid(True, axis="y", alpha=0.3)
 
     ax = axes[1, 1]
-    mono = _mean_bin_monotonicity(bin_time_df)
-
     perf_metrics = [
-        ("strategy_ret", float(summary.get("ret_total", float("nan")))),
-        ("strategy_sharpe", float(summary.get("sharpe", float("nan")))),
-        ("maxdd", float(summary.get("maxdd", float("nan")))),
-        ("alpha_ret", float(summary.get("alpha_ret_total", float("nan")))),
-        ("mono_rankcorr", mono),
+        ("wf_ret", float(summary.get("ret_total", float("nan")))),
+        ("wf_sharpe", float(summary.get("sharpe", float("nan")))),
+        ("wf_maxdd", float(summary.get("maxdd", float("nan")))),
+        ("wf_alpha", float(summary.get("alpha_ret_total", float("nan")))),
+        ("best_ret", float(summary.get("best_bin_ret_total", float("nan")))),
+        ("best_sharpe", float(summary.get("best_bin_sharpe", float("nan")))),
+        ("best_maxdd", float(summary.get("best_bin_maxdd", float("nan")))),
+        ("best_alpha", float(summary.get("best_bin_alpha_ret_total", float("nan")))),
     ]
     perf_metric_names = [name for name, _ in perf_metrics]
     perf_metric_vals = [val for _, val in perf_metrics]
     ax.bar(
         perf_metric_names,
         perf_metric_vals,
-        color=["#4C78A8", "#F58518", "#E45756", "#54A24B", "#9C755F"],
+        color=["#222222", "#4C78A8", "#E45756", "#54A24B", "#72B7B2", "#F58518", "#B279A2", "#FF9DA6"],
     )
     for idx, val in enumerate(perf_metric_vals):
         if pd.notna(val):
             ax.text(idx, val, f"{val:.4f}", ha="center", va="bottom", fontsize=8)
-    ax.set_title("Factor + Strategy Metrics")
+    best_bin = summary.get("best_bin", float("nan"))
+    best_label = f"{int(best_bin)}" if pd.notna(best_bin) and best_bin >= 0 else "n/a"
+    ax.set_title(f"WF/Best Metrics - Strict Split (best={best_label})")
     ax.grid(True, axis="y", alpha=0.3)
-    ax.tick_params(axis="x", labelrotation=20)
+    ax.tick_params(axis="x", labelrotation=30)
 
     ax = axes[1, 2]
     benchmark_daily = pd.to_numeric(

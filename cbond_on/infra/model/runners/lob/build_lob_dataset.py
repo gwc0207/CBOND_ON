@@ -18,6 +18,7 @@ from cbond_on.infra.universe.pool_filter import (
     load_upstream_pool_config,
     resolve_pool_codes_for_trade_day,
 )
+from cbond_on.infra.benchmark.service import load_strict_market_day
 from cbond_on.infra.data.io import read_table_all
 
 
@@ -201,11 +202,36 @@ def _build_one_day(
     if merged_twap.empty:
         return {"day": day.date(), "status": "skip", "reason": "no_label"}
 
-    y_map = (
-        merged_twap.set_index("code")[sell_twap_col]
-        / merged_twap.set_index("code")[buy_twap_col]
-        - 1.0
+    try:
+        strict_buy_market = load_strict_market_day(
+            raw_data_root=raw_root,
+            trade_day=day.date(),
+            buy_bps=0.0,
+            sell_bps=0.0,
+        )
+        strict_sell_market = load_strict_market_day(
+            raw_data_root=raw_root,
+            trade_day=next_day.date(),
+            buy_bps=0.0,
+            sell_bps=0.0,
+        )
+    except Exception:
+        return {"day": day.date(), "status": "skip", "reason": "missing_strict_label_market"}
+    strict_label = strict_buy_market[["code", "buy_leg_ret_gross"]].merge(
+        strict_sell_market[["code", "strict_sell_leg_gross_ret"]],
+        on="code",
+        how="inner",
     )
+    strict_label["y"] = (
+        pd.to_numeric(strict_label["buy_leg_ret_gross"], errors="coerce")
+        + pd.to_numeric(strict_label["strict_sell_leg_gross_ret"], errors="coerce")
+    )
+    strict_label = strict_label.dropna(subset=["code", "y"])
+    merged_twap = merged_twap.merge(strict_label[["code", "y"]], on="code", how="inner")
+    if merged_twap.empty:
+        return {"day": day.date(), "status": "skip", "reason": "no_strict_label"}
+
+    y_map = merged_twap.set_index("code")["y"]
     samples = []
     labels = []
     codes = []
@@ -378,7 +404,7 @@ def main() -> None:
     overwrite = bool(ds_cfg.get("overwrite", False)) or refresh
 
     buy_twap_col = str(ds_cfg.get("buy_twap_col", "twap_1442_1457"))
-    sell_twap_col = str(ds_cfg.get("sell_twap_col", "twap_0930_0945"))
+    sell_twap_col = str(ds_cfg.get("sell_twap_col", "twap_0930_0939"))
     min_amount = float(ds_cfg.get("min_amount", 0.0))
     min_volume = float(ds_cfg.get("min_volume", 0.0))
     pool_cfg = load_upstream_pool_config()

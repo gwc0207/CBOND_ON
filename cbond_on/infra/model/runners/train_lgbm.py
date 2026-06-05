@@ -395,7 +395,7 @@ def main(
         "twap_table": "market_cbond.daily_twap",
         "asset": "cbond",
         "buy_twap_col": "twap_1442_1457",
-        "sell_twap_col": "twap_0930_0945",
+        "sell_twap_col": "twap_0930_0939",
         "min_amount": 0.0,
         "min_volume": 0.0,
     }
@@ -413,7 +413,7 @@ def main(
             raw_data_root=raw_root,
             days=days,
             buy_twap_col=str(tradable_cfg.get("buy_twap_col", "twap_1442_1457")),
-            sell_twap_col=str(tradable_cfg.get("sell_twap_col", "twap_0930_0945")),
+            sell_twap_col=str(tradable_cfg.get("sell_twap_col", "twap_0930_0939")),
             min_amount=float(tradable_cfg.get("min_amount", 0.0)),
             min_volume=float(tradable_cfg.get("min_volume", 0.0)),
             twap_table=str(tradable_cfg.get("twap_table", "market_cbond.daily_twap")),

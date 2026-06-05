@@ -5,12 +5,14 @@
   refresh: false,
   overwrite: false,
   close_window: { start: "14:42", end: "14:57" },
-  next_open_window: { start: "09:30", end: "09:45" },
-  // Label y is gross overnight return from daily_twap.
+  next_open_window: { start: "09:30", end: "09:39" },
+  // Label y uses the strict official split gross target:
+  // T buy leg marked to official close + T+1 sell leg from official prev_close.
+  // Sell TWAP is reconstructed from from_snapshot; missing sell TWAP falls back to official prev_close.
   // Costs are applied later by research/backtest/reporting code.
   twap_table: "market_cbond.daily_twap",
   // If null, resolve from window automatically (e.g. 14:42-14:57 -> twap_1442_1457)
   close_twap_col: null,
-  next_open_twap_col: null
+  next_open_twap_col: "twap_0930_0939"
 }
 

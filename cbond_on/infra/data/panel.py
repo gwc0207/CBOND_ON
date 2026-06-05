@@ -14,6 +14,7 @@ from cbond_on.core.schedule import IntradaySchedule
 from cbond_on.core.utils import progress
 from cbond_on.core.trading_days import list_trading_days_from_raw
 from cbond_on.core.naming import make_window_label
+from cbond_on.infra.benchmark.service import load_strict_market_day
 from .io import read_table_range
 from .snapshot_loader import SnapshotLoader, SnapshotPanel
 
@@ -1132,39 +1133,42 @@ def _build_day_labels_twap(
         return pd.DataFrame()
 
     close_window = label_cfg.get("close_window", {})
-    next_open_window = label_cfg.get("next_open_window", {})
     close_start_dt = datetime.combine(day, _parse_hhmm(close_window.get("start", "14:42")))
 
-    twap_table = str(label_cfg.get("twap_table", "market_cbond.daily_twap"))
-    close_col = str(
-        label_cfg.get("close_twap_col")
-        or _resolve_window_twap_col(
-            close_window, default_start="14:42", default_end="14:57"
+    try:
+        buy_market = load_strict_market_day(
+            raw_data_root=raw_data_root,
+            trade_day=day,
+            buy_bps=0.0,
+            sell_bps=0.0,
         )
-    )
-    next_col = str(
-        label_cfg.get("next_open_twap_col")
-        or _resolve_window_twap_col(
-            next_open_window, default_start="09:30", default_end="09:45"
+        next_sell_market = load_strict_market_day(
+            raw_data_root=raw_data_root,
+            trade_day=next_day,
+            buy_bps=0.0,
+            sell_bps=0.0,
         )
-    )
-    cost_now = _load_daily_twap_cost(
-        raw_data_root=raw_data_root,
-        twap_table=twap_table,
-        day=day,
-        twap_col=close_col,
-    )
-    cost_next = _load_daily_twap_cost(
-        raw_data_root=raw_data_root,
-        twap_table=twap_table,
-        day=next_day,
-        twap_col=next_col,
-    )
-    return _build_labels_from_cost(
-        cost_now=cost_now,
-        cost_next=cost_next,
-        trade_time=close_start_dt,
-    )
+    except Exception:
+        return pd.DataFrame()
+
+    if buy_market.empty or next_sell_market.empty:
+        return pd.DataFrame()
+    buy = buy_market[["code", "buy_leg_ret_gross"]].copy()
+    sell = next_sell_market[["code", "strict_sell_leg_gross_ret"]].copy()
+    aligned = buy.merge(sell, on="code", how="inner")
+    aligned["buy_leg_ret_gross"] = pd.to_numeric(aligned["buy_leg_ret_gross"], errors="coerce")
+    aligned["strict_sell_leg_gross_ret"] = pd.to_numeric(aligned["strict_sell_leg_gross_ret"], errors="coerce")
+    aligned = aligned.dropna(subset=["code", "buy_leg_ret_gross", "strict_sell_leg_gross_ret"])
+    if aligned.empty:
+        return pd.DataFrame()
+    aligned["y"] = aligned["buy_leg_ret_gross"] + aligned["strict_sell_leg_gross_ret"]
+    return pd.DataFrame(
+        {
+            "code": aligned["code"].astype(str).values,
+            "trade_time": pd.Timestamp(close_start_dt),
+            "y": pd.to_numeric(aligned["y"], errors="coerce").values,
+        }
+    ).dropna(subset=["y"])
 
 
 def _build_labels_from_cost(

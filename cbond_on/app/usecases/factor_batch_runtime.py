@@ -16,7 +16,11 @@ from cbond_on.core.trading_days import list_trading_days_from_raw
 from cbond_on.core.utils import progress
 from cbond_on.infra.factors.pipeline import run_factor_pipeline
 from cbond_on.infra.factors.quality import load_factor_specs_from_cfg, resolve_disabled_factor_names
-from cbond_on.infra.benchmark.service import compute_benchmark_returns_for_days
+from cbond_on.infra.benchmark.service import (
+    compute_benchmark_returns_for_days,
+    compute_strict_sell_detail_for_holdings,
+    load_strict_market_day,
+)
 from cbond_on.infra.backtest.execution import apply_cost_to_full_cycle_return
 from cbond_on.domain.factors.spec import FactorSpec, build_factor_col
 from cbond_on.domain.factors.storage import FactorStore
@@ -52,6 +56,22 @@ class FactorBacktestBatchContext:
     benchmark_by_dt: pd.Series
     missing_label_days: set[date]
     missing_factor_days: set[date]
+    raw_data_root: str | Path | None = None
+
+
+_STRICT_MARKET_COLUMNS = [
+    "buy_price",
+    "buy_close_price",
+    "buy_leg_ret_gross",
+    "buy_leg_ret_net",
+    "strict_prev_close_price",
+    "strict_sell_price",
+    "sell_price",
+    "sell_price_source",
+    "sell_missing_fallback",
+    "strict_sell_leg_gross_ret",
+    "strict_sell_leg_net_ret",
+]
 
 
 def build_signal_specs(cfg: dict) -> list[FactorSpec]:
@@ -206,8 +226,21 @@ def prepare_factor_backtest_batch_context(
             continue
         factor_df = factor_df[keep_cols]
         joined = factor_df.merge(label_df[["dt", "code", "y"]], on=["dt", "code"], how="inner")
+        if not joined.empty:
+            try:
+                market = load_strict_market_day(
+                    raw_data_root=raw_data_root,
+                    trade_day=day,
+                    buy_bps=buy_bps,
+                    sell_bps=sell_bps,
+                )
+            except Exception:
+                market = pd.DataFrame()
+            if not market.empty:
+                market_cols = ["code", *[c for c in _STRICT_MARKET_COLUMNS if c in market.columns]]
+                joined = joined.merge(market[market_cols], on="code", how="inner")
         if joined.empty:
-            merged_by_day[day] = pd.DataFrame(columns=["dt", "code", "y", *available_factor_cols])
+            merged_by_day[day] = pd.DataFrame(columns=["dt", "code", "y", *available_factor_cols, *_STRICT_MARKET_COLUMNS])
             continue
         merged_by_day[day] = joined
 
@@ -231,6 +264,7 @@ def prepare_factor_backtest_batch_context(
         benchmark_by_dt=pd.to_numeric(benchmark_by_dt, errors="coerce").dropna().sort_index(),
         missing_label_days=missing_label_days,
         missing_factor_days=missing_factor_days,
+        raw_data_root=raw_data_root,
     )
 
 
@@ -268,6 +302,368 @@ def _select_bins_by_mean_return_intraday(
     mean_ret = {k: float(pd.Series(v).mean()) for k, v in per_bin_returns.items() if v}
     ranked = sorted(mean_ret.items(), key=lambda x: x[1], reverse=True)
     return [b for b, _ in ranked]
+
+
+def _date_from_dt_key(dt_value: object) -> date | None:
+    ts = pd.to_datetime(dt_value, errors="coerce")
+    if pd.isna(ts):
+        return None
+    return ts.date()
+
+
+def _attach_strict_market_returns(
+    data: pd.DataFrame,
+    *,
+    raw_data_root: str | Path | None,
+    buy_bps: float,
+    sell_bps: float,
+) -> tuple[pd.DataFrame, bool]:
+    strict_required = ["buy_price", "buy_close_price", "buy_leg_ret_net"]
+    if not data.empty and all(c in data.columns for c in strict_required):
+        out = data.copy()
+        if "y" in out.columns and "label_y_old" not in out.columns:
+            out["label_y_old"] = out["y"]
+        out["y"] = pd.to_numeric(out["buy_leg_ret_net"], errors="coerce")
+        return out, True
+
+    if raw_data_root is None or data.empty:
+        return data, False
+
+    frames: list[pd.DataFrame] = []
+    for dt_key, group in data.groupby("dt", sort=True):
+        trade_day = _date_from_dt_key(dt_key)
+        if trade_day is None:
+            continue
+        try:
+            market = load_strict_market_day(
+                raw_data_root=raw_data_root,
+                trade_day=trade_day,
+                buy_bps=buy_bps,
+                sell_bps=sell_bps,
+            )
+        except Exception:
+            continue
+        if market.empty:
+            continue
+        keep_cols = ["code", *[c for c in _STRICT_MARKET_COLUMNS if c in market.columns]]
+        keep_cols = [c for c in keep_cols if c in market.columns]
+        joined = group.merge(market[keep_cols], on="code", how="inner")
+        if joined.empty:
+            continue
+        if "y" in joined.columns:
+            joined["label_y_old"] = joined["y"]
+        joined["y"] = pd.to_numeric(joined["buy_leg_ret_net"], errors="coerce")
+        frames.append(joined)
+
+    if not frames:
+        return data, False
+    return pd.concat(frames, ignore_index=True), True
+
+
+def _assign_intraday_bins(
+    group: pd.DataFrame,
+    *,
+    factor_col: str,
+    bin_count: int,
+    min_count: int,
+    required_cols: Sequence[str],
+) -> tuple[pd.DataFrame, pd.Series | None]:
+    cols = [factor_col, "code", *required_cols]
+    cols = [c for c in cols if c in group.columns]
+    g = group[cols].dropna(subset=[factor_col, "code", *[c for c in required_cols if c in group.columns]]).copy()
+    n = len(g)
+    if n < 2:
+        return g, None
+    bins_target = int(bin_count)
+    if n < max(min_count, bins_target):
+        bins_target = max(2, min(bins_target, n // 5))
+    if bins_target < 2:
+        return g, None
+    vals = g[factor_col]
+    try:
+        bins = pd.qcut(vals, bins_target, labels=False, duplicates="drop")
+        if bins.nunique() < 2:
+            raise ValueError("bins insufficient")
+    except Exception:
+        ranked = vals.rank(pct=True, method="average")
+        try:
+            bins = pd.qcut(ranked, bins_target, labels=False, duplicates="drop")
+        except Exception:
+            return g, None
+    return g, bins
+
+
+def _build_equal_weight_buy_holdings(group: pd.DataFrame, *, trade_day: date) -> pd.DataFrame:
+    if group.empty:
+        return pd.DataFrame()
+    holdings = group.copy()
+    holdings["weight"] = 1.0 / len(holdings)
+    holdings["buy_trade_day"] = pd.to_datetime(trade_day)
+    holdings["close_price"] = pd.to_numeric(holdings["buy_close_price"], errors="coerce")
+    holdings["prev_close_price"] = holdings["close_price"]
+    holdings["buy_weight_base"] = pd.to_numeric(holdings["weight"], errors="coerce")
+    return holdings
+
+
+def _build_strict_bin_return_panel_intraday(
+    *,
+    data: pd.DataFrame,
+    factor_col: str,
+    bin_count: int,
+    min_count: int,
+    raw_data_root: str | Path | None,
+    sell_bps: float,
+) -> tuple[pd.DataFrame, pd.DataFrame, int]:
+    strict_cols = ["buy_leg_ret_net", "buy_close_price", "buy_price"]
+    strict_enabled = raw_data_root is not None and all(c in data.columns for c in strict_cols)
+    if not strict_enabled:
+        return _build_legacy_bin_return_panel_intraday(
+            data=data,
+            factor_col=factor_col,
+            bin_count=bin_count,
+            min_count=min_count,
+        )
+
+    bin_rows: list[pd.Series] = []
+    bin_count_rows: list[pd.Series] = []
+    bin_fail = 0
+    prev_holdings_by_bin: dict[int, pd.DataFrame] = {}
+    for dt, group in data.groupby("dt", sort=True):
+        trade_day = _date_from_dt_key(dt)
+        if trade_day is None:
+            bin_fail += 1
+            continue
+        g, bins = _assign_intraday_bins(
+            group,
+            factor_col=factor_col,
+            bin_count=bin_count,
+            min_count=min_count,
+            required_cols=strict_cols,
+        )
+        if bins is None or bins.dropna().empty:
+            bin_fail += 1
+            continue
+        g = g.copy()
+        g["bin"] = bins.values
+        buy_returns = g.groupby("bin")["buy_leg_ret_net"].mean()
+        count_returns = g.groupby("bin")["code"].size()
+        daily_returns: dict[int, float] = {}
+        next_prev_holdings: dict[int, pd.DataFrame] = {}
+        for bin_id_raw, bin_group in g.groupby("bin", sort=True):
+            bin_id = int(bin_id_raw)
+            buy_ret = float(pd.to_numeric(bin_group["buy_leg_ret_net"], errors="coerce").mean())
+            sell_ret = 0.0
+            prev = prev_holdings_by_bin.get(bin_id)
+            if prev is not None and not prev.empty and raw_data_root is not None:
+                sell_detail = compute_strict_sell_detail_for_holdings(
+                    raw_data_root=raw_data_root,
+                    sell_day=trade_day,
+                    prev_holdings=prev,
+                    sell_bps=sell_bps,
+                )
+                if not sell_detail.empty:
+                    sell_ret = float(
+                        pd.to_numeric(sell_detail["weighted_sell_leg_ret_net"], errors="coerce").sum()
+                    )
+            daily_returns[bin_id] = sell_ret + buy_ret
+            next_prev_holdings[bin_id] = _build_equal_weight_buy_holdings(bin_group, trade_day=trade_day)
+        s = pd.Series(daily_returns, dtype=float)
+        s.name = dt
+        c = count_returns.astype(int)
+        c.name = dt
+        bin_rows.append(s)
+        bin_count_rows.append(c)
+        prev_holdings_by_bin = next_prev_holdings
+    bin_returns = pd.DataFrame(bin_rows).sort_index() if bin_rows else pd.DataFrame()
+    bin_counts = pd.DataFrame(bin_count_rows).sort_index() if bin_count_rows else pd.DataFrame()
+    return bin_returns, bin_counts, int(bin_fail)
+
+
+def _build_legacy_bin_return_panel_intraday(
+    *,
+    data: pd.DataFrame,
+    factor_col: str,
+    bin_count: int,
+    min_count: int,
+) -> tuple[pd.DataFrame, pd.DataFrame, int]:
+    def _bin_ret_and_count(group: pd.DataFrame) -> tuple[pd.Series, pd.Series]:
+        g = group.dropna()
+        n = len(g)
+        if n < 2:
+            return pd.Series(dtype=float), pd.Series(dtype=int)
+        bins_target = int(bin_count)
+        if n < max(min_count, bins_target):
+            bins_target = max(2, min(bins_target, n // 5))
+        if bins_target < 2:
+            return pd.Series(dtype=float), pd.Series(dtype=int)
+        vals = g[factor_col]
+        try:
+            bins = pd.qcut(vals, bins_target, labels=False, duplicates="drop")
+            if bins.nunique() < 2:
+                raise ValueError("bins insufficient")
+        except Exception:
+            ranked = vals.rank(pct=True, method="average")
+            try:
+                bins = pd.qcut(ranked, bins_target, labels=False, duplicates="drop")
+            except Exception:
+                return pd.Series(dtype=float), pd.Series(dtype=int)
+        grouped = g.groupby(bins)["y"]
+        return grouped.mean(), grouped.size()
+
+    bin_rows: list[pd.Series] = []
+    bin_count_rows: list[pd.Series] = []
+    bin_fail = 0
+    for dt, group in data.groupby("dt", sort=True):
+        s, c = _bin_ret_and_count(group[[factor_col, "y"]])
+        if s is None or s.empty or s.isna().all():
+            bin_fail += 1
+            continue
+        s = s.astype(float)
+        s.name = dt
+        bin_rows.append(s)
+        c = c.astype(int)
+        c.name = dt
+        bin_count_rows.append(c)
+    bin_returns = pd.DataFrame(bin_rows).sort_index() if bin_rows else pd.DataFrame()
+    bin_counts = pd.DataFrame(bin_count_rows).sort_index() if bin_count_rows else pd.DataFrame()
+    return bin_returns, bin_counts, int(bin_fail)
+
+
+def _select_bins_from_return_window(
+    bin_returns: pd.DataFrame,
+    *,
+    bin_top_k: int,
+) -> list[int]:
+    if bin_returns.empty:
+        return []
+    cum_ret = (1.0 + bin_returns.fillna(0.0)).prod(axis=0) - 1.0
+    cum_ret = pd.to_numeric(cum_ret, errors="coerce").dropna()
+    if cum_ret.empty:
+        return []
+    return [int(x) for x in cum_ret.sort_values(ascending=False).index.tolist()[: max(1, int(bin_top_k))]]
+
+
+def _walk_forward_bin_selection_by_dt(
+    *,
+    bin_returns: pd.DataFrame,
+    lookback_days: int,
+    min_train_days: int,
+    bin_top_k: int,
+) -> dict[pd.Timestamp, list[int]]:
+    if bin_returns.empty:
+        return {}
+    work = bin_returns.copy()
+    work.index = pd.to_datetime(work.index, errors="coerce")
+    work = work[~work.index.isna()].sort_index()
+    if work.empty:
+        return {}
+    lookback_days = max(1, int(lookback_days))
+    min_train_days = min(max(1, int(min_train_days)), lookback_days)
+
+    out: dict[pd.Timestamp, list[int]] = {}
+    trade_days = pd.Series(work.index.normalize(), index=work.index)
+    unique_days = sorted(pd.unique(trade_days.dropna()))
+    prior_days_by_day: dict[pd.Timestamp, list[pd.Timestamp]] = {}
+    for i, day_key in enumerate(unique_days):
+        prior_days_by_day[pd.Timestamp(day_key)] = [
+            pd.Timestamp(x) for x in unique_days[max(0, i - lookback_days) : i]
+        ]
+
+    for dt_key in work.index:
+        day_key = pd.Timestamp(dt_key).normalize()
+        prior_days = prior_days_by_day.get(day_key, [])
+        if len(prior_days) < min_train_days:
+            out[pd.Timestamp(dt_key)] = []
+            continue
+        train = work.loc[trade_days.isin(prior_days)]
+        out[pd.Timestamp(dt_key)] = _select_bins_from_return_window(train, bin_top_k=bin_top_k)
+    return out
+
+
+def _calc_return_metrics(
+    returns: pd.Series,
+    *,
+    benchmark_returns: pd.Series | None = None,
+) -> dict[str, float]:
+    rets = pd.to_numeric(returns, errors="coerce").dropna()
+    if rets.empty:
+        return {
+            "ret_total": 0.0,
+            "sharpe": 0.0,
+            "maxdd": 0.0,
+            "alpha_ret_total": 0.0,
+            "alpha_sharpe": 0.0,
+            "win_rate": 0.0,
+        }
+    idx = pd.to_datetime(rets.index, errors="coerce")
+    if idx.notna().any():
+        rets = pd.Series(rets.values, index=idx).dropna()
+        rets.index = rets.index.normalize()
+        rets = rets.groupby(rets.index).mean().sort_index()
+    nav = (1.0 + rets.fillna(0.0)).cumprod()
+    running_max = nav.cummax()
+    mean = float(rets.mean())
+    std = float(rets.std(ddof=0))
+    sharpe = float((mean / std) * (252.0 ** 0.5)) if std > 0 else 0.0
+    maxdd = float((nav / running_max - 1.0).min()) if not nav.empty else 0.0
+    alpha_ret_total = 0.0
+    alpha_sharpe = 0.0
+    if benchmark_returns is not None:
+        bench = pd.to_numeric(benchmark_returns, errors="coerce").dropna()
+        bench_idx = pd.to_datetime(bench.index, errors="coerce")
+        if bench_idx.notna().any():
+            bench = pd.Series(bench.values, index=bench_idx).dropna()
+            bench.index = bench.index.normalize()
+            bench = bench.groupby(bench.index).mean().sort_index()
+        common_idx = rets.index.intersection(bench.index)
+        if len(common_idx):
+            alpha = rets.loc[common_idx] - bench.loc[common_idx]
+            alpha_std = float(alpha.std(ddof=0))
+            alpha_sharpe = float((float(alpha.mean()) / alpha_std) * (252.0 ** 0.5)) if alpha_std > 0 else 0.0
+            alpha_ret_total = float(nav.iloc[-1] - 1.0) - float(
+                (1.0 + bench.loc[common_idx].fillna(0.0)).cumprod().iloc[-1] - 1.0
+            )
+    return {
+        "ret_total": float(nav.iloc[-1] - 1.0) if not nav.empty else 0.0,
+        "sharpe": sharpe,
+        "maxdd": maxdd,
+        "alpha_ret_total": alpha_ret_total,
+        "alpha_sharpe": alpha_sharpe,
+        "win_rate": float((rets > 0).mean()),
+    }
+
+
+def _build_best_bin_metrics(
+    *,
+    bin_returns: pd.DataFrame,
+    benchmark_returns: pd.Series,
+) -> dict[str, float | int]:
+    empty = {
+        "best_bin": -1,
+        "best_bin_ret_total": 0.0,
+        "best_bin_sharpe": 0.0,
+        "best_bin_maxdd": 0.0,
+        "best_bin_alpha_ret_total": 0.0,
+        "best_bin_alpha_sharpe": 0.0,
+    }
+    if bin_returns.empty:
+        return empty
+    ranked = _select_bins_from_return_window(bin_returns, bin_top_k=1)
+    if not ranked:
+        return empty
+    best_bin = int(ranked[0])
+    metrics = _calc_return_metrics(
+        pd.to_numeric(bin_returns[best_bin], errors="coerce").dropna(),
+        benchmark_returns=benchmark_returns,
+    )
+    return {
+        "best_bin": best_bin,
+        "best_bin_ret_total": float(metrics["ret_total"]),
+        "best_bin_sharpe": float(metrics["sharpe"]),
+        "best_bin_maxdd": float(metrics["maxdd"]),
+        "best_bin_alpha_ret_total": float(metrics["alpha_ret_total"]),
+        "best_bin_alpha_sharpe": float(metrics["alpha_sharpe"]),
+    }
 
 
 def _build_empty_backtest_result(
@@ -308,6 +704,7 @@ def _compute_factor_backtest_from_rows(
     rows: list[pd.DataFrame],
     benchmark_by_dt: pd.Series,
     diagnostics: list[dict],
+    raw_data_root: str | Path | None = None,
     factor_col: str,
     min_count: int,
     ic_bins: int,
@@ -316,6 +713,7 @@ def _compute_factor_backtest_from_rows(
     bin_source: str,
     bin_top_k: int,
     bin_lookback_days: int,
+    bin_min_train_days: int,
     factor_joined_total: int,
     factor_valid_total: int,
     buy_bps: float,
@@ -330,22 +728,57 @@ def _compute_factor_backtest_from_rows(
 
     data = pd.concat(rows, ignore_index=True)
     data = data.copy()
-    data["y"] = _apply_cost_to_return_series(
-        pd.to_numeric(data["y"], errors="coerce"),
+    data, strict_returns_enabled = _attach_strict_market_returns(
+        data,
+        raw_data_root=raw_data_root,
         buy_bps=buy_bps,
         sell_bps=sell_bps,
     )
-    benchmark_by_dt = pd.to_numeric(benchmark_by_dt, errors="coerce").dropna().sort_index()
+    if not strict_returns_enabled:
+        data["y"] = _apply_cost_to_return_series(
+            pd.to_numeric(data["y"], errors="coerce"),
+            buy_bps=buy_bps,
+            sell_bps=sell_bps,
+        )
+    benchmark_by_dt = pd.to_numeric(benchmark_by_dt, errors="coerce").dropna()
+    if not benchmark_by_dt.empty:
+        benchmark_idx = pd.to_datetime(benchmark_by_dt.index, errors="coerce")
+        if benchmark_idx.notna().any():
+            benchmark_by_dt = pd.Series(benchmark_by_dt.values, index=benchmark_idx).dropna()
+            benchmark_by_dt.index = benchmark_by_dt.index.date
+            benchmark_by_dt = benchmark_by_dt.groupby(benchmark_by_dt.index).mean()
+    benchmark_by_dt = benchmark_by_dt.sort_index()
 
     daily_records: list[dict] = []
     trade_returns_rows: list[float] = []
-    bin_source = str(bin_source or "auto").lower()
+    bin_source = str(bin_source or "auto").lower().strip()
+    if bin_source in {"full_best", "global_best", "oracle"}:
+        bin_source = "best"
+    if bin_source in {"walkforward", "walk_forward", "wf"}:
+        bin_source = "walk_forward"
     bin_count = int(bin_count) if bin_count is not None else int(ic_bins)
     if bin_count <= 1:
         bin_count = 2
     bin_select = list(bin_select) if bin_select is not None else None
     bin_top_k = max(1, int(bin_top_k))
     bin_lookback_days = max(1, int(bin_lookback_days))
+    bin_min_train_days = min(max(1, int(bin_min_train_days)), bin_lookback_days)
+    bin_returns, bin_counts, bin_fail = _build_strict_bin_return_panel_intraday(
+        data=data,
+        factor_col=factor_col,
+        bin_count=bin_count,
+        min_count=min_count,
+        raw_data_root=raw_data_root if strict_returns_enabled else None,
+        sell_bps=sell_bps,
+    )
+    walk_forward_bins_by_dt: dict[pd.Timestamp, list[int]] = {}
+    if bin_source == "walk_forward":
+        walk_forward_bins_by_dt = _walk_forward_bin_selection_by_dt(
+            bin_returns=bin_returns,
+            lookback_days=bin_lookback_days,
+            min_train_days=bin_min_train_days,
+            bin_top_k=bin_top_k,
+        )
     if bin_source == "auto":
         recent = data
         if bin_lookback_days > 0:
@@ -360,8 +793,14 @@ def _compute_factor_backtest_from_rows(
         if ranked_bins:
             bin_select = ranked_bins[:bin_top_k]
 
+    strategy_prev_holdings = pd.DataFrame()
     for dt, group in data.groupby("dt", sort=True):
-        g = group[[factor_col, "y", "code"]].dropna()
+        if strict_returns_enabled:
+            required_cols = ["buy_leg_ret_net", "buy_close_price", "buy_price"]
+            g = group[[factor_col, "y", "code", *required_cols]].dropna()
+        else:
+            required_cols = []
+            g = group[[factor_col, "y", "code"]].dropna()
         trade_day = pd.to_datetime(dt, errors="coerce")
         if pd.isna(trade_day):
             raise RuntimeError(f"invalid trade day in factor backtest data: {dt}")
@@ -380,9 +819,11 @@ def _compute_factor_backtest_from_rows(
                     "dt": trade_day_val,
                     "ret": pd.NA,
                     "benchmark_return": pd.NA,
-                    "ic": ic,
-                    "rank_ic": rank_ic,
+                    "ic": pd.NA,
+                    "rank_ic": pd.NA,
                     "count": len(g),
+                    "bin_used": "",
+                    "bin_source": bin_source,
                 }
             )
             continue
@@ -404,6 +845,8 @@ def _compute_factor_backtest_from_rows(
                     "ic": pd.NA,
                     "rank_ic": pd.NA,
                     "count": len(g),
+                    "bin_used": "",
+                    "bin_source": bin_source,
                 }
             )
             continue
@@ -434,6 +877,8 @@ def _compute_factor_backtest_from_rows(
                     "ic": ic,
                     "rank_ic": rank_ic,
                     "count": len(g),
+                    "bin_used": "",
+                    "bin_source": bin_source,
                 }
             )
             continue
@@ -454,25 +899,31 @@ def _compute_factor_backtest_from_rows(
                     "ic": ic,
                     "rank_ic": rank_ic,
                     "count": len(g),
+                    "bin_used": "",
+                    "bin_source": bin_source,
                 }
             )
             continue
         n_bins = len(available_bins)
 
         effective_bins = bin_select
-        if bin_source == "auto":
+        if bin_source == "walk_forward":
+            effective_bins = walk_forward_bins_by_dt.get(pd.Timestamp(trade_day), [])
+        elif bin_source == "auto":
             effective_bins = bin_select
         if effective_bins is None:
             effective_bins = [max(available_bins)]
             if bin_top_k > 1:
                 effective_bins = sorted(available_bins, reverse=True)[:bin_top_k]
-        if max(effective_bins) >= n_bins:
+        effective_bins = [int(x) for x in effective_bins if int(x) in available_bins]
+        if not effective_bins:
             diagnostics.append(
                 {
                     "trade_date": dt,
                     "status": "skip",
                     "reason": "bin_select_out_of_range",
                     "bin_used": ",".join(str(x) for x in effective_bins),
+                    "bin_source": bin_source,
                     "bin_count_actual": int(n_bins),
                 }
             )
@@ -484,6 +935,8 @@ def _compute_factor_backtest_from_rows(
                     "ic": ic,
                     "rank_ic": rank_ic,
                     "count": len(g),
+                    "bin_used": "",
+                    "bin_source": bin_source,
                 }
             )
             continue
@@ -496,6 +949,7 @@ def _compute_factor_backtest_from_rows(
                     "reason": "min_count_not_met",
                     "picked": int(len(picks)),
                     "bin_used": ",".join(str(x) for x in effective_bins),
+                    "bin_source": bin_source,
                     "bin_count_actual": int(n_bins),
                 }
             )
@@ -507,13 +961,35 @@ def _compute_factor_backtest_from_rows(
                     "ic": ic,
                     "rank_ic": rank_ic,
                     "count": len(g),
+                    "bin_used": "",
+                    "bin_source": bin_source,
                 }
             )
             continue
-        ret = picks["y"].mean()
-        picks_y = pd.to_numeric(picks["y"], errors="coerce").dropna()
-        if not picks_y.empty:
-            trade_returns_rows.extend(float(v) for v in picks_y.to_numpy())
+        if strict_returns_enabled and raw_data_root is not None:
+            sell_ret = 0.0
+            if not strategy_prev_holdings.empty:
+                sell_detail = compute_strict_sell_detail_for_holdings(
+                    raw_data_root=raw_data_root,
+                    sell_day=trade_day_val,
+                    prev_holdings=strategy_prev_holdings,
+                    sell_bps=sell_bps,
+                )
+                if not sell_detail.empty:
+                    sell_ret = float(pd.to_numeric(sell_detail["weighted_sell_leg_ret_net"], errors="coerce").sum())
+                    sell_piece = pd.to_numeric(sell_detail["strict_sell_leg_net_ret"], errors="coerce").dropna()
+                    trade_returns_rows.extend(float(v) for v in sell_piece.to_numpy())
+            buy_holdings = _build_equal_weight_buy_holdings(picks, trade_day=trade_day_val)
+            buy_ret = float(pd.to_numeric(buy_holdings["buy_leg_ret_net"], errors="coerce").mean())
+            buy_piece = pd.to_numeric(buy_holdings["buy_leg_ret_net"], errors="coerce").dropna()
+            trade_returns_rows.extend(float(v) for v in buy_piece.to_numpy())
+            ret = sell_ret + buy_ret
+            strategy_prev_holdings = buy_holdings
+        else:
+            ret = picks["y"].mean()
+            picks_y = pd.to_numeric(picks["y"], errors="coerce").dropna()
+            if not picks_y.empty:
+                trade_returns_rows.extend(float(v) for v in picks_y.to_numpy())
 
         diagnostics.append(
             {
@@ -521,6 +997,7 @@ def _compute_factor_backtest_from_rows(
                 "status": "ok",
                 "reason": "",
                 "bin_used": ",".join(str(x) for x in effective_bins),
+                "bin_source": bin_source,
                 "bin_count_actual": int(n_bins),
                 "picked": int(len(picks)),
                 "count": int(len(g)),
@@ -534,10 +1011,16 @@ def _compute_factor_backtest_from_rows(
                 "ic": ic,
                 "rank_ic": rank_ic,
                 "count": len(g),
+                "bin_used": ",".join(str(x) for x in effective_bins),
+                "bin_source": bin_source,
             }
         )
 
     daily = pd.DataFrame(daily_records).set_index("dt")
+    if "bin_used" not in daily.columns:
+        daily["bin_used"] = ""
+    if "bin_source" not in daily.columns:
+        daily["bin_source"] = bin_source
     returns = pd.to_numeric(daily["ret"], errors="coerce")
     benchmark_returns = benchmark_by_dt
     valid_mask = returns.notna()
@@ -547,52 +1030,6 @@ def _compute_factor_backtest_from_rows(
     nav = (1.0 + returns.fillna(0.0)).cumprod()
     benchmark_nav = (1.0 + benchmark_returns.fillna(0.0)).cumprod()
 
-    def _bin_ret_and_count(group: pd.DataFrame) -> tuple[pd.Series, pd.Series]:
-        g = group.dropna()
-        n = len(g)
-        if n < 2:
-            return pd.Series(dtype=float), pd.Series(dtype=int)
-        bins_target = ic_bins
-        if n < max(min_count, ic_bins):
-            bins_target = max(2, min(ic_bins, n // 5))
-        if bins_target < 2:
-            return pd.Series(dtype=float), pd.Series(dtype=int)
-        vals = g[factor_col]
-        try:
-            bins = pd.qcut(vals, bins_target, labels=False, duplicates="drop")
-            if bins.nunique() < 2:
-                raise ValueError("bins insufficient")
-        except Exception:
-            ranked = vals.rank(pct=True, method="average")
-            try:
-                bins = pd.qcut(ranked, bins_target, labels=False, duplicates="drop")
-            except Exception:
-                return pd.Series(dtype=float), pd.Series(dtype=int)
-        grouped = g.groupby(bins)["y"]
-        return grouped.mean(), grouped.size()
-
-    bin_rows: list[pd.Series] = []
-    bin_count_rows: list[pd.Series] = []
-    bin_fail = 0
-    for dt, group in data.groupby("dt", sort=True):
-        s, c = _bin_ret_and_count(group[[factor_col, "y"]])
-        if s is None or s.empty or s.isna().all():
-            bin_fail += 1
-            continue
-        s = s.astype(float)
-        s.name = dt
-        bin_rows.append(s)
-        c = c.astype(int)
-        c.name = dt
-        bin_count_rows.append(c)
-    if bin_rows:
-        bin_returns = pd.DataFrame(bin_rows).sort_index()
-    else:
-        bin_returns = pd.DataFrame()
-    if bin_count_rows:
-        bin_counts = pd.DataFrame(bin_count_rows).sort_index()
-    else:
-        bin_counts = pd.DataFrame()
     daily_stats = daily.reset_index().rename(columns={"dt": "trade_time"})
     trade_returns = pd.to_numeric(pd.Series(trade_returns_rows, dtype=float), errors="coerce").dropna()
     factor_values = pd.to_numeric(data.get(factor_col), errors="coerce").dropna()
@@ -610,7 +1047,7 @@ def _compute_factor_backtest_from_rows(
     result.trade_returns = trade_returns  # type: ignore[attr-defined]
     result.factor_values = factor_values  # type: ignore[attr-defined]
     result.diagnostics = pd.DataFrame(diagnostics)  # type: ignore[attr-defined]
-    result.bin_ok = len(bin_rows)  # type: ignore[attr-defined]
+    result.bin_ok = int(len(bin_returns))  # type: ignore[attr-defined]
     result.bin_fail = bin_fail  # type: ignore[attr-defined]
     result.factor_joined_total = int(factor_joined_total)  # type: ignore[attr-defined]
     result.factor_valid_total = int(factor_valid_total)  # type: ignore[attr-defined]
@@ -619,6 +1056,13 @@ def _compute_factor_backtest_from_rows(
         if factor_joined_total > 0
         else float("nan")
     )  # type: ignore[attr-defined]
+    result.strategy_bin_source = bin_source  # type: ignore[attr-defined]
+    result.strategy_bin_lookback_days = int(bin_lookback_days)  # type: ignore[attr-defined]
+    result.strategy_bin_min_train_days = int(bin_min_train_days)  # type: ignore[attr-defined]
+    result.best_bin_metrics = _build_best_bin_metrics(  # type: ignore[attr-defined]
+        bin_returns=bin_returns,
+        benchmark_returns=benchmark_returns,
+    )
     return result
 
 
@@ -639,6 +1083,7 @@ def run_intraday_factor_backtest(
     bin_source: str = "auto",
     bin_top_k: int = 1,
     bin_lookback_days: int = 60,
+    bin_min_train_days: int = 30,
     workers: int = 1,
     buy_bps: float = 0.0,
     sell_bps: float = 0.0,
@@ -720,6 +1165,7 @@ def run_intraday_factor_backtest(
         rows=rows,
         benchmark_by_dt=benchmark_by_dt,
         diagnostics=diagnostics,
+        raw_data_root=raw_data_root,
         factor_col=factor_col,
         min_count=min_count,
         ic_bins=ic_bins,
@@ -728,6 +1174,7 @@ def run_intraday_factor_backtest(
         bin_source=bin_source,
         bin_top_k=bin_top_k,
         bin_lookback_days=bin_lookback_days,
+        bin_min_train_days=bin_min_train_days,
         factor_joined_total=factor_joined_total,
         factor_valid_total=factor_valid_total,
         buy_bps=buy_bps,
@@ -746,6 +1193,7 @@ def run_intraday_factor_backtest_from_context(
     bin_source: str = "auto",
     bin_top_k: int = 1,
     bin_lookback_days: int = 60,
+    bin_min_train_days: int = 30,
     buy_bps: float = 0.0,
     sell_bps: float = 0.0,
 ) -> FactorBacktestResult:
@@ -769,9 +1217,13 @@ def run_intraday_factor_backtest_from_context(
         if factor_col not in merged_day.columns:
             diagnostics.append({"trade_date": day, "status": "skip", "reason": "missing_factor"})
             continue
-        joined = merged_day[[factor_col, "y", "dt", "code"]]
+        keep_cols = [factor_col, "y", "dt", "code", *[c for c in _STRICT_MARKET_COLUMNS if c in merged_day.columns]]
+        joined = merged_day[keep_cols]
         joined_count = int(len(joined))
-        valid = joined.dropna()
+        valid_subset = [factor_col, "y", "dt", "code"]
+        if all(c in joined.columns for c in ["buy_price", "buy_close_price", "buy_leg_ret_net"]):
+            valid_subset.extend(["buy_price", "buy_close_price", "buy_leg_ret_net"])
+        valid = joined.dropna(subset=valid_subset)
         valid_count = int(len(valid))
         factor_joined_total += joined_count
         factor_valid_total += valid_count
@@ -785,6 +1237,7 @@ def run_intraday_factor_backtest_from_context(
         rows=rows,
         benchmark_by_dt=ctx.benchmark_by_dt,
         diagnostics=diagnostics,
+        raw_data_root=ctx.raw_data_root,
         factor_col=factor_col,
         min_count=min_count,
         ic_bins=ic_bins,
@@ -793,6 +1246,7 @@ def run_intraday_factor_backtest_from_context(
         bin_source=bin_source,
         bin_top_k=bin_top_k,
         bin_lookback_days=bin_lookback_days,
+        bin_min_train_days=bin_min_train_days,
         factor_joined_total=factor_joined_total,
         factor_valid_total=factor_valid_total,
         buy_bps=buy_bps,
@@ -810,18 +1264,25 @@ def _load_screening_config(cfg: dict) -> dict:
     bin_alpha = raw.get("bin_alpha", {})
     if not isinstance(bin_alpha, dict):
         bin_alpha = {}
+    wf_strategy = raw.get("walk_forward_strategy", {})
+    if not isinstance(wf_strategy, dict):
+        wf_strategy = {}
     default_bin_count = int(backtest_cfg.get("bin_count") or backtest_cfg.get("ic_bins") or 20)
     rolling_window = int(bin_alpha.get("rolling_window", backtest_cfg.get("alpha_significance_window", 40)))
     recent_window_count = int(bin_alpha.get("recent_window_count", 3))
     return {
         "enabled": bool(raw.get("enabled", False)),
         "mode": str(raw.get("mode", "legacy")).lower(),
+        "write_walk_forward_strategy": bool(wf_strategy.get("enabled", False)),
         "ic_metric": str(raw.get("ic_metric", "rank_ic_mean")),
         "ir_metric": str(raw.get("ir_metric", "rank_ic_ir")),
         "ic_abs_min": float(raw.get("ic_abs_min", 0.0)),
         "ir_abs_min": float(raw.get("ir_abs_min", 0.0)),
         "sharpe_min": float(raw.get("sharpe_min", 0.1)),
         "copy_reports": bool(raw.get("copy_reports", True)),
+        "require_full_bin_count": bool(raw.get("require_full_bin_count", True)),
+        "required_bin_count": int(raw.get("required_bin_count", default_bin_count)),
+        "full_bin_coverage_ratio_min": float(raw.get("full_bin_coverage_ratio_min", 1.0)),
         "bin_scope": str(bin_alpha.get("bin_scope", "any")).lower(),
         "bins": bin_alpha.get("bins"),
         "bin_count": max(2, int(bin_alpha.get("bin_count", default_bin_count))),
@@ -843,6 +1304,12 @@ def _load_screening_config(cfg: dict) -> dict:
         "recent_mean_pos_ratio_min": float(bin_alpha.get("recent_mean_pos_ratio_min", 0.67)),
         "recent_t_pos_ratio_min": float(bin_alpha.get("recent_t_pos_ratio_min", 0.67)),
         "recent_hit_ok_ratio_min": float(bin_alpha.get("recent_hit_ok_ratio_min", 0.50)),
+        "wf_ret_total_min": float(wf_strategy.get("ret_total_min", 0.0)),
+        "wf_alpha_ret_total_min": float(wf_strategy.get("alpha_ret_total_min", 0.0)),
+        "wf_sharpe_min": float(wf_strategy.get("sharpe_min", 0.0)),
+        "wf_alpha_sharpe_min": float(wf_strategy.get("alpha_sharpe_min", float("-inf"))),
+        "wf_win_rate_min": float(wf_strategy.get("win_rate_min", 0.0)),
+        "wf_maxdd_min": float(wf_strategy.get("maxdd_min", -1.0)),
     }
 
 
@@ -925,6 +1392,60 @@ def _screening_bins_to_check(*, cfg: dict, available_bins: Sequence[object]) -> 
     if scope == "any":
         return available
     return [0, max(0, bin_count - 1)]
+
+
+def _full_bin_count_screening_check(
+    *,
+    result: FactorBacktestResult | None,
+    screening_cfg: dict,
+) -> dict:
+    required = int(max(2, screening_cfg.get("required_bin_count", screening_cfg.get("bin_count", 20))))
+    require_full = bool(screening_cfg.get("require_full_bin_count", True))
+    min_ratio = float(screening_cfg.get("full_bin_coverage_ratio_min", 1.0))
+    out = {
+        "required_bin_count": required,
+        "require_full_bin_count": require_full,
+        "full_bin_eval_days": 0,
+        "full_bin_ok_days": 0,
+        "full_bin_insufficient_days": 0,
+        "full_bin_coverage_ratio": float("nan"),
+        "full_bin_count_passed": not require_full,
+    }
+    if result is None:
+        out["full_bin_count_passed"] = not require_full
+        return out
+
+    bin_returns = getattr(result, "bin_returns", pd.DataFrame())
+    bin_fail = int(getattr(result, "bin_fail", 0) or 0)
+    if isinstance(bin_returns, pd.DataFrame) and not bin_returns.empty:
+        active_bins_by_day = pd.to_numeric(bin_returns.notna().sum(axis=1), errors="coerce").fillna(0).astype(int)
+        insufficient_from_ok = int((active_bins_by_day < required).sum())
+        eval_days = int(len(active_bins_by_day) + max(0, bin_fail))
+    else:
+        insufficient_from_ok = 0
+        eval_days = int(max(0, bin_fail))
+    insufficient_days = int(insufficient_from_ok + max(0, bin_fail))
+    ok_days = int(max(0, eval_days - insufficient_days))
+    coverage_ratio = float(ok_days / eval_days) if eval_days > 0 else float("nan")
+    passed = (
+        not require_full
+        or (
+            eval_days > 0
+            and pd.notna(coverage_ratio)
+            and coverage_ratio >= min_ratio
+            and (min_ratio < 1.0 or insufficient_days == 0)
+        )
+    )
+    out.update(
+        {
+            "full_bin_eval_days": eval_days,
+            "full_bin_ok_days": ok_days,
+            "full_bin_insufficient_days": insufficient_days,
+            "full_bin_coverage_ratio": coverage_ratio,
+            "full_bin_count_passed": bool(passed),
+        }
+    )
+    return out
 
 
 def _stable_bin_alpha_rows(
@@ -1120,6 +1641,62 @@ def _stable_bin_alpha_rows(
     return rows
 
 
+def _walk_forward_strategy_screening_row(
+    *,
+    factor_name: str,
+    factor_col: str,
+    summary: dict,
+    result: FactorBacktestResult | None,
+    screening_cfg: dict,
+) -> dict:
+    ret_total = _to_float(summary.get("ret_total"))
+    alpha_ret_total = _to_float(summary.get("alpha_ret_total"))
+    sharpe = _to_float(summary.get("sharpe"))
+    alpha_sharpe = _to_float(summary.get("alpha_sharpe"))
+    maxdd = _to_float(summary.get("maxdd"))
+    win_rate = _to_float(summary.get("win_rate"))
+    full_bin_check = _full_bin_count_screening_check(result=result, screening_cfg=screening_cfg)
+
+    checks = {
+        "full_bin_count": bool(full_bin_check["full_bin_count_passed"]),
+        "ret_total": pd.notna(ret_total) and ret_total >= float(screening_cfg["wf_ret_total_min"]),
+        "alpha_ret_total": pd.notna(alpha_ret_total)
+        and alpha_ret_total >= float(screening_cfg["wf_alpha_ret_total_min"]),
+        "sharpe": pd.notna(sharpe) and sharpe >= float(screening_cfg["wf_sharpe_min"]),
+        "alpha_sharpe": pd.notna(alpha_sharpe) and alpha_sharpe >= float(screening_cfg["wf_alpha_sharpe_min"]),
+        "win_rate": pd.notna(win_rate) and win_rate >= float(screening_cfg["wf_win_rate_min"]),
+        "maxdd": pd.notna(maxdd) and maxdd >= float(screening_cfg["wf_maxdd_min"]),
+    }
+    failed_rules = [key for key, ok in checks.items() if not ok]
+    passed = bool(all(checks.values()))
+    if passed:
+        status = "active"
+    elif checks["alpha_ret_total"] and checks["sharpe"] and checks["maxdd"]:
+        status = "watch_low_abs_ret"
+    else:
+        status = "reject"
+
+    row = {
+        "factor_name": factor_name,
+        "factor_col": factor_col,
+        "screening_mode": "walk_forward_strategy",
+        "passed": passed,
+        "screen_status": status,
+        "failed_rules": ",".join(failed_rules),
+        "wf_ret_total_min": float(screening_cfg["wf_ret_total_min"]),
+        "wf_alpha_ret_total_min": float(screening_cfg["wf_alpha_ret_total_min"]),
+        "wf_sharpe_min": float(screening_cfg["wf_sharpe_min"]),
+        "wf_alpha_sharpe_min": float(screening_cfg["wf_alpha_sharpe_min"]),
+        "wf_win_rate_min": float(screening_cfg["wf_win_rate_min"]),
+        "wf_maxdd_min": float(screening_cfg["wf_maxdd_min"]),
+    }
+    row.update(full_bin_check)
+    for key, value in summary.items():
+        if key not in row:
+            row[key] = value
+    return row
+
+
 def _build_screening_row(
     *,
     factor_name: str,
@@ -1129,7 +1706,16 @@ def _build_screening_row(
     screening_cfg: dict,
 ) -> dict:
     mode = str(screening_cfg.get("mode", "legacy")).lower()
+    if mode in {"walk_forward_strategy", "wf_strategy", "strategy"}:
+        return _walk_forward_strategy_screening_row(
+            factor_name=factor_name,
+            factor_col=factor_col,
+            summary=summary,
+            result=result,
+            screening_cfg=screening_cfg,
+        )
     if mode == "stable_bin_alpha":
+        full_bin_check = _full_bin_count_screening_check(result=result, screening_cfg=screening_cfg)
         bin_rows = _stable_bin_alpha_rows(result=result, screening_cfg=screening_cfg) if result is not None else []
         if bin_rows:
             best = sorted(
@@ -1154,6 +1740,10 @@ def _build_screening_row(
             passed = False
             status = "reject"
             failed_rules = "no_bin_alpha_data"
+        if not bool(full_bin_check["full_bin_count_passed"]):
+            passed = False
+            status = "reject"
+            failed_rules = ",".join([x for x in [failed_rules, "full_bin_count"] if x])
         row = {
             "factor_name": factor_name,
             "factor_col": factor_col,
@@ -1181,6 +1771,7 @@ def _build_screening_row(
             "best_rolling_score": best.get("rolling_score"),
             "_bin_rows": bin_rows,
         }
+        row.update(full_bin_check)
         for key, value in summary.items():
             if key not in row:
                 row[key] = value
@@ -1191,11 +1782,13 @@ def _build_screening_row(
     ic_val = _to_float(summary.get(ic_metric))
     ir_val = _to_float(summary.get(ir_metric))
     sharpe = _to_float(summary.get("sharpe"))
+    full_bin_check = _full_bin_count_screening_check(result=result, screening_cfg=screening_cfg)
 
     pass_ic = pd.notna(ic_val) and abs(ic_val) >= float(screening_cfg["ic_abs_min"])
     pass_ir = pd.notna(ir_val) and abs(ir_val) >= float(screening_cfg["ir_abs_min"])
     pass_sharpe = pd.notna(sharpe) and sharpe >= float(screening_cfg["sharpe_min"])
-    passed = bool(pass_ic and pass_ir and pass_sharpe)
+    pass_full_bin_count = bool(full_bin_check["full_bin_count_passed"])
+    passed = bool(pass_ic and pass_ir and pass_sharpe and pass_full_bin_count)
 
     failed_rules: list[str] = []
     if not pass_ic:
@@ -1204,6 +1797,8 @@ def _build_screening_row(
         failed_rules.append("ir")
     if not pass_sharpe:
         failed_rules.append("sharpe")
+    if not pass_full_bin_count:
+        failed_rules.append("full_bin_count")
 
     row = {
         "factor_name": factor_name,
@@ -1219,9 +1814,11 @@ def _build_screening_row(
         "pass_ic": bool(pass_ic),
         "pass_ir": bool(pass_ir),
         "pass_sharpe": bool(pass_sharpe),
+        "pass_full_bin_count": bool(pass_full_bin_count),
         "passed": passed,
         "failed_rules": ",".join(failed_rules),
     }
+    row.update(full_bin_check)
     for key, value in summary.items():
         if key not in row:
             row[key] = value
@@ -1456,8 +2053,14 @@ def _write_bad_factor_outputs(out_root: Path, *, cfg: dict, rows: list[dict]) ->
     plt.close(fig)
 
 
-def _write_screening_outputs(out_root: Path, *, screening_cfg: dict, rows: list[dict]) -> None:
-    screened_root = out_root / "screened"
+def _write_screening_outputs(
+    out_root: Path,
+    *,
+    screening_cfg: dict,
+    rows: list[dict],
+    dirname: str = "screened",
+) -> None:
+    screened_root = out_root / dirname
     screened_root.mkdir(parents=True, exist_ok=True)
     (screened_root / "screening_config.json").write_text(
         json.dumps(screening_cfg, ensure_ascii=False, indent=2),
@@ -1493,6 +2096,37 @@ def _write_screening_outputs(out_root: Path, *, screening_cfg: dict, rows: list[
                 "failed_rules",
                 "best_alpha_t",
                 "best_rolling_score",
+                "ret_total",
+                "alpha_ret_total",
+                "sharpe",
+                "alpha_sharpe",
+                "maxdd",
+                "win_rate",
+                "required_bin_count",
+                "full_bin_eval_days",
+                "full_bin_insufficient_days",
+                "full_bin_coverage_ratio",
+                "full_bin_count_passed",
+            ]
+        elif mode in {"walk_forward_strategy", "wf_strategy", "strategy"}:
+            columns = [
+                "factor_name",
+                "factor_col",
+                "screening_mode",
+                "passed",
+                "screen_status",
+                "failed_rules",
+                "ret_total",
+                "alpha_ret_total",
+                "sharpe",
+                "alpha_sharpe",
+                "maxdd",
+                "win_rate",
+                "required_bin_count",
+                "full_bin_eval_days",
+                "full_bin_insufficient_days",
+                "full_bin_coverage_ratio",
+                "full_bin_count_passed",
             ]
         else:
             columns = [
@@ -1505,6 +2139,11 @@ def _write_screening_outputs(out_root: Path, *, screening_cfg: dict, rows: list[
                 "sharpe",
                 "passed",
                 "failed_rules",
+                "required_bin_count",
+                "full_bin_eval_days",
+                "full_bin_insufficient_days",
+                "full_bin_coverage_ratio",
+                "full_bin_count_passed",
             ]
         all_df = pd.DataFrame(columns=columns)
     else:
@@ -1512,6 +2151,8 @@ def _write_screening_outputs(out_root: Path, *, screening_cfg: dict, rows: list[
         if mode == "stable_bin_alpha":
             all_df["best_rolling_score"] = pd.to_numeric(all_df.get("best_rolling_score"), errors="coerce")
             all_df["best_alpha_t"] = pd.to_numeric(all_df.get("best_alpha_t"), errors="coerce")
+            for col in ["full_bin_eval_days", "full_bin_insufficient_days", "full_bin_coverage_ratio"]:
+                all_df[col] = pd.to_numeric(all_df.get(col), errors="coerce")
             status_rank = {
                 "active": 3,
                 "watch_recent_decay": 2,
@@ -1522,6 +2163,32 @@ def _write_screening_outputs(out_root: Path, *, screening_cfg: dict, rows: list[
             all_df = all_df.sort_values(
                 by=["passed", "_status_rank", "best_rolling_score", "best_alpha_t"],
                 ascending=[False, False, False, False],
+                kind="mergesort",
+            ).drop(columns=["_status_rank"])
+        elif mode in {"walk_forward_strategy", "wf_strategy", "strategy"}:
+            for col in [
+                "ret_total",
+                "alpha_ret_total",
+                "sharpe",
+                "alpha_sharpe",
+                "maxdd",
+                "win_rate",
+                "full_bin_eval_days",
+                "full_bin_insufficient_days",
+                "full_bin_coverage_ratio",
+            ]:
+                all_df[col] = pd.to_numeric(all_df.get(col), errors="coerce")
+            status_rank = {
+                "active": 3,
+                "watch_low_abs_ret": 2,
+                "watch_recent_decay": 2,
+                "watch_emerging": 1,
+                "reject": 0,
+            }
+            all_df["_status_rank"] = all_df.get("screen_status", "").map(status_rank).fillna(0)
+            all_df = all_df.sort_values(
+                by=["passed", "_status_rank", "alpha_ret_total", "sharpe", "ret_total"],
+                ascending=[False, False, False, False, False],
                 kind="mergesort",
             ).drop(columns=["_status_rank"])
         else:
@@ -1537,7 +2204,7 @@ def _write_screening_outputs(out_root: Path, *, screening_cfg: dict, rows: list[
 
     shortlist = all_df[all_df["passed"]].copy() if "passed" in all_df.columns else pd.DataFrame()
     shortlist.to_csv(screened_root / "factor_shortlist.csv", index=False)
-    if mode == "stable_bin_alpha":
+    if mode in {"stable_bin_alpha", "walk_forward_strategy", "wf_strategy", "strategy"}:
         watch = (
             all_df[all_df["screen_status"].astype(str).str.startswith("watch")].copy()
             if "screen_status" in all_df.columns
@@ -1686,6 +2353,7 @@ def run_factor_batch(
     bin_source = backtest_cfg.get("bin_source", "auto")
     bin_top_k = int(backtest_cfg.get("bin_top_k", 1))
     bin_lookback_days = int(backtest_cfg.get("bin_lookback_days", 60))
+    bin_min_train_days = int(backtest_cfg.get("bin_min_train_days", min(30, max(1, bin_lookback_days))))
     alpha_significance_window = int(backtest_cfg.get("alpha_significance_window", 40))
     backtest_workers = int(backtest_cfg.get("workers", 1))
     use_batch_context = bool(backtest_cfg.get("batch_context", True))
@@ -1699,6 +2367,9 @@ def run_factor_batch(
         f"source={factor_bt_fee_source}",
     )
     screening_rows: list[dict] = []
+    wf_screening_rows: list[dict] = []
+    wf_screening_cfg = dict(screening_cfg)
+    wf_screening_cfg["mode"] = "walk_forward_strategy"
     bad_factor_rows: list[dict] = []
     trading_days = set(
         list_trading_days_from_raw(
@@ -1748,6 +2419,7 @@ def run_factor_batch(
                 bin_source=bin_source,
                 bin_top_k=bin_top_k,
                 bin_lookback_days=bin_lookback_days,
+                bin_min_train_days=bin_min_train_days,
                 buy_bps=factor_bt_buy_bps,
                 sell_bps=factor_bt_sell_bps,
             )
@@ -1768,6 +2440,7 @@ def run_factor_batch(
                 bin_source=bin_source,
                 bin_top_k=bin_top_k,
                 bin_lookback_days=bin_lookback_days,
+                bin_min_train_days=bin_min_train_days,
                 workers=backtest_workers,
                 buy_bps=factor_bt_buy_bps,
                 sell_bps=factor_bt_sell_bps,
@@ -1792,6 +2465,16 @@ def run_factor_batch(
                     screening_cfg=screening_cfg,
                 )
             )
+            if bool(screening_cfg.get("write_walk_forward_strategy", False)):
+                wf_screening_rows.append(
+                    _build_screening_row(
+                        factor_name=spec.name,
+                        factor_col=factor_col,
+                        summary=summary,
+                        result=result,
+                        screening_cfg=wf_screening_cfg,
+                    )
+                )
         if bool(bad_factor_cfg.get("enabled", True)):
             bad_factor_rows.append(
                 _build_bad_factor_row(
@@ -1803,6 +2486,13 @@ def run_factor_batch(
             )
     if bool(screening_cfg.get("enabled", False)):
         _write_screening_outputs(out_root, screening_cfg=screening_cfg, rows=screening_rows)
+        if bool(screening_cfg.get("write_walk_forward_strategy", False)):
+            _write_screening_outputs(
+                out_root,
+                screening_cfg=wf_screening_cfg,
+                rows=wf_screening_rows,
+                dirname="screened_wf",
+            )
     bad_names: set[str] = set()
     if bool(bad_factor_cfg.get("enabled", True)):
         _write_bad_factor_outputs(out_root, cfg=bad_factor_cfg, rows=bad_factor_rows)

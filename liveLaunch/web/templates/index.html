@@ -65,8 +65,12 @@
                   <select id="log-day" class="form-select form-select-sm log-day-select trade-filter-select"></select>
                 </div>
                 <div class="trade-filter-item">
-                  <label for="sell-twap-col">卖出TWAP</label>
-                  <select id="sell-twap-col" class="form-select form-select-sm log-day-select trade-filter-select"></select>
+                  <label for="sell-twap-start">卖出TWAP</label>
+                  <div class="twap-range-control">
+                    <select id="sell-twap-start" class="form-select form-select-sm trade-filter-select twap-time-select" aria-label="卖出TWAP开始时间"></select>
+                    <span class="twap-range-separator">至</span>
+                    <select id="sell-twap-end" class="form-select form-select-sm trade-filter-select twap-time-select" aria-label="卖出TWAP结束时间"></select>
+                  </div>
                 </div>
                 <button id="btn-trade-refresh" class="btn btn-sm btn-outline-secondary trade-filter-refresh" type="button">刷新</button>
               </div>

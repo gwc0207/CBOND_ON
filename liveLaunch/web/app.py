@@ -24,13 +24,10 @@ from flask import Flask, jsonify, render_template, request
 
 from cbond_on.core.config import load_config_file
 from cbond_on.core.fees import load_fees_buy_sell_bps
-from cbond_on.infra.backtest.execution import (
-    apply_cost_to_full_cycle_return,
-    split_cycle_return_by_bridge_with_cost,
-)
 from cbond_on.infra.benchmark.service import (
-    compute_benchmark_breakdown_for_day,
+    build_strict_buy_holdings_from_selection,
     compute_benchmark_detail_for_day,
+    compute_strict_cycle_detail_for_holdings,
     load_benchmark_pool_config,
 )
 from cbond_on.infra.data.io import read_table_range, read_trading_calendar
@@ -170,6 +167,19 @@ def _safe_float(value: object) -> float | None:
     if math.isnan(out) or math.isinf(out):
         return None
     return out
+
+
+def _safe_bool(value: object) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, bool):
+        return value
+    try:
+        if pd.isna(value):
+            return False
+    except Exception:
+        pass
+    return bool(value)
 
 
 def _next_open_day(raw_data_root: str | Path, trade_day: date) -> date | None:
@@ -352,7 +362,7 @@ def _read_holdings(day: str | None = None, *, sell_col_override: str | None = No
     live_cfg = _load_live_cfg()
     data_cfg = dict(live_cfg.get("data", {}))
     output_cfg = dict(live_cfg.get("output", {}))
-    sell_col_default = str(output_cfg.get("sell_twap_col", data_cfg.get("sell_twap_col", "twap_0930_0945")))
+    sell_col_default = str(output_cfg.get("sell_twap_col", data_cfg.get("sell_twap_col", "twap_0930_0939")))
     sell_col = _normalize_twap_col(sell_col_override, fallback=sell_col_default)
     requested_day = datetime.strptime(iso_day, "%Y-%m-%d").date()
     ctx = _read_trade_list_context_for_buy_day(requested_day, raw_data_root=raw_root)
@@ -375,71 +385,80 @@ def _read_holdings(day: str | None = None, *, sell_col_override: str | None = No
             f"按 {trade_day:%Y-%m-%d} 买入、{sell_day_text} 卖出计算收益。"
         )
 
-    buy_lookup: dict[str, float | None] = {}
-    sell_lookup: dict[str, float | None] = {}
-    next_price_lookup: dict[str, pd.Series] = {}
-    sell_data_available = False
-    if next_day is not None:
-        buy_df = _read_twap_daily(raw_root, trade_day)
-        sell_df = _read_twap_daily(raw_root, next_day)
-        price_df = _read_price_daily(raw_root, next_day)
-        if not buy_df.empty and buy_col in buy_df.columns and "code" in buy_df.columns:
-            buy_lookup = {
-                str(row.code): _safe_float(getattr(row, buy_col))
-                for row in buy_df[["code", buy_col]].itertuples(index=False)
-            }
-        if not sell_df.empty and sell_col in sell_df.columns and "code" in sell_df.columns:
-            sell_data_available = True
-            sell_lookup = {
-                str(row.code): _safe_float(getattr(row, sell_col))
-                for row in sell_df[["code", sell_col]].itertuples(index=False)
-            }
-        if not price_df.empty and "code" in price_df.columns:
-            next_price_lookup = {
-                str(row["code"]): row
-                for _, row in price_df.iterrows()
-            }
-
     today = datetime.now().date()
+    detail_lookup: dict[str, pd.Series] = {}
+    cycle_error = ""
+    if next_day is not None and next_day <= today:
+        try:
+            pool_cfg = replace(
+                load_benchmark_pool_config(),
+                buy_twap_col=buy_col,
+                sell_twap_col=sell_col,
+            )
+            buy_holdings = build_strict_buy_holdings_from_selection(
+                raw_data_root=raw_root,
+                buy_day=trade_day,
+                selection=df,
+                buy_bps=buy_cost_bps,
+                pool_cfg=pool_cfg,
+                normalize=True,
+            )
+            cycle_detail = compute_strict_cycle_detail_for_holdings(
+                raw_data_root=raw_root,
+                buy_day=trade_day,
+                sell_day=next_day,
+                buy_holdings=buy_holdings,
+                sell_bps=sell_cost_bps,
+                pool_cfg=pool_cfg,
+            )
+            detail_lookup = {str(detail_row["code"]): detail_row for _, detail_row in cycle_detail.iterrows()}
+        except Exception as exc:
+            cycle_error = str(exc)
+
     rows = []
     for _, row in df.iterrows():
         code = str(row.get("code", ""))
-        buy_twap = buy_lookup.get(code)
-        sell_twap = sell_lookup.get(code)
-        next_price_row = next_price_lookup.get(code)
-        halted = _is_halted_price_row(next_price_row)
+        detail_row = detail_lookup.get(code)
+        buy_twap = None if detail_row is None else _safe_float(detail_row.get("buy_price"))
+        sell_twap = None if detail_row is None else _safe_float(detail_row.get("sell_price"))
         status = "ready"
         reason = ""
-        return_gross = None
-        return_net = None
-        weighted_return = None
-        if next_day is None or next_day > today or not sell_data_available:
+        return_gross = None if detail_row is None else _safe_float(detail_row.get("return_gross"))
+        return_net = None if detail_row is None else _safe_float(detail_row.get("return_net"))
+        weighted_return = None if detail_row is None else _safe_float(detail_row.get("weighted_return"))
+        buy_leg_ret_net = None if detail_row is None else _safe_float(detail_row.get("buy_leg_ret_net"))
+        sell_leg_ret_net = None if detail_row is None else _safe_float(detail_row.get("strict_sell_leg_net_ret"))
+        buy_close_price = None if detail_row is None else _safe_float(detail_row.get("buy_close_price"))
+        strict_prev_close_price = None if detail_row is None else _safe_float(detail_row.get("strict_prev_close_price"))
+        sell_price_source = "" if detail_row is None else str(detail_row.get("sell_price_source", ""))
+        sell_missing_fallback = _safe_bool(detail_row.get("sell_missing_fallback", False)) if detail_row is not None else False
+        weight_raw = _safe_float(row.get("weight"))
+        weight_calc = weight_raw if detail_row is None else _safe_float(detail_row.get("weight"))
+        if next_day is None or next_day > today:
             status = "pending"
             reason = "next trading day data not available yet"
-        elif halted:
-            status = "halted"
-            reason = "next trading day appears halted"
+        elif cycle_error:
+            status = "unavailable"
+            reason = cycle_error
+        elif detail_row is None:
+            status = "unavailable"
+            reason = "missing strict cycle detail"
         elif buy_twap is None or buy_twap <= 0:
             status = "unavailable"
             reason = f"missing or invalid {buy_col}"
         elif sell_twap is None or sell_twap <= 0:
             status = "unavailable"
-            reason = f"missing or invalid next-day {sell_col}"
-        else:
-            return_gross = sell_twap / buy_twap - 1.0
-            return_net = float(
-                apply_cost_to_full_cycle_return(
-                    pd.Series([return_gross]),
-                    buy_bps=buy_cost_bps,
-                    sell_bps=sell_cost_bps,
-                ).iloc[0]
-            )
-            weight_val = _safe_float(row.get("weight"))
-            weighted_return = None if weight_val is None else weight_val * return_net
+            reason = f"missing or invalid strict sell price for {sell_col}"
+        elif return_net is None:
+            status = "unavailable"
+            reason = "missing strict split return"
+        elif sell_missing_fallback:
+            reason = "sell TWAP missing; official prev close fallback used"
         rows.append(
             {
                 "symbol": code,
-                "weight": None if pd.isna(row.get("weight")) else float(row.get("weight")),
+                "weight": weight_calc,
+                "target_weight": weight_raw,
                 "score": None if "score" not in df.columns or pd.isna(row.get("score")) else float(row.get("score")),
                 "rank": None if "rank" not in df.columns or pd.isna(row.get("rank")) else int(row.get("rank")),
                 "trade_date": f"{trade_day:%Y-%m-%d}",
@@ -455,6 +474,12 @@ def _read_holdings(day: str | None = None, *, sell_col_override: str | None = No
                 "fallback_message": fallback_message or str(ctx.get("fallback_message", "")),
                 "buy_twap": buy_twap,
                 "sell_twap_next": sell_twap,
+                "buy_close_price": buy_close_price,
+                "strict_prev_close_price": strict_prev_close_price,
+                "buy_leg_ret_net": buy_leg_ret_net,
+                "sell_leg_ret_net": sell_leg_ret_net,
+                "sell_price_source": sell_price_source,
+                "sell_missing_fallback": sell_missing_fallback,
                 "return_gross": return_gross,
                 "return_net": return_net,
                 "weighted_return": weighted_return,
@@ -673,34 +698,46 @@ def _build_single_day_benchmark(
             load_benchmark_pool_config(),
             buy_twap_col=buy_col,
             sell_twap_col=sell_col,
-            use_window_data=False,
         )
+        benchmark_day = next_day
         detail = compute_benchmark_detail_for_day(
             raw_data_root=raw_data_root,
-            trade_day=trade_day,
-            next_day=next_day,
+            trade_day=benchmark_day,
+            next_day=benchmark_day,
             buy_bps=buy_bps,
             sell_bps=sell_bps,
             pool_cfg=pool_cfg,
         )
         return_net = float(pd.to_numeric(detail["weighted_return"], errors="coerce").sum())
-        rows = [
-            {
-                "symbol": str(row.code),
-                "weight": float(row.weight),
-                "buy_twap": float(row.buy_price),
-                "sell_twap": float(row.sell_price),
-                "return_net": float(row.return_net),
-                "weighted_return": float(row.weighted_return),
-            }
-            for row in detail.sort_values("code", kind="mergesort").itertuples(index=False)
-            if pd.notna(row.return_net)
-        ]
+        rows = []
+        for row in detail.sort_values("code", kind="mergesort").itertuples(index=False):
+            weighted_return = _safe_float(getattr(row, "weighted_return", None))
+            if weighted_return is None:
+                continue
+            weight = _safe_float(getattr(row, "weight", None))
+            row_return = weighted_return / weight if weight is not None and weight > 0 else _safe_float(
+                getattr(row, "return_net", None)
+            )
+            rows.append(
+                {
+                    "symbol": str(row.code),
+                    "weight": weight,
+                    "buy_twap": _safe_float(getattr(row, "buy_price", None)),
+                    "sell_twap": _safe_float(getattr(row, "sell_price", None)),
+                    "return_net": row_return,
+                    "weighted_return": weighted_return,
+                    "buy_leg_ret_net": _safe_float(getattr(row, "buy_leg_ret_net", None)),
+                    "sell_leg_ret_net": _safe_float(getattr(row, "strict_sell_leg_net_ret", None)),
+                    "sell_price_source": str(getattr(row, "sell_price_source", "")),
+                    "sell_missing_fallback": _safe_bool(getattr(row, "sell_missing_fallback", False)),
+                }
+            )
         return {
             "available": True,
             "trade_day": f"{trade_day:%Y-%m-%d}",
             "source_buy_day": f"{trade_day:%Y-%m-%d}",
             "next_day": f"{next_day:%Y-%m-%d}",
+            "benchmark_day": f"{benchmark_day:%Y-%m-%d}",
             "buy_col": buy_col,
             "sell_col": sell_col,
             "return_net": return_net,
@@ -735,7 +772,7 @@ def _build_perf_summary(
     data_cfg = dict(live_cfg.get("data", {}))
     output_cfg = dict(live_cfg.get("output", {}))
     buy_col = str(output_cfg.get("buy_twap_col", data_cfg.get("buy_twap_col", "twap_1442_1457")))
-    sell_col_default = str(output_cfg.get("sell_twap_col", data_cfg.get("sell_twap_col", "twap_0930_0945")))
+    sell_col_default = str(output_cfg.get("sell_twap_col", data_cfg.get("sell_twap_col", "twap_0930_0939")))
     sell_col = _normalize_twap_col(sell_col_override, fallback=sell_col_default)
     buy_cost_bps, sell_cost_bps, _ = load_fees_buy_sell_bps()
     default_lb = int(data_cfg.get("perf_lookback_days", 20))
@@ -776,58 +813,53 @@ def _build_perf_summary(
         if "weight" not in picks.columns:
             picks["weight"] = pd.NA
 
-        buy_df = _read_twap_daily(raw_data_root, trade_day)
-        sell_df = _read_twap_daily(raw_data_root, next_day)
-        bridge_df = _read_price_daily(raw_data_root, next_day)
-        if buy_df.empty or sell_df.empty or bridge_df.empty:
-            continue
-
-        if buy_col not in buy_df.columns or sell_col not in sell_df.columns or "prev_close_price" not in bridge_df.columns:
-            continue
-
-        merged = picks.merge(buy_df[["code", buy_col]], on="code", how="left")
-        merged = merged.merge(sell_df[["code", sell_col]], on="code", how="left")
-        merged = merged.merge(
-            bridge_df[["code", "prev_close_price"]].rename(columns={"prev_close_price": "bridge_prev_close"}),
-            on="code",
-            how="left",
-        )
-        merged = merged[
-            merged[buy_col].notna()
-            & merged[sell_col].notna()
-            & merged["bridge_prev_close"].notna()
-            & (merged[buy_col] > 0)
-            & (merged[sell_col] > 0)
-            & (pd.to_numeric(merged["bridge_prev_close"], errors="coerce") > 0)
-        ]
-        if merged.empty:
-            continue
-
-        buy_leg_ret, sell_leg_ret, strat_ret = split_cycle_return_by_bridge_with_cost(
-            merged[buy_col],
-            merged[sell_col],
-            pd.to_numeric(merged["bridge_prev_close"], errors="coerce"),
-            buy_bps=buy_cost_bps,
-            sell_bps=sell_cost_bps,
-        )
-        w = _normalize_weights(merged["weight"])
-        strategy_return = float((strat_ret * w).sum())
-        strategy_buy_leg_ret = float((buy_leg_ret * w).sum())
-        strategy_sell_leg_ret = float((sell_leg_ret * w).sum())
         benchmark_cfg = replace(
             load_benchmark_pool_config(),
             buy_twap_col=buy_col,
             sell_twap_col=sell_col,
-            use_window_data=False,
         )
-        benchmark = compute_benchmark_breakdown_for_day(
-            raw_data_root=raw_data_root,
-            trade_day=trade_day,
-            next_day=next_day,
-            buy_bps=buy_cost_bps,
-            sell_bps=sell_cost_bps,
-            pool_cfg=benchmark_cfg,
-        )
+        try:
+            buy_holdings = build_strict_buy_holdings_from_selection(
+                raw_data_root=raw_data_root,
+                buy_day=trade_day,
+                selection=picks,
+                buy_bps=buy_cost_bps,
+                pool_cfg=benchmark_cfg,
+                normalize=True,
+            )
+            detail = compute_strict_cycle_detail_for_holdings(
+                raw_data_root=raw_data_root,
+                buy_day=trade_day,
+                sell_day=next_day,
+                buy_holdings=buy_holdings,
+                sell_bps=sell_cost_bps,
+                pool_cfg=benchmark_cfg,
+            )
+            detail = detail[pd.to_numeric(detail["return_net"], errors="coerce").notna()].copy()
+            if detail.empty:
+                continue
+
+            strategy_return = float(pd.to_numeric(detail["weighted_return"], errors="coerce").sum())
+            strategy_buy_leg_ret = float(pd.to_numeric(detail["weighted_buy_leg_ret_net"], errors="coerce").sum())
+            strategy_sell_leg_ret = float(pd.to_numeric(detail["weighted_sell_leg_ret_net"], errors="coerce").sum())
+
+            benchmark_detail = compute_benchmark_detail_for_day(
+                raw_data_root=raw_data_root,
+                trade_day=next_day,
+                next_day=next_day,
+                buy_bps=buy_cost_bps,
+                sell_bps=sell_cost_bps,
+                pool_cfg=benchmark_cfg,
+            )
+            benchmark_return = float(pd.to_numeric(benchmark_detail["weighted_return"], errors="coerce").sum())
+            benchmark_buy_leg_ret = float(
+                pd.to_numeric(benchmark_detail["weighted_buy_leg_ret_net"], errors="coerce").sum()
+            )
+            benchmark_sell_leg_ret = float(
+                pd.to_numeric(benchmark_detail["weighted_sell_leg_ret_net"], errors="coerce").sum()
+            )
+        except Exception:
+            continue
 
         rows.append(
             {
@@ -837,11 +869,11 @@ def _build_perf_summary(
                 "strategy_full_cycle_ret_net": strategy_return,
                 "strategy_buy_leg_ret_net": strategy_buy_leg_ret,
                 "strategy_sell_leg_ret_net": strategy_sell_leg_ret,
-                "benchmark_return": float(benchmark.full_cycle_ret_net),
-                "benchmark_full_cycle_ret_net": float(benchmark.full_cycle_ret_net),
-                "benchmark_buy_leg_ret_net": float(benchmark.buy_leg_ret_net),
-                "benchmark_sell_leg_ret_net": float(benchmark.sell_leg_ret_net),
-                "count": int(len(merged)),
+                "benchmark_return": benchmark_return,
+                "benchmark_full_cycle_ret_net": benchmark_return,
+                "benchmark_buy_leg_ret_net": benchmark_buy_leg_ret,
+                "benchmark_sell_leg_ret_net": benchmark_sell_leg_ret,
+                "count": int(detail["code"].nunique()),
             }
         )
 

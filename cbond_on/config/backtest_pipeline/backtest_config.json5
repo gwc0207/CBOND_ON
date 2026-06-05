@@ -8,7 +8,7 @@
   strategy_id: "strategy01_topk_turnover",
   strategy_config_path: "strategies/strategy01/strategy01",
   buy_twap_col: "twap_1442_1457",
-  sell_twap_col: "twap_0930_0945",
+  sell_twap_col: "twap_0930_0939",
   allowlist: {
     enabled: true,
     table: "quant_factor_dev.researcher_xuvb.o_0005",

@@ -1,14 +1,15 @@
 {
-  // Strict benchmark calibrated in CBOND_DATA_HUB benchmark_calibration_lab.ipynb.
-  // Return = weighted average of each bond's full overnight net return.
-  method: "strict_full_overnight_net",
+  // Strict benchmark calibrated in CBOND_EXPERIMENTS benchmark_calibration_lab.ipynb.
+  // Daily return = T morning sell leg of previous holdings + T buy leg marked to official close.
+  // Sell leg uses official T prev_close_price as denominator/fallback; missing sell TWAP is not dropped.
+  method: "strict_official_prev_close_split",
 
   // Upstream daily benchmark pool. For trade day T, use pool from T-1 open trading day.
   pool_table: "quant_factor_dev.researcher_xuvb.o_0005",
   pool_lag_trading_days: 1,
   pool_asset: "cbond",
 
-  // Strict benchmark return windows.
+  // Strict benchmark return windows. window_data_root is mapped to sibling from_snapshot at runtime.
   use_window_data: true,
   window_data_root: "\\\\nfs\\10.1.30.100\\data\\yinhe-data\\kline\\cbond\\window-data",
   buy_twap_col: "twap_1442_1457",

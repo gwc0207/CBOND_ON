@@ -24,7 +24,8 @@ const returnRankingEl = el("return-ranking");
 const syncStatus = el("sync-status");
 const logFollow = el("log-follow");
 const logDaySelect = el("log-day");
-const sellTwapSelect = el("sell-twap-col");
+const sellTwapStartSelect = el("sell-twap-start");
+const sellTwapEndSelect = el("sell-twap-end");
 const tradeRefreshBtn = el("btn-trade-refresh");
 const calendarAnchor = el("calendar-anchor");
 const dataCalendar = el("data-calendar");
@@ -43,13 +44,9 @@ let followLogs = true;
 let latestLiveStatus = null;
 let tradeRefreshInFlight = false;
 const SELL_TWAP_STORAGE_KEY = "cbond_on.dashboard.sell_twap_col";
-const SELL_TWAP_OPTIONS = [
-  "twap_0930_0935",
-  "twap_0930_0938",
-  "twap_0930_0939",
-  "twap_0930_0945",
-  "twap_0930_1000",
-];
+const SELL_TWAP_DEFAULT_COL = "twap_0930_0939";
+const SELL_TWAP_MIN_MINUTE = 9 * 60 + 30;
+const SELL_TWAP_MAX_MINUTE = 10 * 60;
 
 function markTradeFilterDirty() {
   if (!syncStatus) return;
@@ -73,6 +70,52 @@ function isValidTwapCol(value) {
   return /^twap_\d{4}_\d{4}$/.test(String(value ?? "").trim());
 }
 
+function minuteToHHMM(minute) {
+  const h = Math.floor(Number(minute) / 60);
+  const m = Number(minute) % 60;
+  return `${String(h).padStart(2, "0")}${String(m).padStart(2, "0")}`;
+}
+
+function hhmmToMinute(value) {
+  const text = String(value ?? "").trim();
+  if (!/^\d{4}$/.test(text)) return null;
+  const h = Number(text.slice(0, 2));
+  const m = Number(text.slice(2, 4));
+  if (!Number.isInteger(h) || !Number.isInteger(m) || m < 0 || m > 59) return null;
+  return h * 60 + m;
+}
+
+function formatHHMM(value) {
+  const text = String(value ?? "").trim();
+  if (!/^\d{4}$/.test(text)) return text || "-";
+  return `${text.slice(0, 2)}:${text.slice(2, 4)}`;
+}
+
+function twapColFromRange(start, end) {
+  const startMinute = hhmmToMinute(start);
+  const endMinute = hhmmToMinute(end);
+  if (startMinute === null || endMinute === null || endMinute <= startMinute) return "";
+  return `twap_${String(start).trim()}_${String(end).trim()}`;
+}
+
+function twapColToRange(col) {
+  const text = String(col ?? "").trim();
+  const m = /^twap_(\d{4})_(\d{4})$/.exec(text);
+  if (!m) return null;
+  const startMinute = hhmmToMinute(m[1]);
+  const endMinute = hhmmToMinute(m[2]);
+  if (
+    startMinute === null
+    || endMinute === null
+    || startMinute < SELL_TWAP_MIN_MINUTE
+    || endMinute > SELL_TWAP_MAX_MINUTE
+    || endMinute <= startMinute
+  ) {
+    return null;
+  }
+  return { start: m[1], end: m[2] };
+}
+
 function formatTwapCol(col) {
   const text = String(col ?? "").trim();
   const m = /^twap_(\d{4})_(\d{4})$/.exec(text);
@@ -83,35 +126,61 @@ function formatTwapCol(col) {
 }
 
 function getSelectedSellTwapCol() {
-  const value = String(sellTwapSelect?.value || "").trim();
+  const value = twapColFromRange(sellTwapStartSelect?.value || "", sellTwapEndSelect?.value || "");
   return isValidTwapCol(value) ? value : "";
 }
 
-function ensureSellTwapOption(col) {
-  if (!sellTwapSelect || !isValidTwapCol(col)) return;
-  for (const opt of Array.from(sellTwapSelect.options || [])) {
-    if (String(opt.value).trim() === col) return;
+function buildSellTwapTimeOptions({ includeStart, includeEnd }) {
+  const out = [];
+  const from = includeStart ? SELL_TWAP_MIN_MINUTE : SELL_TWAP_MIN_MINUTE + 1;
+  const to = includeEnd ? SELL_TWAP_MAX_MINUTE : SELL_TWAP_MAX_MINUTE - 1;
+  for (let minute = from; minute <= to; minute += 1) {
+    const value = minuteToHHMM(minute);
+    out.push(`<option value="${value}">${escapeHtml(formatHHMM(value))}</option>`);
   }
-  const option = document.createElement("option");
-  option.value = col;
-  option.textContent = formatTwapCol(col);
-  sellTwapSelect.appendChild(option);
+  return out.join("");
+}
+
+function setSellTwapRange(col) {
+  if (!sellTwapStartSelect || !sellTwapEndSelect) return;
+  const parsed = twapColToRange(col) || twapColToRange(SELL_TWAP_DEFAULT_COL);
+  sellTwapStartSelect.value = parsed?.start || "0930";
+  sellTwapEndSelect.value = parsed?.end || "0939";
+}
+
+function normalizeSellTwapRange(source) {
+  if (!sellTwapStartSelect || !sellTwapEndSelect) return;
+  let startMinute = hhmmToMinute(sellTwapStartSelect.value);
+  let endMinute = hhmmToMinute(sellTwapEndSelect.value);
+  if (startMinute === null || endMinute === null) {
+    setSellTwapRange(SELL_TWAP_DEFAULT_COL);
+    return;
+  }
+  if (endMinute <= startMinute) {
+    if (source === "end") {
+      startMinute = Math.max(SELL_TWAP_MIN_MINUTE, endMinute - 1);
+    } else {
+      endMinute = Math.min(SELL_TWAP_MAX_MINUTE, startMinute + 1);
+    }
+  }
+  if (endMinute <= startMinute) {
+    setSellTwapRange(SELL_TWAP_DEFAULT_COL);
+    return;
+  }
+  sellTwapStartSelect.value = minuteToHHMM(startMinute);
+  sellTwapEndSelect.value = minuteToHHMM(endMinute);
 }
 
 function initSellTwapSelector(defaultSellCol) {
-  if (!sellTwapSelect) return;
-  sellTwapSelect.innerHTML = SELL_TWAP_OPTIONS
-    .map((col) => `<option value="${escapeHtml(col)}">${escapeHtml(formatTwapCol(col))}</option>`)
-    .join("");
+  if (!sellTwapStartSelect || !sellTwapEndSelect) return;
+  sellTwapStartSelect.innerHTML = buildSellTwapTimeOptions({ includeStart: true, includeEnd: false });
+  sellTwapEndSelect.innerHTML = buildSellTwapTimeOptions({ includeStart: false, includeEnd: true });
   const saved = String(window.localStorage.getItem(SELL_TWAP_STORAGE_KEY) || "").trim();
   const selected = isValidTwapCol(saved)
     ? saved
-    : (isValidTwapCol(defaultSellCol) ? String(defaultSellCol).trim() : SELL_TWAP_OPTIONS[0]);
-  ensureSellTwapOption(selected);
-  sellTwapSelect.value = selected;
-  if (!sellTwapSelect.value) {
-    sellTwapSelect.value = SELL_TWAP_OPTIONS[0];
-  }
+    : (isValidTwapCol(defaultSellCol) ? String(defaultSellCol).trim() : SELL_TWAP_DEFAULT_COL);
+  setSellTwapRange(selected);
+  normalizeSellTwapRange();
 }
 
 function atBottom(node) {
@@ -550,6 +619,7 @@ async function refreshBySelectedDay() {
 async function refreshTradeWindowOnly() {
   const tasks = [
     { name: "持仓与收益分析", run: refreshHoldings },
+    { name: "绩效摘要", run: refreshPerformance },
   ];
   const results = await Promise.allSettled(tasks.map((task) => task.run()));
   const failed = results.flatMap((result, idx) => {
@@ -809,12 +879,15 @@ function renderReturnOverview(rows, payload) {
   const benchmarkReturn = benchmarkReturnValue(payload);
   const benchmarkRows = benchmarkReturnRows(payload);
   const benchmarkAvailable = payload?.benchmark?.available && benchmarkReturn !== null && benchmarkRows.length > 0;
+  const buyDay = payload?.actual_buy_day || payload?.day || "-";
+  const sellDay = payload?.actual_sell_day || payload?.next_day || "-";
+  const benchmarkDay = payload?.benchmark?.benchmark_day || sellDay;
   returnOverviewEl.innerHTML = `
     <div class="analysis-card overview-card">
       <div class="analysis-head">
         <div>
           <div class="analysis-title">当日收益总览</div>
-          <div class="analysis-subtitle">日期 ${escapeHtml(payload?.day || "-")} · 卖出日 ${escapeHtml(payload?.next_day || "-")} · Benchmark ${benchmarkAvailable ? `${escapeHtml(fmtPct(benchmarkReturn))} / ${benchmarkRows.length}票` : "-"}</div>
+          <div class="analysis-subtitle">买入日 ${escapeHtml(buyDay)} · 卖出日 ${escapeHtml(sellDay)} · Benchmark日 ${escapeHtml(benchmarkDay)} · Benchmark ${benchmarkAvailable ? `${escapeHtml(fmtPct(benchmarkReturn))} / ${benchmarkRows.length}票` : "-"}</div>
         </div>
         <div class="analysis-status-line">已出 ${s.ready.length} · 等待 ${s.pendingCount} · 停牌 ${s.haltedCount} · 缺行情 ${s.unavailableCount}</div>
       </div>
@@ -838,6 +911,8 @@ function renderReturnOverview(rows, payload) {
   const hist = buildHistogram(s.returns, benchmarkRows);
   const canvas = el("return-distribution-chart");
   if (!canvas) return;
+  const strategyAxisMax = Math.max(...hist.counts, 1) + 1;
+  const benchmarkAxisMax = Math.max(...(hist.benchmarkCounts || []), 1) + 1;
   returnDistributionChart = new Chart(canvas.getContext("2d"), {
     type: "bar",
     data: {
@@ -851,6 +926,7 @@ function renderReturnOverview(rows, payload) {
           borderSkipped: false,
           categoryPercentage: 0.72,
           barPercentage: 0.9,
+          yAxisID: "yStrategy",
         },
         ...(benchmarkAvailable ? [{
           label: "Benchmark票数",
@@ -862,6 +938,7 @@ function renderReturnOverview(rows, payload) {
           borderSkipped: false,
           categoryPercentage: 0.72,
           barPercentage: 0.7,
+          yAxisID: "yBenchmark",
         }] : []),
       ],
     },
@@ -890,11 +967,20 @@ function renderReturnOverview(rows, payload) {
           ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: 8, font: { size: 12, weight: 650 } },
           title: { display: true, text: "单券收益区间（%）", color: "#64748b", font: { size: 12, weight: 700 } },
         },
-        y: {
+        yStrategy: {
           beginAtZero: true,
-          suggestedMax: Math.max(...hist.counts, ...(hist.benchmarkCounts || []), 1) + 1,
+          suggestedMax: strategyAxisMax,
           ticks: { precision: 0, stepSize: 1, font: { size: 12, weight: 650 } },
-          title: { display: true, text: "票数", color: "#64748b", font: { size: 12, weight: 700 } },
+          title: { display: true, text: "票数", color: "#16a34a", font: { size: 12, weight: 700 } },
+        },
+        yBenchmark: {
+          display: benchmarkAvailable,
+          beginAtZero: true,
+          position: "right",
+          suggestedMax: benchmarkAxisMax,
+          grid: { drawOnChartArea: false },
+          ticks: { precision: 0, font: { size: 12, weight: 650 }, color: "#2563eb" },
+          title: { display: benchmarkAvailable, text: "Benchmark票数", color: "#2563eb", font: { size: 12, weight: 700 } },
         },
       },
     },
@@ -1039,9 +1125,11 @@ async function refreshHoldings() {
     `;
     return;
   }
+  const benchmarkDay = res.data.benchmark?.benchmark_day || res.data.actual_sell_day || res.data.next_day || "-";
   const meta = [
-    `日期 ${res.data.day || "-"}`,
+    `买入日 ${res.data.actual_buy_day || res.data.day || "-"}`,
     res.data.next_day ? `卖出日 ${res.data.next_day}` : "卖出日 -",
+    `Benchmark日 ${benchmarkDay}`,
     `已出 ${res.data.ready_count || 0}`,
     `等待 ${res.data.pending_count || 0}`,
     `停牌 ${res.data.halted_count || 0}`,
@@ -1459,15 +1547,26 @@ if (logDaySelect) {
   });
 }
 
-if (sellTwapSelect) {
-  sellTwapSelect.addEventListener("change", () => {
-    const selected = getSelectedSellTwapCol();
-    if (selected) {
-      window.localStorage.setItem(SELL_TWAP_STORAGE_KEY, selected);
-    } else {
-      window.localStorage.removeItem(SELL_TWAP_STORAGE_KEY);
-    }
-    markTradeFilterDirty();
+function handleSellTwapRangeChange(source) {
+  normalizeSellTwapRange(source);
+  const selected = getSelectedSellTwapCol();
+  if (selected) {
+    window.localStorage.setItem(SELL_TWAP_STORAGE_KEY, selected);
+  } else {
+    window.localStorage.removeItem(SELL_TWAP_STORAGE_KEY);
+  }
+  markTradeFilterDirty();
+}
+
+if (sellTwapStartSelect) {
+  sellTwapStartSelect.addEventListener("change", () => {
+    handleSellTwapRangeChange("start");
+  });
+}
+
+if (sellTwapEndSelect) {
+  sellTwapEndSelect.addEventListener("change", () => {
+    handleSellTwapRangeChange("end");
   });
 }
 
@@ -1487,7 +1586,7 @@ if (tradeRefreshBtn) {
       const result = await refreshTradeWindowOnly();
       if (syncStatus) {
         if (result.ok) {
-          syncStatus.textContent = "持仓与收益分析已刷新。";
+          syncStatus.textContent = "持仓收益与绩效已刷新。";
         } else {
           const detail = result.failed.map((x) => `${x.module}失败`).join("、");
           const reason = result.failed.map((x) => `${x.module}: ${x.error}`).join("；");

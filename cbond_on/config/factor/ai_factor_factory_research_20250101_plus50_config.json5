@@ -37,6 +37,9 @@
     enabled: true,
     mode: "stable_bin_alpha",
     copy_reports: true,
+    require_full_bin_count: true,
+    required_bin_count: 20,
+    full_bin_coverage_ratio_min: 1.0,
     bin_alpha: {
       coverage_ratio_min: 0.70,
       avg_count_min: 10,

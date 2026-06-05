@@ -175,8 +175,22 @@ body {
   padding-bottom: 6px;
 }
 
-#sell-twap-col.trade-filter-select {
-  min-width: 190px;
+.twap-range-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.twap-time-select.trade-filter-select {
+  min-width: 96px;
+  width: 96px;
+}
+
+.twap-range-separator {
+  color: #6b7280;
+  font-size: 13px;
+  font-weight: 650;
+  white-space: nowrap;
 }
 
 .trade-filter-refresh {

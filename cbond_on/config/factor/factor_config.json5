@@ -1,5 +1,5 @@
 ﻿{
-  start: "2024-01-01",
+  start: "2025-01-01",
   end: "2026-05-11",
   panel_name: "T1430",
   factor_time: "14:30",
@@ -31,9 +31,10 @@
     ic_bins: 20,
     bin_count: 20,
     bin_select: null,
-    bin_source: "auto",
+    bin_source: "walk_forward",
     bin_top_k: 1,
-    bin_lookback_days: 10,
+    bin_lookback_days: 40,
+    bin_min_train_days: 30,
     alpha_significance_window: 40,
     // Read label/factor daily parquet once and reuse it across all factor reports.
     batch_context: true
@@ -43,6 +44,9 @@
     // legacy: IC/IR/Sharpe; stable_bin_alpha: screen factors by bin alpha persistence.
     mode: "stable_bin_alpha",
     copy_reports: true,
+    require_full_bin_count: true,
+    required_bin_count: 20,
+    full_bin_coverage_ratio_min: 1.0,
     bin_alpha: {
       coverage_ratio_min: 0.80,
       avg_count_min: 10,
@@ -61,6 +65,15 @@
       recent_mean_pos_ratio_min: 0.67,
       recent_t_pos_ratio_min: 0.67,
       recent_hit_ok_ratio_min: 0.50
+    },
+    walk_forward_strategy: {
+      enabled: true,
+      ret_total_min: 0.0,
+      alpha_ret_total_min: 0.0,
+      sharpe_min: 0.0,
+      alpha_sharpe_min: -999.0,
+      win_rate_min: 0.0,
+      maxdd_min: -0.10
     }
   },
   bad_factor_report: {

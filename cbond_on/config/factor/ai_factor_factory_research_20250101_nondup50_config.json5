@@ -27,9 +27,10 @@
     ic_bins: 20,
     bin_count: 20,
     bin_select: null,
-    bin_source: "fixed",
+    bin_source: "walk_forward",
     bin_top_k: 1,
-    bin_lookback_days: 60,
+    bin_lookback_days: 40,
+    bin_min_train_days: 30,
     alpha_significance_window: 40,
     batch_context: true
   },
@@ -37,6 +38,9 @@
     enabled: true,
     mode: "stable_bin_alpha",
     copy_reports: true,
+    require_full_bin_count: true,
+    required_bin_count: 20,
+    full_bin_coverage_ratio_min: 1.0,
     bin_alpha: {
       coverage_ratio_min: 0.70,
       avg_count_min: 10,
@@ -55,6 +59,15 @@
       recent_mean_pos_ratio_min: 0.55,
       recent_t_pos_ratio_min: 0.55,
       recent_hit_ok_ratio_min: 0.40
+    },
+    walk_forward_strategy: {
+      enabled: true,
+      ret_total_min: 0.0,
+      alpha_ret_total_min: 0.0,
+      sharpe_min: 0.0,
+      alpha_sharpe_min: -999.0,
+      win_rate_min: 0.0,
+      maxdd_min: -0.10
     }
   },
   bad_factor_report: {

@@ -43,7 +43,7 @@
   },
   output: {
     buy_twap_col: "twap_1442_1457",
-    sell_twap_col: "twap_0930_0945",
+    sell_twap_col: "twap_0930_0939",
     db_write: true,
     db_backend: "postgres",
     db_table: "quant_factor_dev.researcher_gswzif.o_0001",

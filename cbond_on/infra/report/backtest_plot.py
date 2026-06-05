@@ -559,7 +559,7 @@ def write_backtest_report_image(
     ax_nav.plot(nav["trade_date"], nav_series, label="strategy", linewidth=1.8)
     ax_nav.plot(nav["trade_date"], benchmark_nav, label="benchmark", linestyle="--", linewidth=1.3)
     ax_nav.plot(daily["trade_date"], excess_nav, label="excess nav", linewidth=1.2, alpha=0.85)
-    ax_nav.set_title("NAV / Excess NAV")
+    ax_nav.set_title("NAV / Excess NAV (Strict Official Split)")
     ax_nav.grid(alpha=0.25)
     ax_nav.legend(loc="best", fontsize=8)
 
@@ -623,7 +623,7 @@ def write_backtest_report_image(
         tbl.auto_set_font_size(False)
         tbl.set_fontsize(8)
         tbl.scale(1.0, 1.25)
-    ax_days.set_title("Best / Worst Days", fontsize=11)
+    ax_days.set_title("Best / Worst Days (Strict Split)", fontsize=11)
 
     ax_contrib = fig.add_subplot(gs[2, 2])
     contrib = tables["contribution"]
