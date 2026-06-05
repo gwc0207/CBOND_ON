@@ -26,7 +26,7 @@ from cbond_on.core.config import load_config_file
 from cbond_on.core.fees import load_fees_buy_sell_bps
 from cbond_on.infra.benchmark.service import (
     build_strict_buy_holdings_from_selection,
-    compute_benchmark_detail_for_day,
+    compute_benchmark_cycle_detail_for_day,
     compute_strict_cycle_detail_for_holdings,
     load_benchmark_pool_config,
 )
@@ -699,11 +699,10 @@ def _build_single_day_benchmark(
             buy_twap_col=buy_col,
             sell_twap_col=sell_col,
         )
-        benchmark_day = next_day
-        detail = compute_benchmark_detail_for_day(
+        detail = compute_benchmark_cycle_detail_for_day(
             raw_data_root=raw_data_root,
-            trade_day=benchmark_day,
-            next_day=benchmark_day,
+            buy_day=trade_day,
+            sell_day=next_day,
             buy_bps=buy_bps,
             sell_bps=sell_bps,
             pool_cfg=pool_cfg,
@@ -737,7 +736,7 @@ def _build_single_day_benchmark(
             "trade_day": f"{trade_day:%Y-%m-%d}",
             "source_buy_day": f"{trade_day:%Y-%m-%d}",
             "next_day": f"{next_day:%Y-%m-%d}",
-            "benchmark_day": f"{benchmark_day:%Y-%m-%d}",
+            "benchmark_day": f"{next_day:%Y-%m-%d}",
             "buy_col": buy_col,
             "sell_col": sell_col,
             "return_net": return_net,
@@ -745,6 +744,7 @@ def _build_single_day_benchmark(
             "count": int(detail["code"].nunique()),
             "buy_count": int(detail["code"].nunique()),
             "sell_count": int(detail["code"].nunique()),
+            "benchmark_mode": "strict_cycle",
             "buy_leg_ret_net": float(pd.to_numeric(detail["weighted_buy_leg_ret_net"], errors="coerce").sum()),
             "sell_leg_ret_net": float(pd.to_numeric(detail["weighted_sell_leg_ret_net"], errors="coerce").sum()),
             "rows": rows,
@@ -779,6 +779,7 @@ def _build_perf_summary(
     lookback = max(1, int(lookback if lookback is not None else default_lb))
 
     asof_day = _parse_day_to_date(day)
+    today = datetime.now().date()
     open_days = _load_open_days(raw_data_root)
     if not open_days:
         return {
@@ -804,7 +805,7 @@ def _build_perf_summary(
     for trade_day in candidates:
         ctx = _read_trade_list_context_for_buy_day(trade_day, raw_data_root=raw_data_root)
         next_day = (ctx or {}).get("sell_day") or next_day_map.get(trade_day)
-        if next_day is None or next_day > asof_day:
+        if next_day is None or next_day > today:
             continue
 
         picks = (ctx or {}).get("df", pd.DataFrame()).copy()
@@ -843,10 +844,10 @@ def _build_perf_summary(
             strategy_buy_leg_ret = float(pd.to_numeric(detail["weighted_buy_leg_ret_net"], errors="coerce").sum())
             strategy_sell_leg_ret = float(pd.to_numeric(detail["weighted_sell_leg_ret_net"], errors="coerce").sum())
 
-            benchmark_detail = compute_benchmark_detail_for_day(
+            benchmark_detail = compute_benchmark_cycle_detail_for_day(
                 raw_data_root=raw_data_root,
-                trade_day=next_day,
-                next_day=next_day,
+                buy_day=trade_day,
+                sell_day=next_day,
                 buy_bps=buy_cost_bps,
                 sell_bps=sell_cost_bps,
                 pool_cfg=benchmark_cfg,

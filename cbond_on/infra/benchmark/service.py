@@ -549,14 +549,30 @@ def compute_strict_sell_detail_for_holdings(
     else:
         sell = _ensure_code_column(twap, label="strict sell twap")[["code", cfg.sell_twap_col]].copy()
 
-    price_df = read_price_daily(str(raw_data_root), sell_day)
-    strict_prev = _first_price_series(
-        price_df,
-        PREV_CLOSE_PRICE_CANDIDATES,
-        label="strict_prev_close_price",
-    ).rename("strict_prev_close_price")
+    prev_source = "sell_day_daily_price"
+    try:
+        price_df = read_price_daily(str(raw_data_root), sell_day)
+        strict_prev = _first_price_series(
+            price_df,
+            PREV_CLOSE_PRICE_CANDIDATES,
+            label="strict_prev_close_price",
+        ).rename("strict_prev_close_price")
+    except Exception:
+        if "prev_close_price" not in held.columns:
+            raise
+        strict_prev = (
+            held[["code", "prev_close_price"]]
+            .copy()
+            .rename(columns={"prev_close_price": "strict_prev_close_price"})
+            .assign(strict_prev_close_price=lambda x: pd.to_numeric(x["strict_prev_close_price"], errors="coerce"))
+            .dropna(subset=["strict_prev_close_price"])
+            .groupby("code", sort=False)["strict_prev_close_price"]
+            .mean()
+        )
+        prev_source = "previous_holding_close_fallback"
 
     detail = held.merge(strict_prev.reset_index(), on="code", how="inner").merge(sell, on="code", how="left")
+    detail["strict_prev_close_source"] = prev_source
     detail["strict_prev_close_price"] = pd.to_numeric(detail["strict_prev_close_price"], errors="coerce")
     detail = detail[detail["strict_prev_close_price"].notna() & (detail["strict_prev_close_price"] > 0)].copy()
     if detail.empty:
@@ -642,6 +658,7 @@ def compute_strict_cycle_detail_for_holdings(
         "sell_price",
         "sell_price_source",
         "sell_missing_fallback",
+        "strict_prev_close_source",
         "strict_sell_leg_gross_ret",
         "strict_sell_leg_net_ret",
         "weighted_sell_leg_ret_net",
@@ -700,6 +717,45 @@ def compute_benchmark_cycle_detail_for_day(
         sell_bps=sell_bps,
         pool_cfg=cfg,
     )
+
+
+def compute_benchmark_sell_detail_for_day(
+    *,
+    raw_data_root: str | Path,
+    sell_day: date,
+    buy_bps: float,
+    sell_bps: float,
+    pool_cfg: BenchmarkPoolConfig | None = None,
+) -> pd.DataFrame:
+    cfg = pool_cfg or load_benchmark_pool_config()
+    prev_day = _previous_trading_day(raw_data_root, sell_day, cfg)
+    prev_holdings = _to_strict_sell_holdings(
+        _build_buy_holdings_for_day(
+            raw_data_root=raw_data_root,
+            buy_day=prev_day,
+            buy_bps=buy_bps,
+            pool_cfg=cfg,
+        )
+    )
+    detail = compute_strict_sell_detail_for_holdings(
+        raw_data_root=raw_data_root,
+        sell_day=sell_day,
+        prev_holdings=prev_holdings,
+        sell_bps=sell_bps,
+        pool_cfg=cfg,
+    )
+    if detail.empty:
+        return detail
+    detail["trade_date"] = pd.to_datetime(sell_day)
+    detail["trade_day"] = pd.to_datetime(sell_day)
+    detail["next_day"] = pd.to_datetime(sell_day)
+    detail["buy_price"] = pd.NA
+    detail["buy_leg_ret_net"] = 0.0
+    detail["weighted_buy_leg_ret_net"] = 0.0
+    detail["return_net"] = pd.to_numeric(detail["strict_sell_leg_net_ret"], errors="coerce")
+    detail["weighted_return"] = pd.to_numeric(detail["weighted_sell_leg_ret_net"], errors="coerce")
+    detail["full_cycle_ret_net"] = detail["return_net"]
+    return detail.sort_values("code", kind="mergesort").reset_index(drop=True)
 
 
 def compute_benchmark_detail_for_day(

@@ -9,6 +9,7 @@ from .service import (
     compute_benchmark_detail_for_day,
     compute_benchmark_return_for_day,
     compute_benchmark_returns_for_days,
+    compute_benchmark_sell_detail_for_day,
     compute_strict_cycle_detail_for_holdings,
     compute_strict_sell_detail_for_holdings,
     load_strict_market_day,
@@ -26,6 +27,7 @@ __all__ = [
     "compute_benchmark_breakdown_for_day",
     "compute_benchmark_cycle_detail_for_day",
     "compute_benchmark_detail_for_day",
+    "compute_benchmark_sell_detail_for_day",
     "compute_benchmark_return_for_day",
     "compute_benchmark_returns_for_days",
 ]

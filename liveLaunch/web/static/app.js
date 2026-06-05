@@ -879,6 +879,7 @@ function renderReturnOverview(rows, payload) {
   const benchmarkReturn = benchmarkReturnValue(payload);
   const benchmarkRows = benchmarkReturnRows(payload);
   const benchmarkAvailable = payload?.benchmark?.available && benchmarkReturn !== null && benchmarkRows.length > 0;
+  const benchmarkLabel = payload?.benchmark?.benchmark_mode === "sell_leg_only" ? "Benchmark卖出腿" : "Benchmark";
   const buyDay = payload?.actual_buy_day || payload?.day || "-";
   const sellDay = payload?.actual_sell_day || payload?.next_day || "-";
   const benchmarkDay = payload?.benchmark?.benchmark_day || sellDay;
@@ -887,14 +888,14 @@ function renderReturnOverview(rows, payload) {
       <div class="analysis-head">
         <div>
           <div class="analysis-title">当日收益总览</div>
-          <div class="analysis-subtitle">买入日 ${escapeHtml(buyDay)} · 卖出日 ${escapeHtml(sellDay)} · Benchmark日 ${escapeHtml(benchmarkDay)} · Benchmark ${benchmarkAvailable ? `${escapeHtml(fmtPct(benchmarkReturn))} / ${benchmarkRows.length}票` : "-"}</div>
+          <div class="analysis-subtitle">买入日 ${escapeHtml(buyDay)} · 卖出日 ${escapeHtml(sellDay)} · Benchmark日 ${escapeHtml(benchmarkDay)} · ${escapeHtml(benchmarkLabel)} ${benchmarkAvailable ? `${escapeHtml(fmtPct(benchmarkReturn))} / ${benchmarkRows.length}票` : "-"}</div>
         </div>
         <div class="analysis-status-line">已出 ${s.ready.length} · 等待 ${s.pendingCount} · 停牌 ${s.haltedCount} · 缺行情 ${s.unavailableCount}</div>
       </div>
       <div class="overview-layout">
         <div class="overview-metrics">
           <div class="metric-tile metric-primary"><span>当日组合收益</span><strong class="${returnClass(s.dayReturn)}">${escapeHtml(fmtPct(s.dayReturn))}</strong></div>
-          <div class="metric-tile"><span>Benchmark</span><strong class="${returnClass(benchmarkReturn)}">${benchmarkAvailable ? escapeHtml(fmtPct(benchmarkReturn)) : "-"}</strong></div>
+          <div class="metric-tile"><span>${escapeHtml(benchmarkLabel)}</span><strong class="${returnClass(benchmarkReturn)}">${benchmarkAvailable ? escapeHtml(fmtPct(benchmarkReturn)) : "-"}</strong></div>
           <div class="metric-tile"><span>中位数收益</span><strong class="${returnClass(s.medianReturn)}">${escapeHtml(fmtPct(s.medianReturn))}</strong></div>
           <div class="metric-tile"><span>正/负收益</span><strong>${s.positiveCount} / ${s.negativeCount}</strong></div>
           <div class="metric-tile"><span>最好单券</span><strong class="${returnClass(s.best?.return_net)}">${escapeHtml(s.best ? `${s.best.symbol} ${fmtPct(s.best.return_net)}` : "-")}</strong></div>
