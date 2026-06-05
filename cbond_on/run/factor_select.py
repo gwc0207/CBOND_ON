@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import argparse
 import sys
@@ -13,7 +13,7 @@ from cbond_on.interfaces.cli.factor_select import main
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run factor selection by importance topN retraining")
-    parser.add_argument("--config", default="score/factor_select")
+    parser.add_argument("--config", default="score/factor_selection/factor_select")
     parser.add_argument("--start")
     parser.add_argument("--end")
     args = parser.parse_args()

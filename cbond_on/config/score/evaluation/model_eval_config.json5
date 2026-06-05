@@ -1,9 +1,9 @@
-{
+﻿{
   // Experiment identity.
   experiment_name: "model_eval_v1",
 
   // Reuse model registry from model_score config.
-  model_score_config: "score/model_score",
+  model_score_config: "score/model/model_score",
   model_id: "lgbm_factor_MSE",
 
   // Evaluation window (trading-day filtering follows existing score pipeline behavior).

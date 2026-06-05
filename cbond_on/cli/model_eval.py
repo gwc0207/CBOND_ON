@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import argparse
 
@@ -14,7 +14,7 @@ def main(
     end: str | None = None,
     label_cutoff: str | None = None,
 ) -> None:
-    cfg = load_model_eval_config(config_name or "score/model_eval")
+    cfg = load_model_eval_config(config_name or "score/evaluation/model_eval")
     result = run(
         cfg,
         model_id=model_id,
@@ -27,7 +27,7 @@ def main(
 
 def cli_main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Run model evaluation and hyperparameter tuning")
-    parser.add_argument("--config", default="score/model_eval")
+    parser.add_argument("--config", default="score/evaluation/model_eval")
     parser.add_argument("--model-id")
     parser.add_argument("--start")
     parser.add_argument("--end")

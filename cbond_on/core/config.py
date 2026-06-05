@@ -61,6 +61,28 @@ def _with_config_suffix(name: str) -> str:
     return name if name.endswith("_config") else f"{name}_config"
 
 
+def _find_config_files(filename: str) -> list[Path]:
+    """Find config files without tripping over generated/cache directories.
+
+    Long-running jobs may resolve configs while another process is cleaning
+    caches.  `Path.rglob()` can raise if a directory disappears mid-scan, so use
+    `os.walk()` and ignore transient filesystem races.
+    """
+    matches: list[Path] = []
+    try:
+        for root, dirs, files in os.walk(CONFIG_DIR):
+            dirs[:] = [
+                d
+                for d in dirs
+                if d not in {"__pycache__", ".pytest_cache", ".mypy_cache"}
+            ]
+            if filename in files:
+                matches.append(Path(root) / filename)
+    except FileNotFoundError:
+        return matches
+    return sorted(matches)
+
+
 def resolve_config_file_path(name: str | Path) -> Path:
     raw = _normalize_key(name)
     direct = Path(raw)
@@ -84,7 +106,7 @@ def resolve_config_file_path(name: str | Path) -> Path:
             suffix = f"{base}{ext}"
             matches = [
                 p
-                for p in CONFIG_DIR.rglob(f"{Path(base).name}{ext}")
+                for p in _find_config_files(f"{Path(base).name}{ext}")
                 if p.relative_to(CONFIG_DIR).as_posix().endswith(suffix)
             ]
             if len(matches) == 1:
@@ -95,7 +117,7 @@ def resolve_config_file_path(name: str | Path) -> Path:
 
     fallback: list[Path] = []
     for ext in _CONFIG_EXTS:
-        matches = sorted(CONFIG_DIR.rglob(f"{Path(base).name}{ext}"))
+        matches = _find_config_files(f"{Path(base).name}{ext}")
         if len(matches) == 1:
             return matches[0]
         if len(matches) > 1:

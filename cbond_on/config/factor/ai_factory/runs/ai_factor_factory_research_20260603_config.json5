@@ -1,6 +1,6 @@
-{
-  start: "2025-01-01",
-  end: "2026-06-02",
+﻿{
+  start: "2026-05-06",
+  end: "2026-05-29",
   panel_name: "T1430",
   factor_time: "14:30",
   label_time: "14:42",
@@ -8,7 +8,7 @@
   overwrite: true,
   workers: 1,
   factor_workers: 2,
-  disabled_factors_file: "factor/factor_disabled_factors_empty.json",
+  disabled_factors_file: "factor/guards/factor_disabled_factors_empty.json",
   compute: {
     engine: "python",
     allow_python_engine: true,
@@ -17,7 +17,7 @@
     fallback_cpu: true
   },
   factor_files: [
-    "factor/ai_factor_factory_20260604_nondup50.json5"
+    "factor/ai_factory/packs/ai_factor_factory_20260603.json5"
   ],
   factors: [],
   backtest_enabled: true,
@@ -27,11 +27,10 @@
     ic_bins: 20,
     bin_count: 20,
     bin_select: null,
-    bin_source: "walk_forward",
+    bin_source: "auto",
     bin_top_k: 1,
-    bin_lookback_days: 40,
-    bin_min_train_days: 30,
-    alpha_significance_window: 40,
+    bin_lookback_days: 10,
+    alpha_significance_window: 20,
     batch_context: true
   },
   screening: {
@@ -46,7 +45,7 @@
       avg_count_min: 10,
       full_alpha_mean_min: 0.0,
       full_alpha_t_min: 1.20,
-      rolling_window: 40,
+      rolling_window: 20,
       rolling_min_periods_ratio: 0.50,
       rolling_mean_pos_ratio_min: 0.55,
       rolling_t_pos_ratio_min: 0.55,
@@ -55,19 +54,10 @@
       rolling_hit_rate_threshold: 0.52,
       rolling_hit_ok_ratio_min: 0.30,
       max_consecutive_bad_windows: 20,
-      recent_window_count: 10,
+      recent_window_count: 5,
       recent_mean_pos_ratio_min: 0.55,
       recent_t_pos_ratio_min: 0.55,
       recent_hit_ok_ratio_min: 0.40
-    },
-    walk_forward_strategy: {
-      enabled: true,
-      ret_total_min: 0.0,
-      alpha_ret_total_min: 0.0,
-      sharpe_min: 0.0,
-      alpha_sharpe_min: -999.0,
-      win_rate_min: 0.0,
-      maxdd_min: -0.10
     }
   },
   bad_factor_report: {
@@ -75,7 +65,7 @@
     nan_ratio_threshold: 0.20,
     bin_fail_ratio_threshold: 0.20,
     skip_ratio_threshold: 0.30,
-    min_days: 60,
+    min_days: 10,
     top_n_plot: 30
   }
 }

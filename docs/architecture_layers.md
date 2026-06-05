@@ -1,4 +1,4 @@
-# CBOND_ON Architecture Layers (Current)
+﻿# CBOND_ON Architecture Layers (Current)
 
 ## Layer Structure
 
@@ -8,12 +8,11 @@
 - `app`
   - `usecases`: single business actions.
   - `pipelines`: multi-step orchestration.
-  - `commands` / `dto` / `ports`: cross-layer contracts.
 - `domain`
   - pure business rules and semantics (`signals`, `portfolio`, factor definitions/spec).
   - no infra / cli dependency.
 - `infra`
-  - concrete implementations (`rust`, `factors-pipeline`, `model`, `data`, `io`, `live`, `backtest`, `report`, `cache`).
+  - concrete implementations (`factors-pipeline`, `model`, `data`, `io`, `live`, `backtest`, `benchmark`, `report`, `universe`, `ai`, `data_hub`).
 - `common`
   - cross-cutting helpers.
 
@@ -82,7 +81,7 @@ python -m cbond_on.common.factor_quality_guard --config factor
 Apply actions:
 
 ```bash
-# disable bad factors (writes config/factor/factor_disabled_factors.json)
+# disable bad factors (writes config/factor/guards/factor_disabled_factors.json)
 python -m cbond_on.common.factor_quality_guard --config factor --apply-disable-bad
 
 # remove deprecated factor columns from factor store

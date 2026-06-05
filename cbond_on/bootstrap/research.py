@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from typing import Any
 
@@ -19,6 +19,6 @@ def load_model_score_config() -> dict[str, Any]:
     return validate_model_score_config(load_config_file("model_score"))
 
 
-def load_model_eval_config(config_name: str = "score/model_eval") -> dict[str, Any]:
+def load_model_eval_config(config_name: str = "score/evaluation/model_eval") -> dict[str, Any]:
     return validate_model_eval_config(load_config_file(config_name))
 

@@ -1,1 +1,0 @@
-"""Auto-generated architecture package."""

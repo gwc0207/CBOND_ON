@@ -1,4 +1,4 @@
-# CBOND_ON
+﻿# CBOND_ON
 
 可转债隔夜策略工程仓库（研究、回测、实盘一体化）。
 
@@ -44,10 +44,10 @@
 - Panel 配置：`cbond_on/config/data/panel_config.json5`
 - Label 配置：`cbond_on/config/data/label_config.json5`
 - 因子总控：`cbond_on/config/factor/factor_config.json5`
-- 因子清单：`cbond_on/config/factor/factors_all_in_one.json5`
-- 坏因子黑名单：`cbond_on/config/factor/factor_disabled_factors.json`
-- 模型打分总控：`cbond_on/config/score/model_score_config.json5`
-- 模型评估总控：`cbond_on/config/score/model_eval_config.json5`
+- 因子清单：`cbond_on/config/factor/packs/factors_all_in_one.json5`
+- 坏因子黑名单：`cbond_on/config/factor/guards/factor_disabled_factors.json`
+- 模型打分总控：`cbond_on/config/score/model/model_score_config.json5`
+- 模型评估总控：`cbond_on/config/score/evaluation/model_eval_config.json5`
 - 回测总控：`cbond_on/config/backtest_pipeline/backtest_config.json5`
 - 全链路总控：`cbond_on/config/backtest_pipeline/pipeline_all_config.json5`
 - 实盘总控：`cbond_on/config/live/live_config.json5`
@@ -170,7 +170,7 @@ python -m cbond_on.common.factor_quality_guard --config factor --no-apply-disabl
 ```
 
 输出与副作用：
-- 更新 `cbond_on/config/factor/factor_disabled_factors.json`
+- 更新 `cbond_on/config/factor/guards/factor_disabled_factors.json`
 - 清理 `factor_data_root/factors/{panel}/...` 历史 parquet 列
 - 控制台打印：
   - 新增黑名单因子

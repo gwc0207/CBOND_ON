@@ -1,7 +1,7 @@
-{
-  // base model selector (must exist in score/model_score config models)
+﻿{
+  // base model selector (must exist in score/model/model_score config models)
   base_model_id: "lgbm_factor_MSE",
-  model_score_config: "score/model_score",
+  model_score_config: "score/model/model_score",
   factor_config: "factor",
 
   // test window
@@ -13,8 +13,8 @@
   alpha_significance_window: 40,
 
   // external factor lists
-  baseline_factors_file: "score/factor_baseline_factors.json",
-  blacklist_file: "score/factor_blacklist.json",
+  baseline_factors_file: "score/factor_selection/factor_baseline_factors.json",
+  blacklist_file: "score/factor_selection/factor_blacklist.json",
 
   // debug knob: 0 = all candidate extras
   // (candidate extras = expected factors - baseline factors - blacklist)

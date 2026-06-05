@@ -29,7 +29,7 @@ def run(
     eval_cfg = load_eval_config(cfg)
     paths_cfg = load_config_file("paths")
 
-    score_config_key = str(eval_cfg.get("model_score_config", "score/model_score"))
+    score_config_key = str(eval_cfg.get("model_score_config", "score/model/model_score"))
     score_cfg = load_score_config(score_config_key)
 
     chosen_model_id = str(

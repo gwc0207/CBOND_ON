@@ -1,4 +1,4 @@
-# AI 因子工厂有数据机器使用手册
+﻿# AI 因子工厂有数据机器使用手册
 
 本文档给接手 agent 使用。目标是在有数据机器上完成以下工作：
 
@@ -363,13 +363,13 @@ batch 结束会打印：
 3. 跑 factor selection：
 
 ```powershell
-python cbond_on\run\factor_select.py --config score/factor_select
+python cbond_on\run\factor_select.py --config score/factor_selection/factor_select
 ```
 
 如需指定日期：
 
 ```powershell
-python cbond_on\run\factor_select.py --config score/factor_select --start YYYY-MM-DD --end YYYY-MM-DD
+python cbond_on\run\factor_select.py --config score/factor_selection/factor_select --start YYYY-MM-DD --end YYYY-MM-DD
 ```
 
 4. 跑模型训练/打分，按当前项目配置执行：

@@ -1,4 +1,4 @@
-# AI Factor Factory Nondup50 Backtest 2026-06-04
+﻿# AI Factor Factory Nondup50 Backtest 2026-06-04
 
 - Source candidates: 417
 - Static accepted: 184
@@ -54,7 +54,7 @@
 ## Paths
 
 - Result root: `D:\cbond_on\results\ai_factor_factory\nondup50_20260604\results\2025-01-01_2026-06-02\Single_Factor\20260604_023247`
-- Full config: `cbond_on/config/factor/ai_factor_factory_20260604_nondup50.json5`
-- Good config: `cbond_on/config/factor/ai_factor_factory_20260604_nondup50_active.json5`
-- Shortlist config: `cbond_on/config/factor/ai_factor_factory_20260604_nondup50_screened_shortlist.json5`
-- Clean shortlist config: `cbond_on/config/factor/ai_factor_factory_20260604_nondup50_screened_clean_shortlist.json5`
+- Full config: `cbond_on/config/factor/ai_factory/packs/ai_factor_factory_20260604_nondup50.json5`
+- Good config: `cbond_on/config/factor/ai_factory/packs/ai_factor_factory_20260604_nondup50_active.json5`
+- Shortlist config: `cbond_on/config/factor/ai_factory/packs/ai_factor_factory_20260604_nondup50_screened_shortlist.json5`
+- Clean shortlist config: `cbond_on/config/factor/ai_factory/packs/ai_factor_factory_20260604_nondup50_screened_clean_shortlist.json5`

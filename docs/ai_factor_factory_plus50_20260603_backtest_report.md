@@ -1,4 +1,4 @@
-# AI Factor Factory Plus50 Run - 2026-06-03
+﻿# AI Factor Factory Plus50 Run - 2026-06-03
 
 ## Scope
 
@@ -19,8 +19,8 @@ The 35 landed files are under `cbond_on/domain/factors/defs/`.
 
 ## Backtest Run
 
-- Config: `cbond_on/config/factor/ai_factor_factory_research_20250101_plus50_config.json5`.
-- Factor pack: `cbond_on/config/factor/ai_factor_factory_20260603_plus50.json5`.
+- Config: `cbond_on/config/factor/ai_factory/runs/ai_factor_factory_research_20250101_plus50_config.json5`.
+- Factor pack: `cbond_on/config/factor/ai_factory/packs/ai_factor_factory_20260603_plus50.json5`.
 - Output root: `D:/cbond_on/results/ai_factor_factory/plus50_20250101/results/2025-01-01_2026-06-02/Single_Factor/20260603_191012`.
 - Logs:
   - `D:/cbond_on/results/ai_factor_factory/logs/backtest_plus50_20250101_20260603_170511.out.log`
@@ -64,9 +64,9 @@ Use this set for downstream model experiments first:
 - `t1430_volume_min_v1`
 - `t1430_volume_weighted_avg_size_v1`
 
-Config: `cbond_on/config/factor/ai_factor_factory_20260603_plus50_screened_unique.json5`.
+Config: `cbond_on/config/factor/ai_factory/packs/ai_factor_factory_20260603_plus50_screened_unique.json5`.
 
-The full active shortlist is also saved as `cbond_on/config/factor/ai_factor_factory_20260603_plus50_screened_active.json5`.
+The full active shortlist is also saved as `cbond_on/config/factor/ai_factory/packs/ai_factor_factory_20260603_plus50_screened_active.json5`.
 
 ## Bad Factors
 

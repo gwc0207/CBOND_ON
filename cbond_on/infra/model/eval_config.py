@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
@@ -10,7 +10,7 @@ from cbond_on.core.config import load_config_file
 def load_eval_config(cfg: dict[str, Any] | None) -> dict[str, Any]:
     if cfg is not None:
         return dict(cfg)
-    return dict(load_config_file("score/model_eval"))
+    return dict(load_config_file("score/evaluation/model_eval"))
 
 
 def load_score_config(path_key: str) -> dict[str, Any]:

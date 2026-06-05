@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import copy
 import json
@@ -983,9 +983,9 @@ def run(
     start: str | date | None = None,
     end: str | date | None = None,
 ) -> dict[str, Any]:
-    selector_cfg = dict(cfg or load_config_file(config_name or "score/factor_select"))
+    selector_cfg = dict(cfg or load_config_file(config_name or "score/factor_selection/factor_select"))
     paths_cfg = load_config_file("paths")
-    score_cfg = load_config_file(str(selector_cfg.get("model_score_config", "score/model_score")))
+    score_cfg = load_config_file(str(selector_cfg.get("model_score_config", "score/model/model_score")))
     factor_cfg = load_config_file(str(selector_cfg.get("factor_config", "factor")))
 
     model_id = str(
@@ -1022,11 +1022,15 @@ def run(
     bins = int(selector_cfg.get("bins", base_model_cfg.get("bins", 5)))
     execution_override = dict(selector_cfg.get("execution", {}))
 
-    baseline_factors = _load_factor_list(str(selector_cfg.get("baseline_factors_file", "score/factor_baseline_factors")))
+    baseline_factors = _load_factor_list(
+        str(selector_cfg.get("baseline_factors_file", "score/factor_selection/factor_baseline_factors.json"))
+    )
     if not baseline_factors:
         raise ValueError("baseline factor list is empty")
 
-    blacklist = set(_load_factor_list(str(selector_cfg.get("blacklist_file", "score/factor_blacklist"))) )
+    blacklist = set(
+        _load_factor_list(str(selector_cfg.get("blacklist_file", "score/factor_selection/factor_blacklist.json")))
+    )
 
     candidate_all = expected_factor_columns_from_cfg(factor_cfg)
     baseline_set = set(baseline_factors)
@@ -1166,7 +1170,7 @@ def run(
 
     snapshot_payload = {
         "selector_config": selector_cfg,
-        "model_score_config_key": str(selector_cfg.get("model_score_config", "score/model_score")),
+        "model_score_config_key": str(selector_cfg.get("model_score_config", "score/model/model_score")),
         "base_model_config_path": str(base_model_cfg_path.as_posix()),
         "baseline_factors_file": str(selector_cfg.get("baseline_factors_file")),
         "blacklist_file": str(selector_cfg.get("blacklist_file")),

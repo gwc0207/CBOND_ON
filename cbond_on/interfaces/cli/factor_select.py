@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import argparse
 
@@ -12,7 +12,7 @@ def main(
     start: str | None = None,
     end: str | None = None,
 ) -> None:
-    cfg_name = config_name or "score/factor_select"
+    cfg_name = config_name or "score/factor_selection/factor_select"
     cfg = load_config_file(cfg_name)
     result = run_factor_select_pipeline(
         cfg,
@@ -25,7 +25,7 @@ def main(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run factor selection by importance topN retraining")
-    parser.add_argument("--config", default="score/factor_select")
+    parser.add_argument("--config", default="score/factor_selection/factor_select")
     parser.add_argument("--start")
     parser.add_argument("--end")
     args = parser.parse_args()

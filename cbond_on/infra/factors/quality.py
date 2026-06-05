@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -72,9 +72,9 @@ def _load_factor_items_from_payload(payload: object, *, source: str) -> list[dic
 
 
 def resolve_disabled_factors_file_path(cfg: dict[str, Any]) -> Path:
-    raw = str(cfg.get("disabled_factors_file", "factor/factor_disabled_factors.json")).strip()
+    raw = str(cfg.get("disabled_factors_file", "factor/guards/factor_disabled_factors.json")).strip()
     if not raw:
-        raw = "factor/factor_disabled_factors.json"
+        raw = "factor/guards/factor_disabled_factors.json"
     p = Path(raw).expanduser()
     if p.is_absolute():
         return p

@@ -1,4 +1,4 @@
-{
+﻿{
   start: "2025-01-01",
   end: "2026-06-02",
   panel_name: "T1430",
@@ -8,7 +8,7 @@
   overwrite: true,
   workers: 1,
   factor_workers: 2,
-  disabled_factors_file: "factor/factor_disabled_factors_empty.json",
+  disabled_factors_file: "factor/guards/factor_disabled_factors_empty.json",
   compute: {
     engine: "python",
     allow_python_engine: true,
@@ -17,7 +17,7 @@
     fallback_cpu: true
   },
   factor_files: [
-    "factor/ai_factor_factory_20260603_plus50.json5"
+    "factor/ai_factory/packs/ai_factor_factory_20260603.json5"
   ],
   factors: [],
   backtest_enabled: true,
@@ -27,7 +27,7 @@
     ic_bins: 20,
     bin_count: 20,
     bin_select: null,
-    bin_source: "fixed",
+    bin_source: "auto",
     bin_top_k: 1,
     bin_lookback_days: 60,
     alpha_significance_window: 40,
