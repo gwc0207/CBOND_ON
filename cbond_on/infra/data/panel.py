@@ -14,7 +14,7 @@ from cbond_on.core.schedule import IntradaySchedule
 from cbond_on.core.utils import progress
 from cbond_on.core.trading_days import list_trading_days_from_raw
 from cbond_on.core.naming import make_window_label
-from cbond_on.infra.benchmark.service import load_strict_market_day
+from cbond_on.infra.benchmark.service import compute_strict_sell_detail_for_holdings, load_strict_market_day
 from .io import read_table_range
 from .snapshot_loader import SnapshotLoader, SnapshotPanel
 
@@ -1142,19 +1142,26 @@ def _build_day_labels_twap(
             buy_bps=0.0,
             sell_bps=0.0,
         )
-        next_sell_market = load_strict_market_day(
+    except Exception:
+        return pd.DataFrame()
+
+    if buy_market.empty:
+        return pd.DataFrame()
+    buy = buy_market[["code", "buy_leg_ret_gross", "buy_close_price"]].copy()
+    prev_holdings = buy[["code", "buy_close_price"]].copy()
+    prev_holdings["prev_close_price"] = pd.to_numeric(prev_holdings["buy_close_price"], errors="coerce")
+    try:
+        sell_detail = compute_strict_sell_detail_for_holdings(
             raw_data_root=raw_data_root,
-            trade_day=next_day,
-            buy_bps=0.0,
+            sell_day=next_day,
+            prev_holdings=prev_holdings,
             sell_bps=0.0,
         )
     except Exception:
         return pd.DataFrame()
-
-    if buy_market.empty or next_sell_market.empty:
+    if sell_detail.empty:
         return pd.DataFrame()
-    buy = buy_market[["code", "buy_leg_ret_gross"]].copy()
-    sell = next_sell_market[["code", "strict_sell_leg_gross_ret"]].copy()
+    sell = sell_detail[["code", "strict_sell_leg_gross_ret"]].copy()
     aligned = buy.merge(sell, on="code", how="inner")
     aligned["buy_leg_ret_gross"] = pd.to_numeric(aligned["buy_leg_ret_gross"], errors="coerce")
     aligned["strict_sell_leg_gross_ret"] = pd.to_numeric(aligned["strict_sell_leg_gross_ret"], errors="coerce")

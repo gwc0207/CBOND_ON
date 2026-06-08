@@ -59,6 +59,18 @@ class FactorBacktestBatchContext:
     raw_data_root: str | Path | None = None
 
 
+@dataclass
+class _FactorBatchReportOutput:
+    order: int
+    factor_name: str
+    factor_col: str
+    result: FactorBacktestResult
+    summary: dict | None = None
+    screening_row: dict | None = None
+    wf_screening_row: dict | None = None
+    bad_factor_row: dict | None = None
+
+
 _STRICT_MARKET_COLUMNS = [
     "buy_price",
     "buy_close_price",
@@ -2298,6 +2310,98 @@ def _collect_report_plots(out_root: Path, *, bad_factor_names: set[str] | None =
     return plot_root
 
 
+def _compute_factor_report_from_batch_context(
+    *,
+    order: int,
+    spec: FactorSpec,
+    batch_context: FactorBacktestBatchContext,
+    min_count: int,
+    ic_bins: int,
+    bin_count: object,
+    bin_select: list[int] | None,
+    bin_source: object,
+    bin_top_k: int,
+    bin_lookback_days: int,
+    bin_min_train_days: int,
+    buy_bps: float,
+    sell_bps: float,
+) -> _FactorBatchReportOutput:
+    factor_col = build_factor_col(spec)
+    result = run_intraday_factor_backtest_from_context(
+        batch_context,
+        factor_col=factor_col,
+        min_count=min_count,
+        ic_bins=ic_bins,
+        bin_count=bin_count,
+        bin_select=bin_select,
+        bin_source=bin_source,
+        bin_top_k=bin_top_k,
+        bin_lookback_days=bin_lookback_days,
+        bin_min_train_days=bin_min_train_days,
+        buy_bps=buy_bps,
+        sell_bps=sell_bps,
+    )
+    return _FactorBatchReportOutput(
+        order=order,
+        factor_name=spec.name,
+        factor_col=factor_col,
+        result=result,
+    )
+
+
+def _save_and_screen_factor_report(
+    output: _FactorBatchReportOutput,
+    *,
+    out_root: Path,
+    trading_days: set,
+    alpha_significance_window: int,
+    screening_cfg: dict,
+    wf_screening_cfg: dict,
+    bad_factor_cfg: dict,
+) -> _FactorBatchReportOutput:
+    signal_dir = out_root / output.factor_name
+    signal_dir.mkdir(parents=True, exist_ok=True)
+    summary = save_single_factor_report(
+        output.result,
+        signal_dir,
+        factor_name=output.factor_name,
+        factor_col=output.factor_col,
+        trading_days=trading_days,
+        alpha_significance_window=alpha_significance_window,
+    )
+    output.summary = summary
+    screening_row = None
+    wf_screening_row = None
+    if bool(screening_cfg.get("enabled", False)):
+        screening_row = _build_screening_row(
+            factor_name=output.factor_name,
+            factor_col=output.factor_col,
+            summary=summary,
+            result=output.result,
+            screening_cfg=screening_cfg,
+        )
+        if bool(screening_cfg.get("write_walk_forward_strategy", False)):
+            wf_screening_row = _build_screening_row(
+                factor_name=output.factor_name,
+                factor_col=output.factor_col,
+                summary=summary,
+                result=output.result,
+                screening_cfg=wf_screening_cfg,
+            )
+    bad_factor_row = None
+    if bool(bad_factor_cfg.get("enabled", True)):
+        bad_factor_row = _build_bad_factor_row(
+            factor_name=output.factor_name,
+            factor_col=output.factor_col,
+            result=output.result,
+            cfg=bad_factor_cfg,
+        )
+    output.screening_row = screening_row
+    output.wf_screening_row = wf_screening_row
+    output.bad_factor_row = bad_factor_row
+    return output
+
+
 def run_factor_batch(
     cfg: dict,
     *,
@@ -2404,86 +2508,150 @@ def run_factor_batch(
             f"benchmark_days={len(batch_context.benchmark_by_dt)}",
             f"factor_cols={len(factor_cols)}",
         )
-    for spec in progress(specs, desc="factor_batch", unit="signal"):
-        factor_col = build_factor_col(spec)
-        if not backtest_enabled:
-            continue
-        if batch_context is not None:
-            result = run_intraday_factor_backtest_from_context(
-                batch_context,
-                factor_col=factor_col,
-                min_count=min_count,
-                ic_bins=ic_bins,
-                bin_count=bin_count,
-                bin_select=bin_select,
-                bin_source=bin_source,
-                bin_top_k=bin_top_k,
-                bin_lookback_days=bin_lookback_days,
-                bin_min_train_days=bin_min_train_days,
-                buy_bps=factor_bt_buy_bps,
-                sell_bps=factor_bt_sell_bps,
-            )
-        else:
-            result = run_intraday_factor_backtest(
-                factor_store,
-                Path(label_data_root),
-                raw_data_root,
-                start,
-                end,
-                factor_col=factor_col,
-                factor_time=factor_time,
-                label_time=label_time,
-                min_count=min_count,
-                ic_bins=ic_bins,
-                bin_count=bin_count,
-                bin_select=bin_select,
-                bin_source=bin_source,
-                bin_top_k=bin_top_k,
-                bin_lookback_days=bin_lookback_days,
-                bin_min_train_days=bin_min_train_days,
-                workers=backtest_workers,
-                buy_bps=factor_bt_buy_bps,
-                sell_bps=factor_bt_sell_bps,
-            )
-        signal_dir = out_root / spec.name
-        signal_dir.mkdir(parents=True, exist_ok=True)
-        summary = save_single_factor_report(
-            result,
-            signal_dir,
-            factor_name=spec.name,
-            factor_col=factor_col,
-            trading_days=trading_days,
-            alpha_significance_window=alpha_significance_window,
+    if backtest_enabled and batch_context is not None and backtest_workers > 1 and len(specs) > 1:
+        report_workers = max(1, min(int(backtest_workers), len(specs)))
+        print(
+            "factor report parallel:",
+            f"workers={report_workers}",
+            f"specs={len(specs)}",
+            f"batch_context=True",
         )
-        if bool(screening_cfg.get("enabled", False)):
-            screening_rows.append(
-                _build_screening_row(
-                    factor_name=spec.name,
-                    factor_col=factor_col,
-                    summary=summary,
-                    result=result,
-                    screening_cfg=screening_cfg,
+        outputs: list[_FactorBatchReportOutput] = []
+        spec_iter = iter(enumerate(specs))
+
+        with ThreadPoolExecutor(max_workers=report_workers) as executor:
+            pending: dict[object, int] = {}
+
+            def submit_next() -> bool:
+                try:
+                    order, spec = next(spec_iter)
+                except StopIteration:
+                    return False
+                future = executor.submit(
+                    _compute_factor_report_from_batch_context,
+                    order=order,
+                    spec=spec,
+                    batch_context=batch_context,
+                    min_count=min_count,
+                    ic_bins=ic_bins,
+                    bin_count=bin_count,
+                    bin_select=bin_select,
+                    bin_source=bin_source,
+                    bin_top_k=bin_top_k,
+                    bin_lookback_days=bin_lookback_days,
+                    bin_min_train_days=bin_min_train_days,
+                    buy_bps=factor_bt_buy_bps,
+                    sell_bps=factor_bt_sell_bps,
                 )
+                pending[future] = order
+                return True
+
+            for _ in range(report_workers):
+                submit_next()
+
+            for _ in progress(range(len(specs)), desc="factor_batch", unit="signal"):
+                done_future = next(as_completed(pending))
+                pending.pop(done_future, None)
+                output = _save_and_screen_factor_report(
+                    done_future.result(),
+                    out_root=out_root,
+                    trading_days=trading_days,
+                    alpha_significance_window=alpha_significance_window,
+                    screening_cfg=screening_cfg,
+                    wf_screening_cfg=wf_screening_cfg,
+                    bad_factor_cfg=bad_factor_cfg,
+                )
+                outputs.append(output)
+                submit_next()
+
+        for output in sorted(outputs, key=lambda item: item.order):
+            if output.screening_row is not None:
+                screening_rows.append(output.screening_row)
+            if output.wf_screening_row is not None:
+                wf_screening_rows.append(output.wf_screening_row)
+            if output.bad_factor_row is not None:
+                bad_factor_rows.append(output.bad_factor_row)
+    else:
+        for spec in progress(specs, desc="factor_batch", unit="signal"):
+            factor_col = build_factor_col(spec)
+            if not backtest_enabled:
+                continue
+            if batch_context is not None:
+                result = run_intraday_factor_backtest_from_context(
+                    batch_context,
+                    factor_col=factor_col,
+                    min_count=min_count,
+                    ic_bins=ic_bins,
+                    bin_count=bin_count,
+                    bin_select=bin_select,
+                    bin_source=bin_source,
+                    bin_top_k=bin_top_k,
+                    bin_lookback_days=bin_lookback_days,
+                    bin_min_train_days=bin_min_train_days,
+                    buy_bps=factor_bt_buy_bps,
+                    sell_bps=factor_bt_sell_bps,
+                )
+            else:
+                result = run_intraday_factor_backtest(
+                    factor_store,
+                    Path(label_data_root),
+                    raw_data_root,
+                    start,
+                    end,
+                    factor_col=factor_col,
+                    factor_time=factor_time,
+                    label_time=label_time,
+                    min_count=min_count,
+                    ic_bins=ic_bins,
+                    bin_count=bin_count,
+                    bin_select=bin_select,
+                    bin_source=bin_source,
+                    bin_top_k=bin_top_k,
+                    bin_lookback_days=bin_lookback_days,
+                    bin_min_train_days=bin_min_train_days,
+                    workers=backtest_workers,
+                    buy_bps=factor_bt_buy_bps,
+                    sell_bps=factor_bt_sell_bps,
+                )
+            signal_dir = out_root / spec.name
+            signal_dir.mkdir(parents=True, exist_ok=True)
+            summary = save_single_factor_report(
+                result,
+                signal_dir,
+                factor_name=spec.name,
+                factor_col=factor_col,
+                trading_days=trading_days,
+                alpha_significance_window=alpha_significance_window,
             )
-            if bool(screening_cfg.get("write_walk_forward_strategy", False)):
-                wf_screening_rows.append(
+            if bool(screening_cfg.get("enabled", False)):
+                screening_rows.append(
                     _build_screening_row(
                         factor_name=spec.name,
                         factor_col=factor_col,
                         summary=summary,
                         result=result,
-                        screening_cfg=wf_screening_cfg,
+                        screening_cfg=screening_cfg,
                     )
                 )
-        if bool(bad_factor_cfg.get("enabled", True)):
-            bad_factor_rows.append(
-                _build_bad_factor_row(
-                    factor_name=spec.name,
-                    factor_col=factor_col,
-                    result=result,
-                    cfg=bad_factor_cfg,
+                if bool(screening_cfg.get("write_walk_forward_strategy", False)):
+                    wf_screening_rows.append(
+                        _build_screening_row(
+                            factor_name=spec.name,
+                            factor_col=factor_col,
+                            summary=summary,
+                            result=result,
+                            screening_cfg=wf_screening_cfg,
+                        )
+                    )
+            if bool(bad_factor_cfg.get("enabled", True)):
+                bad_factor_rows.append(
+                    _build_bad_factor_row(
+                        factor_name=spec.name,
+                        factor_col=factor_col,
+                        result=result,
+                        cfg=bad_factor_cfg,
+                    )
                 )
-            )
     if bool(screening_cfg.get("enabled", False)):
         _write_screening_outputs(out_root, screening_cfg=screening_cfg, rows=screening_rows)
         if bool(screening_cfg.get("write_walk_forward_strategy", False)):

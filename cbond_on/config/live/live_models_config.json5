@@ -12,10 +12,6 @@
     lgbm_live_factors_old19_live: {
       model_type: "lgbm",
       model_config: "live/live_lgbm_old19"
-    },
-    lgbm_screened_no_winsor_live: {
-      model_type: "lgbm",
-      model_config: "live/live_lgbm_screened_no_winsor"
     }
   }
 }
