@@ -72,6 +72,10 @@
       model_type: "lgbm",
       model_config: "models/lgbm/lgbm_factor_MSE"
     },
+    clean82_lgbm_top30: {
+      model_type: "lgbm",
+      model_config: "models/lgbm/lgbm_clean82_top30"
+    },
     lgbm_factor_ranker: {
       model_type: "lgbm_ranker",
       model_config: "models/lgbm_ranker/lgbm_factor_ranker"

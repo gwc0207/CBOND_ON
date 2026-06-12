@@ -34,6 +34,9 @@ def execute_single_trial(
     objective_metric: str,
     higher_is_better: bool,
     bins: int,
+    stability_window: int,
+    stability_min_periods: int,
+    annualization: float,
     run_model_score_fn: Callable[..., dict],
 ) -> tuple[dict[str, Any], dict[str, Any] | None]:
     trial_dir = trials_root / trial_id
@@ -92,7 +95,13 @@ def execute_single_trial(
             start=start,
             end=end,
         )
-        eval_result = evaluate_merged_scores(merged, bins=bins)
+        eval_result = evaluate_merged_scores(
+            merged,
+            bins=bins,
+            stability_window=stability_window,
+            stability_min_periods=stability_min_periods,
+            annualization=annualization,
+        )
         objective_value = objective_from_summary(
             eval_result.summary,
             metric=objective_metric,

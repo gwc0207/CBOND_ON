@@ -4,6 +4,7 @@ import copy
 import json
 import math
 import re
+import textwrap
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
@@ -965,6 +966,588 @@ def _plot_importance_topk(
     plt.close(fig)
 
 
+def _select_factors_by_importance(
+    *,
+    importance_df: pd.DataFrame,
+    top_n: int,
+    min_importance: float,
+    corr_dedupe_cfg: dict[str, Any],
+    corr_dir: Path,
+    out_root: Path,
+) -> tuple[pd.DataFrame, list[str], dict[str, Any]]:
+    selected_df = importance_df[
+        pd.to_numeric(importance_df["importance_mean"], errors="coerce") >= float(min_importance)
+    ].copy()
+    if selected_df.empty:
+        raise RuntimeError("no factor survives min_importance threshold")
+
+    selected_df = selected_df.reset_index(drop=True)
+    selected_df["importance_rank"] = np.arange(1, len(selected_df) + 1)
+
+    dedupe_enabled = bool(corr_dedupe_cfg.get("enabled", False))
+    threshold = float(corr_dedupe_cfg.get("threshold", 0.85))
+    matrix_kind = str(corr_dedupe_cfg.get("matrix", "max_abs")).strip().lower()
+    matrix_files = {
+        "max_abs": "max_abs_corr_matrix.csv",
+        "pearson": "pearson_abs_corr_mean.csv",
+        "rank": "rank_abs_corr_mean.csv",
+    }
+    matrix_file = matrix_files.get(matrix_kind)
+    if matrix_file is None:
+        raise ValueError("selection.corr_dedupe.matrix must be one of: max_abs, pearson, rank")
+
+    detail_rows: list[dict[str, Any]] = []
+    target_n = int(top_n)
+    selected_factors: list[str] = []
+    corr_matrix = pd.DataFrame()
+
+    if dedupe_enabled:
+        matrix_path = corr_dir / matrix_file
+        if not matrix_path.exists():
+            raise RuntimeError(f"corr_dedupe matrix missing: {matrix_path}")
+        corr_matrix = pd.read_csv(matrix_path, index_col=0)
+        corr_matrix = corr_matrix.apply(pd.to_numeric, errors="coerce")
+
+    for row in selected_df.itertuples(index=False):
+        factor = str(row.factor)
+        importance_mean = float(row.importance_mean)
+        importance_rank = int(row.importance_rank)
+
+        if target_n > 0 and len(selected_factors) >= target_n:
+            detail_rows.append(
+                {
+                    "factor": factor,
+                    "decision": "not_considered_after_topn",
+                    "importance_rank": importance_rank,
+                    "importance_mean": importance_mean,
+                    "conflict_factor": "",
+                    "conflict_corr": float("nan"),
+                    "selected_count_before": len(selected_factors),
+                }
+            )
+            continue
+
+        conflict_factor = ""
+        conflict_corr = float("nan")
+        if dedupe_enabled and selected_factors:
+            best_corr = -1.0
+            best_factor = ""
+            for kept in selected_factors:
+                val = float("nan")
+                if factor in corr_matrix.index and kept in corr_matrix.columns:
+                    val = corr_matrix.at[factor, kept]
+                elif kept in corr_matrix.index and factor in corr_matrix.columns:
+                    val = corr_matrix.at[kept, factor]
+                if pd.notna(val) and float(val) > best_corr:
+                    best_corr = float(val)
+                    best_factor = kept
+            if best_corr >= threshold:
+                conflict_factor = best_factor
+                conflict_corr = best_corr
+
+        if conflict_factor:
+            detail_rows.append(
+                {
+                    "factor": factor,
+                    "decision": "dropped_by_corr",
+                    "importance_rank": importance_rank,
+                    "importance_mean": importance_mean,
+                    "conflict_factor": conflict_factor,
+                    "conflict_corr": conflict_corr,
+                    "selected_count_before": len(selected_factors),
+                }
+            )
+            continue
+
+        selected_factors.append(factor)
+        detail_rows.append(
+            {
+                "factor": factor,
+                "decision": "selected",
+                "importance_rank": importance_rank,
+                "importance_mean": importance_mean,
+                "conflict_factor": "",
+                "conflict_corr": float("nan"),
+                "selected_count_before": len(selected_factors) - 1,
+            }
+        )
+
+    if not selected_factors:
+        raise RuntimeError("selected topN factors is empty")
+
+    detail_df = pd.DataFrame(detail_rows)
+    detail_path = out_root / "selected_factors_dedup_detail.csv"
+    detail_df.to_csv(detail_path, index=False)
+
+    selected_out = selected_df[selected_df["factor"].astype(str).isin(selected_factors)].copy()
+    selected_out["_selected_order"] = selected_out["factor"].astype(str).map({v: i for i, v in enumerate(selected_factors)})
+    selected_out = selected_out.sort_values("_selected_order", kind="mergesort").drop(columns=["_selected_order"]).reset_index(drop=True)
+
+    payload = {
+        "corr_dedupe_enabled": dedupe_enabled,
+        "corr_dedupe_threshold": threshold if dedupe_enabled else None,
+        "corr_dedupe_matrix": matrix_kind if dedupe_enabled else None,
+        "eligible_factor_count": int(len(selected_df)),
+        "selected_factor_count": int(len(selected_factors)),
+        "dropped_by_corr_count": int((detail_df["decision"] == "dropped_by_corr").sum()) if not detail_df.empty else 0,
+        "selection_detail": detail_path.name,
+    }
+    return selected_out, selected_factors, payload
+
+
+def _factor_day_path(factor_data_root: Path, panel_name: str, trade_day: date) -> Path:
+    return (
+        factor_data_root
+        / "factors"
+        / str(panel_name)
+        / f"{trade_day:%Y-%m}"
+        / f"{trade_day:%Y%m%d}.parquet"
+    )
+
+
+def _plot_corr_heatmap(
+    *,
+    corr: pd.DataFrame,
+    out_path: Path,
+    title: str,
+    max_factors: int,
+) -> None:
+    if corr.empty:
+        return
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+    except Exception:
+        return
+
+    work = corr.copy()
+    max_factors = int(max(2, max_factors))
+    if work.shape[0] > max_factors:
+        score = work.abs().replace([np.inf, -np.inf], np.nan).mean(axis=1).sort_values(ascending=False)
+        keep = score.head(max_factors).index.tolist()
+        work = work.loc[keep, keep]
+
+    size = max(7.0, min(18.0, 0.24 * max(1, work.shape[0]) + 3.5))
+    fig, ax = plt.subplots(figsize=(size, size))
+    im = ax.imshow(
+        work.to_numpy(dtype=float),
+        cmap="RdBu_r",
+        vmin=-1.0,
+        vmax=1.0,
+        aspect="auto",
+    )
+    fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04, label="correlation")
+    ax.set_title(title)
+    if work.shape[0] <= 60:
+        ax.set_xticks(range(work.shape[1]))
+        ax.set_yticks(range(work.shape[0]))
+        ax.set_xticklabels(work.columns, rotation=90, fontsize=6)
+        ax.set_yticklabels(work.index, fontsize=6)
+    else:
+        ax.set_xticks([])
+        ax.set_yticks([])
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=150)
+    plt.close(fig)
+
+
+def _plot_corr_matrix_image(
+    *,
+    corr: pd.DataFrame,
+    out_path: Path,
+    title: str,
+    max_factors: int,
+    annot_max_factors: int,
+    cmap: str,
+    vmin: float,
+    vmax: float,
+    colorbar_label: str,
+) -> None:
+    if corr.empty:
+        return
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+    except Exception:
+        return
+
+    work = corr.copy()
+    max_factors = int(max(2, max_factors))
+    if work.shape[0] > max_factors:
+        score = work.abs().replace([np.inf, -np.inf], np.nan).mean(axis=1).sort_values(ascending=False)
+        keep = score.head(max_factors).index.tolist()
+        work = work.loc[keep, keep]
+
+    n = int(work.shape[0])
+    if n <= 0:
+        return
+    annotate = n <= int(max(0, annot_max_factors))
+    cell = 0.42 if annotate else 0.26
+    size = max(7.0, min(26.0, n * cell + 3.8))
+    fig, ax = plt.subplots(figsize=(size, size))
+    values = work.to_numpy(dtype=float)
+    im = ax.imshow(values, cmap=cmap, vmin=vmin, vmax=vmax, aspect="equal")
+    fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04, label=colorbar_label)
+
+    ax.set_title(title, fontsize=12, weight="bold", pad=12)
+    ax.set_xticks(range(n))
+    ax.set_yticks(range(n))
+    ax.set_xticklabels(work.columns, rotation=90, fontsize=6 if n > 35 else 7)
+    ax.set_yticklabels(work.index, fontsize=6 if n > 35 else 7)
+    ax.set_xticks(np.arange(-0.5, n, 1), minor=True)
+    ax.set_yticks(np.arange(-0.5, n, 1), minor=True)
+    ax.grid(which="minor", color="#E5E7EB", linestyle="-", linewidth=0.5)
+    ax.tick_params(which="minor", bottom=False, left=False)
+
+    if annotate:
+        threshold = (vmax + vmin) / 2.0
+        for i in range(n):
+            for j in range(n):
+                val = values[i, j]
+                if not np.isfinite(val):
+                    continue
+                text_color = "white" if abs(val) > abs(threshold) and vmax > 1e-12 else "#111827"
+                if vmin < 0 < vmax:
+                    text_color = "white" if abs(val) >= 0.65 else "#111827"
+                else:
+                    text_color = "white" if val >= 0.65 else "#111827"
+                ax.text(j, i, f"{val:.2f}", ha="center", va="center", fontsize=6, color=text_color)
+
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=160, bbox_inches="tight")
+    plt.close(fig)
+
+
+def _wrap_table_text(value: Any, *, width: int) -> str:
+    text = "" if pd.isna(value) else str(value)
+    if not text:
+        return ""
+    return "\n".join(textwrap.wrap(text, width=width, break_long_words=True, break_on_hyphens=False))
+
+
+def _plot_relation_table_image(
+    *,
+    relation_df: pd.DataFrame,
+    out_path: Path,
+    title: str,
+    max_rows: int,
+) -> None:
+    if relation_df is None or relation_df.empty:
+        return
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+    except Exception:
+        return
+
+    rows = int(max(1, max_rows))
+    work = relation_df.head(rows).copy()
+    if work.empty:
+        return
+
+    table = pd.DataFrame(
+        {
+            "factor_a": work["factor_a"].map(lambda x: _wrap_table_text(x, width=30)),
+            "factor_b": work["factor_b"].map(lambda x: _wrap_table_text(x, width=30)),
+            "pearson": pd.to_numeric(work["pearson_corr"], errors="coerce").map(lambda x: "" if pd.isna(x) else f"{x:.3f}"),
+            "rank": pd.to_numeric(work["rank_corr"], errors="coerce").map(lambda x: "" if pd.isna(x) else f"{x:.3f}"),
+            "p_days": pd.to_numeric(work["pearson_days"], errors="coerce").fillna(0).astype(int).astype(str),
+            "r_days": pd.to_numeric(work["rank_days"], errors="coerce").fillna(0).astype(int).astype(str),
+            "max_abs": pd.to_numeric(work["max_abs_corr"], errors="coerce").map(lambda x: "" if pd.isna(x) else f"{x:.3f}"),
+            "level": work["relation_level"].astype(str),
+        }
+    )
+
+    row_count = int(table.shape[0])
+    fig_h = max(3.8, min(32.0, 1.0 + row_count * 0.45))
+    fig, ax = plt.subplots(figsize=(16, fig_h))
+    ax.axis("off")
+    ax.set_title(title, fontsize=13, weight="bold", pad=10)
+
+    cell_colours = []
+    for _, row in work.iterrows():
+        level = str(row.get("relation_level", "")).lower()
+        if level == "high":
+            cell_colours.append(["#FFF1F0"] * table.shape[1])
+        else:
+            cell_colours.append(["#FFFFFF"] * table.shape[1])
+
+    col_widths = [0.26, 0.26, 0.08, 0.08, 0.07, 0.07, 0.08, 0.07]
+    tbl = ax.table(
+        cellText=table.values,
+        colLabels=table.columns,
+        cellColours=cell_colours,
+        colColours=["#EEF3FA"] * table.shape[1],
+        colWidths=col_widths,
+        cellLoc="center",
+        loc="upper center",
+    )
+    tbl.auto_set_font_size(False)
+    tbl.set_fontsize(8)
+    tbl.scale(1.0, 1.45)
+
+    for (row_idx, col_idx), cell in tbl.get_celld().items():
+        cell.set_edgecolor("#D9E2EF")
+        cell.set_linewidth(0.6)
+        if row_idx == 0:
+            cell.set_text_props(weight="bold", color="#0F172A")
+            cell.set_height(cell.get_height() * 1.15)
+        elif col_idx in {0, 1}:
+            cell.set_text_props(ha="left", color="#111827")
+        else:
+            cell.set_text_props(color="#111827")
+
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=160, bbox_inches="tight")
+    plt.close(fig)
+
+
+def _write_factor_correlation_report(
+    *,
+    factors: list[str],
+    out_dir: Path,
+    factor_data_root: Path,
+    panel_name: str,
+    start_day: date,
+    end_day: date,
+    cfg: dict[str, Any],
+) -> dict[str, Any]:
+    factors = _dedupe_keep_order(factors)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    min_pair_obs = int(cfg.get("min_pair_obs", 20) or 20)
+    min_day_factors = int(cfg.get("min_day_factors", 2) or 2)
+    high_abs_threshold = float(cfg.get("high_abs_threshold", 0.80))
+    relation_min_abs = float(cfg.get("relation_min_abs", 0.0))
+    plot_max_factors = int(cfg.get("plot_max_factors", 80) or 80)
+    matrix_plot_max_factors = int(cfg.get("matrix_plot_max_factors", plot_max_factors) or plot_max_factors)
+    matrix_annot_max_factors = int(cfg.get("matrix_annot_max_factors", 35) or 35)
+
+    n = len(factors)
+    index = {factor: i for i, factor in enumerate(factors)}
+    methods = ("pearson", "rank")
+    sums = {method: np.zeros((n, n), dtype=float) for method in methods}
+    counts = {method: np.zeros((n, n), dtype=np.int32) for method in methods}
+    daily_rows: list[dict[str, Any]] = []
+    missing_files = 0
+    used_days: set[date] = set()
+
+    for ts in pd.date_range(start_day, end_day, freq="D"):
+        trade_day = ts.date()
+        path = _factor_day_path(factor_data_root, panel_name, trade_day)
+        if not path.exists():
+            missing_files += 1
+            continue
+        try:
+            raw = pd.read_parquet(path)
+        except Exception as exc:
+            daily_rows.append(
+                {
+                    "trade_date": str(trade_day),
+                    "status": "read_failed",
+                    "factor_count": 0,
+                    "sample_count": 0,
+                    "error": f"{type(exc).__name__}: {exc}",
+                }
+            )
+            continue
+        have = [factor for factor in factors if factor in raw.columns]
+        if len(have) < min_day_factors:
+            daily_rows.append(
+                {
+                    "trade_date": str(trade_day),
+                    "status": "insufficient_factors",
+                    "factor_count": len(have),
+                    "sample_count": int(len(raw)),
+                    "error": "",
+                }
+            )
+            continue
+
+        frame = raw[have].apply(pd.to_numeric, errors="coerce").replace([np.inf, -np.inf], np.nan)
+        frame = frame.dropna(axis=0, how="all")
+        if frame.shape[0] < min_pair_obs:
+            daily_rows.append(
+                {
+                    "trade_date": str(trade_day),
+                    "status": "insufficient_samples",
+                    "factor_count": len(have),
+                    "sample_count": int(frame.shape[0]),
+                    "error": "",
+                }
+            )
+            continue
+
+        idx = [index[factor] for factor in have]
+        rr, cc = np.ix_(idx, idx)
+        for method in methods:
+            corr_method = "pearson" if method == "pearson" else "spearman"
+            corr = frame.corr(method=corr_method, min_periods=min_pair_obs)
+            vals = corr.to_numpy(dtype=float)
+            mask = np.isfinite(vals)
+            sums[method][rr, cc] = sums[method][rr, cc] + np.where(mask, vals, 0.0)
+            counts[method][rr, cc] = counts[method][rr, cc] + mask.astype(np.int32)
+        used_days.add(trade_day)
+        daily_rows.append(
+            {
+                "trade_date": str(trade_day),
+                "status": "ok",
+                "factor_count": len(have),
+                "sample_count": int(frame.shape[0]),
+                "error": "",
+            }
+        )
+
+    corr_frames: dict[str, pd.DataFrame] = {}
+    count_frames: dict[str, pd.DataFrame] = {}
+    for method in methods:
+        mean = np.full((n, n), np.nan, dtype=float)
+        valid = counts[method] > 0
+        mean[valid] = sums[method][valid] / counts[method][valid]
+        corr_df = pd.DataFrame(mean, index=factors, columns=factors)
+        count_df = pd.DataFrame(counts[method], index=factors, columns=factors)
+        corr_frames[method] = corr_df
+        count_frames[method] = count_df
+        corr_df.to_csv(out_dir / f"{method}_corr_mean.csv")
+        corr_df.abs().to_csv(out_dir / f"{method}_abs_corr_mean.csv")
+        count_df.to_csv(out_dir / f"{method}_corr_observation_days.csv")
+        _plot_corr_heatmap(
+            corr=corr_df,
+            out_path=out_dir / f"{method}_corr_heatmap.png",
+            title=f"{method.title()} Factor Correlation",
+            max_factors=plot_max_factors,
+        )
+        _plot_corr_matrix_image(
+            corr=corr_df,
+            out_path=out_dir / f"{method}_corr_matrix.png",
+            title=f"{method.title()} Factor Correlation Matrix",
+            max_factors=matrix_plot_max_factors,
+            annot_max_factors=matrix_annot_max_factors,
+            cmap="RdBu_r",
+            vmin=-1.0,
+            vmax=1.0,
+            colorbar_label="correlation",
+        )
+
+    max_abs_corr = pd.DataFrame(
+        np.fmax(corr_frames["pearson"].abs().to_numpy(dtype=float), corr_frames["rank"].abs().to_numpy(dtype=float)),
+        index=factors,
+        columns=factors,
+    )
+    max_abs_corr.to_csv(out_dir / "max_abs_corr_matrix.csv")
+    _plot_corr_matrix_image(
+        corr=max_abs_corr,
+        out_path=out_dir / "max_abs_corr_matrix.png",
+        title="Max Abs Factor Correlation Matrix",
+        max_factors=matrix_plot_max_factors,
+        annot_max_factors=matrix_annot_max_factors,
+        cmap="YlOrRd",
+        vmin=0.0,
+        vmax=1.0,
+        colorbar_label="max(abs pearson, abs rank)",
+    )
+
+    relation_rows: list[dict[str, Any]] = []
+    pearson = corr_frames["pearson"]
+    rank = corr_frames["rank"]
+    pearson_days = count_frames["pearson"]
+    rank_days = count_frames["rank"]
+    for i in range(n):
+        for j in range(i + 1, n):
+            a = factors[i]
+            b = factors[j]
+            p = pearson.iat[i, j]
+            r = rank.iat[i, j]
+            p_abs = abs(float(p)) if pd.notna(p) else float("nan")
+            r_abs = abs(float(r)) if pd.notna(r) else float("nan")
+            max_abs = np.nanmax([p_abs, r_abs])
+            if pd.isna(max_abs) or float(max_abs) < relation_min_abs:
+                continue
+            relation_rows.append(
+                {
+                    "factor_a": a,
+                    "factor_b": b,
+                    "pearson_corr": float(p) if pd.notna(p) else float("nan"),
+                    "pearson_abs_corr": p_abs,
+                    "pearson_days": int(pearson_days.iat[i, j]),
+                    "rank_corr": float(r) if pd.notna(r) else float("nan"),
+                    "rank_abs_corr": r_abs,
+                    "rank_days": int(rank_days.iat[i, j]),
+                    "max_abs_corr": float(max_abs),
+                    "relation_level": "high" if float(max_abs) >= high_abs_threshold else "normal",
+                }
+            )
+
+    relation_df = pd.DataFrame(relation_rows)
+    if not relation_df.empty:
+        relation_df = relation_df.sort_values("max_abs_corr", ascending=False, kind="mergesort").reset_index(drop=True)
+    else:
+        relation_df = pd.DataFrame(
+            columns=[
+                "factor_a",
+                "factor_b",
+                "pearson_corr",
+                "pearson_abs_corr",
+                "pearson_days",
+                "rank_corr",
+                "rank_abs_corr",
+                "rank_days",
+                "max_abs_corr",
+                "relation_level",
+            ]
+        )
+    relation_df.to_csv(out_dir / "factor_relation_table.csv", index=False)
+    high_relation_df = relation_df[relation_df["relation_level"] == "high"].copy()
+    high_relation_df.to_csv(out_dir / "factor_relation_high_abs.csv", index=False)
+    table_image_top_n = int(cfg.get("table_image_top_n", 60) or 60)
+    _plot_relation_table_image(
+        relation_df=relation_df,
+        out_path=out_dir / "factor_relation_table_top.png",
+        title=f"Factor Relation Table Top {min(len(relation_df), max(1, table_image_top_n))}",
+        max_rows=table_image_top_n,
+    )
+    _plot_relation_table_image(
+        relation_df=high_relation_df,
+        out_path=out_dir / "factor_relation_high_abs.png",
+        title=f"High Correlation Factor Pairs (abs >= {high_abs_threshold:.2f})",
+        max_rows=table_image_top_n,
+    )
+    pd.DataFrame(daily_rows).to_csv(out_dir / "daily_coverage.csv", index=False)
+
+    summary = {
+        "factor_count": n,
+        "start": str(start_day),
+        "end": str(end_day),
+        "panel_name": panel_name,
+        "used_days": len(used_days),
+        "missing_files": missing_files,
+        "min_pair_obs": min_pair_obs,
+        "high_abs_threshold": high_abs_threshold,
+        "relation_pairs": int(len(relation_df)),
+        "high_relation_pairs": int((relation_df["relation_level"] == "high").sum()) if not relation_df.empty else 0,
+        "outputs": {
+            "pearson_corr_mean": "pearson_corr_mean.csv",
+            "rank_corr_mean": "rank_corr_mean.csv",
+            "max_abs_corr_matrix": "max_abs_corr_matrix.csv",
+            "pearson_corr_matrix_image": "pearson_corr_matrix.png",
+            "rank_corr_matrix_image": "rank_corr_matrix.png",
+            "max_abs_corr_matrix_image": "max_abs_corr_matrix.png",
+            "relation_table": "factor_relation_table.csv",
+            "high_relation_table": "factor_relation_high_abs.csv",
+            "relation_table_image": "factor_relation_table_top.png",
+            "high_relation_table_image": "factor_relation_high_abs.png",
+        },
+    }
+    (out_dir / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
+    return summary
+
+
 def _numeric_delta_map(full_summary: dict[str, Any], topn_summary: dict[str, Any]) -> dict[str, Any]:
     out: dict[str, Any] = {}
     keys = sorted(set(full_summary.keys()) | set(topn_summary.keys()))
@@ -1017,10 +1600,14 @@ def run(
         raise ValueError("start must be <= end")
 
     label_root = Path(paths_cfg["label_data_root"])
+    factor_data_root = Path(paths_cfg["factor_data_root"])
+    panel_name = str(base_model_cfg.get("panel_name") or factor_cfg.get("panel_name") or "T1430")
     factor_time = str(base_model_cfg.get("factor_time", "14:30"))
     label_time = str(base_model_cfg.get("label_time", "14:42"))
     bins = int(selector_cfg.get("bins", base_model_cfg.get("bins", 5)))
     execution_override = dict(selector_cfg.get("execution", {}))
+    correlation_cfg = dict(selector_cfg.get("correlation", {}))
+    correlation_enabled = bool(correlation_cfg.get("enabled", True))
 
     baseline_factors = _load_factor_list(
         str(selector_cfg.get("baseline_factors_file", "score/factor_selection/factor_baseline_factors.json"))
@@ -1040,6 +1627,8 @@ def run(
         candidate_extra = candidate_extra[:max_candidates]
 
     selection_cfg = dict(selector_cfg.get("selection", {}))
+    corr_dedupe_cfg = dict(selection_cfg.get("corr_dedupe", {}))
+    corr_dedupe_enabled = bool(corr_dedupe_cfg.get("enabled", False))
     pool_source = str(selection_cfg.get("pool_source", "baseline_plus_candidates")).strip().lower()
     if pool_source == "baseline_only":
         pool_factors = list(baseline_factors)
@@ -1108,15 +1697,27 @@ def run(
         top_k=plot_top_k,
     )
 
-    selected_df = importance_df[pd.to_numeric(importance_df["importance_mean"], errors="coerce") >= float(min_importance)].copy()
-    if selected_df.empty:
-        raise RuntimeError("no factor survives min_importance threshold")
-    if top_n > 0:
-        selected_df = selected_df.head(top_n)
-    selected_factors = selected_df["factor"].astype(str).tolist()
-    selected_factors = _dedupe_keep_order(selected_factors)
-    if not selected_factors:
-        raise RuntimeError("selected topN factors is empty")
+    full_corr_summary: dict[str, Any] | None = None
+    if correlation_enabled or corr_dedupe_enabled:
+        print(f"[factor_select] correlation=full_pool factors={len(pool_factors)}")
+        full_corr_summary = _write_factor_correlation_report(
+            factors=pool_factors,
+            out_dir=full_dir / "factor_correlation",
+            factor_data_root=factor_data_root,
+            panel_name=panel_name,
+            start_day=start_day,
+            end_day=end_day,
+            cfg=correlation_cfg,
+        )
+
+    selected_df, selected_factors, selection_detail = _select_factors_by_importance(
+        importance_df=importance_df,
+        top_n=top_n,
+        min_importance=min_importance,
+        corr_dedupe_cfg=corr_dedupe_cfg,
+        corr_dir=full_dir / "factor_correlation",
+        out_root=out_root,
+    )
 
     selected_payload = {
         "selection_mode": mode,
@@ -1124,6 +1725,7 @@ def run(
         "min_importance": min_importance,
         "top_n": top_n,
         "selected_factor_count": len(selected_factors),
+        "selection_detail": selection_detail,
         "selected_factors": selected_factors,
     }
     (out_root / "selected_factors_topn.json").write_text(
@@ -1153,6 +1755,19 @@ def run(
         raw_data_root=paths_cfg["raw_data_root"],
     )
 
+    topn_corr_summary: dict[str, Any] | None = None
+    if correlation_enabled:
+        print(f"[factor_select] correlation=topn_retrain factors={len(selected_factors)}")
+        topn_corr_summary = _write_factor_correlation_report(
+            factors=selected_factors,
+            out_dir=topn_dir / "factor_correlation",
+            factor_data_root=factor_data_root,
+            panel_name=panel_name,
+            start_day=start_day,
+            end_day=end_day,
+            cfg=correlation_cfg,
+        )
+
     compare_payload = {
         "model_id": model_id,
         "start": str(start_day),
@@ -1162,6 +1777,11 @@ def run(
         "full_pool_summary": full_trial.summary,
         "topn_summary": topn_trial.summary,
         "delta_topn_minus_full": _numeric_delta_map(full_trial.summary, topn_trial.summary),
+        "factor_correlation": {
+            "enabled": correlation_enabled,
+            "full_pool": full_corr_summary,
+            "topn_retrain": topn_corr_summary,
+        },
     }
     (out_root / "compare_summary.json").write_text(
         json.dumps(compare_payload, ensure_ascii=False, indent=2),

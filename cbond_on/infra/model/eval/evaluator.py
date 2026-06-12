@@ -88,10 +88,81 @@ def merge_score_with_label(
     return out
 
 
+def _safe_float(value: Any) -> float:
+    try:
+        out = float(value)
+    except Exception:
+        return float("nan")
+    return out if np.isfinite(out) else float("nan")
+
+
+def _annualized_sharpe(returns: pd.Series, annualization: float) -> float:
+    ret = pd.to_numeric(returns, errors="coerce").dropna()
+    if ret.empty:
+        return float("nan")
+    std = float(ret.std(ddof=0))
+    if std <= 0:
+        return float("nan")
+    return float(ret.mean() / std * np.sqrt(annualization))
+
+
+def _max_drawdown_from_returns(returns: pd.Series) -> float:
+    ret = pd.to_numeric(returns, errors="coerce").dropna()
+    if ret.empty:
+        return float("nan")
+    nav = (1.0 + ret).cumprod()
+    peak = nav.cummax()
+    drawdown = nav / peak - 1.0
+    return float(drawdown.min())
+
+
+def _rolling_sharpe(returns: pd.Series, *, window: int, min_periods: int, annualization: float) -> pd.Series:
+    ret = pd.to_numeric(returns, errors="coerce")
+    if ret.empty:
+        return pd.Series(dtype=float)
+    window = max(1, int(window))
+    min_periods = max(1, min(int(min_periods), window))
+    rolling_mean = ret.rolling(window=window, min_periods=min_periods).mean()
+    rolling_std = ret.rolling(window=window, min_periods=min_periods).std(ddof=0)
+    out = rolling_mean / rolling_std.replace(0.0, np.nan) * np.sqrt(annualization)
+    return out.replace([np.inf, -np.inf], np.nan)
+
+
+def _top_bin_return(group: pd.DataFrame, *, bins: int) -> tuple[float, int]:
+    block = group[["score", "y"]].copy()
+    block["score"] = pd.to_numeric(block["score"], errors="coerce")
+    block["y"] = pd.to_numeric(block["y"], errors="coerce")
+    block = block.dropna(subset=["score", "y"])
+    if block.empty:
+        return float("nan"), 0
+
+    n_bins = max(1, min(int(bins), int(len(block))))
+    if n_bins <= 1:
+        selected = block
+    else:
+        ranked = block["score"].rank(method="first")
+        try:
+            bin_id = pd.qcut(ranked, q=n_bins, labels=False, duplicates="drop")
+        except ValueError:
+            return float("nan"), 0
+        if bin_id is None:
+            return float("nan"), 0
+        block = block.assign(_bin=pd.to_numeric(bin_id, errors="coerce"))
+        if block["_bin"].isna().all():
+            return float("nan"), 0
+        selected = block.loc[block["_bin"] == block["_bin"].max()]
+    if selected.empty:
+        return float("nan"), 0
+    return float(selected["y"].mean()), int(len(selected))
+
+
 def evaluate_merged_scores(
     merged: pd.DataFrame,
     *,
     bins: int = 5,
+    stability_window: int = 40,
+    stability_min_periods: int = 20,
+    annualization: float = 252.0,
 ) -> EvaluationResult:
     if merged.empty:
         summary = {
@@ -106,6 +177,14 @@ def evaluate_merged_scores(
             "dir_mean": float("nan"),
             "r2_mean": float("nan"),
             "mse_mean": float("nan"),
+            "top_bin_ret_mean": float("nan"),
+            "top_bin_ret_std": float("nan"),
+            "top_bin_sharpe": float("nan"),
+            "top_bin_win_rate": float("nan"),
+            "top_bin_max_drawdown": float("nan"),
+            "top_bin_rolling_sharpe_mean": float("nan"),
+            "top_bin_rolling_sharpe_positive_ratio": float("nan"),
+            "sharpe_stability_score": float("nan"),
         }
         return EvaluationResult(
             merged=merged,
@@ -122,6 +201,7 @@ def evaluate_merged_scores(
             pred=group["score"].to_numpy(),
             bins=bins,
         )
+        top_bin_ret, top_bin_count = _top_bin_return(group, bins=bins)
         day_rows.append(
             {
                 "trade_date": trade_day,
@@ -133,6 +213,8 @@ def evaluate_merged_scores(
                 "ic_ir": metrics["ic_ir"],
                 "rank_ic": metrics["rank_ic_mean"],
                 "rank_ic_ir": metrics["rank_ic_ir"],
+                "top_bin_return": top_bin_ret,
+                "top_bin_count": top_bin_count,
             }
         )
 
@@ -141,6 +223,25 @@ def evaluate_merged_scores(
     ic_std = float(pd.to_numeric(daily["ic"], errors="coerce").std(ddof=0))
     rank_ic_mean = float(pd.to_numeric(daily["rank_ic"], errors="coerce").mean())
     ic_mean = float(pd.to_numeric(daily["ic"], errors="coerce").mean())
+    top_bin_ret = pd.to_numeric(daily["top_bin_return"], errors="coerce")
+    top_bin_ret_clean = top_bin_ret.dropna()
+    top_bin_rolling_sharpe = _rolling_sharpe(
+        top_bin_ret,
+        window=stability_window,
+        min_periods=stability_min_periods,
+        annualization=annualization,
+    )
+    rolling_clean = top_bin_rolling_sharpe.dropna()
+    top_bin_sharpe = _annualized_sharpe(top_bin_ret, annualization=annualization)
+    rolling_positive_ratio = (
+        float((rolling_clean > 0).mean()) if not rolling_clean.empty else float("nan")
+    )
+    sharpe_stability_score = (
+        top_bin_sharpe * rolling_positive_ratio
+        if np.isfinite(top_bin_sharpe) and np.isfinite(rolling_positive_ratio)
+        else float("nan")
+    )
+    daily["top_bin_rolling_sharpe"] = top_bin_rolling_sharpe
     summary = {
         "days": int(len(daily)),
         "samples": int(len(merged)),
@@ -153,6 +254,14 @@ def evaluate_merged_scores(
         "dir_mean": float(pd.to_numeric(daily["dir"], errors="coerce").mean()),
         "r2_mean": float(pd.to_numeric(daily["r2"], errors="coerce").mean()),
         "mse_mean": float(pd.to_numeric(daily["mse"], errors="coerce").mean()),
+        "top_bin_ret_mean": _safe_float(top_bin_ret_clean.mean()),
+        "top_bin_ret_std": _safe_float(top_bin_ret_clean.std(ddof=0)),
+        "top_bin_sharpe": top_bin_sharpe,
+        "top_bin_win_rate": _safe_float((top_bin_ret_clean > 0).mean()) if not top_bin_ret_clean.empty else float("nan"),
+        "top_bin_max_drawdown": _max_drawdown_from_returns(top_bin_ret),
+        "top_bin_rolling_sharpe_mean": _safe_float(rolling_clean.mean()),
+        "top_bin_rolling_sharpe_positive_ratio": rolling_positive_ratio,
+        "sharpe_stability_score": sharpe_stability_score,
     }
     return EvaluationResult(merged=merged, daily=daily, summary=summary)
 

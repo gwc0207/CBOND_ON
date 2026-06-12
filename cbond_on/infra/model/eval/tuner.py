@@ -48,6 +48,10 @@ def run_hyperparameter_tuning(
     objective_metric = str(objective_cfg.get("metric", "rank_ic_mean"))
     higher_is_better = bool(objective_cfg.get("higher_is_better", True))
     bins = int(eval_cfg.get("bins", base_model_cfg.get("bins", 5)))
+    stability_cfg = dict(eval_cfg.get("stability", {}))
+    stability_window = int(stability_cfg.get("window", 40))
+    stability_min_periods = int(stability_cfg.get("min_periods", 20))
+    annualization = float(stability_cfg.get("annualization", 252.0))
 
     trials_root = out_dir / "trials"
     trials_root.mkdir(parents=True, exist_ok=True)
@@ -77,6 +81,9 @@ def run_hyperparameter_tuning(
             objective_metric=objective_metric,
             higher_is_better=higher_is_better,
             bins=bins,
+            stability_window=stability_window,
+            stability_min_periods=stability_min_periods,
+            annualization=annualization,
             run_model_score_fn=run_model_score,
         )
 

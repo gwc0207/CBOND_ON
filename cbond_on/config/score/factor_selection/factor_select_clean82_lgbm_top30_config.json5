@@ -1,0 +1,46 @@
+{
+  // LGBM factor selection using 82 factors with no pairwise max_abs_corr >= 0.85
+  // in the 156-factor pool.
+  base_model_id: "lgbm_factor_MSE",
+  model_score_config: "score/model/model_score",
+  factor_config: "factor",
+
+  start: "2025-01-01",
+  end: "2026-06-04",
+  bins: 20,
+  alpha_significance_window: 40,
+
+  baseline_factors_file: "score/factor_selection/factor_clean82_lowcorr085_factors.json",
+  blacklist_file: "score/factor_selection/factor_blacklist.json",
+  max_candidates: 0,
+
+  execution: {
+    refit_every_n_days: 1,
+    train_processes: 1
+  },
+
+  selection: {
+    mode: "importance_topn",
+    pool_source: "baseline_only",
+    importance_type: "gain",
+    top_n: 30,
+    min_importance: 0.0,
+    plot_top_k: 30,
+    corr_dedupe: {
+      enabled: true,
+      threshold: 0.85,
+      matrix: "max_abs"
+    }
+  },
+
+  correlation: {
+    enabled: true,
+    min_pair_obs: 20,
+    high_abs_threshold: 0.85,
+    relation_min_abs: 0.0,
+    plot_max_factors: 82,
+    matrix_plot_max_factors: 82,
+    matrix_annot_max_factors: 35,
+    table_image_top_n: 60
+  }
+}

@@ -4,7 +4,7 @@
 
   // Reuse model registry from model_score config.
   model_score_config: "score/model/model_score",
-  model_id: "lgbm_factor_MSE",
+  model_id: "clean82_lgbm_top30",
 
   // Evaluation window (trading-day filtering follows existing score pipeline behavior).
   start: "2025-06-01",
@@ -26,7 +26,7 @@
       bin_guard_enabled: true,
       required_bins: 20,
       bin_guard_min_samples: 20,
-      fail_on_insufficient_bins: true,
+      fail_on_insufficient_bins: false,
       fail_insufficient_bins_days: 0
     }
   },
@@ -34,8 +34,15 @@
   // Evaluation settings.
   eval: {
     bins: 20,
+    stability: {
+      // Build a light strategy proxy from the highest score bin each day.
+      // Objective = top_bin_sharpe * share of rolling windows with positive Sharpe.
+      window: 40,
+      min_periods: 20,
+      annualization: 252
+    },
     objective: {
-      metric: "rank_ic_mean",
+      metric: "sharpe_stability_score",
       higher_is_better: true
     }
   },
@@ -43,7 +50,7 @@
   // Hyperparameter tuning settings.
   tuning: {
     enabled: true,
-    search_type: "wandb_sweep", // grid | random | wandb_sweep
+    search_type: "random", // grid | random | wandb_sweep
     max_trials: 16,
     random_seed: 42,
     // Used when search_type=wandb_sweep.

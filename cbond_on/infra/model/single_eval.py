@@ -31,6 +31,10 @@ def run_single_eval(
     )
 
     bins = int(eval_block.get("bins", refreshed_model_cfg.get("bins", 5)))
+    stability_cfg = dict(eval_block.get("stability", {}))
+    stability_window = int(stability_cfg.get("window", 40))
+    stability_min_periods = int(stability_cfg.get("min_periods", 20))
+    annualization = float(stability_cfg.get("annualization", 252.0))
     factor_time = str(refreshed_model_cfg.get("factor_time", "14:30"))
     label_time = str(refreshed_model_cfg.get("label_time", "14:42"))
 
@@ -43,7 +47,13 @@ def run_single_eval(
         start=start_day,
         end=end_day,
     )
-    eval_result = evaluate_merged_scores(merged, bins=bins)
+    eval_result = evaluate_merged_scores(
+        merged,
+        bins=bins,
+        stability_window=stability_window,
+        stability_min_periods=stability_min_periods,
+        annualization=annualization,
+    )
     summary = {
         "mode": "single_eval",
         "model_id": chosen_model_id,

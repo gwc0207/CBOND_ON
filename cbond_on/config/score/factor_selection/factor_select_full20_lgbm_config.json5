@@ -1,0 +1,41 @@
+{
+  // LGBM factor selection using only factors that can fully form 20 bins.
+  base_model_id: "lgbm_factor_MSE",
+  model_score_config: "score/model/model_score",
+  factor_config: "factor",
+
+  start: "2025-01-01",
+  end: "2026-06-04",
+  bins: 20,
+  alpha_significance_window: 40,
+
+  baseline_factors_file: "score/factor_selection/factor_full20_factors.json",
+  blacklist_file: "score/factor_selection/factor_blacklist.json",
+  max_candidates: 0,
+
+  execution: {
+    refit_every_n_days: 1,
+    train_processes: 1
+  },
+
+  selection: {
+    mode: "importance_topn",
+    pool_source: "baseline_only",
+    importance_type: "gain",
+    top_n: 30,
+    min_importance: 0.0,
+    plot_top_k: 30
+  },
+
+  correlation: {
+    enabled: true,
+    // Pearson uses raw factor values; rank uses Spearman cross-sectional rank correlation.
+    min_pair_obs: 20,
+    high_abs_threshold: 0.80,
+    relation_min_abs: 0.0,
+    plot_max_factors: 80,
+    matrix_plot_max_factors: 80,
+    matrix_annot_max_factors: 35,
+    table_image_top_n: 60
+  }
+}
