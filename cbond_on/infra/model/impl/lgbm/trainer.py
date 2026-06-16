@@ -22,6 +22,7 @@ from cbond_on.infra.universe.pool_filter import (
     load_upstream_pool_config,
     resolve_pool_codes_for_trade_day,
 )
+from cbond_on.infra.model.neutralization import FactorNeutralizer
 
 
 _GPU_HINTS = (
@@ -206,6 +207,44 @@ def _apply_winsor_zscore(
     return df.groupby("dt", group_keys=False).apply(_process, include_groups=False)
 
 
+def _apply_factor_preprocess(
+    df: pd.DataFrame,
+    factor_cols: list[str],
+    *,
+    lower_q: float | None,
+    upper_q: float | None,
+    zscore: bool,
+    neutralizer: FactorNeutralizer | None = None,
+) -> pd.DataFrame:
+    if neutralizer is None or not neutralizer.enabled:
+        return _apply_winsor_zscore(
+            df,
+            factor_cols,
+            lower_q=lower_q,
+            upper_q=upper_q,
+            zscore=zscore,
+        )
+    work = df
+    if lower_q is not None or upper_q is not None:
+        work = _apply_winsor_zscore(
+            work,
+            factor_cols,
+            lower_q=lower_q,
+            upper_q=upper_q,
+            zscore=False,
+        )
+    work = neutralizer.apply(work, factor_cols)
+    if zscore:
+        work = _apply_winsor_zscore(
+            work,
+            factor_cols,
+            lower_q=None,
+            upper_q=None,
+            zscore=True,
+        )
+    return work
+
+
 def build_dataset(
     *,
     factor_store: FactorStore,
@@ -221,6 +260,7 @@ def build_dataset(
     require_label: bool = True,
     tradable_code_map: dict[date, set[str]] | None = None,
     tradable_strict: bool = False,
+    neutralizer: FactorNeutralizer | None = None,
 ) -> SplitData:
     frames: list[pd.DataFrame] = []
     for day in days:
@@ -274,12 +314,13 @@ def build_dataset(
         return SplitData(empty[factor_cols], empty["y"], empty["dt"], empty["code"])
 
     data = pd.concat(frames, ignore_index=True)
-    data = _apply_winsor_zscore(
+    data = _apply_factor_preprocess(
         data,
         factor_cols,
         lower_q=winsor_lower,
         upper_q=winsor_upper,
         zscore=zscore,
+        neutralizer=neutralizer,
     )
     return SplitData(
         x=data[factor_cols].copy(),

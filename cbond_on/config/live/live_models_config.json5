@@ -1,6 +1,6 @@
 {
-  model_id: "lgbm_live_factors_old19_live",
-  default_model_id: "lgbm_live_factors_old19_live",
+  model_id: "lgbm_screened_no_winsor_neutral_v1",
+  default_model_id: "lgbm_screened_no_winsor_neutral_v1",
   start: "2024-01-01",
   end: "2026-05-11",
   label_cutoff: null,
@@ -9,9 +9,9 @@
     refit_every_n_days: 1
   },
   models: {
-    lgbm_live_factors_old19_live: {
+    lgbm_screened_no_winsor_neutral_v1: {
       model_type: "lgbm",
-      model_config: "live/live_lgbm_old19"
+      model_config: "live/live_lgbm_screened_no_winsor_neutral"
     }
   }
 }

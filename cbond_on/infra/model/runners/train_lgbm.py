@@ -23,6 +23,7 @@ from cbond_on.domain.factors.storage import FactorStore
 from cbond_on.infra.model.wandb_utils import init_wandb_logger
 from cbond_on.infra.model.score_io import load_scores_by_date, write_scores_by_date
 from cbond_on.infra.model.preprocess_config import parse_winsor_bounds
+from cbond_on.infra.model.neutralization import build_neutralizer
 from cbond_on.infra.model.score_guard import (
     score_guard_bin_stats,
     score_guard_flags,
@@ -140,6 +141,7 @@ def _build_daily_split_cache(
     require_label: bool,
     tradable_code_map: dict[date, set[str]] | None,
     tradable_strict: bool,
+    neutralizer,
 ) -> dict[date, SplitData]:
     cache: dict[date, SplitData] = {}
     total = len(days)
@@ -158,6 +160,7 @@ def _build_daily_split_cache(
             require_label=require_label,
             tradable_code_map=tradable_code_map,
             tradable_strict=tradable_strict,
+            neutralizer=neutralizer,
         )
         if not split.x.empty:
             cache[day] = split
@@ -470,6 +473,7 @@ def main(
     zscore = bool(cfg.get("zscore", True))
     min_count = int(cfg.get("min_count", 30))
     bins = int(cfg.get("bins", 5))
+    neutralizer = build_neutralizer(cfg.get("neutralization"), raw_data_root=raw_root)
 
     lgbm_params = cfg.get("lgbm_params", {})
     grid_cfg = cfg.get("grid_search", {})
@@ -505,9 +509,12 @@ def main(
             "parallel_shards": int(parallel_shards),
             "parallel_shard_index": int(parallel_shard_index),
             "factor_count": int(len(factor_cols)),
+            "neutralization_enabled": bool(neutralizer is not None and neutralizer.enabled),
         },
         prefix="run",
     )
+    if neutralizer is not None and neutralizer.enabled:
+        wandb_logger.log(neutralizer.summary(), prefix="neutralization")
     score_output = resolve_output_path(
         cfg.get("score_output"),
         default_path=results_root / "scores" / model_name,
@@ -655,6 +662,7 @@ def main(
             require_label=True,
             tradable_code_map=tradable_code_map,
             tradable_strict=tradable_strict,
+            neutralizer=neutralizer,
         )
         test_day_cache = _build_daily_split_cache(
             days=test_cache_days,
@@ -670,6 +678,7 @@ def main(
             require_label=False,
             tradable_code_map=tradable_code_map,
             tradable_strict=tradable_strict,
+            neutralizer=neutralizer,
         )
         print(
             f"[rolling] cache_ready train_cached={len(train_day_cache)} "
@@ -1022,6 +1031,7 @@ def main(
         label_time=label_time,
         tradable_code_map=tradable_code_map,
         tradable_strict=tradable_strict,
+        neutralizer=neutralizer,
     )
     val_data = build_dataset(
         factor_store=store,
@@ -1036,6 +1046,7 @@ def main(
         label_time=label_time,
         tradable_code_map=tradable_code_map,
         tradable_strict=tradable_strict,
+        neutralizer=neutralizer,
     )
     test_data = build_dataset(
         factor_store=store,
@@ -1050,6 +1061,7 @@ def main(
         label_time=label_time,
         tradable_code_map=tradable_code_map,
         tradable_strict=tradable_strict,
+        neutralizer=neutralizer,
     )
 
     model = None

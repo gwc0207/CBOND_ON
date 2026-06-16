@@ -16,6 +16,7 @@ from cbond_on.core.config import load_config_file, parse_date, resolve_output_pa
 from cbond_on.domain.factors.storage import FactorStore
 from cbond_on.infra.model.wandb_utils import init_wandb_logger
 from cbond_on.infra.model.preprocess_config import parse_winsor_bounds
+from cbond_on.infra.model.neutralization import build_neutralizer
 from cbond_on.infra.model.impl.lgbm.trainer import (
     _iter_existing_label_days,
     _read_label_day,
@@ -70,6 +71,7 @@ def main(
 
     factor_root = Path(paths_cfg["factor_data_root"])
     label_root = Path(paths_cfg["label_data_root"])
+    raw_root = Path(paths_cfg["raw_data_root"])
 
     panel_name = cfg.get("panel_name")
     window_minutes = int(cfg.get("window_minutes", 15))
@@ -93,6 +95,7 @@ def main(
     zscore = bool(cfg.get("zscore", True))
     min_count = int(cfg.get("min_count", 30))
     bins = int(cfg.get("bins", 5))
+    neutralizer = build_neutralizer(cfg.get("neutralization"), raw_data_root=raw_root)
 
     linear_cfg = cfg.get("linear", {})
     lookback_days = int(linear_cfg.get("lookback_days", 60))
@@ -144,9 +147,12 @@ def main(
             "max_weight": float(max_weight),
             "normalize_weights": str(normalize_weights),
             "device": str(device),
+            "neutralization_enabled": bool(neutralizer is not None and neutralizer.enabled),
         },
         prefix="run",
     )
+    if neutralizer is not None and neutralizer.enabled:
+        wandb_logger.log(neutralizer.summary(), prefix="neutralization")
 
     result = run_linear_score(
         factor_root=factor_root,
@@ -172,6 +178,7 @@ def main(
         manual_weights=manual_weights,
         device=device,
         gpu_fallback_to_cpu=gpu_fallback_to_cpu,
+        neutralizer=neutralizer,
     )
 
     if result.scores.empty:

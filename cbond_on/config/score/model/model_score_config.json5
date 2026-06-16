@@ -64,6 +64,10 @@
       model_type: "lgbm",
       model_config: "models/lgbm/lgbm_screened_no_winsor_20260511"
     },
+    lgbm_screened_no_winsor_neutral_v1: {
+      model_type: "lgbm",
+      model_config: "models/lgbm/lgbm_screened_no_winsor_neutral_v1"
+    },
     lgbm_live_factors_no_winsor_20260511: {
       model_type: "lgbm",
       model_config: "models/lgbm/lgbm_live_factors_no_winsor_20260511"
@@ -79,6 +83,14 @@
     lgbm_factor_ranker: {
       model_type: "lgbm_ranker",
       model_config: "models/lgbm_ranker/lgbm_factor_ranker"
+    },
+    factor_lstm_screened_no_winsor_20260511: {
+      model_type: "factor_lstm",
+      model_config: "models/torch_sequence/factor_lstm_screened_no_winsor_20260511"
+    },
+    factor_cnn_screened_no_winsor_20260511: {
+      model_type: "factor_cnn1d",
+      model_config: "models/torch_sequence/factor_cnn_screened_no_winsor_20260511"
     },
     lob_st_default: {
       model_type: "lob",

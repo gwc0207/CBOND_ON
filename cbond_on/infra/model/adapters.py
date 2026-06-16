@@ -192,6 +192,45 @@ class LobAdapter(ModelAdapter):
         )
 
 
+class TorchSequenceAdapter(ModelAdapter):
+    def __init__(self, model_config_path: Path | None = None) -> None:
+        self.model_config_path = model_config_path
+
+    def fit(
+        self,
+        *,
+        start: str,
+        end: str,
+        label_cutoff: str | None = None,
+        execution: dict | None = None,
+    ) -> ModelArtifact:
+        _ = start
+        _ = end
+        _ = label_cutoff
+        _ = execution
+        return ModelArtifact(meta={"mode": "script", "model_type": "torch_sequence"})
+
+    def predict(
+        self,
+        *,
+        start: str,
+        end: str,
+        artifact: ModelArtifact,
+        label_cutoff: str | None = None,
+        execution: dict | None = None,
+    ) -> None:
+        _ = artifact
+        from cbond_on.infra.model.runners import train_torch_sequence
+
+        train_torch_sequence.main(
+            config_path=self.model_config_path,
+            start=start,
+            end=end,
+            label_cutoff=label_cutoff,
+            execution=execution,
+        )
+
+
 def build_adapter(model_type: str, *, model_config_path: Path | None = None) -> ModelAdapter:
     kind = str(model_type).strip().lower()
     if kind == "linear":
@@ -202,5 +241,7 @@ def build_adapter(model_type: str, *, model_config_path: Path | None = None) -> 
         return LgbmRankerAdapter(model_config_path=model_config_path)
     if kind in {"lob", "lob_st"}:
         return LobAdapter(model_config_path=model_config_path)
+    if kind in {"torch_sequence", "factor_lstm", "factor_cnn", "factor_cnn1d"}:
+        return TorchSequenceAdapter(model_config_path=model_config_path)
     raise ValueError(f"unsupported model_type: {model_type}")
 

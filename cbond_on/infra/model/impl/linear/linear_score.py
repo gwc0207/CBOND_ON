@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 
 from cbond_on.domain.factors.storage import FactorStore
+from cbond_on.infra.model.neutralization import FactorNeutralizer
 from cbond_on.infra.model.score_io import write_scores_by_date
 
 
@@ -99,6 +100,44 @@ def _apply_winsor_zscore(
     return df.groupby("dt", group_keys=False).apply(_process, include_groups=False)
 
 
+def _apply_factor_preprocess(
+    df: pd.DataFrame,
+    factor_cols: list[str],
+    *,
+    lower_q: float | None,
+    upper_q: float | None,
+    zscore: bool,
+    neutralizer: FactorNeutralizer | None = None,
+) -> pd.DataFrame:
+    if neutralizer is None or not neutralizer.enabled:
+        return _apply_winsor_zscore(
+            df,
+            factor_cols,
+            lower_q=lower_q,
+            upper_q=upper_q,
+            zscore=zscore,
+        )
+    work = df
+    if lower_q is not None or upper_q is not None:
+        work = _apply_winsor_zscore(
+            work,
+            factor_cols,
+            lower_q=lower_q,
+            upper_q=upper_q,
+            zscore=False,
+        )
+    work = neutralizer.apply(work, factor_cols)
+    if zscore:
+        work = _apply_winsor_zscore(
+            work,
+            factor_cols,
+            lower_q=None,
+            upper_q=None,
+            zscore=True,
+        )
+    return work
+
+
 def _fit_weights(
     train_df: pd.DataFrame,
     factor_cols: list[str],
@@ -173,6 +212,7 @@ def _score_day(
     min_count: int,
     factor_time: str,
     label_time: str,
+    neutralizer: FactorNeutralizer | None = None,
 ) -> pd.DataFrame:
     fdf = factor_store.read_day(day)
     if fdf.empty:
@@ -194,12 +234,13 @@ def _score_day(
     merged = merged[counts >= min_count]
     if merged.empty:
         return pd.DataFrame()
-    merged = _apply_winsor_zscore(
+    merged = _apply_factor_preprocess(
         merged,
         factor_cols,
         lower_q=winsor_lower,
         upper_q=winsor_upper,
         zscore=zscore,
+        neutralizer=neutralizer,
     )
     return merged[["dt", "code"] + factor_cols + ["y"]]
 
@@ -229,6 +270,7 @@ def run_linear_score(
     manual_weights: pd.Series,
     device: str = "cpu",
     gpu_fallback_to_cpu: bool = True,
+    neutralizer: FactorNeutralizer | None = None,
 ) -> ScoreResult:
     days = _iter_existing_label_days(label_root, start, end)
     if not days:
@@ -252,6 +294,7 @@ def run_linear_score(
             min_count=min_count,
             factor_time=factor_time,
             label_time=label_time,
+            neutralizer=neutralizer,
         )
         if day_df.empty:
             continue
@@ -273,6 +316,7 @@ def run_linear_score(
                         min_count=min_count,
                         factor_time=factor_time,
                         label_time=label_time,
+                        neutralizer=neutralizer,
                     )
                     if not tdf.empty:
                         train_frames.append(tdf)

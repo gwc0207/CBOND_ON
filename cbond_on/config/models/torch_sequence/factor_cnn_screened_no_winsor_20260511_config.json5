@@ -1,0 +1,53 @@
+{
+  model_name: "factor_cnn_screened_no_winsor_20260511",
+  model_type: "factor_cnn1d",
+  architecture: "cnn1d",
+
+  start: "2025-01-01",
+  end: "2026-06-10",
+  factor_source_config: "models/lgbm/lgbm_screened_no_winsor_20260511",
+  sequence_days: 20,
+  label_transform: "zscore_day",
+  missing_policy: "raise",
+
+  score_output: {
+    windows: "D:/cbond_on/results/scores/deep_factor_sequence/factor_cnn_screened_no_winsor_20260511",
+    linux: "/home/gswzif/cbond_on_runtime/results/scores/deep_factor_sequence/factor_cnn_screened_no_winsor_20260511"
+  },
+  score_overwrite: false,
+  score_dedupe: true,
+  incremental: {
+    enabled: true,
+    skip_existing_scores: true
+  },
+
+  rolling: {
+    enabled: true,
+    window_days: 60
+  },
+  refit_every_n_days: 20,
+
+  model_params: {
+    channels: 64,
+    num_layers: 3,
+    kernel_size: 3,
+    dropout: 0.10
+  },
+  train: {
+    train_ratio: 0.70,
+    val_ratio: 0.15,
+    batch_size: 512,
+    num_epochs: 10,
+    eval_every_n_epoch: 2,
+    early_stopping_patience: 3,
+    early_stopping_min_delta: 0.0001,
+    lr: 0.001,
+    weight_decay: 0.0001,
+    grad_clip_norm: 1.0,
+    checkpoint_rank_weight: 1.0,
+    checkpoint_dir_weight: 0.0,
+    shuffle_train: true,
+    device: "cpu",
+    num_workers: 0
+  }
+}
