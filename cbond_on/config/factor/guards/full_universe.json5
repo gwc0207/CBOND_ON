@@ -1,0 +1,5 @@
+{
+  // Use an empty disabled list for full-universe factor backtests.
+  disabled_factors_file: "factor/guards/factor_disabled_factors_empty.json",
+  disabled_factors: [],
+}

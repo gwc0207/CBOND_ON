@@ -31,7 +31,7 @@
       reject_existing_factor_key: true,
       reject_existing_formula_family: true,
       existing_factor_files: [
-        "factor/ai_factory/packs/ai_factor_factory_20260603_plus50.json5"
+        "factor/ai_factory/seed/ai_factor_factory_seed.json5"
       ],
       forbidden_formula_families: [
         "volume:max",

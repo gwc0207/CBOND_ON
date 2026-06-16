@@ -1,0 +1,16 @@
+{
+  backtest_enabled: true,
+  backtest: {
+    workers: 6,
+    min_count: 10,
+    ic_bins: 20,
+    bin_count: 20,
+    bin_select: null,
+    bin_source: "walk_forward",
+    bin_top_k: 1,
+    bin_lookback_days: 40,
+    bin_min_train_days: 30,
+    alpha_significance_window: 40,
+    batch_context: true,
+  },
+}

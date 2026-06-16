@@ -6,39 +6,14 @@
   overwrite: false,
   workers: 6,
   compute: {
-    engine: "rust", // rust | rust_shm_exp
-    backend: "cpu", // default cpu; set torch/auto to use GPU path
-    torch_device: "cuda", // e.g. "cuda", "cuda:0"
+    engine: "rust",
+    backend: "cpu",
+    torch_device: "cuda",
     fallback_cpu: true,
-    plan_log_summary: true
+    plan_log_summary: true,
   },
-  factors: [
-    { name: "cb_overnight_return_mean_20d", factor: "daily_overnight_return_mean_v1", params: { source: "market_cbond.daily_twap", buy_col: "twap_1442_1457", time_tag: "0930_1000", sell_col: "twap_0930_1000", window: 20 } },
-    { name: "cb_overnight_return_mean_5d", factor: "daily_overnight_return_mean_v1", params: { source: "market_cbond.daily_twap", buy_col: "twap_1442_1457", time_tag: "0930_1000", sell_col: "twap_0930_1000", window: 5 } },
-    { name: "cb_overnight_return_mean_60d", factor: "daily_overnight_return_mean_v1", params: { source: "market_cbond.daily_twap", buy_col: "twap_1442_1457", time_tag: "0930_1000", sell_col: "twap_0930_1000", window: 60 } },
-    { name: "range_30m", factor: "range_ratio", params: { window_minutes: 30, price_col: "last" } },
-    { name: "cb_overnight_return_mean_10d", factor: "daily_overnight_return_mean_v1", params: { source: "market_cbond.daily_twap", buy_col: "twap_1442_1457", time_tag: "0930_1000", sell_col: "twap_0930_1000", window: 10 } },
-    { name: "amount_30m", factor: "amount_sum", params: { window_minutes: 30, amount_col: "amount" } },
-    { name: "vol_30m", factor: "volatility", params: { window_minutes: 30, price_col: "last", use_log_return: true } },
-    { name: "alpha001_signed_power_v1", factor: "alpha001_signed_power_v1", params: { stddev_window: 20, ts_max_window: 5, windowsize: 10 } },
-    { name: "alpha030_close_sign_volume_v1", factor: "alpha030_close_sign_volume_v1", params: { delay1: 1, delay2: 2, delay3: 3, sum_window_short: 5, sum_window_long: 10 } },
-    { name: "volume_30m", factor: "volume_sum", params: { window_minutes: 30, volume_col: "volume" } },
-    { name: "depth_weighted_imbalance_v1", factor: "depth_weighted_imbalance_v1", params: { weights: [5, 4, 3, 2, 1] } },
-    { name: "alpha024_close_trend_filter_v1", factor: "alpha024_close_trend_filter_v1", params: { sum_window: 20, delta_window: 20, ts_min_window: 20, short_delta_window: 3, trend_threshold: 0.05 } },
-    { name: "cb_overnight_sharpe_20_0930_0935", factor: "daily_sharpe_mean_v1", params: { source: "market_cbond.daily_twap", buy_col: "twap_1442_1457", time_tag: "0930_0935", sell_col: "twap_0930_0935", window: 20 } },
-    { name: "daily_sharpe_twap_5d_mean5", factor: "daily_sharpe_mean_v1", params: { source: "market_cbond.daily_twap", buy_col: "twap_1442_1457", time_tag: "0930_0935", sell_col: "twap_0930_0935", window: 5, min_periods: 3, annualize: false } },
-    { name: "cb_overnight_sharpe_5_0930_0935", factor: "daily_sharpe_mean_v1", params: { source: "market_cbond.daily_twap", buy_col: "twap_1442_1457", time_tag: "0930_0935", sell_col: "twap_0930_0935", window: 5 } },
-    { name: "mid_move_30m", factor: "midprice_move", params: { window_minutes: 30, bid_col: "bid_price1", ask_col: "ask_price1" } },
-    { name: "premium_momentum_proxy_v1", factor: "premium_momentum_proxy_v1", params: { windowsize: 10 } },
-    { name: "volen_f60_s10_l3", factor: "volen", params: { fast: 60, slow: 10, levels: 3 } },
-    { name: "daily_sharpe_twap_20d_mean5", factor: "daily_sharpe_mean_v1", params: { source: "market_cbond.daily_twap", buy_col: "twap_1442_1457", time_tag: "0930_0935", sell_col: "twap_0930_0935", window: 20, min_periods: 10, annualize: false } },
-    { name: "cb_overnight_return_mean_40d", factor: "daily_overnight_return_mean_v1", params: { source: "market_cbond.daily_twap", buy_col: "twap_1442_1457", time_tag: "0930_1000", sell_col: "twap_0930_1000", window: 40 } },
-    { name: "alpha041_geometric_mean_vwap_v1", factor: "alpha041_geometric_mean_vwap_v1", params: { windowsize: 10 } },
-    { name: "alpha078_low_vwap_adv_corr_v1", factor: "alpha078_low_vwap_adv_corr_v1", params: { weight: 0.352, sum_window_1: 20, adv_window: 20, sum_window_2: 20, corr_window_1: 7, corr_window_2: 6, windowsize: 10 } },
-    { name: "mom_slope_30m", factor: "mom_slope", params: { window_minutes: 30, price_col: "last" } },
-    { name: "alpha019_close_momentum_sign_v1", factor: "alpha019_close_momentum_sign_v1", params: { delta_window: 7, sum_window: 250, windowsize: 10 } },
-    { name: "ret_10m", factor: "ret_window", params: { window_minutes: 10, price_col: "last" } },
-    { name: "alpha025_return_volume_vwap_range_v1", factor: "alpha025_return_volume_vwap_range_v1", params: { adv_window: 10, windowsize: 10 } },
-    { name: "alpha050_volume_vwap_corr_max_v1", factor: "alpha050_volume_vwap_corr_max_v1", params: { corr_window: 5, ts_max_window: 5, windowsize: 10 } },
-  ]
+  factor_files: [
+    "factor/packs/live_screened_no_winsor_27.json5",
+  ],
+  factors: [],
 }

@@ -1,7 +1,7 @@
 {
   "source": [
     "cbond_on/config/score/factor_selection/factor_full20_factors.json",
-    "cbond_on/config/factor/ai_factory/packs/ai_factor_factory_20260608_wave80.json5"
+    "cbond_on/config/factor/ai_factory/seed/ai_factor_factory_seed.json5"
   ],
   "rule": "main full20 factors + wave80 full20 factors; dedupe keep order",
   "factor_count": 156,

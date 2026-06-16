@@ -1,87 +1,17 @@
-﻿{
-  start: "2025-01-01",
-  end: "2026-06-04",
-  panel_name: "T1430",
-  factor_time: "14:30",
-  label_time: "14:42",
-  refresh: false,
-  overwrite: false,
-  workers: 1,
-  factor_workers: 2,
-  // Use an empty disabled list for full-universe factor backtest.
-  // The default disabled file excludes alpha007_volume_breakout_v1.
-  disabled_factors_file: "factor/guards/factor_disabled_factors_empty.json",
-  compute: {
-    engine: "rust", // rust | rust_shm_exp
-    backend: "cpu", // default cpu; set torch/auto to use GPU path
-    torch_device: "cuda", // e.g. "cuda", "cuda:0"
-    fallback_cpu: true,
-    plan_log_summary: true,
-    debug_log_each_record: false
-  },
-  factor_files: [
-    // Full merged factor pack: 122 factor specs across base, daily, v1 and alpha factors.
-    "factor/packs/factors_all_in_one.json5"
+{
+  // Thin factor-batch entrypoint. Runtime details live in modular configs below.
+  modules: [
+    "factor/runtime/default.json5",
+    "factor/compute/rust_cpu.json5",
+    "factor/guards/full_universe.json5",
+    "factor/reports/backtest_default.json5",
+    "factor/reports/screening_stable_bin_alpha.json5",
+    "factor/reports/bad_factor_report_default.json5",
   ],
-  backtest_enabled: true,
+
+  // Current full research factor universe.
+  factor_files: [
+    "factor/packs/factors_all_in_one.json5",
+  ],
   factors: [],
-  backtest: {
-    workers: 6,
-    min_count: 10,
-    ic_bins: 20,
-    bin_count: 20,
-    bin_select: null,
-    bin_source: "walk_forward",
-    bin_top_k: 1,
-    bin_lookback_days: 40,
-    bin_min_train_days: 30,
-    alpha_significance_window: 40,
-    // Read label/factor daily parquet once and reuse it across all factor reports.
-    batch_context: true
-  },
-  screening: {
-    enabled: true,
-    // legacy: IC/IR/Sharpe; stable_bin_alpha: screen factors by bin alpha persistence.
-    mode: "stable_bin_alpha",
-    copy_reports: true,
-    require_full_bin_count: true,
-    required_bin_count: 20,
-    full_bin_coverage_ratio_min: 1.0,
-    bin_alpha: {
-      coverage_ratio_min: 0.80,
-      avg_count_min: 10,
-      full_alpha_mean_min: 0.0,
-      full_alpha_t_min: 1.65,
-      rolling_window: 40,
-      rolling_min_periods_ratio: 0.75,
-      rolling_mean_pos_ratio_min: 0.65,
-      rolling_t_pos_ratio_min: 0.65,
-      rolling_t_sig_threshold: 1.0,
-      rolling_t_sig_ratio_min: 0.25,
-      rolling_hit_rate_threshold: 0.52,
-      rolling_hit_ok_ratio_min: 0.35,
-      max_consecutive_bad_windows: 40,
-      recent_window_count: 10,
-      recent_mean_pos_ratio_min: 0.67,
-      recent_t_pos_ratio_min: 0.67,
-      recent_hit_ok_ratio_min: 0.50
-    },
-    walk_forward_strategy: {
-      enabled: true,
-      ret_total_min: 0.0,
-      alpha_ret_total_min: 0.0,
-      sharpe_min: 0.0,
-      alpha_sharpe_min: -999.0,
-      win_rate_min: 0.0,
-      maxdd_min: -0.10
-    }
-  },
-  bad_factor_report: {
-    enabled: true,
-    nan_ratio_threshold: 0.20,
-    bin_fail_ratio_threshold: 0.20,
-    skip_ratio_threshold: 0.30,
-    min_days: 20,
-    top_n_plot: 30
-  }
 }

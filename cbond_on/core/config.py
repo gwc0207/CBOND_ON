@@ -83,6 +83,54 @@ def _find_config_files(filename: str) -> list[Path]:
     return sorted(matches)
 
 
+def _deep_merge_config(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = dict(base)
+    for key, value in override.items():
+        if (
+            key in out
+            and isinstance(out[key], dict)
+            and isinstance(value, dict)
+        ):
+            out[key] = _deep_merge_config(out[key], value)
+        else:
+            out[key] = value
+    return out
+
+
+def _module_refs(raw: Any, *, source: Path) -> list[str]:
+    if raw is None:
+        return []
+    if isinstance(raw, str):
+        refs = [raw]
+    elif isinstance(raw, (list, tuple)):
+        refs = list(raw)
+    else:
+        raise TypeError(f"{source}: modules must be a string or list")
+
+    out: list[str] = []
+    for item in refs:
+        ref = str(item).strip()
+        if ref:
+            out.append(ref)
+    return out
+
+
+def _apply_config_modules(data: dict[str, Any], *, source: Path) -> dict[str, Any]:
+    refs = _module_refs(data.get("modules"), source=source)
+    if not refs:
+        return data
+
+    merged: dict[str, Any] = {}
+    for ref in refs:
+        module_data = load_config_file(ref)
+        if not isinstance(module_data, dict):
+            raise TypeError(f"{source}: module {ref!r} must load to an object")
+        merged = _deep_merge_config(merged, module_data)
+
+    local = {k: v for k, v in data.items() if k != "modules"}
+    return _deep_merge_config(merged, local)
+
+
 def resolve_config_file_path(name: str | Path) -> Path:
     raw = _normalize_key(name)
     direct = Path(raw)
@@ -334,6 +382,9 @@ def load_config_file(name: str) -> dict[str, Any]:
     else:
         with path.open("r", encoding="utf-8") as handle:
             data = json.load(handle)
+
+    if isinstance(data, dict):
+        data = _apply_config_modules(data, source=path)
 
     if path.parent.name == "data" and path.stem.startswith("paths"):
         return _apply_runtime_paths_profile(data)

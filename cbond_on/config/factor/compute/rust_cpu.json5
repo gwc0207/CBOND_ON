@@ -1,0 +1,10 @@
+{
+  compute: {
+    engine: "rust",
+    backend: "cpu",
+    torch_device: "cuda",
+    fallback_cpu: true,
+    plan_log_summary: true,
+    debug_log_each_record: false,
+  },
+}

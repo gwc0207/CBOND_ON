@@ -9,6 +9,8 @@ from typing import Any, Iterable
 import numpy as np
 import pandas as pd
 
+from cbond_on.common.config_utils import load_json_like, resolve_config_path
+
 
 _FACTOR_SOURCES = {"", "factor", "factors", "self"}
 _RAW_ALIASES: dict[str, tuple[str, str, str, str | None]] = {
@@ -48,6 +50,8 @@ class NeutralizationConfig:
     factors: tuple[str, ...] | None = None
     exclude_factors: tuple[str, ...] = ()
     exposures: tuple[NeutralizationExposure, ...] = ()
+    exposures_files: tuple[str, ...] = ()
+    exclude_factors_files: tuple[str, ...] = ()
     method: str = "ridge"
     ridge_alpha: float = 1e-6
     add_intercept: bool = True
@@ -62,6 +66,18 @@ def _as_list(value: Any) -> list[Any]:
     if isinstance(value, (list, tuple, set)):
         return list(value)
     return [value]
+
+
+def _unique_text(items: Iterable[Any]) -> tuple[str, ...]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for item in items:
+        text = _norm_text(item)
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        out.append(text)
+    return tuple(out)
 
 
 def _norm_text(value: Any) -> str:
@@ -143,6 +159,49 @@ def _parse_exposure(raw: Any) -> NeutralizationExposure:
     )
 
 
+def _load_neutralization_payload(path_like: str) -> Any:
+    path = resolve_config_path(path_like)
+    return load_json_like(path)
+
+
+def _load_exposure_items_from_file(path_like: str) -> list[Any]:
+    payload = _load_neutralization_payload(path_like)
+    if isinstance(payload, list):
+        raw = payload
+    elif isinstance(payload, dict):
+        raw = payload.get("exposures", payload.get("neutralization_exposures", []))
+    else:
+        raw = []
+    return list(raw) if isinstance(raw, list) else []
+
+
+def _load_factor_names_from_file(path_like: str) -> list[str]:
+    payload = _load_neutralization_payload(path_like)
+    if isinstance(payload, list):
+        raw = payload
+    elif isinstance(payload, dict):
+        raw = (
+            payload.get("factors")
+            or payload.get("exclude_factors")
+            or payload.get("banlist")
+            or payload.get("blacklist")
+            or []
+        )
+    else:
+        raw = []
+    if not isinstance(raw, list):
+        return []
+    out: list[str] = []
+    for item in raw:
+        if isinstance(item, dict):
+            text = _norm_text(item.get("name", item.get("output_col", "")))
+        else:
+            text = _norm_text(item)
+        if text:
+            out.append(text)
+    return out
+
+
 def parse_neutralization_config(raw: Any) -> NeutralizationConfig:
     if raw is None or raw is False:
         return NeutralizationConfig(enabled=False)
@@ -151,13 +210,33 @@ def parse_neutralization_config(raw: Any) -> NeutralizationConfig:
     if not isinstance(raw, dict):
         raise TypeError(f"neutralization config must be object, got {type(raw).__name__}")
     enabled = bool(raw.get("enabled", False))
-    exposures = tuple(_parse_exposure(item) for item in _as_list(raw.get("exposures")))
+    exposures_files = _unique_text(
+        _as_list(raw.get("exposures_file"))
+        + _as_list(raw.get("exposure_file"))
+        + _as_list(raw.get("exposures_files"))
+    )
+    exposure_items: list[Any] = []
+    for path_like in exposures_files:
+        exposure_items.extend(_load_exposure_items_from_file(path_like))
+    exposure_items.extend(_as_list(raw.get("exposures")))
+    exposures = tuple(_parse_exposure(item) for item in exposure_items)
     factors_raw = raw.get("factors", None)
     factors: tuple[str, ...] | None
     if factors_raw is None or str(factors_raw).strip().lower() in {"", "all", "*"}:
         factors = None
     else:
-        factors = tuple(_norm_text(x) for x in _as_list(factors_raw) if _norm_text(x))
+        factors = _unique_text(_as_list(factors_raw))
+    exclude_files = _unique_text(
+        _as_list(raw.get("exclude_factors_file"))
+        + _as_list(raw.get("exclude_factor_file"))
+        + _as_list(raw.get("exclude_factors_files"))
+        + _as_list(raw.get("banlist_file"))
+        + _as_list(raw.get("blacklist_file"))
+    )
+    exclude_items: list[str] = []
+    for path_like in exclude_files:
+        exclude_items.extend(_load_factor_names_from_file(path_like))
+    exclude_items.extend(_as_list(raw.get("exclude_factors")))
     method = _norm_text(raw.get("method", "ridge")).lower() or "ridge"
     if method not in {"ols", "ridge"}:
         raise ValueError(f"neutralization.method must be ols or ridge, got {method!r}")
@@ -167,8 +246,10 @@ def parse_neutralization_config(raw: Any) -> NeutralizationConfig:
     return NeutralizationConfig(
         enabled=enabled,
         factors=factors,
-        exclude_factors=tuple(_norm_text(x) for x in _as_list(raw.get("exclude_factors")) if _norm_text(x)),
+        exclude_factors=_unique_text(exclude_items),
         exposures=exposures,
+        exposures_files=exposures_files,
+        exclude_factors_files=exclude_files,
         method=method,
         ridge_alpha=float(raw.get("ridge_alpha", 1e-6) or 0.0),
         add_intercept=bool(raw.get("add_intercept", True)),
@@ -300,6 +381,8 @@ class FactorNeutralizer:
             "min_count": int(self.cfg.min_count),
             "factors": "all" if self.cfg.factors is None else list(self.cfg.factors),
             "exclude_factors": list(self.cfg.exclude_factors),
+            "exposures_files": list(self.cfg.exposures_files),
+            "exclude_factors_files": list(self.cfg.exclude_factors_files),
             "exposures": [item.name for item in self.cfg.exposures],
         }
 

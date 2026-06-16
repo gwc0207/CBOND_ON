@@ -1,7 +1,0 @@
-{
-  factors: [
-    {name: "t1430_volatility_turnover_v1", factor: "t1430_volatility_turnover_v1", params: {}},
-    {name: "t1430_amount_vol_ratio_v1", factor: "t1430_amount_vol_ratio_v1", params: {}},
-    {name: "t1430_pv_ratio_v1", factor: "t1430_pv_ratio_v1", params: {}},
-  ]
-}

@@ -1,0 +1,10 @@
+{
+  // Cross-sectional style exposures used by CBOND_ON model neutralization.
+  exposures: [
+    { name: "log_price", source: "market_cbond.daily_base", column: "cb_close_price", transform: "log" },
+    { name: "log_amount", source: "market_cbond.daily_base", column: "cb_amount", transform: "log1p" },
+    { name: "premium", source: "market_cbond.daily_base", column: "bond_prem_ratio" },
+    { name: "remain_size", source: "market_cbond.daily_base", column: "remain_size", transform: "log1p" },
+    { name: "year_to_mat", source: "market_cbond.daily_base", column: "year_to_mat" },
+  ],
+}

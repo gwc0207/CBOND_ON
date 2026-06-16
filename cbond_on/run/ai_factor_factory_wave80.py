@@ -8,7 +8,8 @@ from cbond_on.workflows.research.factor_batch import run
 
 
 def main() -> None:
-    cfg = deepcopy(load_config_file("factor/ai_factory/runs/ai_factor_factory_research_20250101_wave80"))
+    cfg = deepcopy(load_config_file("factor"))
+    cfg["factor_files"] = ["factor/ai_factory/seed/ai_factor_factory_seed.json5"]
     paths_cfg = deepcopy(load_config_file("paths"))
     paths_cfg["results_root"] = "D:/cbond_on/results/ai_factor_factory/wave80_20260608"
 

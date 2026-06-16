@@ -21,13 +21,19 @@ These keys are loaded by the standard commands:
 
 ## Factor Configs
 
-- `factor/factor_config.json5`: default factor batch runtime config.
+- `factor/factor_config.json5`: thin default factor batch entrypoint; it composes
+  runtime, compute, guard, report, and factor-pack modules through `modules`.
+- `factor/runtime/`: factor batch date, panel, time, refresh/overwrite, and
+  worker defaults.
+- `factor/compute/`: factor engine/backend presets.
 - `factor/packs/`: factor spec packs consumed by `factor_files`.
-- `factor/ai_factory/ai_factor_factory_config.json5`: AI factor factory generator/review config.
-- `factor/ai_factory/packs/`: AI factor factory generated and screened packs.
-- `factor/ai_factory/runs/`: runnable AI factor factory research configs.
+- `factor/reports/`: single-factor backtest, screening, and bad-factor report
+  presets.
 - `factor/guards/`: disabled factor lists and guard inputs.
-- `factor/archive/`: legacy, patch, and single-family configs kept for reproducibility.
+- `factor/ai_factory/ai_factor_factory_config.json5`: AI factor factory generator/review config.
+- `factor/ai_factory/seed/`: one retained AI factor factory seed pack. Generated
+  and screened factory packs are no longer kept in the default config tree.
+- `factor/archive/`: placeholder only; historical JSON snapshots were cleared.
 
 ## Score Configs
 
@@ -39,6 +45,10 @@ These keys are loaded by the standard commands:
 
 `models/` contains concrete model parameter configs. The scoring entrypoint chooses
 one of these through `score/model/model_score_config.json5`.
+
+`models/preprocess/neutralization/` contains shared model preprocessing modules,
+including neutralization exposure sets and factor banlists referenced from model
+configs through `exposures_file` and `exclude_factors_file`.
 
 ## Live Configs
 
