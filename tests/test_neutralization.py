@@ -4,6 +4,7 @@ from datetime import date
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from cbond_on.infra.model.neutralization import build_neutralizer
 
@@ -51,3 +52,55 @@ def test_neutralizer_removes_daily_price_exposure(tmp_path):
     assert abs(out["factor_x"].corr(pd.Series(price))) < 1e-10
     assert abs(out["factor_x"].mean()) < 1e-10
     assert {"dt", "code", "factor_x"} <= set(out.columns)
+
+
+def test_neutralizer_rejects_partial_exclude_config():
+    with pytest.raises(ValueError, match="partial neutralization is not supported"):
+        build_neutralizer(
+            {
+                "enabled": True,
+                "exposures": [{"name": "price", "source": "factor", "column": "price"}],
+                "exclude_factors": ["amount_30m"],
+            }
+        )
+
+
+def test_neutralizer_rejects_partial_factor_subset_config():
+    with pytest.raises(ValueError, match="partial neutralization is not supported"):
+        build_neutralizer(
+            {
+                "enabled": True,
+                "factors": ["factor_x"],
+                "exposures": [{"name": "price", "source": "factor", "column": "price"}],
+            }
+        )
+
+
+def test_neutralizer_preserves_dt_when_exposure_source_is_missing(tmp_path):
+    frame = pd.DataFrame(
+        {
+            "dt": [pd.Timestamp("2026-01-05 14:30")] * 3,
+            "code": ["110001.SH", "110002.SH", "110003.SH"],
+            "factor_x": [1.0, 2.0, 3.0],
+        }
+    )
+    neutralizer = build_neutralizer(
+        {
+            "enabled": True,
+            "min_count": 3,
+            "exposures": [
+                {
+                    "name": "price",
+                    "source": "market_cbond.daily_base",
+                    "column": "cb_close_price",
+                }
+            ],
+        },
+        raw_data_root=tmp_path / "raw",
+    )
+
+    out = neutralizer.apply(frame, ["factor_x"])
+
+    assert {"dt", "code", "factor_x"} <= set(out.columns)
+    assert out["dt"].tolist() == frame["dt"].tolist()
+    assert out["factor_x"].tolist() == frame["factor_x"].tolist()

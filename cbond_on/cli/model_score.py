@@ -10,6 +10,7 @@ from cbond_on.workflows.research.model_score import apply_execution_overrides, r
 
 def main(
     *,
+    config_name: str | None = None,
     model_id: str | None = None,
     start: str | None = None,
     end: str | None = None,
@@ -19,7 +20,7 @@ def main(
     parallel_shards: int | None = None,
     parallel_shard_index: int | None = None,
 ) -> None:
-    cfg = load_model_score_config()
+    cfg = load_model_score_config(config_name or "model_score")
     cfg = apply_execution_overrides(
         cfg,
         refit_every_n_days=refit_every_n_days,
@@ -32,6 +33,8 @@ def main(
     effective_shards = int(execution_cfg.get("parallel_shards", 1))
     if parallel_shard_index is None and effective_shards > 1:
         base_cmd = [sys.executable, "-m", "cbond_on.cli.model_score"]
+        if config_name:
+            base_cmd += ["--config", str(config_name)]
         if model_id:
             base_cmd += ["--model-id", str(model_id)]
         if start:
@@ -74,6 +77,7 @@ def main(
 
 def cli_main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Build model scores from application layer")
+    parser.add_argument("--config", default="model_score")
     parser.add_argument("--model-id")
     parser.add_argument("--start")
     parser.add_argument("--end")
@@ -84,6 +88,7 @@ def cli_main(argv: list[str] | None = None) -> None:
     parser.add_argument("--parallel-shard-index", type=int)
     args = parser.parse_args(argv)
     main(
+        config_name=args.config,
         model_id=args.model_id,
         start=args.start,
         end=args.end,

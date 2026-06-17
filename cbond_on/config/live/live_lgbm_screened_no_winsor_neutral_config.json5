@@ -45,7 +45,6 @@
     standardize_exposures: true,
     missing_policy: "keep_original",
     exposures_file: "models/preprocess/neutralization/exposures/cbond_style_5.json5",
-    exclude_factors_file: "models/preprocess/neutralization/banlists/liquidity_core.json",
   },
   min_count: 30,
   bins: 5,

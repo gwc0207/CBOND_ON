@@ -46,9 +46,11 @@ These keys are loaded by the standard commands:
 `models/` contains concrete model parameter configs. The scoring entrypoint chooses
 one of these through `score/model/model_score_config.json5`.
 
-`models/preprocess/neutralization/` contains shared model preprocessing modules,
-including neutralization exposure sets and factor banlists referenced from model
-configs through `exposures_file` and `exclude_factors_file`.
+`models/preprocess/neutralization/` contains shared neutralization exposure
+sets referenced from model configs through `exposures_file`. Neutralization is
+all-or-none: set `neutralization.enabled=true` to neutralize every model factor,
+or `enabled=false` to skip neutralization. Factor banlists/exclude lists are not
+supported.
 
 ## Live Configs
 

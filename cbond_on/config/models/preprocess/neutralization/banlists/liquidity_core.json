@@ -1,9 +1,0 @@
-{
-  "name": "liquidity_core",
-  "reason": "Keep core liquidity and turnover signals out of style neutralization.",
-  "factors": [
-    "amount_30m",
-    "volume_30m",
-    "volen_f60_s10_l3"
-  ]
-}

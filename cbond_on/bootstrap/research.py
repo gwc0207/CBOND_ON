@@ -9,16 +9,18 @@ from cbond_on.schemas.config.model_score import validate_model_score_config
 from cbond_on.schemas.config.shared import validate_paths_config
 
 
-def load_factor_batch_inputs() -> tuple[dict[str, Any], dict[str, Any]]:
-    cfg = validate_factor_batch_config(load_config_file("factor"))
-    paths_cfg = validate_paths_config(load_config_file("paths"))
+def load_factor_batch_inputs(
+    config_name: str = "factor",
+    paths_config_name: str = "paths",
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    cfg = validate_factor_batch_config(load_config_file(config_name))
+    paths_cfg = validate_paths_config(load_config_file(paths_config_name))
     return cfg, paths_cfg
 
 
-def load_model_score_config() -> dict[str, Any]:
-    return validate_model_score_config(load_config_file("model_score"))
+def load_model_score_config(config_name: str = "model_score") -> dict[str, Any]:
+    return validate_model_score_config(load_config_file(config_name))
 
 
 def load_model_eval_config(config_name: str = "score/evaluation/model_eval") -> dict[str, Any]:
     return validate_model_eval_config(load_config_file(config_name))
-

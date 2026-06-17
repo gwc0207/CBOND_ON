@@ -43,19 +43,7 @@ from cbond_on.infra.model.impl.lgbm.trainer import (
 def _load_model_config(path: Path | None) -> dict:
     if path is None:
         return load_config_file("models/lgbm/lgbm_factor_MSE")
-    suffix = path.suffix.lower()
-    if suffix == ".json5":
-        import json5
-
-        with path.open("r", encoding="utf-8") as handle:
-            return json5.load(handle) or {}
-    if suffix in {".yaml", ".yml"}:
-        import yaml
-
-        with path.open("r", encoding="utf-8") as handle:
-            return yaml.safe_load(handle) or {}
-    with path.open("r", encoding="utf-8") as handle:
-        return json.load(handle) or {}
+    return load_config_file(path)
 
 
 def _select_factor_cols(sample: pd.DataFrame, cfg: dict) -> list[str]:

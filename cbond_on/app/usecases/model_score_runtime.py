@@ -4,7 +4,7 @@ from datetime import date
 from pathlib import Path
 
 from cbond_on.core.config import load_config_file, parse_date, resolve_output_path
-from cbond_on.common.config_utils import load_json_like, resolve_config_path
+from cbond_on.common.config_utils import resolve_config_path
 from cbond_on.infra.model.adapters import build_adapter
 from cbond_on.infra.model.execution_threading import apply_execution_threading
 
@@ -32,7 +32,7 @@ def run(
         raise ValueError(f"model entry missing model_config: {model_id}")
 
     model_config_path = resolve_config_path(model_config_key)
-    model_cfg = load_json_like(model_config_path)
+    model_cfg = load_config_file(model_config_path)
     paths_cfg = load_config_file("paths")
 
     start_day = parse_date(start or score_cfg.get("start") or model_cfg.get("start"))

@@ -7,8 +7,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from cbond_on.cli.factor_batch import main
+from cbond_on.cli.factor_batch import cli_main
 
 
 if __name__ == "__main__":
-    main()
+    cli_main()

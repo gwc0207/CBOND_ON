@@ -47,11 +47,8 @@ class NeutralizationExposure:
 @dataclass(frozen=True)
 class NeutralizationConfig:
     enabled: bool
-    factors: tuple[str, ...] | None = None
-    exclude_factors: tuple[str, ...] = ()
     exposures: tuple[NeutralizationExposure, ...] = ()
     exposures_files: tuple[str, ...] = ()
-    exclude_factors_files: tuple[str, ...] = ()
     method: str = "ridge"
     ridge_alpha: float = 1e-6
     add_intercept: bool = True
@@ -175,33 +172,6 @@ def _load_exposure_items_from_file(path_like: str) -> list[Any]:
     return list(raw) if isinstance(raw, list) else []
 
 
-def _load_factor_names_from_file(path_like: str) -> list[str]:
-    payload = _load_neutralization_payload(path_like)
-    if isinstance(payload, list):
-        raw = payload
-    elif isinstance(payload, dict):
-        raw = (
-            payload.get("factors")
-            or payload.get("exclude_factors")
-            or payload.get("banlist")
-            or payload.get("blacklist")
-            or []
-        )
-    else:
-        raw = []
-    if not isinstance(raw, list):
-        return []
-    out: list[str] = []
-    for item in raw:
-        if isinstance(item, dict):
-            text = _norm_text(item.get("name", item.get("output_col", "")))
-        else:
-            text = _norm_text(item)
-        if text:
-            out.append(text)
-    return out
-
-
 def parse_neutralization_config(raw: Any) -> NeutralizationConfig:
     if raw is None or raw is False:
         return NeutralizationConfig(enabled=False)
@@ -220,23 +190,26 @@ def parse_neutralization_config(raw: Any) -> NeutralizationConfig:
         exposure_items.extend(_load_exposure_items_from_file(path_like))
     exposure_items.extend(_as_list(raw.get("exposures")))
     exposures = tuple(_parse_exposure(item) for item in exposure_items)
+
+    partial_keys = [
+        "exclude_factors_file",
+        "exclude_factor_file",
+        "exclude_factors_files",
+        "banlist_file",
+        "blacklist_file",
+        "exclude_factors",
+    ]
+    used_partial_keys = [key for key in partial_keys if raw.get(key) not in (None, "", [], ())]
     factors_raw = raw.get("factors", None)
-    factors: tuple[str, ...] | None
-    if factors_raw is None or str(factors_raw).strip().lower() in {"", "all", "*"}:
-        factors = None
-    else:
-        factors = _unique_text(_as_list(factors_raw))
-    exclude_files = _unique_text(
-        _as_list(raw.get("exclude_factors_file"))
-        + _as_list(raw.get("exclude_factor_file"))
-        + _as_list(raw.get("exclude_factors_files"))
-        + _as_list(raw.get("banlist_file"))
-        + _as_list(raw.get("blacklist_file"))
-    )
-    exclude_items: list[str] = []
-    for path_like in exclude_files:
-        exclude_items.extend(_load_factor_names_from_file(path_like))
-    exclude_items.extend(_as_list(raw.get("exclude_factors")))
+    if factors_raw not in (None, "", "all", "*"):
+        used_partial_keys.append("factors")
+    if used_partial_keys:
+        raise ValueError(
+            "partial neutralization is not supported; remove "
+            + ", ".join(sorted(set(used_partial_keys)))
+            + " and use either neutralization.enabled=true for all factors or enabled=false"
+        )
+
     method = _norm_text(raw.get("method", "ridge")).lower() or "ridge"
     if method not in {"ols", "ridge"}:
         raise ValueError(f"neutralization.method must be ols or ridge, got {method!r}")
@@ -245,11 +218,8 @@ def parse_neutralization_config(raw: Any) -> NeutralizationConfig:
         raise ValueError("neutralization.missing_policy must be 'keep_original' or 'nan'")
     return NeutralizationConfig(
         enabled=enabled,
-        factors=factors,
-        exclude_factors=_unique_text(exclude_items),
         exposures=exposures,
         exposures_files=exposures_files,
-        exclude_factors_files=exclude_files,
         method=method,
         ridge_alpha=float(raw.get("ridge_alpha", 1e-6) or 0.0),
         add_intercept=bool(raw.get("add_intercept", True)),
@@ -379,25 +349,13 @@ class FactorNeutralizer:
             "method": self.cfg.method,
             "ridge_alpha": float(self.cfg.ridge_alpha),
             "min_count": int(self.cfg.min_count),
-            "factors": "all" if self.cfg.factors is None else list(self.cfg.factors),
-            "exclude_factors": list(self.cfg.exclude_factors),
+            "factors": "all",
             "exposures_files": list(self.cfg.exposures_files),
-            "exclude_factors_files": list(self.cfg.exclude_factors_files),
             "exposures": [item.name for item in self.cfg.exposures],
         }
 
     def target_factors(self, factor_cols: Iterable[str]) -> list[str]:
-        source = [str(c) for c in factor_cols]
-        include = set(self.cfg.factors) if self.cfg.factors is not None else None
-        exclude = set(self.cfg.exclude_factors)
-        out = []
-        for col in source:
-            if include is not None and col not in include:
-                continue
-            if col in exclude:
-                continue
-            out.append(col)
-        return out
+        return [str(c) for c in factor_cols]
 
     def _read_raw_source_day(self, table: str, day: date) -> pd.DataFrame:
         if self.raw_data_root is None:
@@ -533,10 +491,14 @@ class FactorNeutralizer:
         target_cols = self.target_factors(factor_cols)
         if not target_cols or "dt" not in df.columns or "code" not in df.columns:
             return df
-        return df.groupby("dt", group_keys=False).apply(
+        out = df.groupby("dt", group_keys=False).apply(
             lambda group: self._apply_group(group, target_cols),
             include_groups=False,
         )
+        if "dt" not in out.columns and len(out) == len(df):
+            out = out.copy()
+            out.insert(0, "dt", df["dt"].to_numpy())
+        return out
 
 
 def build_neutralizer(
