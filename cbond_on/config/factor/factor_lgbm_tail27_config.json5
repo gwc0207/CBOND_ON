@@ -1,0 +1,36 @@
+{
+  modules: [
+    "factor/runtime/default.json5",
+    "factor/compute/rust_cpu.json5",
+    "factor/guards/full_universe.json5",
+  ],
+
+  start: "2024-01-01",
+  end: "2026-05-11",
+  panel_name: "T1430",
+  factor_time: "14:30",
+  label_time: "14:42",
+  refresh: false,
+  overwrite: false,
+  workers: 8,
+  factor_workers: 1,
+  backtest_enabled: false,
+
+  factor_files: [
+    "factor/packs/live_screened_no_winsor_27.json5",
+  ],
+  factors: [],
+
+  tail_features: {
+    enabled: true,
+    groupby: "dt",
+    source_factors: "all",
+    min_count: 30,
+    features: [
+      { kind: "rank_pct", suffix: "__rank_pct" },
+      { kind: "upper_tail_flag", upper_q: 0.9, suffix: "__top10" },
+      { kind: "lower_tail_flag", lower_q: 0.1, suffix: "__bottom10" },
+      { kind: "tail_strength", lower_q: 0.1, upper_q: 0.9, suffix: "__tail10_strength" },
+    ],
+  },
+}

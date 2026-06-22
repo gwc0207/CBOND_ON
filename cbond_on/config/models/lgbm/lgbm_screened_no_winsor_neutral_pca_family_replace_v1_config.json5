@@ -1,0 +1,15 @@
+{
+  modules: ["models/lgbm/lgbm_screened_no_winsor_neutral_pca_family_append_v1"],
+
+  model_name: "lgbm_screened_no_winsor_neutral_pca_family_replace_v1",
+  score_output: {
+    windows: "D:/cbond_on/results/scores/lgbm_screened_no_winsor_neutral_pca_family_replace_v1",
+    linux: "/home/gswzif/cbond_on_runtime/results/scores/lgbm_screened_no_winsor_neutral_pca_family_replace_v1"
+  },
+
+  feature_engineering: {
+    pca: {
+      mode: "replace",
+    },
+  },
+}

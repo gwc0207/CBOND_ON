@@ -1,0 +1,51 @@
+{
+  modules: ["score/model/model_score"],
+
+  default_model_id: "lgbm_screened_no_winsor_neutral_fcfam_sharpe07",
+  model_id: "lgbm_screened_no_winsor_neutral_fcfam_sharpe07",
+  start: "2024-01-01",
+  end: "2026-05-11",
+
+  models: {
+    lgbm_screened_no_winsor_neutral_fcfam_sharpe07: {
+      model_type: "lgbm",
+      model_config: "models/lgbm/lgbm_screened_no_winsor_neutral_fcfam_sharpe07"
+    },
+    lgbm_screened_no_winsor_neutral_fcfam_sharpe13: {
+      model_type: "lgbm",
+      model_config: "models/lgbm/lgbm_screened_no_winsor_neutral_fcfam_sharpe13"
+    },
+    lgbm_screened_no_winsor_neutral_fcfam_overnight07: {
+      model_type: "lgbm",
+      model_config: "models/lgbm/lgbm_screened_no_winsor_neutral_fcfam_overnight07"
+    },
+    lgbm_screened_no_winsor_neutral_fcfam_overnight13: {
+      model_type: "lgbm",
+      model_config: "models/lgbm/lgbm_screened_no_winsor_neutral_fcfam_overnight13"
+    },
+    lgbm_screened_no_winsor_neutral_fcfam_liquidity07: {
+      model_type: "lgbm",
+      model_config: "models/lgbm/lgbm_screened_no_winsor_neutral_fcfam_liquidity07"
+    },
+    lgbm_screened_no_winsor_neutral_fcfam_liquidity13: {
+      model_type: "lgbm",
+      model_config: "models/lgbm/lgbm_screened_no_winsor_neutral_fcfam_liquidity13"
+    },
+    lgbm_screened_no_winsor_neutral_fcfam_momentum07: {
+      model_type: "lgbm",
+      model_config: "models/lgbm/lgbm_screened_no_winsor_neutral_fcfam_momentum07"
+    },
+    lgbm_screened_no_winsor_neutral_fcfam_momentum13: {
+      model_type: "lgbm",
+      model_config: "models/lgbm/lgbm_screened_no_winsor_neutral_fcfam_momentum13"
+    },
+    lgbm_screened_no_winsor_neutral_fcfam_alpha07: {
+      model_type: "lgbm",
+      model_config: "models/lgbm/lgbm_screened_no_winsor_neutral_fcfam_alpha07"
+    },
+    lgbm_screened_no_winsor_neutral_fcfam_alpha13: {
+      model_type: "lgbm",
+      model_config: "models/lgbm/lgbm_screened_no_winsor_neutral_fcfam_alpha13"
+    },
+  },
+}

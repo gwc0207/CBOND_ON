@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime, time as dt_time
 from pathlib import Path
-from typing import Iterable, Sequence
+from typing import Any, Iterable, Sequence
 
 import numpy as np
 import pandas as pd
@@ -63,6 +63,217 @@ class SplitData:
     y: pd.Series
     dt: pd.Series
     code: pd.Series
+
+
+def _normalise_missing_values_config(missing_values: dict[str, Any] | None) -> dict[str, Any]:
+    if missing_values in (None, "", []):
+        return {}
+    if not isinstance(missing_values, dict):
+        raise TypeError("missing_values config must be an object")
+    return dict(missing_values)
+
+
+def _missing_values_enabled(missing_values: dict[str, Any]) -> bool:
+    return bool(
+        missing_values.get("enabled", False)
+        or missing_values.get("keep_nan", False)
+        or missing_values.get("min_available_factors") is not None
+        or missing_values.get("add_valid_count_features", False)
+        or missing_values.get("valid_count_features")
+    )
+
+
+def _coerce_factor_list(value: Any, *, field: str) -> list[str]:
+    if isinstance(value, str):
+        text = value.strip()
+        return [text] if text else []
+    if isinstance(value, Iterable):
+        out = [str(v).strip() for v in value if str(v).strip()]
+        return out
+    raise TypeError(f"{field} must be a string or list of strings")
+
+
+def _default_missing_count_kind(name: str) -> str:
+    lowered = name.strip().lower()
+    if lowered.endswith("_missing_count") or "missing_count" in lowered:
+        return "missing_count"
+    return "valid_count"
+
+
+def _iter_missing_feature_specs(
+    missing_values: dict[str, Any],
+    raw_factor_cols: list[str],
+) -> list[tuple[str, str, list[str]]]:
+    if not _missing_values_enabled(missing_values):
+        return []
+    if not (
+        bool(missing_values.get("add_valid_count_features", False))
+        or missing_values.get("valid_count_features")
+    ):
+        return []
+
+    raw_specs = missing_values.get("valid_count_features")
+    if raw_specs in (None, "", []):
+        raw_specs = {"factor_valid_count": {"columns": "__all__", "kind": "valid_count"}}
+
+    items: list[tuple[str, Any]]
+    if isinstance(raw_specs, dict):
+        items = [(str(k).strip(), v) for k, v in raw_specs.items()]
+    elif isinstance(raw_specs, list):
+        items = []
+        for spec in raw_specs:
+            if not isinstance(spec, dict):
+                raise TypeError("missing_values.valid_count_features list entries must be objects")
+            name = str(spec.get("name", "")).strip()
+            items.append((name, spec))
+    else:
+        raise TypeError("missing_values.valid_count_features must be an object or list")
+
+    out: list[tuple[str, str, list[str]]] = []
+    for name, spec in items:
+        if not name:
+            raise ValueError("missing count feature name must be non-empty")
+        if spec is False or spec in (None, "", []):
+            continue
+        kind = _default_missing_count_kind(name)
+        columns_value: Any = "__all__"
+        if isinstance(spec, dict):
+            if not bool(spec.get("enabled", True)):
+                continue
+            kind = str(spec.get("kind", spec.get("mode", kind))).strip().lower()
+            columns_value = spec.get(
+                "columns",
+                spec.get("factors", spec.get("source_factors", "__all__")),
+            )
+        elif spec is True:
+            columns_value = "__all__"
+        else:
+            columns_value = spec
+        if kind not in {"valid_count", "missing_count"}:
+            raise ValueError(f"unsupported missing count feature kind: {kind}")
+        if isinstance(columns_value, str) and columns_value.strip().lower() in {"__all__", "all"}:
+            source_cols = list(raw_factor_cols)
+        else:
+            source_cols = _coerce_factor_list(columns_value, field=f"missing feature {name}.columns")
+        if not source_cols:
+            raise ValueError(f"missing count feature has no source columns: {name}")
+        out.append((name, kind, source_cols))
+    return out
+
+
+def missing_value_feature_columns(missing_values: dict[str, Any] | None) -> list[str]:
+    cfg = _normalise_missing_values_config(missing_values)
+    if not _missing_values_enabled(cfg):
+        return []
+    raw_specs = cfg.get("valid_count_features")
+    if not (bool(cfg.get("add_valid_count_features", False)) or raw_specs):
+        return []
+    if raw_specs in (None, "", []):
+        return ["factor_valid_count"]
+    if isinstance(raw_specs, dict):
+        out: list[str] = []
+        for name, spec in raw_specs.items():
+            feature_name = str(name).strip()
+            if not feature_name or spec is False or spec in (None, "", []):
+                continue
+            if isinstance(spec, dict) and not bool(spec.get("enabled", True)):
+                continue
+            out.append(feature_name)
+        return out
+    if isinstance(raw_specs, list):
+        names: list[str] = []
+        for spec in raw_specs:
+            if not isinstance(spec, dict):
+                raise TypeError("missing_values.valid_count_features list entries must be objects")
+            if not bool(spec.get("enabled", True)):
+                continue
+            name = str(spec.get("name", "")).strip()
+            if name:
+                names.append(name)
+        return names
+    raise TypeError("missing_values.valid_count_features must be an object or list")
+
+
+def _add_missing_value_features(
+    df: pd.DataFrame,
+    specs: list[tuple[str, str, list[str]]],
+) -> pd.DataFrame:
+    if not specs:
+        return df
+    work = df.copy()
+    for name, kind, source_cols in specs:
+        missing_source_cols = [c for c in source_cols if c not in work.columns]
+        if missing_source_cols:
+            raise KeyError(f"missing count feature {name} source columns not found: {missing_source_cols}")
+        valid_count = work[source_cols].notna().sum(axis=1).astype(float)
+        if kind == "valid_count":
+            work[name] = valid_count
+        else:
+            work[name] = float(len(source_cols)) - valid_count
+    return work
+
+
+def _resolve_standardization_config(
+    standardization: dict[str, Any] | None,
+    *,
+    legacy_zscore: bool,
+) -> dict[str, Any]:
+    if standardization is None:
+        return {
+            "enabled": bool(legacy_zscore),
+            "method": "zscore" if legacy_zscore else "none",
+            "mad_scale": 1.4826,
+            "robust_fallback": "std",
+            "tanh_scale": 3.0,
+        }
+    if not isinstance(standardization, dict):
+        raise TypeError("standardization config must be an object")
+
+    enabled = bool(standardization.get("enabled", True))
+    method = str(standardization.get("method", "zscore")).strip().lower()
+    aliases = {
+        "off": "none",
+        "false": "none",
+        "disabled": "none",
+        "rank": "rank_pct_centered",
+        "rank_pct": "rank_pct_centered",
+        "rank_pct_center": "rank_pct_centered",
+        "robust": "robust_zscore",
+        "robust_z": "robust_zscore",
+        "tanh": "tanh_zscore",
+        "tanh_z": "tanh_zscore",
+    }
+    method = aliases.get(method, method)
+    if not enabled:
+        method = "none"
+    if method not in {"none", "zscore", "rank_pct_centered", "robust_zscore", "tanh_zscore"}:
+        raise ValueError(f"unsupported standardization.method: {method}")
+
+    groupby = str(standardization.get("groupby", "dt")).strip().lower()
+    if groupby != "dt":
+        raise ValueError("standardization.groupby currently only supports 'dt'")
+    stage = str(standardization.get("stage", "after_neutralization")).strip().lower()
+    if stage not in {"after_neutralization", "post_neutralization"}:
+        raise ValueError("standardization.stage currently only supports 'after_neutralization'")
+
+    robust_cfg = standardization.get("robust", {})
+    if robust_cfg is None:
+        robust_cfg = {}
+    if not isinstance(robust_cfg, dict):
+        raise TypeError("standardization.robust must be an object")
+    tanh_cfg = standardization.get("tanh", {})
+    if tanh_cfg is None:
+        tanh_cfg = {}
+    if not isinstance(tanh_cfg, dict):
+        raise TypeError("standardization.tanh must be an object")
+
+    return {
+        "enabled": method != "none",
+        "method": method,
+        "mad_scale": float(robust_cfg.get("mad_scale", 1.4826)),
+        "robust_fallback": str(robust_cfg.get("fallback", "std")).strip().lower(),
+        "tanh_scale": float(tanh_cfg.get("scale", 3.0)),
+    }
 
 
 def _iter_existing_label_days(label_root: Path, start: date, end: date) -> Iterable[date]:
@@ -175,13 +386,10 @@ def _split_days(days: list[date], train_ratio: float, val_ratio: float) -> tuple
     return train_days, val_days, test_days
 
 
-def _apply_winsor_zscore(
+def _apply_factor_groupwise(
     df: pd.DataFrame,
     factor_cols: list[str],
-    *,
-    lower_q: float | None,
-    upper_q: float | None,
-    zscore: bool,
+    transform,
 ) -> pd.DataFrame:
     def _process(group: pd.DataFrame) -> pd.DataFrame:
         g = group.copy()
@@ -190,21 +398,111 @@ def _apply_winsor_zscore(
             s = g[col]
             if s.isna().all():
                 continue
-            if lower_q is not None or upper_q is not None:
-                lo = s.quantile(lower_q) if lower_q is not None else None
-                hi = s.quantile(upper_q) if upper_q is not None else None
-                s = s.clip(lower=lo, upper=hi)
-            if zscore:
-                mean = s.mean()
-                std = s.std(ddof=0)
-                if std > 0:
-                    s = (s - mean) / std
-                else:
-                    s = s - mean
-            g[col] = s
+            g[col] = transform(s)
         return g
 
     return df.groupby("dt", group_keys=False).apply(_process, include_groups=False)
+
+
+def _zscore_series(s: pd.Series) -> pd.Series:
+    mean = s.mean()
+    std = s.std(ddof=0)
+    if std > 0:
+        return (s - mean) / std
+    return s - mean
+
+
+def _robust_zscore_series(s: pd.Series, *, mad_scale: float, fallback: str) -> pd.Series:
+    median = s.median()
+    mad = (s - median).abs().median()
+    scale = mad_scale * mad
+    if scale > 0:
+        return (s - median) / scale
+    if fallback in {"std", "zscore"}:
+        return _zscore_series(s)
+    if fallback in {"center", "demean"}:
+        return s - median
+    if fallback == "zero":
+        return s * 0.0
+    raise ValueError(f"unsupported robust_zscore fallback: {fallback}")
+
+
+def _apply_winsor_only(
+    df: pd.DataFrame,
+    factor_cols: list[str],
+    *,
+    lower_q: float | None,
+    upper_q: float | None,
+) -> pd.DataFrame:
+    if lower_q is None and upper_q is None:
+        return df
+
+    def _clip(s: pd.Series) -> pd.Series:
+        lo = s.quantile(lower_q) if lower_q is not None else None
+        hi = s.quantile(upper_q) if upper_q is not None else None
+        return s.clip(lower=lo, upper=hi)
+
+    return _apply_factor_groupwise(df, factor_cols, _clip)
+
+
+def _apply_standardization(
+    df: pd.DataFrame,
+    factor_cols: list[str],
+    config: dict[str, Any],
+) -> pd.DataFrame:
+    method = str(config.get("method", "none"))
+    if method == "none" or not bool(config.get("enabled", False)):
+        return df
+    if method == "zscore":
+        return _apply_factor_groupwise(df, factor_cols, _zscore_series)
+    if method == "rank_pct_centered":
+        return _apply_factor_groupwise(
+            df,
+            factor_cols,
+            lambda s: 2.0 * s.rank(pct=True, method="average") - 1.0,
+        )
+    if method == "robust_zscore":
+        mad_scale = float(config.get("mad_scale", 1.4826))
+        fallback = str(config.get("robust_fallback", "std")).strip().lower()
+        return _apply_factor_groupwise(
+            df,
+            factor_cols,
+            lambda s: _robust_zscore_series(s, mad_scale=mad_scale, fallback=fallback),
+        )
+    if method == "tanh_zscore":
+        scale = float(config.get("tanh_scale", 3.0))
+        if scale <= 0:
+            raise ValueError("standardization.tanh.scale must be > 0")
+
+        def _tanh(s: pd.Series) -> pd.Series:
+            z = _zscore_series(s)
+            return pd.Series(np.tanh(z.to_numpy(dtype=float) / scale), index=s.index)
+
+        return _apply_factor_groupwise(df, factor_cols, _tanh)
+    raise ValueError(f"unsupported standardization.method: {method}")
+
+
+def _apply_winsor_zscore(
+    df: pd.DataFrame,
+    factor_cols: list[str],
+    *,
+    lower_q: float | None,
+    upper_q: float | None,
+    zscore: bool,
+) -> pd.DataFrame:
+    work = _apply_winsor_only(
+        df,
+        factor_cols,
+        lower_q=lower_q,
+        upper_q=upper_q,
+    )
+    if zscore:
+        work = _apply_standardization(
+            work,
+            factor_cols,
+            {"enabled": True, "method": "zscore"},
+        )
+    return work
 
 
 def _apply_factor_preprocess(
@@ -215,34 +513,29 @@ def _apply_factor_preprocess(
     upper_q: float | None,
     zscore: bool,
     neutralizer: FactorNeutralizer | None = None,
+    standardization: dict[str, Any] | None = None,
 ) -> pd.DataFrame:
-    if neutralizer is None or not neutralizer.enabled:
-        return _apply_winsor_zscore(
-            df,
-            factor_cols,
-            lower_q=lower_q,
-            upper_q=upper_q,
-            zscore=zscore,
-        )
-    work = df
-    if lower_q is not None or upper_q is not None:
-        work = _apply_winsor_zscore(
-            work,
-            factor_cols,
-            lower_q=lower_q,
-            upper_q=upper_q,
-            zscore=False,
-        )
-    work = neutralizer.apply(work, factor_cols)
-    if zscore:
-        work = _apply_winsor_zscore(
-            work,
-            factor_cols,
-            lower_q=None,
-            upper_q=None,
-            zscore=True,
-        )
-    return work
+    standardization_cfg = _resolve_standardization_config(
+        standardization,
+        legacy_zscore=zscore,
+    )
+    work = _apply_winsor_only(
+        df,
+        factor_cols,
+        lower_q=lower_q,
+        upper_q=upper_q,
+    )
+    if neutralizer is not None and neutralizer.enabled:
+        work = neutralizer.apply(work, factor_cols)
+    return _apply_standardization(work, factor_cols, standardization_cfg)
+
+
+def describe_standardization(
+    standardization: dict[str, Any] | None,
+    *,
+    legacy_zscore: bool,
+) -> dict[str, Any]:
+    return _resolve_standardization_config(standardization, legacy_zscore=legacy_zscore)
 
 
 def build_dataset(
@@ -261,7 +554,26 @@ def build_dataset(
     tradable_code_map: dict[date, set[str]] | None = None,
     tradable_strict: bool = False,
     neutralizer: FactorNeutralizer | None = None,
+    factor_aliases: dict[str, str] | None = None,
+    standardization: dict[str, Any] | None = None,
+    raw_factor_cols: list[str] | None = None,
+    preprocess_factor_cols: list[str] | None = None,
+    missing_values: dict[str, Any] | None = None,
 ) -> SplitData:
+    aliases = {str(k): str(v) for k, v in (factor_aliases or {}).items()}
+    raw_cols = list(raw_factor_cols or factor_cols)
+    preprocess_cols = list(preprocess_factor_cols or factor_cols)
+    missing_cfg = _normalise_missing_values_config(missing_values)
+    missing_enabled = _missing_values_enabled(missing_cfg)
+    keep_nan = bool(missing_cfg.get("keep_nan", missing_enabled))
+    min_available_raw = missing_cfg.get("min_available_factors")
+    min_available_factors = int(min_available_raw) if min_available_raw is not None else len(raw_cols)
+    if missing_enabled and (min_available_factors < 0 or min_available_factors > len(raw_cols)):
+        raise ValueError(
+            "missing_values.min_available_factors must be between 0 and the number "
+            f"of raw factors ({len(raw_cols)})"
+        )
+    missing_feature_specs = _iter_missing_feature_specs(missing_cfg, raw_cols)
     frames: list[pd.DataFrame] = []
     for day in days:
         fdf = factor_store.read_day(day)
@@ -270,9 +582,14 @@ def build_dataset(
         if not isinstance(fdf.index, pd.MultiIndex):
             fdf = fdf.reset_index().set_index(["dt", "code"])
         fdf = fdf.reset_index()
+        missing_alias_sources = [source for source in aliases.values() if source not in fdf.columns]
+        if missing_alias_sources:
+            continue
+        for alias, source in aliases.items():
+            fdf[alias] = fdf[source]
         # Backward compatibility: old factor files may miss newly added columns.
         # Skip these days instead of raising KeyError in dropna(subset=...).
-        missing_cols = [c for c in factor_cols if c not in fdf.columns]
+        missing_cols = [c for c in raw_cols if c not in fdf.columns]
         if missing_cols:
             continue
         label_df = _read_label_day(label_root, day, factor_time=factor_time, label_time=label_time)
@@ -297,7 +614,21 @@ def build_dataset(
                 merged = merged[merged["code"].astype(str).isin(allowed_codes)]
                 if merged.empty:
                     continue
-        if require_label:
+        if missing_enabled:
+            available_count = merged[raw_cols].notna().sum(axis=1)
+            merged = merged[available_count >= min_available_factors]
+            if merged.empty:
+                continue
+            merged = _add_missing_value_features(merged, missing_feature_specs)
+            missing_model_cols = [c for c in factor_cols if c not in merged.columns]
+            if missing_model_cols:
+                raise KeyError(f"model feature columns not found after missing feature processing: {missing_model_cols}")
+            if require_label:
+                merged = merged.dropna(subset=["y"])
+            if not keep_nan:
+                drop_subset = list(factor_cols) + (["y"] if require_label else [])
+                merged = merged.dropna(subset=drop_subset)
+        elif require_label:
             merged = merged.dropna(subset=factor_cols + ["y"])
         else:
             merged = merged.dropna(subset=factor_cols)
@@ -316,11 +647,12 @@ def build_dataset(
     data = pd.concat(frames, ignore_index=True)
     data = _apply_factor_preprocess(
         data,
-        factor_cols,
+        preprocess_cols,
         lower_q=winsor_lower,
         upper_q=winsor_upper,
         zscore=zscore,
         neutralizer=neutralizer,
+        standardization=standardization,
     )
     return SplitData(
         x=data[factor_cols].copy(),

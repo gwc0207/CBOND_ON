@@ -1,0 +1,21 @@
+{
+  start: "2025-01-01",
+  end: "2026-05-11",
+  batch_id: "Backtest_lgbm_dup54_202501_20260511",
+  score_source: {
+    model_id: "lgbm_screened_no_winsor_neutral_dup54"
+  },
+  strategy_id: "strategy01_topk_turnover",
+  strategy_config_path: "strategies/strategy01/strategy01",
+  buy_twap_col: "twap_1442_1457",
+  sell_twap_col: "twap_0930_0939",
+  allowlist: {
+    enabled: true,
+    table: "quant_factor_dev.researcher_xuvb.o_0005",
+    lag_trading_days: 1,
+    asset: "cbond",
+    flag_field: "factor_value",
+    fallback_field: "weight",
+    threshold: 0.0
+  }
+}

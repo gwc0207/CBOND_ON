@@ -1,0 +1,14 @@
+{
+  modules: ["models/lgbm/lgbm_screened_no_winsor_neutral_exact_dedup25"],
+
+  model_name: "lgbm_screened_no_winsor_neutral_exact_dedup25_colsample1",
+  score_output: {
+    windows: "D:/cbond_on/results/scores/lgbm_screened_no_winsor_neutral_exact_dedup25_colsample1",
+    linux: "/home/gswzif/cbond_on_runtime/results/scores/lgbm_screened_no_winsor_neutral_exact_dedup25_colsample1"
+  },
+
+  // Experiment A4: remove the exact Sharpe duplicates and remove feature-column sampling.
+  lgbm_params: {
+    colsample_bytree: 1.0,
+  },
+}

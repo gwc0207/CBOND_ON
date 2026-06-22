@@ -1,0 +1,29 @@
+{
+  modules: ["models/lgbm/lgbm_screened_no_winsor_neutral_v1"],
+
+  model_name: "lgbm_screened_no_winsor_neutral_tail27_v1",
+  score_output: {
+    windows: "D:/cbond_on/results/scores/lgbm_screened_no_winsor_neutral_tail27_v1",
+    linux: "/home/gswzif/cbond_on_runtime/results/scores/lgbm_screened_no_winsor_neutral_tail27_v1"
+  },
+  score_overwrite: false,
+  incremental: {
+    enabled: true,
+    skip_existing_scores: true,
+    warm_start: true,
+    save_state: true
+  },
+
+  tail_features: {
+    enabled: true,
+    groupby: "dt",
+    source_factors: "all",
+    min_count: 30,
+    features: [
+      { kind: "rank_pct", suffix: "__rank_pct" },
+      { kind: "upper_tail_flag", upper_q: 0.9, suffix: "__top10" },
+      { kind: "lower_tail_flag", lower_q: 0.1, suffix: "__bottom10" },
+      { kind: "tail_strength", lower_q: 0.1, upper_q: 0.9, suffix: "__tail10_strength" },
+    ],
+  },
+}

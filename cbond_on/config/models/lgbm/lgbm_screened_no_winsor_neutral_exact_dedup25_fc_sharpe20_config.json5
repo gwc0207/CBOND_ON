@@ -1,0 +1,25 @@
+{
+  modules: ["models/lgbm/lgbm_screened_no_winsor_neutral_exact_dedup25"],
+
+  model_name: "lgbm_screened_no_winsor_neutral_exact_dedup25_fc_sharpe20",
+  score_output: {
+    windows: "D:/cbond_on/results/scores/lgbm_screened_no_winsor_neutral_exact_dedup25_fc_sharpe20",
+    linux: "/home/gswzif/cbond_on_runtime/results/scores/lgbm_screened_no_winsor_neutral_exact_dedup25_fc_sharpe20"
+  },
+
+  // Feature contribution experiment: no duplicate Sharpe columns, but upweight the kept representatives.
+  feature_contribution: {
+    enabled: true,
+    default: 1.0,
+    groups: [
+      {
+        name: "dedup_sharpe_representatives",
+        value: 2.0,
+        features: [
+          "daily_sharpe_twap_20d_mean5",
+          "daily_sharpe_twap_5d_mean5"
+        ]
+      }
+    ]
+  },
+}

@@ -2437,6 +2437,7 @@ def run_factor_batch(
         raw_data_root=raw_data_root,
         context_cfg=cfg.get("context"),
         compute_cfg=cfg.get("compute"),
+        tail_features_cfg=cfg.get("tail_features"),
         specs=specs,
     )
 

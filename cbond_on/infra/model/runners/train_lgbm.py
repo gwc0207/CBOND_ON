@@ -6,6 +6,7 @@ import os
 import sys
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
 
@@ -33,11 +34,14 @@ from cbond_on.infra.model.impl.lgbm.trainer import (
     SplitData,
     build_dataset,
     build_tradable_code_map,
+    describe_standardization,
     evaluate_metrics,
+    missing_value_feature_columns,
     train_lgbm,
     _iter_existing_label_days,
     _split_days,
 )
+from cbond_on.infra.factors.tail_features import tail_feature_output_columns, tail_features_enabled
 
 
 def _load_model_config(path: Path | None) -> dict:
@@ -46,12 +50,138 @@ def _load_model_config(path: Path | None) -> dict:
     return load_config_file(path)
 
 
-def _select_factor_cols(sample: pd.DataFrame, cfg: dict) -> list[str]:
+def _parse_factor_aliases(cfg: dict) -> dict[str, str]:
+    raw = cfg.get("factor_aliases", {})
+    if raw in (None, "", []):
+        return {}
+    if not isinstance(raw, dict):
+        raise TypeError("lgbm config factor_aliases must be an object: {alias: source}")
+    aliases: dict[str, str] = {}
+    for alias_raw, source_raw in raw.items():
+        alias = str(alias_raw or "").strip()
+        source = str(source_raw or "").strip()
+        if not alias or not source:
+            raise ValueError("lgbm config factor_aliases entries must have non-empty alias and source")
+        if alias == source:
+            raise ValueError(f"lgbm config factor_aliases alias must differ from source: {alias}")
+        aliases[alias] = source
+    return aliases
+
+
+def _select_factor_cols(sample: pd.DataFrame, cfg: dict, factor_aliases: dict[str, str] | None = None) -> list[str]:
     cols = cfg.get("factors")
     if cols:
-        return [str(c) for c in cols]
-    exclude = {"dt", "code"}
-    return [c for c in sample.columns if c not in exclude]
+        base = [str(c) for c in cols]
+    else:
+        exclude = {"dt", "code"}
+        base = [c for c in sample.columns if c not in exclude]
+    extra = [str(c) for c in (cfg.get("extra_factors") or []) if str(c).strip()]
+    if tail_features_enabled(cfg.get("tail_features")):
+        extra.extend(
+            tail_feature_output_columns(
+                cfg.get("tail_features"),
+                source_columns=base,
+            )
+        )
+    seen: set[str] = set()
+    out: list[str] = []
+    for col in [*base, *extra, *list((factor_aliases or {}).keys())]:
+        if col in seen:
+            continue
+        seen.add(col)
+        out.append(col)
+    return out
+
+
+def _resolve_missing_values_config(cfg: dict) -> dict:
+    fe_cfg = cfg.get("feature_engineering", {})
+    if fe_cfg is None:
+        fe_cfg = {}
+    if not isinstance(fe_cfg, dict):
+        raise TypeError("feature_engineering must be an object")
+    raw = fe_cfg.get("missing_values", cfg.get("missing_values", {}))
+    if raw in (None, "", []):
+        return {}
+    if not isinstance(raw, dict):
+        raise TypeError("missing_values must be an object")
+    return dict(raw)
+
+
+def _resolve_feature_contribution_config(cfg: dict) -> dict:
+    fe_cfg = cfg.get("feature_engineering", {})
+    if fe_cfg is None:
+        fe_cfg = {}
+    if not isinstance(fe_cfg, dict):
+        raise TypeError("feature_engineering must be an object")
+    raw = fe_cfg.get("feature_contribution", cfg.get("feature_contribution", {}))
+    if raw in (None, "", []):
+        return {}
+    if not isinstance(raw, dict):
+        raise TypeError("feature_contribution must be an object")
+    return dict(raw)
+
+
+def _iter_feature_contribution_entries(contribution_cfg: dict) -> list[tuple[str, float]]:
+    entries: list[tuple[str, float]] = []
+    for name, value in (contribution_cfg.get("values") or {}).items():
+        entries.append((str(name), float(value)))
+    for group in contribution_cfg.get("groups") or []:
+        if not isinstance(group, dict):
+            raise TypeError("feature_contribution.groups entries must be objects")
+        value = float(group.get("value", contribution_cfg.get("default", 1.0)))
+        for name in group.get("features") or []:
+            entries.append((str(name), value))
+    return entries
+
+
+def _feature_contribution_values(feature_cols: list[str], contribution_cfg: dict) -> list[float] | None:
+    if not contribution_cfg or not bool(contribution_cfg.get("enabled", True)):
+        return None
+    default = float(contribution_cfg.get("default", 1.0))
+    by_name: dict[str, float] = {}
+    for name, value in _iter_feature_contribution_entries(contribution_cfg):
+        if not np.isfinite(value) or value < 0:
+            raise ValueError(f"feature_contribution value must be finite and >= 0: {name}={value}")
+        by_name[name] = value
+    if not np.isfinite(default) or default < 0:
+        raise ValueError(f"feature_contribution default must be finite and >= 0: {default}")
+    return [float(by_name.get(col, default)) for col in feature_cols]
+
+
+def _feature_contribution_summary(feature_cols: list[str], contribution_cfg: dict) -> dict:
+    values = _feature_contribution_values(feature_cols, contribution_cfg)
+    if values is None:
+        return {"enabled": False, "default": 1.0, "weighted_count": 0, "missing_features": []}
+    default = float(contribution_cfg.get("default", 1.0))
+    feature_set = set(feature_cols)
+    configured = [name for name, _ in _iter_feature_contribution_entries(contribution_cfg)]
+    missing = sorted({name for name in configured if name not in feature_set})
+    weighted = [col for col, value in zip(feature_cols, values, strict=True) if abs(float(value) - default) > 1e-12]
+    return {
+        "enabled": True,
+        "default": default,
+        "weighted_count": len(weighted),
+        "missing_features": missing,
+        "min": float(min(values)) if values else default,
+        "max": float(max(values)) if values else default,
+    }
+
+
+def _with_feature_contribution_params(
+    lgbm_params: dict,
+    feature_cols: list[str],
+    contribution_cfg: dict,
+) -> dict:
+    params = dict(lgbm_params)
+    values = _feature_contribution_values(feature_cols, contribution_cfg)
+    if values is None:
+        return params
+    if "feature_contri" in params or "feature_penalty" in params:
+        raise ValueError(
+            "Set feature_contribution at model config level, not lgbm_params.feature_contri/feature_penalty"
+        )
+    params["feature_contri"] = values
+    return params
 
 
 def _format_bins(bin_dir: list[tuple[int, float, int]]) -> str:
@@ -114,12 +244,231 @@ def _concat_split_data(parts: list[SplitData], factor_cols: list[str]) -> SplitD
     return SplitData(x=x, y=y, dt=dt, code=code)
 
 
+@dataclass
+class _PcaGroupModel:
+    name: str
+    input_cols: list[str]
+    output_cols: list[str]
+    fill_values: pd.Series
+    center: np.ndarray
+    components: np.ndarray
+    explained_variance_ratio: list[float]
+
+
+@dataclass
+class _PcaFeatureTransformer:
+    mode: str
+    original_cols: list[str]
+    output_cols: list[str]
+    remove_cols: set[str]
+    groups: list[_PcaGroupModel]
+
+    @property
+    def feature_cols(self) -> list[str]:
+        if self.mode == "replace":
+            return [c for c in self.original_cols if c not in self.remove_cols] + self.output_cols
+        return self.original_cols + self.output_cols
+
+
+def _resolve_pca_feature_config(cfg: dict, factor_cols: list[str]) -> dict:
+    fe_cfg = cfg.get("feature_engineering", {})
+    if fe_cfg is None:
+        fe_cfg = {}
+    if not isinstance(fe_cfg, dict):
+        raise TypeError("feature_engineering must be an object")
+    raw = fe_cfg.get("pca", cfg.get("pca_features", {}))
+    if raw in (None, "", []):
+        raw = {}
+    if not isinstance(raw, dict):
+        raise TypeError("feature_engineering.pca must be an object")
+    enabled = bool(raw.get("enabled", False))
+    mode = str(raw.get("mode", "append")).strip().lower()
+    if mode not in {"append", "replace"}:
+        raise ValueError("feature_engineering.pca.mode must be append or replace")
+    groups_raw = raw.get("groups", [])
+    if groups_raw is None:
+        groups_raw = []
+    if not isinstance(groups_raw, list):
+        raise TypeError("feature_engineering.pca.groups must be a list")
+
+    known_cols = set(factor_cols)
+    groups: list[dict] = []
+    for idx, item in enumerate(groups_raw, start=1):
+        if not isinstance(item, dict):
+            raise TypeError("feature_engineering.pca.groups entries must be objects")
+        name = str(item.get("name", f"group{idx}")).strip()
+        if not name:
+            raise ValueError("feature_engineering.pca group name must be non-empty")
+        cols = [str(c).strip() for c in item.get("factors", []) if str(c).strip()]
+        if not cols:
+            raise ValueError(f"feature_engineering.pca group {name} has no factors")
+        missing = [c for c in cols if c not in known_cols]
+        if missing:
+            raise ValueError(f"feature_engineering.pca group {name} missing factors: {missing}")
+        n_components = int(item.get("n_components", 1))
+        if n_components <= 0:
+            raise ValueError(f"feature_engineering.pca group {name} n_components must be > 0")
+        if n_components > len(cols):
+            raise ValueError(
+                f"feature_engineering.pca group {name} n_components={n_components} "
+                f"> factor_count={len(cols)}"
+            )
+        min_features = int(item.get("min_features", n_components))
+        if len(cols) < min_features:
+            raise ValueError(
+                f"feature_engineering.pca group {name} factor_count={len(cols)} "
+                f"< min_features={min_features}"
+            )
+        groups.append(
+            {
+                "name": name,
+                "factors": cols,
+                "n_components": n_components,
+                "fillna": str(item.get("fillna", raw.get("fillna", "median"))).strip().lower(),
+                "center": bool(item.get("center", raw.get("center", True))),
+            }
+        )
+    return {
+        "enabled": enabled,
+        "mode": mode,
+        "groups": groups,
+    }
+
+
+def _preview_pca_feature_cols(factor_cols: list[str], pca_cfg: dict) -> list[str]:
+    if not bool(pca_cfg.get("enabled", False)):
+        return list(factor_cols)
+    output_cols: list[str] = []
+    remove_cols: set[str] = set()
+    for group in pca_cfg.get("groups", []):
+        name = str(group["name"])
+        n_components = int(group.get("n_components", 1))
+        output_cols.extend([f"pca_{name}_pc{i}" for i in range(1, n_components + 1)])
+        remove_cols.update(str(c) for c in group.get("factors", []))
+    if str(pca_cfg.get("mode", "append")) == "replace":
+        return [c for c in factor_cols if c not in remove_cols] + output_cols
+    return list(factor_cols) + output_cols
+
+
+def _pca_fill_values(x: pd.DataFrame, cols: list[str], fillna: str) -> pd.Series:
+    if fillna == "median":
+        return x[cols].median(axis=0, skipna=True).fillna(0.0)
+    if fillna == "mean":
+        return x[cols].mean(axis=0, skipna=True).fillna(0.0)
+    if fillna == "zero":
+        return pd.Series(0.0, index=cols)
+    raise ValueError(f"unsupported feature_engineering.pca fillna: {fillna}")
+
+
+def _fit_pca_feature_transformer(train_x: pd.DataFrame, pca_cfg: dict) -> _PcaFeatureTransformer | None:
+    if not bool(pca_cfg.get("enabled", False)):
+        return None
+    if train_x.empty:
+        raise ValueError("cannot fit PCA features on empty training data")
+
+    original_cols = list(train_x.columns)
+    mode = str(pca_cfg.get("mode", "append"))
+    group_models: list[_PcaGroupModel] = []
+    all_output_cols: list[str] = []
+    remove_cols: set[str] = set()
+    for group in pca_cfg.get("groups", []):
+        name = str(group["name"])
+        input_cols = [str(c) for c in group["factors"]]
+        n_components = int(group.get("n_components", 1))
+        fill_values = _pca_fill_values(train_x, input_cols, str(group.get("fillna", "median")))
+        mat = train_x[input_cols].astype(float).fillna(fill_values).to_numpy(dtype=float)
+        center = mat.mean(axis=0) if bool(group.get("center", True)) else np.zeros(len(input_cols), dtype=float)
+        work = mat - center
+        if work.shape[0] < 2:
+            raise ValueError(f"cannot fit PCA group {name}: less than 2 training rows")
+        _, singular_values, vt = np.linalg.svd(work, full_matrices=False)
+        if vt.shape[0] < n_components:
+            raise ValueError(
+                f"cannot fit PCA group {name}: available_components={vt.shape[0]} "
+                f"< requested={n_components}"
+            )
+        components = vt[:n_components].copy()
+        for i in range(components.shape[0]):
+            anchor = int(np.argmax(np.abs(components[i])))
+            if components[i, anchor] < 0:
+                components[i] *= -1.0
+        variances = singular_values ** 2
+        total_variance = float(np.sum(variances))
+        ratios = (
+            (variances[:n_components] / total_variance).astype(float).tolist()
+            if total_variance > 0
+            else [0.0 for _ in range(n_components)]
+        )
+        output_cols = [f"pca_{name}_pc{i}" for i in range(1, n_components + 1)]
+        all_output_cols.extend(output_cols)
+        remove_cols.update(input_cols)
+        group_models.append(
+            _PcaGroupModel(
+                name=name,
+                input_cols=input_cols,
+                output_cols=output_cols,
+                fill_values=fill_values,
+                center=center,
+                components=components,
+                explained_variance_ratio=[float(v) for v in ratios],
+            )
+        )
+    return _PcaFeatureTransformer(
+        mode=mode,
+        original_cols=original_cols,
+        output_cols=all_output_cols,
+        remove_cols=remove_cols,
+        groups=group_models,
+    )
+
+
+def _apply_pca_feature_transformer(
+    split: SplitData,
+    transformer: _PcaFeatureTransformer | None,
+) -> SplitData:
+    if transformer is None:
+        return split
+    x = split.x.copy()
+    for group in transformer.groups:
+        mat = (
+            x[group.input_cols]
+            .astype(float)
+            .fillna(group.fill_values)
+            .to_numpy(dtype=float)
+        )
+        scores = (mat - group.center) @ group.components.T
+        for idx, col in enumerate(group.output_cols):
+            x[col] = scores[:, idx]
+    x = x[transformer.feature_cols].copy()
+    return SplitData(x=x, y=split.y, dt=split.dt, code=split.code)
+
+
+def _pca_transformer_summary(transformer: _PcaFeatureTransformer | None) -> list[dict]:
+    if transformer is None:
+        return []
+    rows: list[dict] = []
+    for group in transformer.groups:
+        for idx, ratio in enumerate(group.explained_variance_ratio, start=1):
+            rows.append(
+                {
+                    "group": group.name,
+                    "component": idx,
+                    "explained_variance_ratio": float(ratio),
+                    "input_count": int(len(group.input_cols)),
+                    "output_col": group.output_cols[idx - 1],
+                }
+            )
+    return rows
+
+
 def _build_daily_split_cache(
     *,
     days: list[date],
     factor_store: FactorStore,
     label_root: Path,
     factor_cols: list[str],
+    raw_factor_cols: list[str] | None,
+    preprocess_factor_cols: list[str] | None,
     min_count: int,
     winsor_lower: float | None,
     winsor_upper: float | None,
@@ -130,6 +479,9 @@ def _build_daily_split_cache(
     tradable_code_map: dict[date, set[str]] | None,
     tradable_strict: bool,
     neutralizer,
+    factor_aliases: dict[str, str] | None = None,
+    standardization: dict | None = None,
+    missing_values: dict | None = None,
 ) -> dict[date, SplitData]:
     cache: dict[date, SplitData] = {}
     total = len(days)
@@ -139,6 +491,8 @@ def _build_daily_split_cache(
             label_root=label_root,
             days=[day],
             factor_cols=factor_cols,
+            raw_factor_cols=raw_factor_cols,
+            preprocess_factor_cols=preprocess_factor_cols,
             min_count=min_count,
             winsor_lower=winsor_lower,
             winsor_upper=winsor_upper,
@@ -149,6 +503,9 @@ def _build_daily_split_cache(
             tradable_code_map=tradable_code_map,
             tradable_strict=tradable_strict,
             neutralizer=neutralizer,
+            factor_aliases=factor_aliases,
+            standardization=standardization,
+            missing_values=missing_values,
         )
         if not split.x.empty:
             cache[day] = split
@@ -455,13 +812,67 @@ def main(
         raise RuntimeError("no factor data found")
     if isinstance(sample.index, pd.MultiIndex):
         sample = sample.reset_index()
-    factor_cols = _select_factor_cols(sample, cfg)
+    factor_aliases = _parse_factor_aliases(cfg)
+    raw_factor_cols = _select_factor_cols(sample, cfg, factor_aliases)
+    missing_values = _resolve_missing_values_config(cfg)
+    missing_feature_cols = missing_value_feature_columns(missing_values)
+    factor_cols = list(raw_factor_cols)
+    seen_factor_cols = set(factor_cols)
+    for col in missing_feature_cols:
+        if col in seen_factor_cols:
+            continue
+        factor_cols.append(col)
+        seen_factor_cols.add(col)
+    preprocess_factor_cols = list(raw_factor_cols)
 
     winsor_lower, winsor_upper = parse_winsor_bounds(cfg.get("winsor", {}))
     zscore = bool(cfg.get("zscore", True))
+    standardization = cfg.get("standardization")
+    standardization_summary = describe_standardization(
+        standardization,
+        legacy_zscore=zscore,
+    )
     min_count = int(cfg.get("min_count", 30))
     bins = int(cfg.get("bins", 5))
     neutralizer = build_neutralizer(cfg.get("neutralization"), raw_data_root=raw_root)
+    pca_feature_cfg = _resolve_pca_feature_config(cfg, factor_cols)
+    pca_enabled = bool(pca_feature_cfg.get("enabled", False))
+    model_feature_cols = _preview_pca_feature_cols(factor_cols, pca_feature_cfg)
+    feature_contribution_cfg = _resolve_feature_contribution_config(cfg)
+    feature_contribution_summary = _feature_contribution_summary(model_feature_cols, feature_contribution_cfg)
+    print(
+        "[standardization]",
+        f"enabled={bool(standardization_summary.get('enabled', False))}",
+        f"method={standardization_summary.get('method')}",
+        "stage=after_neutralization",
+    )
+    print(
+        "[pca_features]",
+        f"enabled={pca_enabled}",
+        f"mode={pca_feature_cfg.get('mode')}",
+        f"groups={len(pca_feature_cfg.get('groups', []))}",
+        f"feature_count={len(model_feature_cols)}",
+    )
+    print(
+        "[missing_values]",
+        f"enabled={bool(missing_values)}",
+        f"min_available_factors={missing_values.get('min_available_factors', 'all') if missing_values else 'all'}",
+        f"keep_nan={bool(missing_values.get('keep_nan', False)) if missing_values else False}",
+        f"missing_feature_count={len(missing_feature_cols)}",
+    )
+    print(
+        "[feature_contribution]",
+        f"enabled={bool(feature_contribution_summary.get('enabled', False))}",
+        f"default={feature_contribution_summary.get('default')}",
+        f"weighted_count={feature_contribution_summary.get('weighted_count')}",
+        f"min={feature_contribution_summary.get('min', feature_contribution_summary.get('default'))}",
+        f"max={feature_contribution_summary.get('max', feature_contribution_summary.get('default'))}",
+    )
+    if feature_contribution_summary.get("missing_features"):
+        print(
+            "[feature_contribution] missing configured features:",
+            ",".join(str(x) for x in feature_contribution_summary["missing_features"]),
+        )
 
     lgbm_params = cfg.get("lgbm_params", {})
     grid_cfg = cfg.get("grid_search", {})
@@ -497,7 +908,21 @@ def main(
             "parallel_shards": int(parallel_shards),
             "parallel_shard_index": int(parallel_shard_index),
             "factor_count": int(len(factor_cols)),
+            "model_feature_count": int(len(model_feature_cols)),
             "neutralization_enabled": bool(neutralizer is not None and neutralizer.enabled),
+            "standardization_enabled": bool(standardization_summary.get("enabled", False)),
+            "standardization_method": str(standardization_summary.get("method", "none")),
+            "pca_features_enabled": bool(pca_enabled),
+            "pca_features_mode": str(pca_feature_cfg.get("mode", "append")),
+            "pca_features_groups": int(len(pca_feature_cfg.get("groups", []))),
+            "feature_contribution_enabled": bool(feature_contribution_summary.get("enabled", False)),
+            "feature_contribution_weighted_count": int(feature_contribution_summary.get("weighted_count", 0)),
+            "feature_contribution_min": float(
+                feature_contribution_summary.get("min", feature_contribution_summary.get("default", 1.0))
+            ),
+            "feature_contribution_max": float(
+                feature_contribution_summary.get("max", feature_contribution_summary.get("default", 1.0))
+            ),
         },
         prefix="run",
     )
@@ -515,6 +940,9 @@ def main(
     incremental_skip_existing = bool(incremental_cfg.get("skip_existing_scores", True))
     incremental_warm_start = bool(incremental_cfg.get("warm_start", True))
     incremental_save_state = bool(incremental_cfg.get("save_state", True))
+    if pca_enabled and incremental_warm_start:
+        print("[pca_features] disable warm_start because PCA basis is refit per train window")
+        incremental_warm_start = False
     if parallel_shards > 1 and incremental_warm_start:
         print("[rolling] parallel_shards>1: disable warm_start to avoid cross-shard dependency")
         incremental_warm_start = False
@@ -581,7 +1009,7 @@ def main(
         if not target_days:
             print("[rolling] incremental: no pending target days, skip training")
             (out_dir / "config.json").write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
-            (out_dir / "features.json").write_text(json.dumps(factor_cols, ensure_ascii=False, indent=2), encoding="utf-8")
+            (out_dir / "features.json").write_text(json.dumps(model_feature_cols, ensure_ascii=False, indent=2), encoding="utf-8")
             print(f"saved rolling: {out_dir}")
             print(f"saved scores: {score_output}")
             wandb_logger.finish({"status": "no_pending_target_days"})
@@ -619,7 +1047,7 @@ def main(
         if not valid_indices:
             print("[rolling] no target day assigned for this shard, skip training")
             (out_dir / "config.json").write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
-            (out_dir / "features.json").write_text(json.dumps(factor_cols, ensure_ascii=False, indent=2), encoding="utf-8")
+            (out_dir / "features.json").write_text(json.dumps(model_feature_cols, ensure_ascii=False, indent=2), encoding="utf-8")
             print(f"saved rolling: {out_dir}")
             print(f"saved scores: {score_output}")
             wandb_logger.finish({"status": "no_target_for_shard"})
@@ -641,6 +1069,8 @@ def main(
             factor_store=store,
             label_root=label_root,
             factor_cols=factor_cols,
+            raw_factor_cols=raw_factor_cols,
+            preprocess_factor_cols=preprocess_factor_cols,
             min_count=min_count,
             winsor_lower=winsor_lower,
             winsor_upper=winsor_upper,
@@ -651,12 +1081,17 @@ def main(
             tradable_code_map=tradable_code_map,
             tradable_strict=tradable_strict,
             neutralizer=neutralizer,
+            factor_aliases=factor_aliases,
+            standardization=standardization,
+            missing_values=missing_values,
         )
         test_day_cache = _build_daily_split_cache(
             days=test_cache_days,
             factor_store=store,
             label_root=label_root,
             factor_cols=factor_cols,
+            raw_factor_cols=raw_factor_cols,
+            preprocess_factor_cols=preprocess_factor_cols,
             min_count=min_count,
             winsor_lower=winsor_lower,
             winsor_upper=winsor_upper,
@@ -667,6 +1102,9 @@ def main(
             tradable_code_map=tradable_code_map,
             tradable_strict=tradable_strict,
             neutralizer=neutralizer,
+            factor_aliases=factor_aliases,
+            standardization=standardization,
+            missing_values=missing_values,
         )
         print(
             f"[rolling] cache_ready train_cached={len(train_day_cache)} "
@@ -674,10 +1112,12 @@ def main(
         )
         total_rolls = len(valid_indices)
         active_model = None
+        active_pca_transformer: _PcaFeatureTransformer | None = None
         last_refit_pos: int | None = None
         last_refit_day: date | None = None
         all_equal_days: list[date] = []
         insufficient_bin_days: list[date] = []
+        pca_summary_rows: list[dict] = []
         with ThreadPoolExecutor(max_workers=prep_workers, thread_name_prefix="roll_prep") as prep_pool:
             inflight: deque[tuple[int, int, object]] = deque()
             next_pos = 0
@@ -737,6 +1177,15 @@ def main(
                         refit_status = "reuse_empty_train"
                     else:
                         init_model = None
+                        fit_pca_transformer = _fit_pca_feature_transformer(
+                            train_data.x,
+                            pca_feature_cfg,
+                        )
+                        if fit_pca_transformer is not None:
+                            train_data = _apply_pca_feature_transformer(train_data, fit_pca_transformer)
+                            val_data = _apply_pca_feature_transformer(val_data, fit_pca_transformer)
+                            for row in _pca_transformer_summary(fit_pca_transformer):
+                                pca_summary_rows.append({"trade_date": test_day, **row})
                         if incremental_enabled and incremental_warm_start:
                             prev_ckpt = _find_previous_checkpoint(state_dir, test_day)
                             if prev_ckpt is not None:
@@ -746,7 +1195,11 @@ def main(
                             model, params = train_lgbm(
                                 train=train_data,
                                 val=val_data,
-                                lgbm_params=lgbm_params,
+                                lgbm_params=_with_feature_contribution_params(
+                                    lgbm_params,
+                                    list(train_data.x.columns),
+                                    feature_contribution_cfg,
+                                ),
                                 early_stopping_rounds=int(early_rounds) if early_rounds else None,
                                 loss_mode=loss_mode,
                                 init_model=init_model,
@@ -758,7 +1211,11 @@ def main(
                             model, params = train_lgbm(
                                 train=train_data,
                                 val=val_data,
-                                lgbm_params=lgbm_params,
+                                lgbm_params=_with_feature_contribution_params(
+                                    lgbm_params,
+                                    list(train_data.x.columns),
+                                    feature_contribution_cfg,
+                                ),
                                 early_stopping_rounds=int(early_rounds) if early_rounds else None,
                                 loss_mode=loss_mode,
                                 init_model=None,
@@ -771,6 +1228,7 @@ def main(
                                 prefix="iter",
                             )
                         active_model = model
+                        active_pca_transformer = fit_pca_transformer
                         last_refit_pos = roll_idx
                         last_refit_day = test_day
                         refit_status = "refit"
@@ -783,6 +1241,10 @@ def main(
                 if active_model is None:
                     print(f"[rolling] skip {test_day}: no trained model available")
                     continue
+                if pca_enabled:
+                    if active_pca_transformer is None:
+                        raise RuntimeError("PCA features are enabled but no active PCA transformer is available")
+                    test_data = _apply_pca_feature_transformer(test_data, active_pca_transformer)
                 test_pred = active_model.predict(test_data.x)
                 guard_stats = (
                     score_guard_stats(test_pred, equal_tol=score_guard_equal_tol)
@@ -964,8 +1426,10 @@ def main(
             present_guard_cols = [c for c in guard_cols if c in rr.columns]
             if present_guard_cols:
                 rr[present_guard_cols].to_csv(out_dir / "rolling_score_guard.csv", index=False)
+        if pca_summary_rows:
+            pd.DataFrame(pca_summary_rows).to_csv(out_dir / "rolling_pca_features.csv", index=False)
         (out_dir / "config.json").write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
-        (out_dir / "features.json").write_text(json.dumps(factor_cols, ensure_ascii=False, indent=2), encoding="utf-8")
+        (out_dir / "features.json").write_text(json.dumps(model_feature_cols, ensure_ascii=False, indent=2), encoding="utf-8")
         print(f"saved rolling: {out_dir}")
         print(f"saved scores: {score_output}")
         if score_guard_enabled:
@@ -1011,6 +1475,8 @@ def main(
         label_root=label_root,
         days=train_days,
         factor_cols=factor_cols,
+        raw_factor_cols=raw_factor_cols,
+        preprocess_factor_cols=preprocess_factor_cols,
         min_count=min_count,
         winsor_lower=winsor_lower,
         winsor_upper=winsor_upper,
@@ -1020,12 +1486,17 @@ def main(
         tradable_code_map=tradable_code_map,
         tradable_strict=tradable_strict,
         neutralizer=neutralizer,
+        factor_aliases=factor_aliases,
+        standardization=standardization,
+        missing_values=missing_values,
     )
     val_data = build_dataset(
         factor_store=store,
         label_root=label_root,
         days=val_days,
         factor_cols=factor_cols,
+        raw_factor_cols=raw_factor_cols,
+        preprocess_factor_cols=preprocess_factor_cols,
         min_count=min_count,
         winsor_lower=winsor_lower,
         winsor_upper=winsor_upper,
@@ -1035,12 +1506,17 @@ def main(
         tradable_code_map=tradable_code_map,
         tradable_strict=tradable_strict,
         neutralizer=neutralizer,
+        factor_aliases=factor_aliases,
+        standardization=standardization,
+        missing_values=missing_values,
     )
     test_data = build_dataset(
         factor_store=store,
         label_root=label_root,
         days=test_days,
         factor_cols=factor_cols,
+        raw_factor_cols=raw_factor_cols,
+        preprocess_factor_cols=preprocess_factor_cols,
         min_count=min_count,
         winsor_lower=winsor_lower,
         winsor_upper=winsor_upper,
@@ -1050,7 +1526,19 @@ def main(
         tradable_code_map=tradable_code_map,
         tradable_strict=tradable_strict,
         neutralizer=neutralizer,
+        factor_aliases=factor_aliases,
+        standardization=standardization,
+        missing_values=missing_values,
     )
+
+    pca_transformer = _fit_pca_feature_transformer(train_data.x, pca_feature_cfg)
+    if pca_transformer is not None:
+        train_data = _apply_pca_feature_transformer(train_data, pca_transformer)
+        val_data = _apply_pca_feature_transformer(val_data, pca_transformer)
+        test_data = _apply_pca_feature_transformer(test_data, pca_transformer)
+        pca_summary = _pca_transformer_summary(pca_transformer)
+        if pca_summary:
+            pd.DataFrame(pca_summary).to_csv(out_dir / "pca_features.csv", index=False)
 
     model = None
     params = {}
@@ -1088,7 +1576,11 @@ def main(
                         trial_model, trial_meta = train_lgbm(
                             train=train_data,
                             val=val_data,
-                            lgbm_params=trial_params,
+                            lgbm_params=_with_feature_contribution_params(
+                                trial_params,
+                                list(train_data.x.columns),
+                                feature_contribution_cfg,
+                            ),
                             early_stopping_rounds=int(early_rounds) if early_rounds else None,
                             loss_mode=loss_mode,
                         )
@@ -1138,7 +1630,11 @@ def main(
         model, params = train_lgbm(
             train=train_data,
             val=val_data,
-            lgbm_params=lgbm_params,
+            lgbm_params=_with_feature_contribution_params(
+                lgbm_params,
+                list(train_data.x.columns),
+                feature_contribution_cfg,
+            ),
             early_stopping_rounds=int(early_rounds) if early_rounds else None,
             loss_mode=loss_mode,
         )
@@ -1193,7 +1689,7 @@ def main(
         model.booster_.save_model(str(out_dir / "model.txt"))
     # save config and metrics
     (out_dir / "config.json").write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
-    (out_dir / "features.json").write_text(json.dumps(factor_cols, ensure_ascii=False, indent=2), encoding="utf-8")
+    (out_dir / "features.json").write_text(json.dumps(model_feature_cols, ensure_ascii=False, indent=2), encoding="utf-8")
 
     metrics_df = pd.DataFrame([
         {"split": "train", **{k: v for k, v in train_metrics.items() if k != "bin_dir"}},

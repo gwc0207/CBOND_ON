@@ -23,6 +23,11 @@ from cbond_on.domain.factors.compute_backend import (
 )
 from cbond_on.infra.factors.rust_backend import build_factor_frame_rust
 from cbond_on.infra.factors.rust_shm_backend import build_factor_frame_rust_shm
+from cbond_on.infra.factors.tail_features import (
+    compute_tail_features,
+    tail_feature_output_columns,
+    tail_features_enabled,
+)
 from cbond_on.domain.factors.spec import (
     FactorDailyContextRequirement,
     FactorSpec,
@@ -63,6 +68,26 @@ class _DailyTableIndex:
         if idx < 0:
             return None
         return self.paths[idx]
+
+
+def _merge_factor_frames(
+    existing: pd.DataFrame,
+    new_frame: pd.DataFrame,
+    *,
+    refresh: bool,
+    overwrite: bool,
+) -> pd.DataFrame:
+    if refresh or existing.empty:
+        return new_frame.copy()
+    if new_frame.empty:
+        return existing.copy()
+    if overwrite:
+        merged = existing.copy()
+        overlap = [c for c in new_frame.columns if c in merged.columns]
+        if overlap:
+            merged = merged.drop(columns=overlap)
+        return merged.join(new_frame, how="outer")
+    return existing.join(new_frame, how="outer")
 
 
 def _log_day(day: date, message: str) -> None:
@@ -269,6 +294,7 @@ def _build_factor_for_day(
     factor_workers: int,
     compute_backend_params: dict,
     factor_engine: str,
+    tail_features_cfg: dict | None,
 ) -> _FactorDayOutcome:
     t_total = perf_counter()
     _log_day(day, "start")
@@ -294,6 +320,13 @@ def _build_factor_for_day(
     t_existing = perf_counter() - t_existing
     _log_day(day, f"existing_loaded rows={len(existing)} t_existing={t_existing:.2f}s")
 
+    base_factor_cols = [build_factor_col(s) for s in specs]
+    tail_enabled = tail_features_enabled(tail_features_cfg)
+    tail_output_cols = (
+        tail_feature_output_columns(tail_features_cfg, source_columns=base_factor_cols)
+        if tail_enabled
+        else []
+    )
     if refresh:
         to_compute = specs
     elif overwrite:
@@ -304,12 +337,47 @@ def _build_factor_for_day(
         existing_cols = set(existing.columns)
         to_compute = [s for s in specs if build_factor_col(s) not in existing_cols]
 
-    if not to_compute:
+    if tail_enabled:
+        existing_cols = set(existing.columns) if not existing.empty else set()
+        if refresh or overwrite or existing.empty:
+            pending_tail_cols = list(tail_output_cols)
+        else:
+            pending_tail_cols = [c for c in tail_output_cols if c not in existing_cols]
+    else:
+        pending_tail_cols = []
+
+    if not to_compute and not pending_tail_cols:
         _log_day(
             day,
             f"skip reason=no_pending specs_total={len(specs)} t_panel={t_panel:.2f}s t_existing={t_existing:.2f}s total={perf_counter() - t_total:.2f}s",
         )
         return _FactorDayOutcome(skipped=1)
+
+    if not to_compute and pending_tail_cols:
+        t_tail = perf_counter()
+        all_tail_frame = compute_tail_features(
+            existing,
+            tail_features_cfg,
+            source_columns=base_factor_cols,
+        )
+        tail_frame = all_tail_frame[pending_tail_cols]
+        merged = _merge_factor_frames(
+            existing,
+            tail_frame,
+            refresh=False,
+            overwrite=False,
+        )
+        store.write_day(day, merged)
+        _log_day(
+            day,
+            (
+                f"done tail_only wrote=1 existing_rows={len(existing)} "
+                f"tail_cols={len(tail_frame.columns)} total_tail_defined={len(tail_output_cols)} "
+                f"t_panel={t_panel:.2f}s t_existing={t_existing:.2f}s "
+                f"t_tail={perf_counter() - t_tail:.2f}s total={perf_counter() - t_total:.2f}s"
+            ),
+        )
+        return _FactorDayOutcome(written=1)
 
     t_context = perf_counter()
     stock_panel: pd.DataFrame | None = None
@@ -384,41 +452,48 @@ def _build_factor_for_day(
     )
 
     t_compute = perf_counter()
-    _log_day(
-        day,
-        f"compute_start factors={len(to_compute)} factor_workers={factor_workers}",
-    )
-    if factor_engine == "rust":
-        new_frame = build_factor_frame_rust(
-            panel,
-            to_compute,
-            stock_panel=stock_panel,
-            bond_stock_map=bond_stock_map,
-            daily_data=daily_data,
-            compute_backend_params=compute_backend_params,
+    new_frame = pd.DataFrame()
+    if to_compute:
+        _log_day(
+            day,
+            f"compute_start factors={len(to_compute)} factor_workers={factor_workers}",
         )
-    elif factor_engine == "rust_shm_exp":
-        new_frame = build_factor_frame_rust_shm(
-            panel,
-            to_compute,
-            stock_panel=stock_panel,
-            bond_stock_map=bond_stock_map,
-            daily_data=daily_data,
-            compute_backend_params=compute_backend_params,
-            workers=factor_workers,
-        )
+        if factor_engine == "rust":
+            new_frame = build_factor_frame_rust(
+                panel,
+                to_compute,
+                stock_panel=stock_panel,
+                bond_stock_map=bond_stock_map,
+                daily_data=daily_data,
+                compute_backend_params=compute_backend_params,
+            )
+        elif factor_engine == "rust_shm_exp":
+            new_frame = build_factor_frame_rust_shm(
+                panel,
+                to_compute,
+                stock_panel=stock_panel,
+                bond_stock_map=bond_stock_map,
+                daily_data=daily_data,
+                compute_backend_params=compute_backend_params,
+                workers=factor_workers,
+            )
+        else:
+            new_frame = build_factor_frame(
+                panel,
+                to_compute,
+                stock_panel=stock_panel,
+                bond_stock_map=bond_stock_map,
+                daily_data=daily_data,
+                workers=factor_workers,
+                compute_backend_params=compute_backend_params,
+            )
     else:
-        new_frame = build_factor_frame(
-            panel,
-            to_compute,
-            stock_panel=stock_panel,
-            bond_stock_map=bond_stock_map,
-            daily_data=daily_data,
-            workers=factor_workers,
-            compute_backend_params=compute_backend_params,
+        _log_day(
+            day,
+            f"compute_skip reason=tail_only pending_tail_cols={len(pending_tail_cols)}",
         )
     t_compute = perf_counter() - t_compute
-    if new_frame.empty:
+    if new_frame.empty and not pending_tail_cols:
         _log_day(
             day,
             f"skip reason=empty_factor_frame to_compute={len(to_compute)} t_panel={t_panel:.2f}s t_existing={t_existing:.2f}s t_context={t_context:.2f}s t_compute={t_compute:.2f}s total={perf_counter() - t_total:.2f}s",
@@ -426,16 +501,30 @@ def _build_factor_for_day(
         return _FactorDayOutcome()
 
     t_merge_write = perf_counter()
-    if refresh or existing.empty:
-        merged = new_frame
-    elif overwrite:
-        merged = existing.copy()
-        overlap = [c for c in new_frame.columns if c in merged.columns]
-        if overlap:
-            merged = merged.drop(columns=overlap)
-        merged = merged.join(new_frame, how="outer")
-    else:
-        merged = existing.join(new_frame, how="outer")
+    merged_base = _merge_factor_frames(
+        existing,
+        new_frame,
+        refresh=refresh,
+        overwrite=overwrite,
+    )
+    tail_frame = pd.DataFrame(index=merged_base.index)
+    if pending_tail_cols:
+        all_tail_frame = compute_tail_features(
+            merged_base,
+            tail_features_cfg,
+            source_columns=base_factor_cols,
+        )
+        tail_frame = all_tail_frame[pending_tail_cols]
+        _log_day(
+            day,
+            f"tail_features computed={len(tail_frame.columns)} total_defined={len(tail_output_cols)}",
+        )
+    merged = _merge_factor_frames(
+        merged_base,
+        tail_frame,
+        refresh=False,
+        overwrite=overwrite or refresh,
+    )
     store.write_day(day, merged)
     t_merge_write = perf_counter() - t_merge_write
     _log_day(
@@ -465,6 +554,7 @@ def run_factor_pipeline(
     raw_data_root: str | Path | None = None,
     context_cfg: dict | None = None,
     compute_cfg: dict | None = None,
+    tail_features_cfg: dict | None = None,
     specs: Sequence[FactorSpec],
 ) -> FactorPipelineResult:
     result = FactorPipelineResult()
@@ -546,6 +636,7 @@ def run_factor_pipeline(
         f"engine={engine_state.active}",
         f"refresh={bool(refresh)}",
         f"overwrite={bool(overwrite)}",
+        f"tail_features={tail_features_enabled(tail_features_cfg)}",
         f"context_mode={context.get('mode', 'auto')}",
         f"context_stock={bool(context.get('stock_enabled', False))}",
         f"context_map={bool(context.get('map_enabled', False))}",
@@ -587,6 +678,7 @@ def run_factor_pipeline(
                 factor_workers=factor_workers,
                 compute_backend_params=compute_backend_params,
                 factor_engine=engine_state.active,
+                tail_features_cfg=tail_features_cfg,
             )
             result.written += outcome.written
             result.skipped += outcome.skipped
@@ -612,6 +704,7 @@ def run_factor_pipeline(
                 factor_workers=factor_workers,
                 compute_backend_params=compute_backend_params,
                 factor_engine=engine_state.active,
+                tail_features_cfg=tail_features_cfg,
             ): day
             for day in panel_days
         }

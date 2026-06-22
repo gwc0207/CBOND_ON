@@ -1,0 +1,40 @@
+{
+  modules: ["models/lgbm/lgbm_screened_no_winsor_neutral_v1"],
+
+  model_name: "lgbm_screened_no_winsor_neutral_hard_dedup24",
+  score_output: {
+    windows: "D:/cbond_on/results/scores/lgbm_screened_no_winsor_neutral_hard_dedup24",
+    linux: "/home/gswzif/cbond_on_runtime/results/scores/lgbm_screened_no_winsor_neutral_hard_dedup24"
+  },
+
+  // Hard de-dup from current 27 factors:
+  // - drop cb_overnight_sharpe_20_0930_0935, duplicated by daily_sharpe_twap_20d_mean5
+  // - drop cb_overnight_sharpe_5_0930_0935, duplicated by daily_sharpe_twap_5d_mean5
+  // - drop volume_30m, highly correlated with amount_30m
+  factors: [
+    "cb_overnight_return_mean_20d",
+    "cb_overnight_return_mean_5d",
+    "cb_overnight_return_mean_60d",
+    "range_30m",
+    "cb_overnight_return_mean_10d",
+    "amount_30m",
+    "vol_30m",
+    "alpha001_signed_power_v1",
+    "alpha030_close_sign_volume_v1",
+    "depth_weighted_imbalance_v1",
+    "alpha024_close_trend_filter_v1",
+    "daily_sharpe_twap_5d_mean5",
+    "mid_move_30m",
+    "premium_momentum_proxy_v1",
+    "volen_f60_s10_l3",
+    "daily_sharpe_twap_20d_mean5",
+    "cb_overnight_return_mean_40d",
+    "alpha041_geometric_mean_vwap_v1",
+    "alpha078_low_vwap_adv_corr_v1",
+    "mom_slope_30m",
+    "alpha019_close_momentum_sign_v1",
+    "ret_10m",
+    "alpha025_return_volume_vwap_range_v1",
+    "alpha050_volume_vwap_corr_max_v1"
+  ],
+}

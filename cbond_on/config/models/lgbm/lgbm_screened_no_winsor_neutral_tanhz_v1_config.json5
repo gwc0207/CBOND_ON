@@ -1,0 +1,21 @@
+{
+  modules: ["models/lgbm/lgbm_screened_no_winsor_neutral_v1"],
+
+  model_name: "lgbm_screened_no_winsor_neutral_tanhz_v1",
+  score_output: {
+    windows: "D:/cbond_on/results/scores/lgbm_screened_no_winsor_neutral_tanhz_v1",
+    linux: "/home/gswzif/cbond_on_runtime/results/scores/lgbm_screened_no_winsor_neutral_tanhz_v1"
+  },
+
+  zscore: false,
+  standardization: {
+    enabled: true,
+    method: "tanh_zscore",
+    stage: "after_neutralization",
+    groupby: "dt",
+    tanh: {
+      base: "zscore",
+      scale: 3.0,
+    },
+  },
+}

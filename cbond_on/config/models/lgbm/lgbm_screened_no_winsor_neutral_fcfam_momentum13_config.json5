@@ -1,0 +1,21 @@
+{
+  modules: ["models/lgbm/lgbm_screened_no_winsor_neutral_v1"],
+  model_name: "lgbm_screened_no_winsor_neutral_fcfam_momentum13",
+  score_output: {
+    windows: "D:/cbond_on/results/scores/lgbm_screened_no_winsor_neutral_fcfam_momentum13",
+    linux: "/home/gswzif/cbond_on_runtime/results/scores/lgbm_screened_no_winsor_neutral_fcfam_momentum13"
+  },
+  feature_contribution: {
+    enabled: true,
+    default: 1.0,
+    groups: [
+      { name: "intraday_momentum_microstructure", value: 1.3, features: [
+        "mid_move_30m",
+        "mom_slope_30m",
+        "ret_10m",
+        "premium_momentum_proxy_v1",
+        "depth_weighted_imbalance_v1"
+      ] }
+    ]
+  },
+}

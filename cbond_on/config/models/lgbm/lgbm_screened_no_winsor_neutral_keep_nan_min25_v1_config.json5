@@ -1,0 +1,16 @@
+{
+  modules: ["models/lgbm/lgbm_screened_no_winsor_neutral_v1"],
+
+  model_name: "lgbm_screened_no_winsor_neutral_keep_nan_min25_v1",
+  score_output: {
+    windows: "D:/cbond_on/results/scores/lgbm_screened_no_winsor_neutral_keep_nan_min25_v1",
+    linux: "/home/gswzif/cbond_on_runtime/results/scores/lgbm_screened_no_winsor_neutral_keep_nan_min25_v1"
+  },
+
+  missing_values: {
+    enabled: true,
+    keep_nan: true,
+    min_available_factors: 25,
+    add_valid_count_features: false,
+  },
+}

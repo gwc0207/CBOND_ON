@@ -47,6 +47,73 @@ const SELL_TWAP_STORAGE_KEY = "cbond_on.dashboard.sell_twap_col";
 const SELL_TWAP_DEFAULT_COL = "twap_0930_0939";
 const SELL_TWAP_MIN_MINUTE = 9 * 60 + 30;
 const SELL_TWAP_MAX_MINUTE = 10 * 60;
+const refreshInFlight = new Map();
+const refreshQueued = new Set();
+
+function runDashboardRefresh(key, task, options = {}) {
+  const active = refreshInFlight.get(key);
+  if (active) {
+    if (options.queue) refreshQueued.add(key);
+    return active;
+  }
+  const promise = Promise.resolve()
+    .then(task)
+    .finally(() => {
+      refreshInFlight.delete(key);
+      if (refreshQueued.delete(key)) {
+        window.setTimeout(() => {
+          runDashboardRefresh(key, task).catch((err) => {
+            console.warn(`dashboard refresh failed: ${key}`, err);
+          });
+        }, 0);
+      }
+    });
+  refreshInFlight.set(key, promise);
+  return promise;
+}
+
+function queueDashboardRefresh(task) {
+  task().catch((err) => {
+    console.warn("dashboard refresh failed", err);
+  });
+}
+
+function startRefreshLoop(task, delayMs) {
+  const tick = async () => {
+    try {
+      await task();
+    } catch (err) {
+      console.warn("dashboard polling failed", err);
+    } finally {
+      window.setTimeout(tick, delayMs);
+    }
+  };
+  window.setTimeout(tick, delayMs);
+}
+
+function refreshLiveStatusOnce(options = {}) {
+  return runDashboardRefresh("live_status", refreshLiveStatus, options);
+}
+
+function refreshLogsOnce(options = {}) {
+  return runDashboardRefresh("logs", refreshLogsSafe, options);
+}
+
+function refreshLogDaysOnce(options = {}) {
+  return runDashboardRefresh("log_days", loadLogDays, options);
+}
+
+function refreshHoldingsOnce(options = {}) {
+  return runDashboardRefresh("holdings", refreshHoldings, options);
+}
+
+function refreshPerformanceOnce(options = {}) {
+  return runDashboardRefresh("performance", refreshPerformance, options);
+}
+
+function refreshDataCalendarOnce(options = {}) {
+  return runDashboardRefresh("data_calendar", refreshDataCalendar, options);
+}
 
 function markTradeFilterDirty() {
   if (!syncStatus) return;
@@ -599,7 +666,7 @@ async function applyCalendarDay(day) {
   const compactDay = normalizeDay(day);
   if (!compactDay) return false;
   if (!selectDayInDropdown(compactDay)) {
-    await loadLogDays();
+    await refreshLogDaysOnce({ queue: true });
     if (!selectDayInDropdown(compactDay)) {
       ensureDayOption(compactDay, day);
       logDaySelect.value = compactDay;
@@ -609,17 +676,19 @@ async function applyCalendarDay(day) {
 }
 
 async function refreshBySelectedDay() {
-  await refreshLogsSafe();
-  await refreshHoldings();
-  await refreshPerformance();
-  await refreshDataCalendar();
-  await refreshLiveStatus();
+  await Promise.all([
+    refreshLogsOnce({ queue: true }),
+    refreshHoldingsOnce({ queue: true }),
+    refreshPerformanceOnce({ queue: true }),
+    refreshDataCalendarOnce({ queue: true }),
+    refreshLiveStatusOnce({ queue: true }),
+  ]);
 }
 
 async function refreshTradeWindowOnly() {
   const tasks = [
-    { name: "持仓与收益分析", run: refreshHoldings },
-    { name: "绩效摘要", run: refreshPerformance },
+    { name: "持仓与收益分析", run: () => refreshHoldingsOnce({ queue: true }) },
+    { name: "绩效摘要", run: () => refreshPerformanceOnce({ queue: true }) },
   ];
   const results = await Promise.allSettled(tasks.map((task) => task.run()));
   const failed = results.flatMap((result, idx) => {
@@ -1388,10 +1457,12 @@ function isSecretKey(key) {
 }
 
 async function refreshAfterAction() {
-  await refreshLiveStatus();
-  await refreshLogsSafe();
-  await refreshHoldings();
-  await refreshPerformance();
+  await Promise.all([
+    refreshLiveStatusOnce({ queue: true }),
+    refreshLogsOnce({ queue: true }),
+    refreshHoldingsOnce({ queue: true }),
+    refreshPerformanceOnce({ queue: true }),
+  ]);
 }
 
 async function loadConfig() {
@@ -1476,7 +1547,7 @@ async function saveConfig() {
   });
   await axios.post("/api/config", payload);
   syncStatus.textContent = "配置已保存";
-  await refreshLiveStatus();
+  await refreshLiveStatusOnce({ queue: true });
 }
 
 function bindActions() {
@@ -1607,22 +1678,24 @@ if (tradeRefreshBtn) {
   });
 }
 
-el("btn-perf-refresh")?.addEventListener("click", refreshPerformance);
-perfLookbackInput?.addEventListener("change", refreshPerformance);
+el("btn-perf-refresh")?.addEventListener("click", () => refreshPerformanceOnce({ queue: true }));
+perfLookbackInput?.addEventListener("change", () => refreshPerformanceOnce({ queue: true }));
 
 async function bootstrapDashboard() {
   bindActions();
-  await loadLogDays();
-  await loadConfig();
-  await refreshLiveStatus();
-  await refreshLogsSafe();
-  await refreshHoldings();
-  await refreshPerformance();
-  await refreshDataCalendar();
+  await Promise.all([
+    refreshLogDaysOnce({ queue: true }),
+    loadConfig(),
+  ]);
+  queueDashboardRefresh(() => refreshLiveStatusOnce({ queue: true }));
+  queueDashboardRefresh(() => refreshLogsOnce({ queue: true }));
+  queueDashboardRefresh(() => refreshHoldingsOnce({ queue: true }));
+  queueDashboardRefresh(() => refreshDataCalendarOnce({ queue: true }));
+  queueDashboardRefresh(() => refreshPerformanceOnce({ queue: true }));
 }
 
 bootstrapDashboard();
-setInterval(refreshLiveStatus, 5000);
-setInterval(refreshLogsSafe, 10000);
-setInterval(loadLogDays, 30000);
-setInterval(refreshDataCalendar, 60000);
+startRefreshLoop(refreshLiveStatusOnce, 5000);
+startRefreshLoop(refreshLogsOnce, 10000);
+startRefreshLoop(refreshLogDaysOnce, 30000);
+startRefreshLoop(refreshDataCalendarOnce, 60000);

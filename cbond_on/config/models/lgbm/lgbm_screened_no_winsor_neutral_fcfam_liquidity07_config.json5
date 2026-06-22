@@ -1,0 +1,21 @@
+{
+  modules: ["models/lgbm/lgbm_screened_no_winsor_neutral_v1"],
+  model_name: "lgbm_screened_no_winsor_neutral_fcfam_liquidity07",
+  score_output: {
+    windows: "D:/cbond_on/results/scores/lgbm_screened_no_winsor_neutral_fcfam_liquidity07",
+    linux: "/home/gswzif/cbond_on_runtime/results/scores/lgbm_screened_no_winsor_neutral_fcfam_liquidity07"
+  },
+  feature_contribution: {
+    enabled: true,
+    default: 1.0,
+    groups: [
+      { name: "liquidity_volatility", value: 0.7, features: [
+        "amount_30m",
+        "volume_30m",
+        "vol_30m",
+        "range_30m",
+        "volen_f60_s10_l3"
+      ] }
+    ]
+  },
+}

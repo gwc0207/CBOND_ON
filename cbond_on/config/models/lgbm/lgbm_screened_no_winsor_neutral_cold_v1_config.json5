@@ -1,0 +1,14 @@
+{
+  modules: ["models/lgbm/lgbm_screened_no_winsor_neutral_v1"],
+
+  model_name: "lgbm_screened_no_winsor_neutral_cold_v1",
+  score_output: {
+    windows: "D:/cbond_on/results/scores/lgbm_screened_no_winsor_neutral_cold_v1",
+    linux: "/home/gswzif/cbond_on_runtime/results/scores/lgbm_screened_no_winsor_neutral_cold_v1"
+  },
+
+  incremental: {
+    warm_start: false,
+    save_state: false,
+  },
+}

@@ -43,8 +43,14 @@ except Exception:  # pragma: no cover
     psutil = None
 
 WIN_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-_PROCESS_CACHE: dict = {"items": []}
+_PROCESS_CACHE: dict = {"items": [], "ts": 0.0}
 _PROCESS_CACHE_LOCK = threading.Lock()
+_TRADE_CONTEXT_CACHE: dict = {"key": None, "ts": 0.0, "items": []}
+_TRADE_CONTEXT_CACHE_LOCK = threading.Lock()
+_OPEN_DAYS_CACHE: dict = {"key": None, "ts": 0.0, "items": []}
+_OPEN_DAYS_CACHE_LOCK = threading.Lock()
+_PERF_SUMMARY_CACHE: dict = {"key": None, "ts": 0.0, "payload": None}
+_PERF_SUMMARY_CACHE_LOCK = threading.Lock()
 HEARTBEAT_STALE_SECONDS = 120
 LIVE_STATUS_API_VERSION = 1
 _TWAP_COL_RE = re.compile(r"^twap_\d{4}_\d{4}$")
@@ -72,6 +78,7 @@ def _process_cache_loop() -> None:
         items = _list_daemon_processes()
         with _PROCESS_CACHE_LOCK:
             _PROCESS_CACHE["items"] = items
+            _PROCESS_CACHE["ts"] = time.monotonic()
         time.sleep(10)
 
 
@@ -95,6 +102,11 @@ def _write_json(path: Path, data: dict) -> None:
 def _is_pid_alive(pid: int) -> bool:
     if pid <= 0:
         return False
+    if psutil is not None:
+        try:
+            return bool(psutil.pid_exists(pid))
+        except Exception:
+            pass
     if os.name == "nt":
         out = subprocess.run(
             ["tasklist", "/FI", f"PID eq {pid}"],
@@ -318,22 +330,48 @@ def _read_trade_list_context(path: Path, *, raw_data_root: str | Path | None = N
     }
 
 
-def _iter_trade_list_contexts(*, raw_data_root: str | Path | None = None) -> list[dict]:
+def _iter_trade_list_contexts(
+    *,
+    raw_data_root: str | Path | None = None,
+    max_age_seconds: float = 10.0,
+    force_refresh: bool = False,
+) -> list[dict]:
     live_root = _results_live_root()
     if not live_root.exists():
         return []
+    key = (str(live_root.resolve()), str(raw_data_root or ""))
+    now = time.monotonic()
+    if not force_refresh and max_age_seconds > 0:
+        with _TRADE_CONTEXT_CACHE_LOCK:
+            if (
+                _TRADE_CONTEXT_CACHE.get("key") == key
+                and now - float(_TRADE_CONTEXT_CACHE.get("ts", 0.0) or 0.0) <= max_age_seconds
+            ):
+                return list(_TRADE_CONTEXT_CACHE.get("items", []))
+
     contexts: list[dict] = []
     for path in sorted(live_root.glob("**/trade_list.csv")):
         ctx = _read_trade_list_context(path, raw_data_root=raw_data_root)
         if ctx is not None:
             contexts.append(ctx)
+    with _TRADE_CONTEXT_CACHE_LOCK:
+        _TRADE_CONTEXT_CACHE["key"] = key
+        _TRADE_CONTEXT_CACHE["ts"] = time.monotonic()
+        _TRADE_CONTEXT_CACHE["items"] = list(contexts)
     return contexts
 
 
-def _read_trade_list_context_for_buy_day(day: date, *, raw_data_root: str | Path | None = None) -> dict | None:
+def _read_trade_list_context_for_buy_day(
+    day: date,
+    *,
+    raw_data_root: str | Path | None = None,
+    contexts: list[dict] | None = None,
+) -> dict | None:
+    if contexts is None:
+        contexts = _iter_trade_list_contexts(raw_data_root=raw_data_root)
     contexts = [
         ctx
-        for ctx in _iter_trade_list_contexts(raw_data_root=raw_data_root)
+        for ctx in contexts
         if ctx.get("buy_day") == day
     ]
     if contexts:
@@ -534,7 +572,16 @@ def _read_price_daily(raw_data_root: str | Path, day: date) -> pd.DataFrame:
     return df
 
 
-def _load_open_days(raw_data_root: str | Path) -> list[date]:
+def _load_open_days(raw_data_root: str | Path, *, max_age_seconds: float = 60.0) -> list[date]:
+    key = str(Path(raw_data_root).resolve()) if raw_data_root else ""
+    now = time.monotonic()
+    if max_age_seconds > 0:
+        with _OPEN_DAYS_CACHE_LOCK:
+            if (
+                _OPEN_DAYS_CACHE.get("key") == key
+                and now - float(_OPEN_DAYS_CACHE.get("ts", 0.0) or 0.0) <= max_age_seconds
+            ):
+                return list(_OPEN_DAYS_CACHE.get("items", []))
     cal = read_trading_calendar(raw_data_root)
     if cal.empty or "calendar_date" not in cal.columns:
         return []
@@ -543,6 +590,10 @@ def _load_open_days(raw_data_root: str | Path) -> list[date]:
         work = work[work["is_open"].astype(bool)]
     days = pd.to_datetime(work["calendar_date"], errors="coerce").dt.date.dropna().unique().tolist()
     days.sort()
+    with _OPEN_DAYS_CACHE_LOCK:
+        _OPEN_DAYS_CACHE["key"] = key
+        _OPEN_DAYS_CACHE["ts"] = time.monotonic()
+        _OPEN_DAYS_CACHE["items"] = list(days)
     return days
 
 
@@ -777,12 +828,22 @@ def _build_perf_summary(
     buy_cost_bps, sell_cost_bps, _ = load_fees_buy_sell_bps()
     default_lb = int(data_cfg.get("perf_lookback_days", 20))
     lookback = max(1, int(lookback if lookback is not None else default_lb))
+    cache_key = (str(Path(raw_data_root).resolve()), str(day or ""), lookback, sell_col)
+    cache_now = time.monotonic()
+    with _PERF_SUMMARY_CACHE_LOCK:
+        if (
+            _PERF_SUMMARY_CACHE.get("key") == cache_key
+            and cache_now - float(_PERF_SUMMARY_CACHE.get("ts", 0.0) or 0.0) <= 10.0
+        ):
+            cached_payload = _PERF_SUMMARY_CACHE.get("payload")
+            if cached_payload is not None:
+                return cached_payload
 
     asof_day = _parse_day_to_date(day)
     today = datetime.now().date()
     open_days = _load_open_days(raw_data_root)
     if not open_days:
-        return {
+        payload = {
             "asof_day": f"{asof_day:%Y-%m-%d}",
             "lookback": lookback,
             "count_days": 0,
@@ -790,20 +851,32 @@ def _build_perf_summary(
             "metrics": {},
             "series": [],
         }
+        with _PERF_SUMMARY_CACHE_LOCK:
+            _PERF_SUMMARY_CACHE["key"] = cache_key
+            _PERF_SUMMARY_CACHE["ts"] = time.monotonic()
+            _PERF_SUMMARY_CACHE["payload"] = payload
+        return payload
     next_day_map = {open_days[i]: open_days[i + 1] for i in range(len(open_days) - 1)}
 
     contexts = _iter_trade_list_contexts(raw_data_root=raw_data_root)
-    candidates = sorted(
-        {
-            ctx["buy_day"]
-            for ctx in contexts
-            if ctx.get("buy_day") is not None and ctx["buy_day"] <= asof_day
-        }
-    )[-lookback:]
+    context_by_buy_day: dict[date, dict] = {}
+    for ctx in contexts:
+        buy_day = ctx.get("buy_day")
+        if buy_day is None or buy_day > asof_day:
+            continue
+        prev = context_by_buy_day.get(buy_day)
+        if prev is None or str(ctx.get("path", "")) > str(prev.get("path", "")):
+            context_by_buy_day[buy_day] = ctx
+    candidates = sorted(context_by_buy_day.keys())[-lookback:]
+    benchmark_cfg = replace(
+        load_benchmark_pool_config(),
+        buy_twap_col=buy_col,
+        sell_twap_col=sell_col,
+    )
 
     rows: list[dict] = []
     for trade_day in candidates:
-        ctx = _read_trade_list_context_for_buy_day(trade_day, raw_data_root=raw_data_root)
+        ctx = context_by_buy_day.get(trade_day)
         next_day = (ctx or {}).get("sell_day") or next_day_map.get(trade_day)
         if next_day is None or next_day > today:
             continue
@@ -814,11 +887,6 @@ def _build_perf_summary(
         if "weight" not in picks.columns:
             picks["weight"] = pd.NA
 
-        benchmark_cfg = replace(
-            load_benchmark_pool_config(),
-            buy_twap_col=buy_col,
-            sell_twap_col=sell_col,
-        )
         try:
             buy_holdings = build_strict_buy_holdings_from_selection(
                 raw_data_root=raw_data_root,
@@ -879,7 +947,7 @@ def _build_perf_summary(
         )
 
     if not rows:
-        return {
+        payload = {
             "asof_day": f"{asof_day:%Y-%m-%d}",
             "lookback": lookback,
             "count_days": 0,
@@ -887,6 +955,11 @@ def _build_perf_summary(
             "metrics": {},
             "series": [],
         }
+        with _PERF_SUMMARY_CACHE_LOCK:
+            _PERF_SUMMARY_CACHE["key"] = cache_key
+            _PERF_SUMMARY_CACHE["ts"] = time.monotonic()
+            _PERF_SUMMARY_CACHE["payload"] = payload
+        return payload
 
     df = pd.DataFrame(rows).sort_values("trade_date")
     df["strategy_nav"] = (1.0 + df["strategy_return"].fillna(0.0)).cumprod()
@@ -925,7 +998,7 @@ def _build_perf_summary(
         }
         for row in df.itertuples()
     ]
-    return {
+    payload = {
         "asof_day": f"{asof_day:%Y-%m-%d}",
         "lookback": lookback,
         "count_days": int(len(series)),
@@ -933,6 +1006,11 @@ def _build_perf_summary(
         "metrics": metrics,
         "series": series,
     }
+    with _PERF_SUMMARY_CACHE_LOCK:
+        _PERF_SUMMARY_CACHE["key"] = cache_key
+        _PERF_SUMMARY_CACHE["ts"] = time.monotonic()
+        _PERF_SUMMARY_CACHE["payload"] = payload
+    return payload
 
 
 def _today_day_tag() -> str:
@@ -1535,10 +1613,13 @@ def _build_live_status_payload(state_path: Path, pid_path: Path) -> dict:
     state = _read_json(state_path)
     pid_info = _read_json(pid_path)
     raw_status = str(state.get("status", "") or "unknown")
+    with _PROCESS_CACHE_LOCK:
+        cached_processes = list(_PROCESS_CACHE.get("items", []))
+        cache_age = time.monotonic() - float(_PROCESS_CACHE.get("ts", 0.0) or 0.0)
     pid = int(pid_info.get("pid", 0) or 0)
     process_alive = _is_pid_alive(pid)
     if not process_alive:
-        processes = _list_daemon_processes()
+        processes = cached_processes if cache_age <= 15.0 else _list_daemon_processes()
         if processes:
             pid = int(processes[0].get("pid", 0) or 0)
             process_alive = pid > 0
