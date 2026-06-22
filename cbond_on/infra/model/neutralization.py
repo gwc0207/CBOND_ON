@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import os
+import re
+from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -13,6 +16,7 @@ from cbond_on.common.config_utils import load_json_like, resolve_config_path
 
 
 _FACTOR_SOURCES = {"", "factor", "factors", "self"}
+_PANEL_SOURCES = {"panel", "panel_data", "cached_panel", "intraday_panel"}
 _RAW_ALIASES: dict[str, tuple[str, str, str, str | None]] = {
     "market_cbond.daily_base": ("market_cbond.daily_base", "trade_date", "instrument_code", "exchange_code"),
     "market_cbond.daily_price": ("market_cbond.daily_price", "trade_date", "instrument_code", "exchange_code"),
@@ -38,6 +42,9 @@ class NeutralizationExposure:
     date_col: str = "trade_date"
     code_col: str = "code"
     exchange_col: str | None = None
+    asset: str = "cbond"
+    panel_name: str | None = None
+    select: str = "last_before_dt"
     transform: str = "none"
     encoding: str = "numeric"
     drop_first: bool = True
@@ -123,10 +130,21 @@ def _parse_exposure(raw: Any) -> NeutralizationExposure:
     name = _norm_text(raw.get("name")) or column
     source = _norm_text(raw.get("source", raw.get("from", "factor")))
     table: str | None = None
+    panel_name: str | None = None
     date_col = "trade_date"
     code_col = "code"
     exchange_col: str | None = None
-    if _source_key(source) not in _FACTOR_SOURCES:
+    if _source_key(source) in _PANEL_SOURCES:
+        panel_name = _norm_text(
+            raw.get("panel_name", raw.get("panel", raw.get("table", raw.get("name_suffix", ""))))
+        )
+        if not panel_name:
+            raise ValueError("panel neutralization exposure requires panel_name/table")
+        table = None
+        date_col = _norm_text(raw.get("date_col", "dt")) or "dt"
+        code_col = _norm_text(raw.get("code_col", "code")) or "code"
+        exchange_col = None
+    elif _source_key(source) not in _FACTOR_SOURCES:
         table, date_col, code_col, exchange_col = _resolve_raw_source(source, raw)
         if table is None:
             raise ValueError(
@@ -149,6 +167,9 @@ def _parse_exposure(raw: Any) -> NeutralizationExposure:
         date_col=date_col,
         code_col=code_col,
         exchange_col=exchange_col,
+        asset=_norm_text(raw.get("asset", "cbond")) or "cbond",
+        panel_name=panel_name if _source_key(source) in _PANEL_SOURCES else None,
+        select=_norm_text(raw.get("select", "last_before_dt")).lower() or "last_before_dt",
         transform=transform,
         encoding=encoding,
         drop_first=bool(raw.get("drop_first", True)),
@@ -235,6 +256,36 @@ def _table_day_path(raw_data_root: Path, table: str, day: date) -> Path:
     return raw_data_root / table.replace(".", "__") / month / filename
 
 
+def _panel_day_path(panel_data_root: Path, asset: str, panel_name: str, day: date) -> Path:
+    month = f"{day.year:04d}-{day.month:02d}"
+    filename = f"{day:%Y%m%d}.parquet"
+    return panel_data_root / "panels" / str(asset) / str(panel_name) / month / filename
+
+
+def _safe_path_part(value: Any) -> str:
+    text = str(value or "").strip()
+    text = re.sub(r"[^0-9A-Za-z_.-]+", "_", text)
+    return text.strip("._") or "default"
+
+
+def _panel_value_cache_path(panel_data_root: Path, spec: NeutralizationExposure, day: date) -> Path:
+    month = f"{day.year:04d}-{day.month:02d}"
+    filename = f"{day:%Y%m%d}.parquet"
+    key = "__".join(
+        _safe_path_part(part)
+        for part in (spec.column, spec.select, spec.date_col, spec.code_col)
+    )
+    return (
+        panel_data_root
+        / "neutralization_cache"
+        / _safe_path_part(spec.asset)
+        / _safe_path_part(spec.panel_name)
+        / key
+        / month
+        / filename
+    )
+
+
 def _normalize_exchange_value(exchange: Any) -> str:
     exch = str(exchange or "").strip().upper()
     aliases = {
@@ -319,10 +370,19 @@ def _standardize_matrix_columns(x: pd.DataFrame) -> pd.DataFrame:
 
 
 class FactorNeutralizer:
-    def __init__(self, cfg: NeutralizationConfig, *, raw_data_root: str | Path | None = None):
+    def __init__(
+        self,
+        cfg: NeutralizationConfig,
+        *,
+        raw_data_root: str | Path | None = None,
+        panel_data_root: str | Path | None = None,
+    ):
         self.cfg = cfg
         self.raw_data_root = Path(raw_data_root).expanduser() if raw_data_root is not None else None
+        self.panel_data_root = Path(panel_data_root).expanduser() if panel_data_root is not None else None
         self._raw_cache: dict[tuple[str, date], pd.DataFrame] = {}
+        self._panel_cache: OrderedDict[tuple[Any, ...], pd.Series] = OrderedDict()
+        self._panel_cache_max_entries = 1024
         self._lock = RLock()
 
     @classmethod
@@ -331,13 +391,14 @@ class FactorNeutralizer:
         raw: Any,
         *,
         raw_data_root: str | Path | None = None,
+        panel_data_root: str | Path | None = None,
     ) -> FactorNeutralizer | None:
         cfg = parse_neutralization_config(raw)
         if not cfg.enabled:
             return None
         if not cfg.exposures:
             raise ValueError("neutralization.enabled=true requires non-empty exposures")
-        return cls(cfg, raw_data_root=raw_data_root)
+        return cls(cfg, raw_data_root=raw_data_root, panel_data_root=panel_data_root)
 
     @property
     def enabled(self) -> bool:
@@ -374,6 +435,105 @@ class FactorNeutralizer:
             self._raw_cache[key] = out
         return out
 
+    def _panel_value_map(self, spec: NeutralizationExposure, day: date) -> pd.Series:
+        if self.panel_data_root is None or not spec.panel_name:
+            return pd.Series(dtype="object")
+        key = (
+            str(spec.asset),
+            str(spec.panel_name),
+            day,
+            str(spec.date_col),
+            str(spec.code_col),
+            str(spec.column),
+            str(spec.select),
+        )
+        with self._lock:
+            cached = self._panel_cache.get(key)
+            if cached is not None:
+                self._panel_cache.move_to_end(key)
+        if cached is not None:
+            return cached
+
+        compact_path = _panel_value_cache_path(self.panel_data_root, spec, day)
+        if compact_path.exists():
+            compact = pd.read_parquet(compact_path)
+            if {"code", "value"} <= set(compact.columns):
+                out = compact.set_index("code")["value"]
+                with self._lock:
+                    self._panel_cache[key] = out
+                    self._panel_cache.move_to_end(key)
+                    while len(self._panel_cache) > self._panel_cache_max_entries:
+                        self._panel_cache.popitem(last=False)
+                return out
+
+        path = _panel_day_path(self.panel_data_root, spec.asset, spec.panel_name, day)
+        if not path.exists():
+            out = pd.Series(dtype="object")
+        else:
+            read_columns = sorted({spec.column, "trade_time"})
+            out = pd.read_parquet(path, columns=list(read_columns) if read_columns else None)
+            if isinstance(out.index, pd.MultiIndex):
+                out = out.reset_index()
+            if out.empty or spec.column not in out.columns or spec.code_col not in out.columns:
+                out = pd.Series(dtype="object")
+            else:
+                cols = [
+                    col
+                    for col in (spec.date_col, spec.code_col, "seq", "trade_time", spec.column)
+                    if col in out.columns
+                ]
+                work = out.loc[:, cols].copy()
+                if spec.date_col in work.columns:
+                    dt_values = pd.to_datetime(work[spec.date_col], errors="coerce")
+                    work = work[dt_values.dt.date == day].copy()
+                    work["_dt_for_select"] = dt_values.loc[work.index]
+                if work.empty:
+                    out = pd.Series(dtype="object")
+                else:
+                    work["_code"] = _normalize_codes(work[spec.code_col])
+                    work = work.dropna(subset=["_code"])
+                    select = spec.select
+                    sort_cols = ["_code"]
+                    if select in {"last_before_dt", "last"} and "trade_time" in work.columns:
+                        trade_time = pd.to_datetime(work["trade_time"], errors="coerce")
+                        work["_trade_time_for_select"] = trade_time
+                        if "_dt_for_select" in work.columns:
+                            valid_time = (
+                                trade_time.isna()
+                                | work["_dt_for_select"].isna()
+                                | (trade_time <= work["_dt_for_select"])
+                            )
+                            work = work[valid_time].copy()
+                        sort_cols.append("_trade_time_for_select")
+                    if "seq" in work.columns:
+                        sort_cols.append("seq")
+                    if work.empty:
+                        out = pd.Series(dtype="object")
+                    else:
+                        work = work.sort_values(sort_cols).drop_duplicates(subset=["_code"], keep="last")
+                        out = work.set_index("_code")[spec.column]
+        if not out.empty and not compact_path.exists():
+            try:
+                compact_path.parent.mkdir(parents=True, exist_ok=True)
+                tmp = compact_path.with_name(f"{compact_path.stem}.{os.getpid()}.tmp{compact_path.suffix}")
+                pd.DataFrame({"code": out.index.to_numpy(), "value": out.to_numpy()}).to_parquet(tmp, index=False)
+                if not compact_path.exists():
+                    tmp.replace(compact_path)
+                elif tmp.exists():
+                    tmp.unlink()
+            except Exception:
+                try:
+                    if "tmp" in locals() and tmp.exists():
+                        tmp.unlink()
+                except Exception:
+                    pass
+        with self._lock:
+            self._panel_cache[key] = out
+            self._panel_cache.move_to_end(key)
+            while len(self._panel_cache) > self._panel_cache_max_entries:
+                self._panel_cache.popitem(last=False)
+        return out
+
     def _raw_exposure(self, spec: NeutralizationExposure, day: date, codes: pd.Series) -> pd.Series:
         if not spec.table:
             return pd.Series(index=codes.index, dtype="object")
@@ -391,6 +551,16 @@ class FactorNeutralizer:
         mapped.index = codes.index
         return mapped
 
+    def _panel_exposure(self, spec: NeutralizationExposure, day: date, codes: pd.Series) -> pd.Series:
+        if not spec.panel_name:
+            return pd.Series(index=codes.index, dtype="object")
+        values = self._panel_value_map(spec, day)
+        if values.empty:
+            return pd.Series(index=codes.index, dtype="object")
+        mapped = codes.astype(str).str.upper().map(values)
+        mapped.index = codes.index
+        return mapped
+
     def _factor_exposure(self, spec: NeutralizationExposure, group: pd.DataFrame) -> pd.Series:
         if spec.column not in group.columns:
             return pd.Series(index=group.index, dtype="object")
@@ -402,6 +572,8 @@ class FactorNeutralizer:
         for spec in self.cfg.exposures:
             if _source_key(spec.source) in _FACTOR_SOURCES:
                 raw = self._factor_exposure(spec, group)
+            elif _source_key(spec.source) in _PANEL_SOURCES:
+                raw = self._panel_exposure(spec, day, codes)
             else:
                 raw = self._raw_exposure(spec, day, codes)
             if spec.encoding == "onehot":
@@ -505,5 +677,6 @@ def build_neutralizer(
     raw: Any,
     *,
     raw_data_root: str | Path | None = None,
+    panel_data_root: str | Path | None = None,
 ) -> FactorNeutralizer | None:
-    return FactorNeutralizer.from_config(raw, raw_data_root=raw_data_root)
+    return FactorNeutralizer.from_config(raw, raw_data_root=raw_data_root, panel_data_root=panel_data_root)

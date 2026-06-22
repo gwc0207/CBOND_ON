@@ -72,6 +72,7 @@ def main(
     factor_root = Path(paths_cfg["factor_data_root"])
     label_root = Path(paths_cfg["label_data_root"])
     raw_root = Path(paths_cfg["raw_data_root"])
+    panel_root = Path(paths_cfg["panel_data_root"])
 
     panel_name = cfg.get("panel_name")
     window_minutes = int(cfg.get("window_minutes", 15))
@@ -95,7 +96,11 @@ def main(
     zscore = bool(cfg.get("zscore", True))
     min_count = int(cfg.get("min_count", 30))
     bins = int(cfg.get("bins", 5))
-    neutralizer = build_neutralizer(cfg.get("neutralization"), raw_data_root=raw_root)
+    neutralizer = build_neutralizer(
+        cfg.get("neutralization"),
+        raw_data_root=raw_root,
+        panel_data_root=panel_root,
+    )
 
     linear_cfg = cfg.get("linear", {})
     lookback_days = int(linear_cfg.get("lookback_days", 60))

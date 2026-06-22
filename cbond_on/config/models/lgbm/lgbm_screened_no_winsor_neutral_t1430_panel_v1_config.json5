@@ -1,0 +1,18 @@
+{
+  modules: ["models/lgbm/lgbm_screened_no_winsor_neutral_v1"],
+  model_name: "lgbm_screened_no_winsor_neutral_t1430_panel_v1",
+  score_output: {
+    windows: "D:/cbond_on/results/scores/lgbm_screened_no_winsor_neutral_t1430_panel_v1",
+    linux: "/home/gswzif/cbond_on_runtime/results/scores/lgbm_screened_no_winsor_neutral_t1430_panel_v1"
+  },
+  neutralization: {
+    enabled: true,
+    method: "ridge",
+    ridge_alpha: 1e-6,
+    min_count: 30,
+    standardize_exposures: true,
+    missing_policy: "keep_original",
+    exposures_file: "models/preprocess/neutralization/exposures/cbond_panel_t1430_2.json5",
+    exposures: [],
+  },
+}

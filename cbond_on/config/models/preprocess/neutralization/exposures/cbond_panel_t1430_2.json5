@@ -1,0 +1,7 @@
+{
+  // Point-in-time exposures from cached T1430 panel data.
+  exposures: [
+    { name: "log_last_1430", source: "panel", panel_name: "T1430", column: "last", transform: "log", select: "last_before_dt" },
+    { name: "log_amount_1430", source: "panel", panel_name: "T1430", column: "amount", transform: "log1p", select: "last_before_dt" },
+  ],
+}

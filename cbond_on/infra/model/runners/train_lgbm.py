@@ -692,6 +692,7 @@ def main(
     factor_time = str(cfg.get("factor_time", "14:30"))
     label_time = str(cfg.get("label_time", "14:42"))
     raw_root = paths_cfg["raw_data_root"]
+    panel_root = paths_cfg["panel_data_root"]
 
     scan_start = desired_start
     rolling_cfg = cfg.get("rolling", {})
@@ -834,7 +835,11 @@ def main(
     )
     min_count = int(cfg.get("min_count", 30))
     bins = int(cfg.get("bins", 5))
-    neutralizer = build_neutralizer(cfg.get("neutralization"), raw_data_root=raw_root)
+    neutralizer = build_neutralizer(
+        cfg.get("neutralization"),
+        raw_data_root=raw_root,
+        panel_data_root=panel_root,
+    )
     pca_feature_cfg = _resolve_pca_feature_config(cfg, factor_cols)
     pca_enabled = bool(pca_feature_cfg.get("enabled", False))
     model_feature_cols = _preview_pca_feature_cols(factor_cols, pca_feature_cfg)

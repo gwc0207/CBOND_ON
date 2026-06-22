@@ -76,6 +76,67 @@ def test_neutralizer_rejects_partial_factor_subset_config():
         )
 
 
+def test_panel_exposure_uses_last_trade_before_panel_dt(tmp_path):
+    panel_root = tmp_path / "panel"
+    panel_dir = panel_root / "panels" / "cbond" / "T1430" / "2026-05"
+    panel_dir.mkdir(parents=True)
+
+    dt = pd.Timestamp("2026-05-20 14:30:00")
+    panel = pd.DataFrame(
+        {
+            "dt": [dt] * 7,
+            "code": [
+                "110001.SH",
+                "110001.SH",
+                "110001.SH",
+                "110002.SH",
+                "110002.SH",
+                "110002.SH",
+                "110003.SH",
+            ],
+            "seq": [0, 1, 2, 0, 1, 2, 0],
+            "trade_time": [
+                pd.Timestamp("2026-05-20 14:25:00"),
+                pd.Timestamp("2026-05-20 14:29:00"),
+                pd.Timestamp("2026-05-20 14:31:00"),
+                pd.Timestamp("2026-05-20 14:20:00"),
+                pd.Timestamp("2026-05-20 14:30:00"),
+                pd.Timestamp("2026-05-20 14:31:00"),
+                pd.Timestamp("2026-05-19 15:00:00"),
+            ],
+            "last": [100.0, 101.0, 999.0, 200.0, 201.0, 999.0, 300.0],
+        }
+    ).set_index(["dt", "code", "seq"])
+    panel.to_parquet(panel_dir / "20260520.parquet")
+
+    neutralizer = build_neutralizer(
+        {
+            "enabled": True,
+            "min_count": 3,
+            "exposures": [
+                {
+                    "name": "last_1430",
+                    "source": "panel",
+                    "panel_name": "T1430",
+                    "column": "last",
+                    "select": "last_before_dt",
+                }
+            ],
+        },
+        panel_data_root=panel_root,
+    )
+
+    spec = neutralizer.cfg.exposures[0]
+    out = neutralizer._panel_exposure(
+        spec,
+        date(2026, 5, 20),
+        pd.Series(["110001.SH", "110002.SH", "110003.SH", "999999.SH"]),
+    )
+
+    assert out.iloc[:3].tolist() == [101.0, 201.0, 300.0]
+    assert pd.isna(out.iloc[3])
+
+
 def test_neutralizer_preserves_dt_when_exposure_source_is_missing(tmp_path):
     frame = pd.DataFrame(
         {

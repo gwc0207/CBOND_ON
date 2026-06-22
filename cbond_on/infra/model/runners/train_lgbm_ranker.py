@@ -382,6 +382,7 @@ def main(
     factor_time = str(cfg.get("factor_time", "14:30"))
     label_time = str(cfg.get("label_time", "14:42"))
     raw_root = paths_cfg["raw_data_root"]
+    panel_root = paths_cfg["panel_data_root"]
 
     rolling_cfg = cfg.get("rolling", {})
     rolling_enabled = bool(rolling_cfg.get("enabled", False))
@@ -507,7 +508,11 @@ def main(
     min_count = int(cfg.get("min_count", 30))
     bins = int(cfg.get("bins", 5))
     relevance_bins = int(cfg.get("relevance_bins", 20))
-    neutralizer = build_neutralizer(cfg.get("neutralization"), raw_data_root=raw_root)
+    neutralizer = build_neutralizer(
+        cfg.get("neutralization"),
+        raw_data_root=raw_root,
+        panel_data_root=panel_root,
+    )
     early_rounds = cfg.get("early_stopping_rounds")
     ranker_params = cfg.get("lgbm_ranker_params", {})
 

@@ -824,12 +824,14 @@ def main(
     refit_every_n_days = max(1, int(execution_cfg.get("refit_every_n_days", cfg.get("refit_every_n_days", 20))))
 
     raw_root = Path(paths_cfg["raw_data_root"])
+    panel_root = Path(paths_cfg["panel_data_root"])
     factor_root = Path(paths_cfg["factor_data_root"])
     label_root = Path(paths_cfg["label_data_root"])
     store = FactorStore(factor_root, panel_name=panel_name, window_minutes=int(cfg.get("window_minutes", 15)))
     neutralizer = build_neutralizer(
         cfg.get("neutralization", source_cfg.get("neutralization")),
         raw_data_root=raw_root,
+        panel_data_root=panel_root,
     )
 
     lookback_count = int(window_days + sequence_days + 10)
