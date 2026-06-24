@@ -18,6 +18,7 @@ def run(
 ) -> dict:
     paths_cfg = load_config_file("paths")
     factor_cfg = dict(cfg or load_config_file("factor"))
+    panel_cfg = dict(load_config_file("panel"))
 
     start_day = parse_date(start or factor_cfg.get("start"))
     end_day = parse_date(end or factor_cfg.get("end"))
@@ -40,8 +41,11 @@ def run(
         workers=workers,
         factor_workers=factor_workers,
         raw_data_root=paths_cfg.get("raw_data_root"),
+        cleaned_data_root=paths_cfg.get("cleaned_data_root") or paths_cfg.get("clean_data_root"),
         context_cfg=factor_cfg.get("context"),
         compute_cfg=factor_cfg.get("compute"),
+        panel_source_cfg=factor_cfg.get("panel_source"),
+        panel_build_cfg=panel_cfg,
         specs=build_signal_specs(factor_cfg),
     )
     return {

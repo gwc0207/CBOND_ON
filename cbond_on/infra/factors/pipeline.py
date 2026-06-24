@@ -7,14 +7,20 @@ from datetime import date, datetime
 from pathlib import Path
 import threading
 from time import perf_counter
-from typing import Sequence
+from typing import Any, Sequence
 
 import pandas as pd
 
+from cbond_on.config import ScheduleConfig, SnapshotConfig
 from cbond_on.core.utils import progress
 from cbond_on.core.naming import make_window_label
 from cbond_on.infra.data.io import read_table_range
-from cbond_on.infra.data.panel import read_panel_data
+from cbond_on.infra.data.panel import (
+    _build_day_snapshot_sequence,
+    _iter_existing_snapshot_days,
+    _read_snapshot_days,
+    read_panel_data,
+)
 from cbond_on.domain.factors.builder import build_factor_frame
 from cbond_on.domain.factors.compute_backend import (
     resolve_compute_backend,
@@ -70,6 +76,26 @@ class _DailyTableIndex:
         return self.paths[idx]
 
 
+@dataclass(frozen=True)
+class _PanelSourceRuntime:
+    mode: str
+    cleaned_data_root: Path | None = None
+    schedule: object | None = None
+    snapshot_config: SnapshotConfig | None = None
+    count_points: int = 3000
+    max_lookback_days: int = 3
+    asset_overrides: dict[str, dict[str, Any]] | None = None
+    snapshot_columns: list[str] | None = None
+    lead_minutes: int = 0
+
+
+@dataclass(frozen=True)
+class _PanelLoadOutcome:
+    panel: pd.DataFrame | None
+    elapsed_s: float
+    message: str
+
+
 def _merge_factor_frames(
     existing: pd.DataFrame,
     new_frame: pd.DataFrame,
@@ -123,6 +149,185 @@ def _iter_existing_panel_days(
             if start <= day <= end:
                 days.add(day)
     return sorted(days)
+
+
+def _normalize_panel_source_mode(raw: object) -> str:
+    text = str(raw or "cached_panel").strip().lower()
+    if text in {"", "cache", "cached", "panel", "panel_data", "cached_panel"}:
+        return "cached_panel"
+    if text in {"clean", "clean_data", "clean_direct", "on_demand", "on_demand_clean"}:
+        return "clean_direct"
+    raise ValueError(f"unsupported factor panel_source.mode={raw!r}")
+
+
+def _coerce_panel_source_cfg(raw: object | None) -> dict[str, Any]:
+    if raw is None:
+        return {}
+    if isinstance(raw, str):
+        return {"mode": raw}
+    if isinstance(raw, dict):
+        return dict(raw)
+    raise TypeError("factor panel_source must be a string or object")
+
+
+def _build_panel_source_runtime(
+    *,
+    panel_source_cfg: dict | None,
+    panel_build_cfg: dict | None,
+    cleaned_data_root: Path | None,
+) -> _PanelSourceRuntime:
+    source_cfg = _coerce_panel_source_cfg(panel_source_cfg)
+    mode = _normalize_panel_source_mode(source_cfg.get("mode", "cached_panel"))
+    if mode == "cached_panel":
+        return _PanelSourceRuntime(mode=mode)
+
+    if cleaned_data_root is None:
+        raise ValueError("panel_source.mode=clean_direct requires cleaned_data_root")
+    panel_cfg = dict(panel_build_cfg or {})
+    if not isinstance(panel_cfg.get("schedule"), dict):
+        raise ValueError("panel_source.mode=clean_direct requires panel_config.schedule")
+    schedule = ScheduleConfig.from_dict(panel_cfg["schedule"]).to_schedule()
+    snapshot_cfg = SnapshotConfig.from_dict(dict(panel_cfg.get("snapshot", {})))
+    raw_overrides = panel_cfg.get("asset_overrides", {})
+    asset_overrides = {
+        str(k).strip().lower(): dict(v)
+        for k, v in (raw_overrides.items() if isinstance(raw_overrides, dict) else [])
+        if str(k).strip() and isinstance(v, dict)
+    }
+    snapshot_columns_raw = panel_cfg.get("snapshot_columns")
+    snapshot_columns = (
+        [str(c) for c in snapshot_columns_raw]
+        if isinstance(snapshot_columns_raw, (list, tuple))
+        else None
+    )
+    return _PanelSourceRuntime(
+        mode=mode,
+        cleaned_data_root=cleaned_data_root,
+        schedule=schedule,
+        snapshot_config=snapshot_cfg,
+        count_points=int(panel_cfg.get("count_points", 3000)),
+        max_lookback_days=int(panel_cfg.get("max_lookback_days", 3)),
+        asset_overrides=asset_overrides,
+        snapshot_columns=snapshot_columns,
+        lead_minutes=int(panel_cfg.get("lead_minutes", 0)),
+    )
+
+
+def _iter_panel_days_for_source(
+    panel_data_root: Path,
+    start: date,
+    end: date,
+    *,
+    panel_name: str | None,
+    window_minutes: int,
+    panel_source: _PanelSourceRuntime,
+) -> list[date]:
+    if panel_source.mode == "cached_panel":
+        return _iter_existing_panel_days(
+            panel_data_root,
+            start,
+            end,
+            panel_name=panel_name,
+            window_minutes=window_minutes,
+        )
+    if panel_source.cleaned_data_root is None:
+        raise ValueError("clean_direct panel source missing cleaned_data_root")
+    return _iter_existing_snapshot_days(
+        panel_source.cleaned_data_root,
+        start,
+        end,
+        asset="cbond",
+    )
+
+
+def _asset_panel_settings(
+    panel_source: _PanelSourceRuntime,
+    *,
+    asset: str,
+) -> tuple[int, int]:
+    overrides = panel_source.asset_overrides or {}
+    asset_cfg = dict(overrides.get(str(asset).strip().lower(), {}))
+    count_points = int(asset_cfg.get("count_points", panel_source.count_points))
+    max_lookback_days = int(asset_cfg.get("max_lookback_days", panel_source.max_lookback_days))
+    return count_points, max_lookback_days
+
+
+def _load_clean_direct_panel(
+    day: date,
+    *,
+    panel_source: _PanelSourceRuntime,
+    asset: str,
+) -> _PanelLoadOutcome:
+    t0 = perf_counter()
+    if panel_source.cleaned_data_root is None:
+        raise ValueError("clean_direct panel source missing cleaned_data_root")
+    if panel_source.schedule is None or panel_source.snapshot_config is None:
+        raise ValueError("clean_direct panel source missing schedule/snapshot config")
+
+    count_points, max_lookback_days = _asset_panel_settings(panel_source, asset=asset)
+    history_days = _iter_existing_snapshot_days(
+        panel_source.cleaned_data_root,
+        date(1900, 1, 1),
+        day,
+        asset=asset,
+    )
+    end_pos = bisect_right(history_days, day)
+    lookback_days = history_days[max(0, end_pos - max_lookback_days) : end_pos]
+    if not lookback_days:
+        lookback_days = [day]
+    snapshot_df = _read_snapshot_days(
+        panel_source.cleaned_data_root,
+        lookback_days,
+        asset=asset,
+        columns=panel_source.snapshot_columns,
+        dataframe_backend="pandas",
+    )
+    panel = None
+    raw_rows = len(snapshot_df) if isinstance(snapshot_df, pd.DataFrame) else 0
+    if isinstance(snapshot_df, pd.DataFrame) and not snapshot_df.empty:
+        panel = _build_day_snapshot_sequence(
+            snapshot_df,
+            day,
+            panel_source.schedule,  # type: ignore[arg-type]
+            panel_source.snapshot_config,
+            count_points=count_points,
+            snapshot_columns=panel_source.snapshot_columns,
+            lead_minutes=panel_source.lead_minutes,
+            dataframe_backend="pandas",
+        )
+    elapsed = perf_counter() - t0
+    rows = 0 if panel is None else len(panel)
+    message = (
+        f"source=clean_direct asset={asset} rows={rows} raw_rows={raw_rows} "
+        f"lookback_days={len(lookback_days)} count_points={count_points} elapsed={elapsed:.2f}s"
+    )
+    return _PanelLoadOutcome(panel=panel, elapsed_s=elapsed, message=message)
+
+
+def _load_factor_panel(
+    panel_data_root: Path,
+    day: date,
+    *,
+    window_minutes: int,
+    panel_name: str | None,
+    asset: str,
+    panel_source: _PanelSourceRuntime,
+) -> _PanelLoadOutcome:
+    if panel_source.mode == "clean_direct":
+        return _load_clean_direct_panel(day, panel_source=panel_source, asset=asset)
+
+    t0 = perf_counter()
+    panel = read_panel_data(
+        panel_data_root,
+        day,
+        window_minutes=window_minutes,
+        panel_name=panel_name,
+        asset=asset,
+    ).data
+    elapsed = perf_counter() - t0
+    rows = 0 if panel is None else len(panel)
+    message = f"source=cached_panel asset={asset} rows={rows} elapsed={elapsed:.2f}s"
+    return _PanelLoadOutcome(panel=panel, elapsed_s=elapsed, message=message)
 
 
 def _normalize_bond_code(code: str) -> str:
@@ -295,23 +500,10 @@ def _build_factor_for_day(
     compute_backend_params: dict,
     factor_engine: str,
     tail_features_cfg: dict | None,
+    panel_source: _PanelSourceRuntime,
 ) -> _FactorDayOutcome:
     t_total = perf_counter()
     _log_day(day, "start")
-
-    t_panel = perf_counter()
-    panel = read_panel_data(
-        panel_data_root,
-        day,
-        window_minutes=window_minutes,
-        panel_name=panel_name,
-    ).data
-    t_panel = perf_counter() - t_panel
-    if panel is None or panel.empty:
-        _log_day(day, f"skip reason=missing_panel t_panel={t_panel:.2f}s")
-        return _FactorDayOutcome()
-    panel.attrs["__build_day__"] = str(day)
-    _log_day(day, f"panel_loaded rows={len(panel)} t_panel={t_panel:.2f}s")
 
     t_existing = perf_counter()
     existing = pd.DataFrame()
@@ -349,7 +541,7 @@ def _build_factor_for_day(
     if not to_compute and not pending_tail_cols:
         _log_day(
             day,
-            f"skip reason=no_pending specs_total={len(specs)} t_panel={t_panel:.2f}s t_existing={t_existing:.2f}s total={perf_counter() - t_total:.2f}s",
+            f"skip reason=no_pending specs_total={len(specs)} t_existing={t_existing:.2f}s total={perf_counter() - t_total:.2f}s",
         )
         return _FactorDayOutcome(skipped=1)
 
@@ -373,22 +565,41 @@ def _build_factor_for_day(
             (
                 f"done tail_only wrote=1 existing_rows={len(existing)} "
                 f"tail_cols={len(tail_frame.columns)} total_tail_defined={len(tail_output_cols)} "
-                f"t_panel={t_panel:.2f}s t_existing={t_existing:.2f}s "
+                f"t_existing={t_existing:.2f}s "
                 f"t_tail={perf_counter() - t_tail:.2f}s total={perf_counter() - t_total:.2f}s"
             ),
         )
         return _FactorDayOutcome(written=1)
 
+    panel_load = _load_factor_panel(
+        panel_data_root,
+        day,
+        window_minutes=window_minutes,
+        panel_name=panel_name,
+        asset="cbond",
+        panel_source=panel_source,
+    )
+    t_panel = panel_load.elapsed_s
+    panel = panel_load.panel
+    if panel is None or panel.empty:
+        _log_day(day, f"skip reason=missing_panel {panel_load.message}")
+        return _FactorDayOutcome()
+    panel.attrs["__build_day__"] = str(day)
+    _log_day(day, f"panel_loaded {panel_load.message}")
+
     t_context = perf_counter()
     stock_panel: pd.DataFrame | None = None
     if bool(context_cfg.get("stock_enabled", False)):
-        stock_panel_df = read_panel_data(
+        stock_load = _load_factor_panel(
             panel_data_root,
             day,
             window_minutes=window_minutes,
             panel_name=panel_name,
             asset="stock",
-        ).data
+            panel_source=panel_source,
+        )
+        stock_panel_df = stock_load.panel
+        _log_day(day, f"stock_panel_loaded {stock_load.message}")
         if stock_panel_df is None or stock_panel_df.empty:
             if bool(context_cfg.get("stock_strict", False)):
                 raise RuntimeError(f"stock panel missing on {day}")
@@ -552,14 +763,23 @@ def run_factor_pipeline(
     workers: int = 1,
     factor_workers: int = 1,
     raw_data_root: str | Path | None = None,
+    cleaned_data_root: str | Path | None = None,
     context_cfg: dict | None = None,
     compute_cfg: dict | None = None,
+    panel_source_cfg: dict | None = None,
+    panel_build_cfg: dict | None = None,
     tail_features_cfg: dict | None = None,
     specs: Sequence[FactorSpec],
 ) -> FactorPipelineResult:
     result = FactorPipelineResult()
     panel_data_root = Path(panel_data_root)
     raw_data_root_path = Path(raw_data_root) if raw_data_root else None
+    cleaned_data_root_path = Path(cleaned_data_root) if cleaned_data_root else None
+    panel_source = _build_panel_source_runtime(
+        panel_source_cfg=panel_source_cfg,
+        panel_build_cfg=panel_build_cfg,
+        cleaned_data_root=cleaned_data_root_path,
+    )
     context = _build_context_config(context_cfg, specs=specs)
     engine_state = resolve_factor_engine(compute_cfg)
     backend_state = resolve_compute_backend(compute_cfg)
@@ -616,12 +836,13 @@ def run_factor_pipeline(
             for source, source_spec in daily_source_specs.items()
         }
     store = FactorStore(Path(factor_data_root), panel_name=panel_name, window_minutes=window_minutes)
-    panel_days = _iter_existing_panel_days(
+    panel_days = _iter_panel_days_for_source(
         panel_data_root,
         start,
         end,
         panel_name=panel_name,
         window_minutes=window_minutes,
+        panel_source=panel_source,
     )
     workers = max(1, int(workers))
     factor_workers = max(1, int(factor_workers))
@@ -637,6 +858,7 @@ def run_factor_pipeline(
         f"refresh={bool(refresh)}",
         f"overwrite={bool(overwrite)}",
         f"tail_features={tail_features_enabled(tail_features_cfg)}",
+        f"panel_source={panel_source.mode}",
         f"context_mode={context.get('mode', 'auto')}",
         f"context_stock={bool(context.get('stock_enabled', False))}",
         f"context_map={bool(context.get('map_enabled', False))}",
@@ -679,6 +901,7 @@ def run_factor_pipeline(
                 compute_backend_params=compute_backend_params,
                 factor_engine=engine_state.active,
                 tail_features_cfg=tail_features_cfg,
+                panel_source=panel_source,
             )
             result.written += outcome.written
             result.skipped += outcome.skipped
@@ -705,6 +928,7 @@ def run_factor_pipeline(
                 compute_backend_params=compute_backend_params,
                 factor_engine=engine_state.active,
                 tail_features_cfg=tail_features_cfg,
+                panel_source=panel_source,
             ): day
             for day in panel_days
         }

@@ -1,0 +1,24 @@
+{
+  modules: ["live/live_lgbm_screened_no_winsor"],
+  model_name: "lgbm_screened_no_winsor_neutral_tminus1_live_warm_20240508",
+  neutralization: {
+    enabled: true,
+    method: "ridge",
+    ridge_alpha: 1e-6,
+    min_count: 30,
+    standardize_exposures: true,
+    missing_policy: "keep_original",
+    exposures_file: "models/preprocess/neutralization/exposures/cbond_style_5_tminus1.json5",
+  },
+  score_output: {
+    windows: "D:/cbond_on/results/scores/live/lgbm_screened_no_winsor_neutral_tminus1_live_warm_20240508",
+    linux: "/home/gswzif/cbond_on_runtime/results/scores/live/lgbm_screened_no_winsor_neutral_tminus1_live_warm_20240508"
+  },
+  incremental: {
+    enabled: true,
+    skip_existing_scores: true,
+    warm_start: true,
+    save_state: true,
+    state_dir: "D:/cbond_on/results/model_state/live/lgbm_screened_no_winsor_neutral_tminus1_live_warm_20240508"
+  },
+}

@@ -1,0 +1,22 @@
+{
+  "modules": [
+    "score/model/model_score"
+  ],
+  "default_model_id": "lgbm_screened_no_winsor_neutral_tminus1_ranker_hs_20260624_t08_high_capacity_trunc20",
+  "model_id": "lgbm_screened_no_winsor_neutral_tminus1_ranker_hs_20260624_t08_high_capacity_trunc20",
+  "start": "2024-01-01",
+  "end": "2026-06-22",
+  "execution": {
+    "refit_every_n_days": 1,
+    "parallel_shards": 1,
+    "train_processes": 1,
+    "prep_workers": 2,
+    "prefetch_windows": 4
+  },
+  "models": {
+    "lgbm_screened_no_winsor_neutral_tminus1_ranker_hs_20260624_t08_high_capacity_trunc20": {
+      "model_type": "lgbm_ranker",
+      "model_config": "models/lgbm_ranker/lgbm_screened_no_winsor_neutral_tminus1_ranker_hs_20260624_t08_high_capacity_trunc20"
+    }
+  }
+}

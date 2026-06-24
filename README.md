@@ -261,7 +261,7 @@ python cbond_on/run/backtest.py
 - `filter_tradable` 过滤约束
 
 输出：
-- `results/{start}_{end}/{batch_id}/{timestamp}/`
+- `results/backtest/{start}_{end}/{batch_id}/{timestamp}/`
 - `daily_returns.csv`
 - `nav_curve.csv`
 - `positions.csv`
@@ -409,7 +409,7 @@ python -m cbond_on.common.factor_quality_guard --config factor
 - `factor_data_root`：因子日文件
 - `results_root/scores`：模型 score
 - `results_root/model_eval`：模型评估与调参产物
-- `results_root/{date_label}/Backtest`：策略回测结果
+- `results_root/backtest/{date_label}/{batch_id}`：策略回测结果
 - `results_root/{date_label}/Single_Factor`：因子批处理结果
 - `results_root/live/{day}`：实盘交易清单与日志
 

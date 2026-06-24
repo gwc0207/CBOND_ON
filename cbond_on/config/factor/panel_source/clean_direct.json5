@@ -1,0 +1,7 @@
+{
+  panel_source: {
+    // Build temporary cbond/stock panels directly from DataHub clean_data.
+    // The build parameters are read from config/data/panel_config.json5.
+    mode: "clean_direct",
+  },
+}

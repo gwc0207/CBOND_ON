@@ -13,6 +13,7 @@ import numpy as np
 import pandas as pd
 
 from cbond_on.common.config_utils import load_json_like, resolve_config_path
+from cbond_on.core.trading_days import prev_trading_days_from_raw
 
 
 _FACTOR_SOURCES = {"", "factor", "factors", "self"}
@@ -49,6 +50,7 @@ class NeutralizationExposure:
     encoding: str = "numeric"
     drop_first: bool = True
     dummy_na: bool = False
+    lag_trading_days: int = 0
 
 
 @dataclass(frozen=True)
@@ -154,6 +156,17 @@ def _parse_exposure(raw: Any) -> NeutralizationExposure:
 
     encoding = _norm_text(raw.get("encoding", "numeric")).lower() or "numeric"
     transform = _norm_text(raw.get("transform", "none")).lower() or "none"
+    lag_trading_days = int(
+        raw.get(
+            "lag_trading_days",
+            raw.get("trading_day_lag", raw.get("lag_days", 0)),
+        )
+        or 0
+    )
+    if lag_trading_days < 0:
+        raise ValueError("neutralization exposure.lag_trading_days must be >= 0")
+    if _source_key(source) in _FACTOR_SOURCES and lag_trading_days:
+        raise ValueError("factor-sourced neutralization exposure does not support lag_trading_days")
     if transform == "onehot":
         encoding = "onehot"
         transform = "none"
@@ -174,6 +187,7 @@ def _parse_exposure(raw: Any) -> NeutralizationExposure:
         encoding=encoding,
         drop_first=bool(raw.get("drop_first", True)),
         dummy_na=bool(raw.get("dummy_na", False)),
+        lag_trading_days=lag_trading_days,
     )
 
 
@@ -381,6 +395,7 @@ class FactorNeutralizer:
         self.raw_data_root = Path(raw_data_root).expanduser() if raw_data_root is not None else None
         self.panel_data_root = Path(panel_data_root).expanduser() if panel_data_root is not None else None
         self._raw_cache: dict[tuple[str, date], pd.DataFrame] = {}
+        self._lag_day_cache: dict[tuple[str, date, int], date | None] = {}
         self._panel_cache: OrderedDict[tuple[Any, ...], pd.Series] = OrderedDict()
         self._panel_cache_max_entries = 1024
         self._lock = RLock()
@@ -413,6 +428,11 @@ class FactorNeutralizer:
             "factors": "all",
             "exposures_files": list(self.cfg.exposures_files),
             "exposures": [item.name for item in self.cfg.exposures],
+            "exposure_lag_trading_days": {
+                item.name: int(item.lag_trading_days)
+                for item in self.cfg.exposures
+                if int(item.lag_trading_days) != 0
+            },
         }
 
     def target_factors(self, factor_cols: Iterable[str]) -> list[str]:
@@ -433,6 +453,29 @@ class FactorNeutralizer:
             out = pd.read_parquet(path)
         with self._lock:
             self._raw_cache[key] = out
+        return out
+
+    def _exposure_day(self, spec: NeutralizationExposure, day: date) -> date | None:
+        lag = int(spec.lag_trading_days)
+        if lag <= 0:
+            return day
+        if self.raw_data_root is None:
+            return None
+        key = (str(spec.asset), day, lag)
+        with self._lock:
+            cached = self._lag_day_cache.get(key)
+        if key in self._lag_day_cache:
+            return cached
+        prev_days = prev_trading_days_from_raw(
+            self.raw_data_root,
+            day,
+            lag,
+            kind="snapshot",
+            asset=spec.asset,
+        )
+        out = prev_days[-1] if len(prev_days) >= lag else None
+        with self._lock:
+            self._lag_day_cache[key] = out
         return out
 
     def _panel_value_map(self, spec: NeutralizationExposure, day: date) -> pd.Series:
@@ -537,7 +580,10 @@ class FactorNeutralizer:
     def _raw_exposure(self, spec: NeutralizationExposure, day: date, codes: pd.Series) -> pd.Series:
         if not spec.table:
             return pd.Series(index=codes.index, dtype="object")
-        raw = self._read_raw_source_day(spec.table, day)
+        exposure_day = self._exposure_day(spec, day)
+        if exposure_day is None:
+            return pd.Series(index=codes.index, dtype="object")
+        raw = self._read_raw_source_day(spec.table, exposure_day)
         if raw.empty or spec.column not in raw.columns or spec.code_col not in raw.columns:
             return pd.Series(index=codes.index, dtype="object")
         cols = [spec.code_col, spec.column]
@@ -554,7 +600,10 @@ class FactorNeutralizer:
     def _panel_exposure(self, spec: NeutralizationExposure, day: date, codes: pd.Series) -> pd.Series:
         if not spec.panel_name:
             return pd.Series(index=codes.index, dtype="object")
-        values = self._panel_value_map(spec, day)
+        exposure_day = self._exposure_day(spec, day)
+        if exposure_day is None:
+            return pd.Series(index=codes.index, dtype="object")
+        values = self._panel_value_map(spec, exposure_day)
         if values.empty:
             return pd.Series(index=codes.index, dtype="object")
         mapped = codes.astype(str).str.upper().map(values)

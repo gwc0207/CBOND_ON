@@ -6,7 +6,7 @@
   label_cutoff: null,
   execution: {
     // Refit cadence in trading-day steps (1 = refit every target day).
-    refit_every_n_days: 15,
+    refit_every_n_days: 1,
     // Number of training processes (single GPU recommends 1~2).
     train_processes: 1,
     // CPU workers for rolling data preparation (window concat / dataset prep).

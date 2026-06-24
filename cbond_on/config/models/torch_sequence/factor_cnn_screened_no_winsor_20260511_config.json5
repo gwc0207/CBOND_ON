@@ -25,7 +25,7 @@
     enabled: true,
     window_days: 60
   },
-  refit_every_n_days: 20,
+  refit_every_n_days: 1,
 
   model_params: {
     channels: 64,

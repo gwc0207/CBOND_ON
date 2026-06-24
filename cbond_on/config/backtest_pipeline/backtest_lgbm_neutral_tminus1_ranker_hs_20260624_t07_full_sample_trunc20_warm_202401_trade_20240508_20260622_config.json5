@@ -1,0 +1,21 @@
+{
+  "start": "2024-05-08",
+  "end": "2026-06-22",
+  "batch_id": "Backtest_lgbm_neutral_tminus1_ranker_hs_20260624_t07_full_sample_trunc20_warm_202401_trade_20240508_20260622",
+  "score_source": {
+    "model_id": "lgbm_screened_no_winsor_neutral_tminus1_ranker_hs_20260624_t07_full_sample_trunc20"
+  },
+  "strategy_id": "strategy01_topk_turnover",
+  "strategy_config_path": "strategies/strategy01/strategy01",
+  "buy_twap_col": "twap_1442_1457",
+  "sell_twap_col": "twap_0930_0939",
+  "allowlist": {
+    "enabled": true,
+    "table": "quant_factor_dev.researcher_xuvb.o_0005",
+    "lag_trading_days": 1,
+    "asset": "cbond",
+    "flag_field": "factor_value",
+    "fallback_field": "weight",
+    "threshold": 0.0
+  }
+}

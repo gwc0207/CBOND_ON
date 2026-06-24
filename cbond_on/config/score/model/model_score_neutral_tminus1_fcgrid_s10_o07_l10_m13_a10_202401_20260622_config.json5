@@ -1,0 +1,21 @@
+{
+  modules: ["score/model/model_score"],
+
+  default_model_id: "lgbm_screened_no_winsor_neutral_tminus1_fcgrid_s10_o07_l10_m13_a10_202401_20260622",
+  model_id: "lgbm_screened_no_winsor_neutral_tminus1_fcgrid_s10_o07_l10_m13_a10_202401_20260622",
+  start: "2024-01-01",
+  end: "2026-06-22",
+  label_cutoff: "2026-06-22",
+  execution: {
+    refit_every_n_days: 1,
+    parallel_shards: 1,
+    train_processes: 1,
+  },
+
+  models: {
+    lgbm_screened_no_winsor_neutral_tminus1_fcgrid_s10_o07_l10_m13_a10_202401_20260622: {
+      model_type: "lgbm",
+      model_config: "models/lgbm/lgbm_screened_no_winsor_neutral_tminus1_fcgrid_s10_o07_l10_m13_a10_202401_20260622"
+    },
+  },
+}

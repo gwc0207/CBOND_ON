@@ -1,0 +1,19 @@
+{
+  modules: ["score/model/model_score"],
+
+  default_model_id: "lgbm_screened_no_winsor_live_research_refit15_202401_rerun_20260623",
+  model_id: "lgbm_screened_no_winsor_live_research_refit15_202401_rerun_20260623",
+  start: "2024-01-01",
+  end: "2026-05-11",
+  execution: {
+    refit_every_n_days: 15,
+    parallel_shards: 1,
+  },
+
+  models: {
+    lgbm_screened_no_winsor_live_research_refit15_202401_rerun_20260623: {
+      model_type: "lgbm",
+      model_config: "models/lgbm/lgbm_screened_no_winsor_live_research_refit15_202401_rerun_20260623"
+    },
+  },
+}

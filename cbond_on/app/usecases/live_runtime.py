@@ -83,6 +83,16 @@ def _normalize_assets(value: object) -> list[str]:
     return []
 
 
+def _factor_panel_source_mode(factor_cfg: dict) -> str:
+    raw = factor_cfg.get("panel_source")
+    if isinstance(raw, dict):
+        raw = raw.get("mode", "cached_panel")
+    text = str(raw or "cached_panel").strip().lower()
+    if text in {"clean", "clean_data", "clean_direct", "on_demand", "on_demand_clean"}:
+        return "clean_direct"
+    return "cached_panel"
+
+
 def _missing_days(days: list[date], *, path_builder) -> list[date]:
     return [day for day in days if not path_builder(day).exists()]
 
@@ -122,6 +132,7 @@ def _backfill_live_history(
     factor_cfg: dict,
     panel_name: str,
     window_days: int,
+    skip_panel_build: bool = False,
 ) -> None:
     history_days = prev_trading_days_from_raw(
         raw_root,
@@ -139,15 +150,22 @@ def _backfill_live_history(
         assets = ["cbond"]
 
     missing_panel_by_asset: dict[str, list[date]] = {}
-    for asset in assets:
-        missing_panel_days = _missing_days(
-            history_days,
-            path_builder=lambda d, _asset=asset: _panel_day_path(paths_cfg, d, asset=_asset, panel_name=panel_name),
+    if skip_panel_build:
+        print(
+            "live backfill panel skipped:",
+            "reason=clean_direct_factor_panel_source",
+            f"history_days={len(history_days)}",
         )
-        if missing_panel_days:
-            missing_panel_by_asset[asset] = missing_panel_days
+    else:
+        for asset in assets:
+            missing_panel_days = _missing_days(
+                history_days,
+                path_builder=lambda d, _asset=asset: _panel_day_path(paths_cfg, d, asset=_asset, panel_name=panel_name),
+            )
+            if missing_panel_days:
+                missing_panel_by_asset[asset] = missing_panel_days
 
-    if missing_panel_by_asset:
+    if (not skip_panel_build) and missing_panel_by_asset:
         all_missing_panel_days = sorted(
             {
                 day
@@ -401,6 +419,8 @@ def run_once(
     factor_runtime_cfg["refresh"] = True
     factor_runtime_cfg["overwrite"] = True
     factor_runtime_cfg["panel_name"] = panel_name
+    panel_source_mode = _factor_panel_source_mode(factor_runtime_cfg)
+    use_clean_direct_panel_source = panel_source_mode == "clean_direct"
 
     window_days = _parse_live_model_window_days(live_model_score_cfg, model_id)
     if window_days > 0:
@@ -419,20 +439,29 @@ def run_once(
             factor_cfg=factor_runtime_cfg,
             panel_name=panel_name,
             window_days=window_days,
+            skip_panel_build=use_clean_direct_panel_source,
         )
 
-    print("live build panel:", f"day={score_day}", f"panel={panel_name}")
-    panel_result = run_panel_build(
-        start=score_day,
-        end=score_day,
-        refresh=True,
-        overwrite=True,
-        cfg=panel_cfg,
-    )
-    _require_existing(_panel_day_path(paths_cfg, score_day, asset="cbond", panel_name=panel_name), name="cbond panel")
-    if "stock" in _normalize_assets(panel_cfg.get("assets", [])):
-        _require_existing(_panel_day_path(paths_cfg, score_day, asset="stock", panel_name=panel_name), name="stock panel")
-    print("live build panel done:", panel_result)
+    if use_clean_direct_panel_source:
+        print(
+            "live build panel skipped:",
+            f"day={score_day}",
+            f"panel={panel_name}",
+            f"panel_source={panel_source_mode}",
+        )
+    else:
+        print("live build panel:", f"day={score_day}", f"panel={panel_name}")
+        panel_result = run_panel_build(
+            start=score_day,
+            end=score_day,
+            refresh=True,
+            overwrite=True,
+            cfg=panel_cfg,
+        )
+        _require_existing(_panel_day_path(paths_cfg, score_day, asset="cbond", panel_name=panel_name), name="cbond panel")
+        if "stock" in _normalize_assets(panel_cfg.get("assets", [])):
+            _require_existing(_panel_day_path(paths_cfg, score_day, asset="stock", panel_name=panel_name), name="stock panel")
+        print("live build panel done:", panel_result)
 
     print("live build labels:", f"day={prev_trade_day}", f"next_day={score_day}")
     label_result = run_label_build(

@@ -1,0 +1,58 @@
+{
+  modules: ["models/lgbm/lgbm_screened_no_winsor_neutral_tminus1_refit1_202401_rerun_20260623"],
+  model_name: "lgbm_screened_no_winsor_neutral_tminus1_fcgrid_s10_o07_l10_m13_a10_202401_20260622",
+  end: "2026-06-22",
+  score_output: {
+    windows: "D:/cbond_on/results/scores/lgbm_screened_no_winsor_neutral_tminus1_fcgrid_s10_o07_l10_m13_a10_202401_20260622",
+    linux: "/home/gswzif/cbond_on_runtime/results/scores/lgbm_screened_no_winsor_neutral_tminus1_fcgrid_s10_o07_l10_m13_a10_202401_20260622"
+  },
+  score_overwrite: true,
+  incremental: {
+    skip_existing_scores: false,
+    warm_start: true,
+    save_state: true,
+  },
+  feature_contribution: {
+    enabled: true,
+    default: 1.0,
+    groups: [
+      { name: "sharpe", value: 1.0, features: [
+        "cb_overnight_sharpe_20_0930_0935",
+        "daily_sharpe_twap_20d_mean5",
+        "cb_overnight_sharpe_5_0930_0935",
+        "daily_sharpe_twap_5d_mean5"
+      ] },
+      { name: "overnight", value: 0.7, features: [
+        "cb_overnight_return_mean_5d",
+        "cb_overnight_return_mean_10d",
+        "cb_overnight_return_mean_20d",
+        "cb_overnight_return_mean_40d",
+        "cb_overnight_return_mean_60d"
+      ] },
+      { name: "liquidity", value: 1.0, features: [
+        "amount_30m",
+        "volume_30m",
+        "vol_30m",
+        "range_30m",
+        "volen_f60_s10_l3"
+      ] },
+      { name: "momentum", value: 1.3, features: [
+        "mid_move_30m",
+        "mom_slope_30m",
+        "ret_10m",
+        "premium_momentum_proxy_v1",
+        "depth_weighted_imbalance_v1"
+      ] },
+      { name: "alpha", value: 1.0, features: [
+        "alpha001_signed_power_v1",
+        "alpha030_close_sign_volume_v1",
+        "alpha024_close_trend_filter_v1",
+        "alpha041_geometric_mean_vwap_v1",
+        "alpha078_low_vwap_adv_corr_v1",
+        "alpha019_close_momentum_sign_v1",
+        "alpha025_return_volume_vwap_range_v1",
+        "alpha050_volume_vwap_corr_max_v1"
+      ] },
+    ],
+  },
+}

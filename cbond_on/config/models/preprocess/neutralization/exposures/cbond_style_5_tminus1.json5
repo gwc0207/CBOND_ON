@@ -1,0 +1,10 @@
+{
+  // Point-in-time safe style exposures: use previous trading day's daily_base.
+  exposures: [
+    { name: "log_price_tminus1", source: "market_cbond.daily_base", column: "cb_close_price", transform: "log", lag_trading_days: 1 },
+    { name: "log_amount_tminus1", source: "market_cbond.daily_base", column: "cb_amount", transform: "log1p", lag_trading_days: 1 },
+    { name: "premium_tminus1", source: "market_cbond.daily_base", column: "bond_prem_ratio", lag_trading_days: 1 },
+    { name: "remain_size_tminus1", source: "market_cbond.daily_base", column: "remain_size", transform: "log1p", lag_trading_days: 1 },
+    { name: "year_to_mat_tminus1", source: "market_cbond.daily_base", column: "year_to_mat", lag_trading_days: 1 },
+  ],
+}

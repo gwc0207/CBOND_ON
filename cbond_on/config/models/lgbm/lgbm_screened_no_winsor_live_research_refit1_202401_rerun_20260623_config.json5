@@ -1,0 +1,8 @@
+{
+  modules: ["live/live_lgbm_screened_no_winsor"],
+  model_name: "lgbm_screened_no_winsor_live_research_refit1_202401_rerun_20260623",
+  score_output: {
+    windows: "D:/cbond_on/results/scores/lgbm_screened_no_winsor_live_research_refit1_202401_rerun_20260623",
+    linux: "/home/gswzif/cbond_on_runtime/results/scores/lgbm_screened_no_winsor_live_research_refit1_202401_rerun_20260623"
+  },
+}

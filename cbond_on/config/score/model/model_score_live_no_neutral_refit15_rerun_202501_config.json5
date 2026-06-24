@@ -1,0 +1,18 @@
+{
+  modules: ["score/model/model_score"],
+
+  default_model_id: "lgbm_screened_no_winsor_live_research_refit15_rerun_202501",
+  model_id: "lgbm_screened_no_winsor_live_research_refit15_rerun_202501",
+  start: "2025-01-01",
+  end: "2026-05-11",
+  execution: {
+    refit_every_n_days: 15,
+  },
+
+  models: {
+    lgbm_screened_no_winsor_live_research_refit15_rerun_202501: {
+      model_type: "lgbm",
+      model_config: "models/lgbm/lgbm_screened_no_winsor_live_research_refit15_rerun_202501"
+    },
+  },
+}

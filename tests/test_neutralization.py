@@ -54,6 +54,69 @@ def test_neutralizer_removes_daily_price_exposure(tmp_path):
     assert {"dt", "code", "factor_x"} <= set(out.columns)
 
 
+def test_raw_exposure_can_use_previous_trading_day(tmp_path):
+    raw_root = tmp_path / "raw"
+    cal_dir = raw_root / "metadata__trading_calendar"
+    cal_dir.mkdir(parents=True)
+    pd.DataFrame(
+        {
+            "calendar_date": [date(2026, 1, 5), date(2026, 1, 6)],
+            "is_open": [True, True],
+        }
+    ).to_parquet(cal_dir / "all.parquet", index=False)
+
+    table_dir = raw_root / "market_cbond__daily_base" / "2026-01"
+    table_dir.mkdir(parents=True)
+    codes = ["110001.SH", "110002.SH", "110003.SH", "110004.SH", "110005.SH"]
+    pd.DataFrame(
+        {
+            "trade_date": [date(2026, 1, 5)] * 5,
+            "instrument_code": [110001.0, 110002.0, 110003.0, 110004.0, 110005.0],
+            "exchange_code": ["XSHG"] * 5,
+            "cb_close_price": [100.0, 110.0, 120.0, 130.0, 140.0],
+        }
+    ).to_parquet(table_dir / "20260105.parquet", index=False)
+    pd.DataFrame(
+        {
+            "trade_date": [date(2026, 1, 6)] * 5,
+            "instrument_code": [110001.0, 110002.0, 110003.0, 110004.0, 110005.0],
+            "exchange_code": ["XSHG"] * 5,
+            "cb_close_price": [300.0, 280.0, 260.0, 240.0, 220.0],
+        }
+    ).to_parquet(table_dir / "20260106.parquet", index=False)
+
+    frame = pd.DataFrame(
+        {
+            "dt": [pd.Timestamp("2026-01-06 14:30")] * 5,
+            "code": codes,
+            "factor_x": [200.1, 219.8, 240.05, 260.3, 279.75],
+        }
+    )
+    neutralizer = build_neutralizer(
+        {
+            "enabled": True,
+            "method": "ols",
+            "min_count": 3,
+            "exposures": [
+                {
+                    "name": "price_tminus1",
+                    "source": "market_cbond.daily_base",
+                    "column": "cb_close_price",
+                    "lag_trading_days": 1,
+                }
+            ],
+        },
+        raw_data_root=raw_root,
+    )
+
+    spec = neutralizer.cfg.exposures[0]
+    exposure = neutralizer._raw_exposure(spec, date(2026, 1, 6), pd.Series(codes))
+    assert exposure.tolist() == [100.0, 110.0, 120.0, 130.0, 140.0]
+
+    out = neutralizer.apply(frame, ["factor_x"])
+    assert abs(out["factor_x"].corr(pd.Series(exposure.to_numpy(dtype=float)))) < 1e-10
+
+
 def test_neutralizer_rejects_partial_exclude_config():
     with pytest.raises(ValueError, match="partial neutralization is not supported"):
         build_neutralizer(

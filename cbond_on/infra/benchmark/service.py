@@ -901,6 +901,14 @@ def compute_benchmark_breakdowns_for_days(
     days = sorted(set(trade_days))
     if not days:
         return pd.DataFrame()
+    progress_step = max(1, min(25, max(1, len(days) // 20)))
+    print(
+        "[benchmark] start",
+        f"days={len(days)}",
+        f"range={days[0]:%Y-%m-%d}..{days[-1]:%Y-%m-%d}",
+        f"skip_failed={skip_failed_days}",
+        flush=True,
+    )
 
     try:
         prev_day = _previous_trading_day(raw_data_root, days[0], cfg)
@@ -912,14 +920,31 @@ def compute_benchmark_breakdowns_for_days(
                 pool_cfg=cfg,
             )
         )
+        print(
+            "[benchmark] initial holdings",
+            f"prev_day={prev_day:%Y-%m-%d}",
+            f"count={len(prev_holdings)}",
+            flush=True,
+        )
     except Exception:
         if not skip_failed_days:
             raise
+        print("[benchmark] initial holdings failed; returning empty", flush=True)
         return pd.DataFrame()
 
     rows: list[dict] = []
     nav = 1.0
-    for day in days:
+    skipped = 0
+    for idx, day in enumerate(days, start=1):
+        if idx == 1 or idx % progress_step == 0 or idx == len(days):
+            print(
+                "[benchmark] progress",
+                f"{idx}/{len(days)}",
+                f"day={day:%Y-%m-%d}",
+                f"rows={len(rows)}",
+                f"skipped={skipped}",
+                flush=True,
+            )
         try:
             sell_detail = compute_strict_sell_detail_for_holdings(
                 raw_data_root=raw_data_root,
@@ -939,6 +964,7 @@ def compute_benchmark_breakdowns_for_days(
         except Exception:
             if not skip_failed_days:
                 raise
+            skipped += 1
             continue
 
         buy_net_return = float(pd.to_numeric(buy_holdings["weighted_buy_leg_ret_net"], errors="coerce").sum())
@@ -992,7 +1018,9 @@ def compute_benchmark_breakdowns_for_days(
         prev_holdings = _to_strict_sell_holdings(buy_holdings)
 
     if not rows:
+        print("[benchmark] done rows=0", f"skipped={skipped}", flush=True)
         return pd.DataFrame()
+    print("[benchmark] done", f"rows={len(rows)}", f"skipped={skipped}", flush=True)
     return pd.DataFrame(rows).sort_values("trade_date").reset_index(drop=True)
 
 

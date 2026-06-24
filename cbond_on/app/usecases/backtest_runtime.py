@@ -26,6 +26,7 @@ from cbond_on.infra.model.score_io import load_scores_by_date
 from cbond_on.infra.backtest.config import load_strategy_config, resolve_score_path
 from cbond_on.infra.io.market_twap import iter_open_days
 from cbond_on.infra.report.backtest_plot import write_backtest_report_image
+from cbond_on.common.artifact_keys import BACKTEST
 
 
 @dataclass
@@ -84,6 +85,20 @@ def _assert_o005_only_universe_config(bt_cfg: dict) -> None:
         )
 
 
+def _progress_step(total: int) -> int:
+    return max(1, min(25, max(1, total // 20)))
+
+
+def _build_output_dir(results_root: str | Path, date_label: str, batch_id: str) -> Path:
+    return (
+        Path(results_root)
+        / BACKTEST
+        / date_label
+        / batch_id
+        / datetime.now().strftime("%Y%m%d_%H%M%S")
+    )
+
+
 def run(
     *,
     start: date | None = None,
@@ -102,7 +117,26 @@ def run(
         inline=bt_cfg.get("strategy_config"),
     )
     score_path = resolve_score_path(bt_cfg, paths_cfg)
+    batch_id = str(bt_cfg.get("batch_id", "Backtest"))
+    print(
+        "[backtest] start",
+        f"batch={batch_id}",
+        f"range={start_day:%Y-%m-%d}..{end_day:%Y-%m-%d}",
+        f"strategy={strategy_id}",
+        f"score_path={score_path}",
+        flush=True,
+    )
     score_cache = load_scores_by_date(score_path)
+    if score_cache:
+        score_days = sorted(score_cache)
+        print(
+            "[backtest] scores loaded",
+            f"days={len(score_days)}",
+            f"range={score_days[0]:%Y-%m-%d}..{score_days[-1]:%Y-%m-%d}",
+            flush=True,
+        )
+    else:
+        print("[backtest] scores loaded days=0", flush=True)
 
     buy_cost_bps, sell_cost_bps, fee_source = load_fees_buy_sell_bps()
     print(
@@ -125,12 +159,25 @@ def run(
         raise ValueError("not enough trading days for backtest")
 
     benchmark_days = [day for day in days if start_day <= day <= end_day]
+    print(
+        "[backtest] benchmark start",
+        f"days={len(benchmark_days)}",
+        f"range={benchmark_days[0]:%Y-%m-%d}..{benchmark_days[-1]:%Y-%m-%d}"
+        if benchmark_days
+        else "range=<empty>",
+        flush=True,
+    )
     benchmark_daily = compute_benchmark_breakdowns_for_days(
         raw_data_root=raw_root,
         trade_days=benchmark_days,
         buy_bps=buy_cost_bps,
         sell_bps=sell_cost_bps,
         skip_failed_days=True,
+    )
+    print(
+        "[backtest] benchmark done",
+        f"rows={len(benchmark_daily)}",
+        flush=True,
     )
     benchmark_by_day: dict[date, pd.Series] = {}
     if not benchmark_daily.empty:
@@ -148,11 +195,26 @@ def run(
     ic_rows: list[dict] = []
     prev_positions = pd.DataFrame(columns=["code", "weight"])
     strategy_prev_holdings = pd.DataFrame()
+    loop_days = [day for day in days[:-1] if start_day <= day <= end_day]
+    loop_total = len(loop_days)
+    loop_step = _progress_step(loop_total)
+    loop_seen = 0
+    print("[backtest] daily loop start", f"days={loop_total}", flush=True)
 
     for idx in range(len(days) - 1):
         day = days[idx]
         if not (start_day <= day <= end_day):
             continue
+        loop_seen += 1
+        if loop_seen == 1 or loop_seen % loop_step == 0 or loop_seen == loop_total:
+            print(
+                "[backtest] daily progress",
+                f"{loop_seen}/{loop_total}",
+                f"day={day:%Y-%m-%d}",
+                f"ok={len(daily_rows)}",
+                f"diag={len(diag_rows)}",
+                flush=True,
+            )
 
         score_df = score_cache.get(day, pd.DataFrame())
         if score_df.empty:
@@ -320,6 +382,12 @@ def run(
         prev_positions = to_prev_positions(picks)
         strategy_prev_holdings = picks
 
+    print(
+        "[backtest] daily loop done",
+        f"ok={len(daily_rows)}",
+        f"diag={len(diag_rows)}",
+        flush=True,
+    )
     if not daily_rows:
         raise RuntimeError("backtest produced no daily returns")
 
@@ -332,14 +400,9 @@ def run(
     diag_df = pd.DataFrame(diag_rows).sort_values("trade_date") if diag_rows else pd.DataFrame()
 
     date_label = f"{start_day:%Y-%m-%d}_{end_day:%Y-%m-%d}"
-    batch_id = str(bt_cfg.get("batch_id", "Backtest"))
-    out_dir = (
-        Path(paths_cfg["results_root"])
-        / date_label
-        / batch_id
-        / datetime.now().strftime("%Y%m%d_%H%M%S")
-    )
+    out_dir = _build_output_dir(paths_cfg["results_root"], date_label, batch_id)
     out_dir.mkdir(parents=True, exist_ok=True)
+    print("[backtest] write outputs", f"out_dir={out_dir}", flush=True)
     daily_df.to_csv(out_dir / "daily_returns.csv", index=False)
     nav_df.to_csv(out_dir / "nav_curve.csv", index=False)
     positions_df.to_csv(out_dir / "positions.csv", index=False)
@@ -357,6 +420,7 @@ def run(
         configured_start=start_day,
         configured_end=end_day,
     )
+    print("[backtest] done", f"out_dir={out_dir}", f"days={len(daily_df)}", flush=True)
 
     return BacktestRunResult(out_dir=out_dir, days=int(len(daily_df)))
 

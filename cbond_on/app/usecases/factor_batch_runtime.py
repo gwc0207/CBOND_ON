@@ -2423,6 +2423,8 @@ def run_factor_batch(
         raise ValueError("factor_config.panel_name is required; window_minutes fallback is disabled")
     workers = int(cfg.get("workers", 1))
     factor_workers = int(cfg.get("factor_workers", 1))
+    paths_cfg = dict(load_config_file("paths"))
+    panel_cfg = dict(load_config_file("panel"))
     run_factor_pipeline(
         panel_data_root,
         factor_data_root,
@@ -2435,8 +2437,11 @@ def run_factor_batch(
         workers=workers,
         factor_workers=factor_workers,
         raw_data_root=raw_data_root,
+        cleaned_data_root=paths_cfg.get("cleaned_data_root") or paths_cfg.get("clean_data_root"),
         context_cfg=cfg.get("context"),
         compute_cfg=cfg.get("compute"),
+        panel_source_cfg=cfg.get("panel_source"),
+        panel_build_cfg=panel_cfg,
         tail_features_cfg=cfg.get("tail_features"),
         specs=specs,
     )

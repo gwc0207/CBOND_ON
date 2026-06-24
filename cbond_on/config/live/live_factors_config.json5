@@ -5,6 +5,9 @@
   refresh: false,
   overwrite: false,
   workers: 6,
+  panel_source: {
+    mode: "clean_direct",
+  },
   compute: {
     engine: "rust",
     backend: "cpu",

@@ -25,7 +25,7 @@
   },
   model_score: {
     config: "live/live_models",
-    model_id: "lgbm_screened_no_winsor_neutral_v1",
+    model_id: "lgbm_screened_no_winsor_neutral_tminus1_live_warm_20240508",
     label_cutoff: null
   },
   allowlist: {
