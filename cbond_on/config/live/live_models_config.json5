@@ -1,6 +1,6 @@
 {
-  model_id: "lgbm_screened_no_winsor_neutral_tminus1_live_warm_20240508",
-  default_model_id: "lgbm_screened_no_winsor_neutral_tminus1_live_warm_20240508",
+  model_id: "lgbm_screened_no_winsor_neutral_tminus1_weight_recent_hl20_20260625",
+  default_model_id: "lgbm_screened_no_winsor_neutral_tminus1_weight_recent_hl20_20260625",
   start: "2024-05-08",
   end: "2026-06-23",
   label_cutoff: null,
@@ -9,9 +9,9 @@
     refit_every_n_days: 1
   },
   models: {
-    lgbm_screened_no_winsor_neutral_tminus1_live_warm_20240508: {
+    lgbm_screened_no_winsor_neutral_tminus1_weight_recent_hl20_20260625: {
       model_type: "lgbm",
-      model_config: "live/live_lgbm_screened_no_winsor_neutral_tminus1"
+      model_config: "live/live_lgbm_screened_no_winsor_neutral_tminus1_recent_hl20"
     }
   }
 }

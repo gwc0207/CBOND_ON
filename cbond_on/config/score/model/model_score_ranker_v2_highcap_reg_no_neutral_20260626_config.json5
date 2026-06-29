@@ -1,0 +1,12 @@
+{
+  modules: ["score/model/model_score_neutral_tminus1_ranker_v2_highcap_reg_20260625"],
+
+  default_model_id: "lgbm_screened_no_winsor_ranker_v2_highcap_reg_no_neutral_20260626",
+  model_id: "lgbm_screened_no_winsor_ranker_v2_highcap_reg_no_neutral_20260626",
+  models: {
+    lgbm_screened_no_winsor_ranker_v2_highcap_reg_no_neutral_20260626: {
+      model_type: "lgbm_ranker",
+      model_config: "models/lgbm_ranker/lgbm_screened_no_winsor_ranker_v2_highcap_reg_no_neutral_20260626"
+    }
+  }
+}

@@ -3,7 +3,7 @@
   // existing results/model directories until a dedicated registry writer lands.
   models: [
     {
-      model_name: "lgbm_factor_MSE_live",
+      model_name: "lgbm_screened_no_winsor_neutral_tminus1_weight_recent_hl20_20260625",
       alias: "production",
       version: "current",
       artifact_path: "",
@@ -14,4 +14,3 @@
     },
   ]
 }
-

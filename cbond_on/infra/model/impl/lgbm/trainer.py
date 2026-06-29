@@ -63,6 +63,7 @@ class SplitData:
     y: pd.Series
     dt: pd.Series
     code: pd.Series
+    sample_weight: pd.Series | None = None
 
 
 def _normalise_missing_values_config(missing_values: dict[str, Any] | None) -> dict[str, Any]:
@@ -71,6 +72,108 @@ def _normalise_missing_values_config(missing_values: dict[str, Any] | None) -> d
     if not isinstance(missing_values, dict):
         raise TypeError("missing_values config must be an object")
     return dict(missing_values)
+
+
+def _normalise_sample_weight_config(sample_weight: dict[str, Any] | None) -> dict[str, Any]:
+    if sample_weight in (None, "", []):
+        return {}
+    if not isinstance(sample_weight, dict):
+        raise TypeError("sample_weight config must be an object")
+    cfg = dict(sample_weight)
+    raw_schemes = cfg.get("schemes", cfg.get("rules"))
+    if raw_schemes is None and cfg.get("type") is not None:
+        raw_schemes = [cfg]
+    if raw_schemes in (None, "", []):
+        raw_schemes = []
+    if not isinstance(raw_schemes, list):
+        raise TypeError("sample_weight.schemes must be a list")
+    schemes: list[dict[str, Any]] = []
+    for item in raw_schemes:
+        if not isinstance(item, dict):
+            raise TypeError("sample_weight.schemes entries must be objects")
+        schemes.append(dict(item))
+    cfg["schemes"] = schemes
+    return cfg
+
+
+def _sample_weight_enabled(sample_weight: dict[str, Any]) -> bool:
+    return bool(sample_weight.get("enabled", False) and sample_weight.get("schemes"))
+
+
+def _rank_pct_by_day(df: pd.DataFrame, column: str) -> pd.Series:
+    return df.groupby("dt", group_keys=False)[column].rank(pct=True, method="average")
+
+
+def _normalise_weight_series(
+    w: pd.Series,
+    dt: pd.Series,
+    *,
+    mode: str,
+) -> pd.Series:
+    mode = str(mode or "day_mean").strip().lower()
+    if mode in {"none", "off", "false"}:
+        return w
+    if mode in {"day_mean", "dt_mean", "daily_mean"}:
+        denom = w.groupby(dt).transform("mean").replace(0.0, np.nan)
+        return (w / denom).fillna(1.0)
+    if mode in {"global_mean", "mean"}:
+        denom = float(w.mean())
+        if denom > 0 and np.isfinite(denom):
+            return w / denom
+        return pd.Series(1.0, index=w.index)
+    raise ValueError(f"unsupported sample_weight.normalize: {mode}")
+
+
+def _apply_sample_weight_config(df: pd.DataFrame, sample_weight: dict[str, Any] | None) -> pd.Series | None:
+    cfg = _normalise_sample_weight_config(sample_weight)
+    if not _sample_weight_enabled(cfg):
+        return None
+    w = pd.Series(1.0, index=df.index, dtype=float)
+    for scheme in cfg.get("schemes", []):
+        kind = str(scheme.get("type", scheme.get("kind", ""))).strip().lower()
+        if kind in {"time_decay", "recency", "recent"}:
+            continue
+        multiplier = float(scheme.get("multiplier", scheme.get("weight", 1.0)))
+        if not np.isfinite(multiplier) or multiplier <= 0:
+            raise ValueError(f"sample_weight multiplier must be finite and > 0: {multiplier}")
+        if kind in {"label_top_quantile", "top_label_quantile", "label_top_pct", "topk_label"}:
+            if "y" not in df.columns:
+                raise KeyError("sample_weight label_top_quantile requires y column")
+            quantile = float(scheme.get("quantile", scheme.get("pct", 0.8)))
+            pct = _rank_pct_by_day(df, "y")
+            w *= np.where(pct >= quantile, multiplier, 1.0)
+            continue
+        if kind in {"positive_label", "positive_return", "label_positive"}:
+            if "y" not in df.columns:
+                raise KeyError("sample_weight positive_label requires y column")
+            threshold = float(scheme.get("threshold", 0.0))
+            w *= np.where(pd.to_numeric(df["y"], errors="coerce") > threshold, multiplier, 1.0)
+            continue
+        if kind in {"liquidity_quantile", "top_liquidity", "liquidity_top_quantile"}:
+            column = str(scheme.get("column", "amount_30m")).strip()
+            if column not in df.columns:
+                raise KeyError(f"sample_weight liquidity column not found: {column}")
+            quantile = float(scheme.get("quantile", scheme.get("pct", 0.8)))
+            pct = _rank_pct_by_day(df, column)
+            w *= np.where(pct >= quantile, multiplier, 1.0)
+            continue
+        raise ValueError(f"unsupported sample_weight scheme type: {kind}")
+
+    clip_cfg = cfg.get("clip", {})
+    if clip_cfg is None:
+        clip_cfg = {}
+    if not isinstance(clip_cfg, dict):
+        raise TypeError("sample_weight.clip must be an object")
+    clip_min = clip_cfg.get("min", cfg.get("min"))
+    clip_max = clip_cfg.get("max", cfg.get("max"))
+    if clip_min is not None or clip_max is not None:
+        w = w.clip(
+            lower=float(clip_min) if clip_min is not None else None,
+            upper=float(clip_max) if clip_max is not None else None,
+        )
+    w = _normalise_weight_series(w, df["dt"], mode=str(cfg.get("normalize", "day_mean")))
+    w = w.replace([np.inf, -np.inf], np.nan).fillna(1.0)
+    return w.astype(float)
 
 
 def _missing_values_enabled(missing_values: dict[str, Any]) -> bool:
@@ -559,6 +662,7 @@ def build_dataset(
     raw_factor_cols: list[str] | None = None,
     preprocess_factor_cols: list[str] | None = None,
     missing_values: dict[str, Any] | None = None,
+    sample_weight: dict[str, Any] | None = None,
 ) -> SplitData:
     aliases = {str(k): str(v) for k, v in (factor_aliases or {}).items()}
     raw_cols = list(raw_factor_cols or factor_cols)
@@ -638,7 +742,14 @@ def build_dataset(
         merged = merged[counts >= min_count]
         if merged.empty:
             continue
-        frames.append(merged[["dt", "code"] + factor_cols + ["y"]])
+        row_weight = _apply_sample_weight_config(merged, sample_weight)
+        if row_weight is not None:
+            merged = merged.copy()
+            merged["_sample_weight"] = row_weight
+            frame_cols = ["dt", "code"] + factor_cols + ["y", "_sample_weight"]
+        else:
+            frame_cols = ["dt", "code"] + factor_cols + ["y"]
+        frames.append(merged[frame_cols])
 
     if not frames:
         empty = pd.DataFrame(columns=["dt", "code"] + factor_cols + ["y"])
@@ -659,6 +770,7 @@ def build_dataset(
         y=data["y"].copy(),
         dt=data["dt"].copy(),
         code=data["code"].copy(),
+        sample_weight=data["_sample_weight"].copy() if "_sample_weight" in data.columns else None,
     )
 
 
@@ -943,6 +1055,18 @@ def train_lgbm(
     gpu_requested = _lgbm_gpu_requested(params)
     model = lgb.LGBMRegressor(**params)
     history: list[dict] = []
+    sample_weight = None
+    if train.sample_weight is not None:
+        sample_weight_arr = pd.to_numeric(train.sample_weight, errors="coerce").to_numpy(dtype=float)
+        if sample_weight_arr.shape[0] != train.y.shape[0]:
+            raise ValueError(
+                "train sample_weight length mismatch: "
+                f"weights={sample_weight_arr.shape[0]} labels={train.y.shape[0]}"
+            )
+        sample_weight_arr = np.where(np.isfinite(sample_weight_arr), sample_weight_arr, 1.0)
+        if np.any(sample_weight_arr <= 0):
+            raise ValueError("train sample_weight values must be > 0")
+        sample_weight = sample_weight_arr
 
     def _eval_rank_ic(y_true, y_pred):
         if y_true is None or y_pred is None:
@@ -1009,6 +1133,8 @@ def train_lgbm(
         base_fit_kwargs = {}
         if init_model is not None:
             base_fit_kwargs["init_model"] = init_model
+        if sample_weight is not None:
+            base_fit_kwargs["sample_weight"] = sample_weight
         fit_kwargs = dict(base_fit_kwargs)
         if early_stopping_rounds is not None and val.x is not None and not val.x.empty:
             fit_kwargs = {

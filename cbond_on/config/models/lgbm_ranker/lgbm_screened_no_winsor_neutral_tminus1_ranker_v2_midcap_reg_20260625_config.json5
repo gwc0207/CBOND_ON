@@ -1,0 +1,28 @@
+{
+  modules: ["models/lgbm_ranker/lgbm_screened_no_winsor_neutral_tminus1_ranker_hs_20260624_t08_high_capacity_trunc20"],
+
+  model_name: "lgbm_screened_no_winsor_neutral_tminus1_ranker_v2_midcap_reg_20260625",
+  end: "2026-06-24",
+  score_output: {
+    windows: "D:/cbond_on/results/scores/lgbm_screened_no_winsor_neutral_tminus1_ranker_v2_midcap_reg_20260625",
+    linux: "/home/gswzif/cbond_on_runtime/results/scores/lgbm_screened_no_winsor_neutral_tminus1_ranker_v2_midcap_reg_20260625"
+  },
+  incremental: {
+    state_dir: "D:/cbond_on/results/model_state/lgbm_screened_no_winsor_neutral_tminus1_ranker_v2_midcap_reg_20260625"
+  },
+
+  // Ranking v2: reduce tree capacity relative to t08 while keeping top20 lambdarank alignment.
+  lgbm_ranker_params: {
+    num_leaves: 47,
+    max_depth: 8,
+    min_data_in_leaf: 30,
+    reg_alpha: 0.1,
+    reg_lambda: 2.0,
+  },
+  experiment: {
+    id: "ranker_v2_20260625",
+    trial: "midcap_reg",
+    description: "moderate-capacity ranker for lower drawdown and higher Sharpe",
+    baseline_model: "lgbm_screened_no_winsor_neutral_tminus1_ranker_hs_20260624_t08_high_capacity_trunc20"
+  }
+}

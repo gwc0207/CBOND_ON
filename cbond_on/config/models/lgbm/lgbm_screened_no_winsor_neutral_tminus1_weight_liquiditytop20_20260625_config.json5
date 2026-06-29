@@ -1,0 +1,27 @@
+{
+  modules: ["models/lgbm/lgbm_screened_no_winsor_neutral_tminus1_refit1_202401_rerun_20260623"],
+
+  model_name: "lgbm_screened_no_winsor_neutral_tminus1_weight_liquiditytop20_20260625",
+  end: "2026-06-24",
+  score_output: {
+    windows: "D:/cbond_on/results/scores/lgbm_screened_no_winsor_neutral_tminus1_weight_liquiditytop20_20260625",
+    linux: "/home/gswzif/cbond_on_runtime/results/scores/lgbm_screened_no_winsor_neutral_tminus1_weight_liquiditytop20_20260625"
+  },
+  incremental: {
+    state_dir: "D:/cbond_on/results/model_state/lgbm_screened_no_winsor_neutral_tminus1_weight_liquiditytop20_20260625"
+  },
+
+  sample_weight: {
+    enabled: true,
+    normalize: "day_mean",
+    clip: { min: 0.2, max: 3.0 },
+    schemes: [
+      { type: "liquidity_quantile", column: "amount_30m", quantile: 0.8, multiplier: 1.5 }
+    ]
+  },
+  experiment: {
+    id: "lgbm_sample_weight_20260625",
+    trial: "liquiditytop20",
+    description: "upweight daily top 20pct raw amount_30m samples by 1.5x"
+  }
+}

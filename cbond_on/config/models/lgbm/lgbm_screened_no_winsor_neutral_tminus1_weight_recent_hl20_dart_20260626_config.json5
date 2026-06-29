@@ -1,0 +1,26 @@
+{
+  modules: ["models/lgbm/lgbm_screened_no_winsor_neutral_tminus1_weight_recent_hl20_20260625"],
+
+  model_name: "lgbm_screened_no_winsor_neutral_tminus1_weight_recent_hl20_dart_20260626",
+  score_output: {
+    windows: "D:/cbond_on/results/scores/lgbm_screened_no_winsor_neutral_tminus1_weight_recent_hl20_dart_20260626",
+    linux: "/home/gswzif/cbond_on_runtime/results/scores/lgbm_screened_no_winsor_neutral_tminus1_weight_recent_hl20_dart_20260626"
+  },
+  incremental: {
+    state_dir: "D:/cbond_on/results/model_state/lgbm_screened_no_winsor_neutral_tminus1_weight_recent_hl20_dart_20260626"
+  },
+
+  lgbm_params: {
+    boosting_type: "dart",
+    drop_rate: 0.1,
+    skip_drop: 0.5,
+    max_drop: 50,
+    log_eval_period: 1000000,
+  },
+  early_stopping_rounds: 0,
+  experiment: {
+    id: "lgbm_model_boosting_dart_20260626",
+    trial: "recent_hl20_dart",
+    description: "DART/dropout boosting ablation on current neutral T-1 recent HL20 model family"
+  }
+}

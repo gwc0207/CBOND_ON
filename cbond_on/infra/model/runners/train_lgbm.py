@@ -121,6 +121,83 @@ def _resolve_feature_contribution_config(cfg: dict) -> dict:
     return dict(raw)
 
 
+def _resolve_sample_weight_config(cfg: dict) -> dict:
+    fe_cfg = cfg.get("feature_engineering", {})
+    if fe_cfg is None:
+        fe_cfg = {}
+    if not isinstance(fe_cfg, dict):
+        raise TypeError("feature_engineering must be an object")
+    raw = fe_cfg.get("sample_weight", cfg.get("sample_weight", {}))
+    if raw in (None, "", []):
+        return {}
+    if not isinstance(raw, dict):
+        raise TypeError("sample_weight must be an object")
+    out = dict(raw)
+    schemes = out.get("schemes", out.get("rules"))
+    if schemes is None and out.get("type") is not None:
+        schemes = [out]
+    if schemes in (None, "", []):
+        schemes = []
+    if not isinstance(schemes, list):
+        raise TypeError("sample_weight.schemes must be a list")
+    out["schemes"] = [dict(item) for item in schemes]
+    return out
+
+
+def _sample_weight_summary(sample_weight_cfg: dict) -> dict:
+    schemes = sample_weight_cfg.get("schemes") or []
+    enabled = bool(sample_weight_cfg.get("enabled", False) and schemes)
+    kinds = [str(item.get("type", item.get("kind", ""))).strip() for item in schemes]
+    return {
+        "enabled": enabled,
+        "scheme_count": len(schemes),
+        "schemes": kinds,
+        "normalize": str(sample_weight_cfg.get("normalize", "day_mean")),
+    }
+
+
+def _apply_training_time_decay(split: SplitData, sample_weight_cfg: dict) -> SplitData:
+    if split.x.empty or not sample_weight_cfg:
+        return split
+    schemes = sample_weight_cfg.get("schemes") or []
+    decay_schemes = [
+        item for item in schemes
+        if str(item.get("type", item.get("kind", ""))).strip().lower() in {"time_decay", "recency", "recent"}
+    ]
+    if not decay_schemes:
+        return split
+    weights = (
+        pd.to_numeric(split.sample_weight, errors="coerce").fillna(1.0).to_numpy(dtype=float, copy=True)
+        if split.sample_weight is not None
+        else np.ones(len(split.y), dtype=float)
+    )
+    dt = pd.to_datetime(split.dt, errors="coerce").dt.normalize()
+    unique_days = sorted(pd.Timestamp(d) for d in dt.dropna().unique())
+    if not unique_days:
+        return split
+    day_pos = {day: idx for idx, day in enumerate(unique_days)}
+    latest_pos = len(unique_days) - 1
+    day_idx = dt.map(lambda value: day_pos.get(pd.Timestamp(value), 0)).fillna(0).to_numpy(dtype=float)
+    age = latest_pos - day_idx
+    for scheme in decay_schemes:
+        half_life = float(scheme.get("half_life_days", scheme.get("half_life", 20.0)))
+        if not np.isfinite(half_life) or half_life <= 0:
+            raise ValueError(f"sample_weight time_decay half_life_days must be > 0: {half_life}")
+        multiplier = np.power(0.5, age / half_life)
+        weights *= multiplier
+    mean = float(np.nanmean(weights))
+    if mean > 0 and np.isfinite(mean):
+        weights = weights / mean
+    weights = np.where(np.isfinite(weights), weights, 1.0)
+    return SplitData(
+        x=split.x,
+        y=split.y,
+        dt=split.dt,
+        code=split.code,
+        sample_weight=pd.Series(weights, index=split.y.index, dtype=float),
+    )
+
+
 def _iter_feature_contribution_entries(contribution_cfg: dict) -> list[tuple[str, float]]:
     entries: list[tuple[str, float]] = []
     for name, value in (contribution_cfg.get("values") or {}).items():
@@ -241,7 +318,17 @@ def _concat_split_data(parts: list[SplitData], factor_cols: list[str]) -> SplitD
     y = pd.concat([p.y for p in valid_parts], ignore_index=True)
     dt = pd.concat([p.dt for p in valid_parts], ignore_index=True)
     code = pd.concat([p.code for p in valid_parts], ignore_index=True)
-    return SplitData(x=x, y=y, dt=dt, code=code)
+    if any(p.sample_weight is not None for p in valid_parts):
+        weights = pd.concat(
+            [
+                p.sample_weight if p.sample_weight is not None else pd.Series(1.0, index=p.y.index)
+                for p in valid_parts
+            ],
+            ignore_index=True,
+        )
+    else:
+        weights = None
+    return SplitData(x=x, y=y, dt=dt, code=code, sample_weight=weights)
 
 
 @dataclass
@@ -440,7 +527,7 @@ def _apply_pca_feature_transformer(
         for idx, col in enumerate(group.output_cols):
             x[col] = scores[:, idx]
     x = x[transformer.feature_cols].copy()
-    return SplitData(x=x, y=split.y, dt=split.dt, code=split.code)
+    return SplitData(x=x, y=split.y, dt=split.dt, code=split.code, sample_weight=split.sample_weight)
 
 
 def _pca_transformer_summary(transformer: _PcaFeatureTransformer | None) -> list[dict]:
@@ -482,6 +569,7 @@ def _build_daily_split_cache(
     factor_aliases: dict[str, str] | None = None,
     standardization: dict | None = None,
     missing_values: dict | None = None,
+    sample_weight: dict | None = None,
 ) -> dict[date, SplitData]:
     cache: dict[date, SplitData] = {}
     total = len(days)
@@ -506,6 +594,7 @@ def _build_daily_split_cache(
             factor_aliases=factor_aliases,
             standardization=standardization,
             missing_values=missing_values,
+            sample_weight=sample_weight if require_label else None,
         )
         if not split.x.empty:
             cache[day] = split
@@ -845,6 +934,8 @@ def main(
     model_feature_cols = _preview_pca_feature_cols(factor_cols, pca_feature_cfg)
     feature_contribution_cfg = _resolve_feature_contribution_config(cfg)
     feature_contribution_summary = _feature_contribution_summary(model_feature_cols, feature_contribution_cfg)
+    sample_weight_cfg = _resolve_sample_weight_config(cfg)
+    sample_weight_summary = _sample_weight_summary(sample_weight_cfg)
     print(
         "[standardization]",
         f"enabled={bool(standardization_summary.get('enabled', False))}",
@@ -878,6 +969,13 @@ def main(
             "[feature_contribution] missing configured features:",
             ",".join(str(x) for x in feature_contribution_summary["missing_features"]),
         )
+    print(
+        "[sample_weight]",
+        f"enabled={bool(sample_weight_summary.get('enabled', False))}",
+        f"scheme_count={sample_weight_summary.get('scheme_count')}",
+        f"schemes={','.join(str(x) for x in sample_weight_summary.get('schemes', []))}",
+        f"normalize={sample_weight_summary.get('normalize')}",
+    )
 
     lgbm_params = cfg.get("lgbm_params", {})
     grid_cfg = cfg.get("grid_search", {})
@@ -928,6 +1026,9 @@ def main(
             "feature_contribution_max": float(
                 feature_contribution_summary.get("max", feature_contribution_summary.get("default", 1.0))
             ),
+            "sample_weight_enabled": bool(sample_weight_summary.get("enabled", False)),
+            "sample_weight_scheme_count": int(sample_weight_summary.get("scheme_count", 0)),
+            "sample_weight_schemes": ",".join(str(x) for x in sample_weight_summary.get("schemes", [])),
         },
         prefix="run",
     )
@@ -1089,6 +1190,7 @@ def main(
             factor_aliases=factor_aliases,
             standardization=standardization,
             missing_values=missing_values,
+            sample_weight=sample_weight_cfg,
         )
         test_day_cache = _build_daily_split_cache(
             days=test_cache_days,
@@ -1110,6 +1212,7 @@ def main(
             factor_aliases=factor_aliases,
             standardization=standardization,
             missing_values=missing_values,
+            sample_weight=None,
         )
         print(
             f"[rolling] cache_ready train_cached={len(train_day_cache)} "
@@ -1191,6 +1294,7 @@ def main(
                             val_data = _apply_pca_feature_transformer(val_data, fit_pca_transformer)
                             for row in _pca_transformer_summary(fit_pca_transformer):
                                 pca_summary_rows.append({"trade_date": test_day, **row})
+                        train_data = _apply_training_time_decay(train_data, sample_weight_cfg)
                         if incremental_enabled and incremental_warm_start:
                             prev_ckpt = _find_previous_checkpoint(state_dir, test_day)
                             if prev_ckpt is not None:
@@ -1494,6 +1598,7 @@ def main(
         factor_aliases=factor_aliases,
         standardization=standardization,
         missing_values=missing_values,
+        sample_weight=sample_weight_cfg,
     )
     val_data = build_dataset(
         factor_store=store,
@@ -1514,6 +1619,7 @@ def main(
         factor_aliases=factor_aliases,
         standardization=standardization,
         missing_values=missing_values,
+        sample_weight=sample_weight_cfg,
     )
     test_data = build_dataset(
         factor_store=store,
@@ -1534,6 +1640,7 @@ def main(
         factor_aliases=factor_aliases,
         standardization=standardization,
         missing_values=missing_values,
+        sample_weight=None,
     )
 
     pca_transformer = _fit_pca_feature_transformer(train_data.x, pca_feature_cfg)
@@ -1544,6 +1651,7 @@ def main(
         pca_summary = _pca_transformer_summary(pca_transformer)
         if pca_summary:
             pd.DataFrame(pca_summary).to_csv(out_dir / "pca_features.csv", index=False)
+    train_data = _apply_training_time_decay(train_data, sample_weight_cfg)
 
     model = None
     params = {}

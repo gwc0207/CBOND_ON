@@ -1,0 +1,13 @@
+{
+  modules: ["score/model/model_score_neutral_tminus1_refit1_202401_rerun_20260623"],
+
+  default_model_id: "lgbm_screened_no_winsor_neutral_tminus1_weight_liquiditytop20_20260625",
+  model_id: "lgbm_screened_no_winsor_neutral_tminus1_weight_liquiditytop20_20260625",
+  end: "2026-06-24",
+  models: {
+    lgbm_screened_no_winsor_neutral_tminus1_weight_liquiditytop20_20260625: {
+      model_type: "lgbm",
+      model_config: "models/lgbm/lgbm_screened_no_winsor_neutral_tminus1_weight_liquiditytop20_20260625"
+    }
+  }
+}

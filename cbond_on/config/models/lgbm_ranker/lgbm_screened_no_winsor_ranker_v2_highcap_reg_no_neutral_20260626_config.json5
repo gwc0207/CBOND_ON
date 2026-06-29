@@ -1,0 +1,25 @@
+{
+  modules: ["models/lgbm_ranker/lgbm_screened_no_winsor_neutral_tminus1_ranker_v2_highcap_reg_20260625"],
+
+  model_name: "lgbm_screened_no_winsor_ranker_v2_highcap_reg_no_neutral_20260626",
+  score_output: {
+    windows: "D:/cbond_on/results/scores/lgbm_screened_no_winsor_ranker_v2_highcap_reg_no_neutral_20260626",
+    linux: "/home/gswzif/cbond_on_runtime/results/scores/lgbm_screened_no_winsor_ranker_v2_highcap_reg_no_neutral_20260626"
+  },
+  incremental: {
+    state_dir: "D:/cbond_on/results/model_state/lgbm_screened_no_winsor_ranker_v2_highcap_reg_no_neutral_20260626"
+  },
+  neutralization: {
+    enabled: false
+  },
+  lgbm_ranker_params: {
+    verbosity: -1,
+    log_eval_period: 1000000,
+  },
+  experiment: {
+    id: "ranker_no_neutral_20260626",
+    trial: "v2_highcap_reg_no_neutral",
+    description: "Same as ranker v2 highcap regularized model, with neutralization disabled for ablation.",
+    baseline_model: "lgbm_screened_no_winsor_neutral_tminus1_ranker_v2_highcap_reg_20260625"
+  }
+}

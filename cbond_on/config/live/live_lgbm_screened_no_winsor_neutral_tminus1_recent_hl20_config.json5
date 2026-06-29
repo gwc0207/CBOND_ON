@@ -1,0 +1,31 @@
+{
+  modules: ["live/live_lgbm_screened_no_winsor_neutral_tminus1"],
+
+  model_name: "lgbm_screened_no_winsor_neutral_tminus1_weight_recent_hl20_20260625",
+  end: "2026-06-24",
+  score_output: {
+    windows: "D:/cbond_on/results/scores/live/lgbm_screened_no_winsor_neutral_tminus1_weight_recent_hl20_20260625",
+    linux: "/home/gswzif/cbond_on_runtime/results/scores/live/lgbm_screened_no_winsor_neutral_tminus1_weight_recent_hl20_20260625"
+  },
+  incremental: {
+    enabled: true,
+    skip_existing_scores: true,
+    warm_start: true,
+    save_state: true,
+    state_dir: "D:/cbond_on/results/model_state/lgbm_screened_no_winsor_neutral_tminus1_weight_recent_hl20_20260625"
+  },
+
+  sample_weight: {
+    enabled: true,
+    normalize: "day_mean",
+    clip: { min: 0.2, max: 3.0 },
+    schemes: [
+      { type: "time_decay", half_life_days: 20.0 }
+    ]
+  },
+  experiment: {
+    id: "lgbm_sample_weight_20260625",
+    trial: "recent_hl20_live",
+    description: "live wrapper for time-decay training samples with 20 trading day half-life"
+  }
+}

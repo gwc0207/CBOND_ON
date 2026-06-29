@@ -1,0 +1,13 @@
+{
+  modules: ["score/model/model_score_neutral_tminus1_ranker_hs_20260624_t08_high_capacity_trunc20_202401_20260622"],
+
+  default_model_id: "lgbm_screened_no_winsor_neutral_tminus1_ranker_v2_midcap_reg_20260625",
+  model_id: "lgbm_screened_no_winsor_neutral_tminus1_ranker_v2_midcap_reg_20260625",
+  end: "2026-06-24",
+  models: {
+    lgbm_screened_no_winsor_neutral_tminus1_ranker_v2_midcap_reg_20260625: {
+      model_type: "lgbm_ranker",
+      model_config: "models/lgbm_ranker/lgbm_screened_no_winsor_neutral_tminus1_ranker_v2_midcap_reg_20260625"
+    }
+  }
+}
