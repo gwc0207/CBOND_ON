@@ -32,6 +32,7 @@ class RankerSplitData:
     code: pd.Series
     relevance: pd.Series
     group: list[int]
+    sample_weight: pd.Series | None = None
 
 
 def build_ranker_split_data(
@@ -49,12 +50,15 @@ def build_ranker_split_data(
             code=pd.Series(dtype=str),
             relevance=pd.Series(dtype=np.int32),
             group=[],
+            sample_weight=None,
         )
 
     work = split.x.copy()
     work["y"] = pd.to_numeric(split.y, errors="coerce")
     work["dt"] = pd.to_datetime(split.dt, errors="coerce")
     work["code"] = split.code.astype(str)
+    if split.sample_weight is not None:
+        work["_sample_weight"] = pd.to_numeric(split.sample_weight, errors="coerce")
     work = work.dropna(subset=["dt", "y"])
     if work.empty:
         empty_x = split.x.iloc[0:0].copy()
@@ -65,6 +69,7 @@ def build_ranker_split_data(
             code=pd.Series(dtype=str),
             relevance=pd.Series(dtype=np.int32),
             group=[],
+            sample_weight=None,
         )
 
     factor_cols = [c for c in split.x.columns]
@@ -82,6 +87,7 @@ def build_ranker_split_data(
         code=work["code"].copy(),
         relevance=work["relevance"].copy(),
         group=group,
+        sample_weight=work["_sample_weight"].copy() if "_sample_weight" in work.columns else None,
     )
 
 
@@ -107,6 +113,18 @@ def train_lgbm_ranker(
     history: list[dict] = []
     train_groups = _build_day_group_indices(train.dt)
     val_groups = _build_day_group_indices(val.dt)
+    sample_weight = None
+    if train.sample_weight is not None:
+        sample_weight_arr = pd.to_numeric(train.sample_weight, errors="coerce").to_numpy(dtype=float)
+        if sample_weight_arr.shape[0] != train.relevance.shape[0]:
+            raise ValueError(
+                "ranker train sample_weight length mismatch: "
+                f"weights={sample_weight_arr.shape[0]} labels={train.relevance.shape[0]}"
+            )
+        sample_weight_arr = np.where(np.isfinite(sample_weight_arr), sample_weight_arr, 1.0)
+        if np.any(sample_weight_arr <= 0):
+            raise ValueError("ranker train sample_weight values must be > 0")
+        sample_weight = sample_weight_arr
 
     def _mean_rank_ic(split_data: RankerSplitData, pred: np.ndarray) -> float:
         if split_data.x.empty:
@@ -174,6 +192,8 @@ def train_lgbm_ranker(
         base_fit_kwargs = {}
         if init_model is not None:
             base_fit_kwargs["init_model"] = init_model
+        if sample_weight is not None:
+            base_fit_kwargs["sample_weight"] = sample_weight
         has_val = (not val.x.empty) and bool(val.group)
         if has_val and early_stopping_rounds is not None:
             fit_kwargs = {

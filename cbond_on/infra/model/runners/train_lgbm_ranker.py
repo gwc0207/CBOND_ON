@@ -37,7 +37,27 @@ from cbond_on.infra.model.impl.lgbm_ranker.trainer import (
     evaluate_metrics,
     train_lgbm_ranker,
 )
-from cbond_on.infra.model.impl.lgbm.trainer import build_tradable_code_map
+from cbond_on.infra.model.impl.lgbm.trainer import (
+    build_tradable_code_map,
+    describe_standardization,
+    missing_value_feature_columns,
+)
+from cbond_on.infra.model.runners.train_lgbm import (
+    _apply_pca_feature_transformer,
+    _apply_training_time_decay,
+    _feature_contribution_summary,
+    _fit_pca_feature_transformer,
+    _parse_factor_aliases,
+    _pca_transformer_summary,
+    _preview_pca_feature_cols,
+    _resolve_feature_contribution_config,
+    _resolve_missing_values_config,
+    _resolve_pca_feature_config,
+    _resolve_sample_weight_config,
+    _sample_weight_summary,
+    _select_factor_cols as _select_lgbm_factor_cols,
+    _with_feature_contribution_params,
+)
 
 
 def _load_model_config(path: Path | None) -> dict:
@@ -146,7 +166,17 @@ def _concat_split_data(parts: list[SplitData], factor_cols: list[str]) -> SplitD
     y = pd.concat([p.y for p in valid_parts], ignore_index=True)
     dt = pd.concat([p.dt for p in valid_parts], ignore_index=True)
     code = pd.concat([p.code for p in valid_parts], ignore_index=True)
-    return SplitData(x=x, y=y, dt=dt, code=code)
+    if any(p.sample_weight is not None for p in valid_parts):
+        weights = pd.concat(
+            [
+                p.sample_weight if p.sample_weight is not None else pd.Series(1.0, index=p.y.index)
+                for p in valid_parts
+            ],
+            ignore_index=True,
+        )
+    else:
+        weights = None
+    return SplitData(x=x, y=y, dt=dt, code=code, sample_weight=weights)
 
 
 def _build_daily_split_cache(
@@ -155,6 +185,8 @@ def _build_daily_split_cache(
     factor_store: FactorStore,
     label_root: Path,
     factor_cols: list[str],
+    raw_factor_cols: list[str] | None,
+    preprocess_factor_cols: list[str] | None,
     min_count: int,
     winsor_lower: float | None,
     winsor_upper: float | None,
@@ -165,6 +197,10 @@ def _build_daily_split_cache(
     tradable_code_map: dict[date, set[str]] | None,
     tradable_strict: bool,
     neutralizer,
+    factor_aliases: dict[str, str] | None = None,
+    standardization: dict | None = None,
+    missing_values: dict | None = None,
+    sample_weight: dict | None = None,
 ) -> dict[date, SplitData]:
     cache: dict[date, SplitData] = {}
     total = len(days)
@@ -174,6 +210,8 @@ def _build_daily_split_cache(
             label_root=label_root,
             days=[day],
             factor_cols=factor_cols,
+            raw_factor_cols=raw_factor_cols,
+            preprocess_factor_cols=preprocess_factor_cols,
             min_count=min_count,
             winsor_lower=winsor_lower,
             winsor_upper=winsor_upper,
@@ -184,6 +222,10 @@ def _build_daily_split_cache(
             tradable_code_map=tradable_code_map,
             tradable_strict=tradable_strict,
             neutralizer=neutralizer,
+            factor_aliases=factor_aliases,
+            standardization=standardization,
+            missing_values=missing_values,
+            sample_weight=sample_weight if require_label else None,
         )
         if not split.x.empty:
             cache[day] = split
@@ -489,10 +531,26 @@ def main(
         raise RuntimeError("no factor data found")
     if isinstance(sample.index, pd.MultiIndex):
         sample = sample.reset_index()
-    factor_cols = _select_factor_cols(sample, cfg)
+    factor_aliases = _parse_factor_aliases(cfg)
+    raw_factor_cols = _select_lgbm_factor_cols(sample, cfg, factor_aliases)
+    missing_values = _resolve_missing_values_config(cfg)
+    missing_feature_cols = missing_value_feature_columns(missing_values)
+    factor_cols = list(raw_factor_cols)
+    seen_factor_cols = set(factor_cols)
+    for col in missing_feature_cols:
+        if col in seen_factor_cols:
+            continue
+        factor_cols.append(col)
+        seen_factor_cols.add(col)
+    preprocess_factor_cols = list(raw_factor_cols)
 
     winsor_lower, winsor_upper = parse_winsor_bounds(cfg.get("winsor", {}))
     zscore = bool(cfg.get("zscore", True))
+    standardization = cfg.get("standardization")
+    standardization_summary = describe_standardization(
+        standardization,
+        legacy_zscore=zscore,
+    )
     min_count = int(cfg.get("min_count", 30))
     bins = int(cfg.get("bins", 5))
     relevance_bins = int(cfg.get("relevance_bins", 20))
@@ -503,6 +561,53 @@ def main(
     )
     early_rounds = cfg.get("early_stopping_rounds")
     ranker_params = cfg.get("lgbm_ranker_params", {})
+    pca_feature_cfg = _resolve_pca_feature_config(cfg, factor_cols)
+    pca_enabled = bool(pca_feature_cfg.get("enabled", False))
+    model_feature_cols = _preview_pca_feature_cols(factor_cols, pca_feature_cfg)
+    feature_contribution_cfg = _resolve_feature_contribution_config(cfg)
+    feature_contribution_summary = _feature_contribution_summary(model_feature_cols, feature_contribution_cfg)
+    sample_weight_cfg = _resolve_sample_weight_config(cfg)
+    sample_weight_summary = _sample_weight_summary(sample_weight_cfg)
+    print(
+        "[standardization]",
+        f"enabled={bool(standardization_summary.get('enabled', False))}",
+        f"method={standardization_summary.get('method')}",
+        "stage=after_neutralization",
+    )
+    print(
+        "[pca_features]",
+        f"enabled={pca_enabled}",
+        f"mode={pca_feature_cfg.get('mode')}",
+        f"groups={len(pca_feature_cfg.get('groups', []))}",
+        f"feature_count={len(model_feature_cols)}",
+    )
+    print(
+        "[missing_values]",
+        f"enabled={bool(missing_values)}",
+        f"min_available_factors={missing_values.get('min_available_factors', 'all') if missing_values else 'all'}",
+        f"keep_nan={bool(missing_values.get('keep_nan', False)) if missing_values else False}",
+        f"missing_feature_count={len(missing_feature_cols)}",
+    )
+    print(
+        "[feature_contribution]",
+        f"enabled={bool(feature_contribution_summary.get('enabled', False))}",
+        f"default={feature_contribution_summary.get('default')}",
+        f"weighted_count={feature_contribution_summary.get('weighted_count')}",
+        f"min={feature_contribution_summary.get('min', feature_contribution_summary.get('default'))}",
+        f"max={feature_contribution_summary.get('max', feature_contribution_summary.get('default'))}",
+    )
+    if feature_contribution_summary.get("missing_features"):
+        print(
+            "[feature_contribution] missing configured features:",
+            ",".join(str(x) for x in feature_contribution_summary["missing_features"]),
+        )
+    print(
+        "[sample_weight]",
+        f"enabled={bool(sample_weight_summary.get('enabled', False))}",
+        f"scheme_count={sample_weight_summary.get('scheme_count')}",
+        f"schemes={','.join(str(x) for x in sample_weight_summary.get('schemes', []))}",
+        f"normalize={sample_weight_summary.get('normalize')}",
+    )
 
     results_root = Path(paths_cfg["results_root"])
     model_name = cfg.get("model_name", "lgbm_ranker_factor_default")
@@ -531,8 +636,25 @@ def main(
             "parallel_shards": int(parallel_shards),
             "parallel_shard_index": int(parallel_shard_index),
             "factor_count": int(len(factor_cols)),
+            "model_feature_count": int(len(model_feature_cols)),
             "relevance_bins": int(relevance_bins),
             "neutralization_enabled": bool(neutralizer is not None and neutralizer.enabled),
+            "standardization_enabled": bool(standardization_summary.get("enabled", False)),
+            "standardization_method": str(standardization_summary.get("method", "none")),
+            "pca_features_enabled": bool(pca_enabled),
+            "pca_features_mode": str(pca_feature_cfg.get("mode", "append")),
+            "pca_features_groups": int(len(pca_feature_cfg.get("groups", []))),
+            "feature_contribution_enabled": bool(feature_contribution_summary.get("enabled", False)),
+            "feature_contribution_weighted_count": int(feature_contribution_summary.get("weighted_count", 0)),
+            "feature_contribution_min": float(
+                feature_contribution_summary.get("min", feature_contribution_summary.get("default", 1.0))
+            ),
+            "feature_contribution_max": float(
+                feature_contribution_summary.get("max", feature_contribution_summary.get("default", 1.0))
+            ),
+            "sample_weight_enabled": bool(sample_weight_summary.get("enabled", False)),
+            "sample_weight_scheme_count": int(sample_weight_summary.get("scheme_count", 0)),
+            "sample_weight_schemes": ",".join(str(x) for x in sample_weight_summary.get("schemes", [])),
         },
         prefix="run",
     )
@@ -550,6 +672,9 @@ def main(
     incremental_skip_existing = bool(incremental_cfg.get("skip_existing_scores", True))
     incremental_warm_start = bool(incremental_cfg.get("warm_start", True))
     incremental_save_state = bool(incremental_cfg.get("save_state", True))
+    if pca_enabled and incremental_warm_start:
+        print("[pca_features] disable warm_start because PCA basis is refit per train window")
+        incremental_warm_start = False
     if parallel_shards > 1 and incremental_warm_start:
         print("[rolling] parallel_shards>1: disable warm_start to avoid cross-shard dependency")
         incremental_warm_start = False
@@ -581,7 +706,7 @@ def main(
         if not target_days:
             print("[rolling] incremental: no pending target days, skip training")
             (out_dir / "config.json").write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
-            (out_dir / "features.json").write_text(json.dumps(factor_cols, ensure_ascii=False, indent=2), encoding="utf-8")
+            (out_dir / "features.json").write_text(json.dumps(model_feature_cols, ensure_ascii=False, indent=2), encoding="utf-8")
             print(f"saved rolling: {out_dir}")
             print(f"saved scores: {score_output}")
             wandb_logger.finish({"status": "no_pending_target_days"})
@@ -618,7 +743,7 @@ def main(
         if not valid_indices:
             print("[rolling] no target day assigned for this shard, skip training")
             (out_dir / "config.json").write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
-            (out_dir / "features.json").write_text(json.dumps(factor_cols, ensure_ascii=False, indent=2), encoding="utf-8")
+            (out_dir / "features.json").write_text(json.dumps(model_feature_cols, ensure_ascii=False, indent=2), encoding="utf-8")
             print(f"saved rolling: {out_dir}")
             print(f"saved scores: {score_output}")
             wandb_logger.finish({"status": "no_target_for_shard"})
@@ -640,6 +765,8 @@ def main(
             factor_store=store,
             label_root=label_root,
             factor_cols=factor_cols,
+            raw_factor_cols=raw_factor_cols,
+            preprocess_factor_cols=preprocess_factor_cols,
             min_count=min_count,
             winsor_lower=winsor_lower,
             winsor_upper=winsor_upper,
@@ -650,12 +777,18 @@ def main(
             tradable_code_map=tradable_code_map,
             tradable_strict=tradable_strict,
             neutralizer=neutralizer,
+            factor_aliases=factor_aliases,
+            standardization=standardization,
+            missing_values=missing_values,
+            sample_weight=sample_weight_cfg,
         )
         test_day_cache = _build_daily_split_cache(
             days=test_cache_days,
             factor_store=store,
             label_root=label_root,
             factor_cols=factor_cols,
+            raw_factor_cols=raw_factor_cols,
+            preprocess_factor_cols=preprocess_factor_cols,
             min_count=min_count,
             winsor_lower=winsor_lower,
             winsor_upper=winsor_upper,
@@ -666,6 +799,10 @@ def main(
             tradable_code_map=tradable_code_map,
             tradable_strict=tradable_strict,
             neutralizer=neutralizer,
+            factor_aliases=factor_aliases,
+            standardization=standardization,
+            missing_values=missing_values,
+            sample_weight=None,
         )
         print(
             f"[rolling] cache_ready train_cached={len(train_day_cache)} "
@@ -678,10 +815,12 @@ def main(
         active_model = None
         active_best_iter: int | None = None
         active_best_val_ic: float = float("nan")
+        active_pca_transformer = None
         last_refit_pos: int | None = None
         last_refit_day: date | None = None
         all_equal_days: list[date] = []
         insufficient_bin_days: list[date] = []
+        pca_summary_rows: list[dict] = []
         with ThreadPoolExecutor(max_workers=prep_workers, thread_name_prefix="roll_prep") as prep_pool:
             inflight: deque[tuple[int, int, object]] = deque()
             next_pos = 0
@@ -740,6 +879,16 @@ def main(
                             continue
                         refit_status = "reuse_empty_train"
                     else:
+                        fit_pca_transformer = _fit_pca_feature_transformer(
+                            train_data.x,
+                            pca_feature_cfg,
+                        )
+                        if fit_pca_transformer is not None:
+                            train_data = _apply_pca_feature_transformer(train_data, fit_pca_transformer)
+                            val_data = _apply_pca_feature_transformer(val_data, fit_pca_transformer)
+                            for row in _pca_transformer_summary(fit_pca_transformer):
+                                pca_summary_rows.append({"trade_date": test_day, **row})
+                        train_data = _apply_training_time_decay(train_data, sample_weight_cfg)
                         train_ranker = build_ranker_split_data(train_data, relevance_bins=relevance_bins)
                         val_ranker = build_ranker_split_data(val_data, relevance_bins=relevance_bins)
                         if train_ranker.x.empty or not train_ranker.group:
@@ -758,7 +907,11 @@ def main(
                                 model, meta = train_lgbm_ranker(
                                     train=train_ranker,
                                     val=val_ranker,
-                                    lgbm_ranker_params=ranker_params,
+                                    lgbm_ranker_params=_with_feature_contribution_params(
+                                        ranker_params,
+                                        list(train_ranker.x.columns),
+                                        feature_contribution_cfg,
+                                    ),
                                     early_stopping_rounds=int(early_rounds) if early_rounds else None,
                                     init_model=init_model,
                                 )
@@ -769,7 +922,11 @@ def main(
                                 model, meta = train_lgbm_ranker(
                                     train=train_ranker,
                                     val=val_ranker,
-                                    lgbm_ranker_params=ranker_params,
+                                    lgbm_ranker_params=_with_feature_contribution_params(
+                                        ranker_params,
+                                        list(train_ranker.x.columns),
+                                        feature_contribution_cfg,
+                                    ),
                                     early_stopping_rounds=int(early_rounds) if early_rounds else None,
                                     init_model=None,
                                 )
@@ -782,6 +939,7 @@ def main(
                                 prefix="iter",
                             )
                             active_model = model
+                            active_pca_transformer = fit_pca_transformer
                             last_refit_pos = roll_idx
                             last_refit_day = test_day
                             refit_status = "refit"
@@ -794,6 +952,10 @@ def main(
                 if active_model is None:
                     print(f"[rolling] skip {test_day}: no trained model available")
                     continue
+                if pca_enabled:
+                    if active_pca_transformer is None:
+                        raise RuntimeError("PCA features are enabled but no active PCA transformer is available")
+                    test_data = _apply_pca_feature_transformer(test_data, active_pca_transformer)
                 pred_kwargs = {"num_iteration": active_best_iter} if active_best_iter else {}
                 test_pred = active_model.predict(test_data.x, **pred_kwargs)
                 guard_stats = (
@@ -979,8 +1141,10 @@ def main(
             present_guard_cols = [c for c in guard_cols if c in rr.columns]
             if present_guard_cols:
                 rr[present_guard_cols].to_csv(out_dir / "rolling_score_guard.csv", index=False)
+        if pca_summary_rows:
+            pd.DataFrame(pca_summary_rows).to_csv(out_dir / "rolling_pca_features.csv", index=False)
         (out_dir / "config.json").write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
-        (out_dir / "features.json").write_text(json.dumps(factor_cols, ensure_ascii=False, indent=2), encoding="utf-8")
+        (out_dir / "features.json").write_text(json.dumps(model_feature_cols, ensure_ascii=False, indent=2), encoding="utf-8")
         print(f"saved rolling: {out_dir}")
         print(f"saved scores: {score_output}")
         if score_guard_enabled:
@@ -1026,6 +1190,8 @@ def main(
         label_root=label_root,
         days=train_days,
         factor_cols=factor_cols,
+        raw_factor_cols=raw_factor_cols,
+        preprocess_factor_cols=preprocess_factor_cols,
         min_count=min_count,
         winsor_lower=winsor_lower,
         winsor_upper=winsor_upper,
@@ -1035,12 +1201,18 @@ def main(
         tradable_code_map=tradable_code_map,
         tradable_strict=tradable_strict,
         neutralizer=neutralizer,
+        factor_aliases=factor_aliases,
+        standardization=standardization,
+        missing_values=missing_values,
+        sample_weight=sample_weight_cfg,
     )
     val_data = build_dataset(
         factor_store=store,
         label_root=label_root,
         days=val_days,
         factor_cols=factor_cols,
+        raw_factor_cols=raw_factor_cols,
+        preprocess_factor_cols=preprocess_factor_cols,
         min_count=min_count,
         winsor_lower=winsor_lower,
         winsor_upper=winsor_upper,
@@ -1050,12 +1222,18 @@ def main(
         tradable_code_map=tradable_code_map,
         tradable_strict=tradable_strict,
         neutralizer=neutralizer,
+        factor_aliases=factor_aliases,
+        standardization=standardization,
+        missing_values=missing_values,
+        sample_weight=sample_weight_cfg,
     )
     test_data = build_dataset(
         factor_store=store,
         label_root=label_root,
         days=test_days,
         factor_cols=factor_cols,
+        raw_factor_cols=raw_factor_cols,
+        preprocess_factor_cols=preprocess_factor_cols,
         min_count=min_count,
         winsor_lower=winsor_lower,
         winsor_upper=winsor_upper,
@@ -1065,7 +1243,19 @@ def main(
         tradable_code_map=tradable_code_map,
         tradable_strict=tradable_strict,
         neutralizer=neutralizer,
+        factor_aliases=factor_aliases,
+        standardization=standardization,
+        missing_values=missing_values,
+        sample_weight=None,
     )
+
+    pca_transformer = _fit_pca_feature_transformer(train_data.x, pca_feature_cfg)
+    pca_summary_rows = _pca_transformer_summary(pca_transformer)
+    if pca_transformer is not None:
+        train_data = _apply_pca_feature_transformer(train_data, pca_transformer)
+        val_data = _apply_pca_feature_transformer(val_data, pca_transformer)
+        test_data = _apply_pca_feature_transformer(test_data, pca_transformer)
+    train_data = _apply_training_time_decay(train_data, sample_weight_cfg)
 
     train_ranker = build_ranker_split_data(train_data, relevance_bins=relevance_bins)
     val_ranker = build_ranker_split_data(val_data, relevance_bins=relevance_bins)
@@ -1075,7 +1265,11 @@ def main(
     model, meta = train_lgbm_ranker(
         train=train_ranker,
         val=val_ranker,
-        lgbm_ranker_params=ranker_params,
+        lgbm_ranker_params=_with_feature_contribution_params(
+            ranker_params,
+            list(train_ranker.x.columns),
+            feature_contribution_cfg,
+        ),
         early_stopping_rounds=int(early_rounds) if early_rounds else None,
     )
     history = meta.get("history", [])
@@ -1128,7 +1322,9 @@ def main(
         model.booster_.save_model(str(out_dir / "model.txt"))
 
     (out_dir / "config.json").write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
-    (out_dir / "features.json").write_text(json.dumps(factor_cols, ensure_ascii=False, indent=2), encoding="utf-8")
+    (out_dir / "features.json").write_text(json.dumps(model_feature_cols, ensure_ascii=False, indent=2), encoding="utf-8")
+    if pca_summary_rows:
+        pd.DataFrame(pca_summary_rows).to_csv(out_dir / "pca_features.csv", index=False)
 
     metrics_df = pd.DataFrame(
         [

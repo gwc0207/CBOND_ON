@@ -1,0 +1,7 @@
+{
+  modules: ["backtest_pipeline/backtest_ranker_feature_engineering_long_baseline_20260702"],
+  batch_id: "Backtest_rankfe_long_fcgrid_s10_o07_l10_m13_a10_20240508_20260624",
+  score_source: {
+    model_id: "lgbm_ranker_rankfe_long_fcgrid_s10_o07_l10_m13_a10_20260702"
+  },
+}

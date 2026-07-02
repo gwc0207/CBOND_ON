@@ -1,0 +1,25 @@
+{
+  modules: ["models/lgbm_ranker/lgbm_screened_no_winsor_neutral_tminus1_ranker_v2_highcap_reg_20260625"],
+
+  model_name: "lgbm_ranker_rankfe_weight_recent_hl20_20260702",
+  score_output: {
+    windows: "D:/cbond_on/results/scores/lgbm_ranker_rankfe_weight_recent_hl20_20260702",
+    linux: "/home/gswzif/cbond_on_runtime/results/scores/lgbm_ranker_rankfe_weight_recent_hl20_20260702"
+  },
+  incremental: {
+    state_dir: "D:/cbond_on/results/model_state/lgbm_ranker_rankfe_weight_recent_hl20_20260702",
+  },
+  sample_weight: {
+    enabled: true,
+    normalize: "day_mean",
+    clip: { min: 0.2, max: 3.0 },
+    schemes: [
+      { type: "time_decay", half_life_days: 20.0 }
+    ],
+  },
+  experiment: {
+    id: "ranker_feature_engineering_20260702",
+    trial: "sample_weight_recent_hl20",
+    baseline_model: "lgbm_screened_no_winsor_neutral_tminus1_ranker_v2_highcap_reg_20260625",
+  },
+}

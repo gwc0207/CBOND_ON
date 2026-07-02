@@ -1,0 +1,45 @@
+{
+  modules: ["score/model/model_score_ranker_feature_engineering_20260702"],
+
+  start: "2024-01-01",
+  end: "2026-06-24",
+  default_model_id: "lgbm_ranker_rankfe_long_baseline_20260702",
+  model_id: "lgbm_ranker_rankfe_long_baseline_20260702",
+  execution: {
+    refit_every_n_days: 1,
+    train_processes: 1,
+    prep_workers: 1,
+    prefetch_windows: 2,
+  },
+
+  models: {
+    lgbm_ranker_rankfe_long_baseline_20260702: {
+      model_type: "lgbm_ranker",
+      model_config: "models/lgbm_ranker/lgbm_ranker_rankfe_long_baseline_20260702"
+    },
+    lgbm_ranker_rankfe_long_keep_nan_min25_validcount_20260702: {
+      model_type: "lgbm_ranker",
+      model_config: "models/lgbm_ranker/lgbm_ranker_rankfe_long_keep_nan_min25_validcount_20260702"
+    },
+    lgbm_ranker_rankfe_long_fcgrid_s10_o07_l10_m13_a10_20260702: {
+      model_type: "lgbm_ranker",
+      model_config: "models/lgbm_ranker/lgbm_ranker_rankfe_long_fcgrid_s10_o07_l10_m13_a10_20260702"
+    },
+    lgbm_ranker_rankfe_long_winsor_20260702: {
+      model_type: "lgbm_ranker",
+      model_config: "models/lgbm_ranker/lgbm_ranker_rankfe_long_winsor_20260702"
+    },
+    lgbm_ranker_rankfe_long_pca_family_append_20260702: {
+      model_type: "lgbm_ranker",
+      model_config: "models/lgbm_ranker/lgbm_ranker_rankfe_long_pca_family_append_20260702"
+    },
+    lgbm_ranker_rankfe_long_pca_family_replace_20260702: {
+      model_type: "lgbm_ranker",
+      model_config: "models/lgbm_ranker/lgbm_ranker_rankfe_long_pca_family_replace_20260702"
+    },
+    lgbm_ranker_rankfe_long_robustz_20260702: {
+      model_type: "lgbm_ranker",
+      model_config: "models/lgbm_ranker/lgbm_ranker_rankfe_long_robustz_20260702"
+    },
+  },
+}

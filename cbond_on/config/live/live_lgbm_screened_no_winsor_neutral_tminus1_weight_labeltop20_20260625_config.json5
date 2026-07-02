@@ -1,0 +1,20 @@
+{
+  modules: ["models/lgbm/lgbm_screened_no_winsor_neutral_tminus1_weight_labeltop20_20260625"],
+
+  score_output: {
+    windows: "D:/cbond_on/results/scores/live/lgbm_screened_no_winsor_neutral_tminus1_weight_labeltop20_20260625",
+    linux: "/home/gswzif/cbond_on_runtime/results/scores/live/lgbm_screened_no_winsor_neutral_tminus1_weight_labeltop20_20260625"
+  },
+  incremental: {
+    enabled: true,
+    skip_existing_scores: true,
+    warm_start: true,
+    save_state: true,
+    state_dir: "D:/cbond_on/results/model_state/lgbm_screened_no_winsor_neutral_tminus1_weight_labeltop20_20260625"
+  },
+  experiment: {
+    id: "lgbm_sample_weight_20260625",
+    trial: "labeltop20_live",
+    description: "live wrapper for daily top 20pct label sample weighting"
+  }
+}

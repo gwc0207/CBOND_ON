@@ -28,6 +28,66 @@
     model_id: "lgbm_screened_no_winsor_neutral_tminus1_weight_recent_hl20_20260625",
     label_cutoff: null
   },
+  model_switch: {
+    enabled: true,
+    mode: "regime_bm20_sign",
+    metric: "bm20_sign",
+    lookback_days: 120,
+    min_periods: 40,
+    threshold: 0.0,
+    return_col: "day_return",
+    benchmark_col: "benchmark_return",
+    benchmark_window_days: 20,
+    fallback: {
+      metric: "rolling_sharpe",
+      lookback_days: 60,
+      min_periods: 60,
+      threshold: 0.0
+    },
+    stale_history_policy: "champion",
+    shadow_return_update: {
+      enabled: true,
+      fail_on_error: false
+    },
+    champion: {
+      name: "HL20 live baseline",
+      model_id: "lgbm_screened_no_winsor_neutral_tminus1_weight_recent_hl20_20260625",
+      return_path: {
+        windows: "D:/cbond_on/results/analysis/model_switching_shadow_update_20260630_to_20260629/combined_daily_returns/HL20_live_baseline.csv",
+        linux: "/home/gswzif/cbond_on_runtime/results/analysis/model_switching_shadow_update_20260630_to_20260629/combined_daily_returns/HL20_live_baseline.csv"
+      }
+    },
+    challenger: {
+      name: "Ensemble rankavg + labeltop20",
+      model_id: "ensemble_rankavg_baseline_hl20_labeltop20_20260626",
+      kind: "rankavg",
+      score_output: {
+        windows: "D:/cbond_on/results/scores/live/ensemble_rankavg_baseline_hl20_labeltop20_20260626",
+        linux: "/home/gswzif/cbond_on_runtime/results/scores/live/ensemble_rankavg_baseline_hl20_labeltop20_20260626"
+      },
+      return_path: {
+        windows: "D:/cbond_on/results/analysis/model_switching_shadow_update_20260630_to_20260629/combined_daily_returns/Ensemble_rankavg_labeltop20.csv",
+        linux: "/home/gswzif/cbond_on_runtime/results/analysis/model_switching_shadow_update_20260630_to_20260629/combined_daily_returns/Ensemble_rankavg_labeltop20.csv"
+      },
+      sources: [
+        {
+          name: "baseline",
+          model_id: "lgbm_screened_no_winsor_neutral_tminus1_refit1_202401_rerun_20260623",
+          config: "live/live_switch_source_baseline"
+        },
+        {
+          name: "hl20",
+          model_id: "lgbm_screened_no_winsor_neutral_tminus1_weight_recent_hl20_20260625",
+          config: "live/live_models"
+        },
+        {
+          name: "labeltop20",
+          model_id: "lgbm_screened_no_winsor_neutral_tminus1_weight_labeltop20_20260625",
+          config: "live/live_switch_source_labeltop20"
+        }
+      ]
+    }
+  },
   allowlist: {
     enabled: true,
     table: "quant_factor_dev.researcher_xuvb.o_0005",

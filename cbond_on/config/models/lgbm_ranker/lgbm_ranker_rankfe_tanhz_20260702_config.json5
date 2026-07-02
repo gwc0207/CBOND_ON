@@ -1,0 +1,28 @@
+{
+  modules: ["models/lgbm_ranker/lgbm_screened_no_winsor_neutral_tminus1_ranker_v2_highcap_reg_20260625"],
+
+  model_name: "lgbm_ranker_rankfe_tanhz_20260702",
+  score_output: {
+    windows: "D:/cbond_on/results/scores/lgbm_ranker_rankfe_tanhz_20260702",
+    linux: "/home/gswzif/cbond_on_runtime/results/scores/lgbm_ranker_rankfe_tanhz_20260702"
+  },
+  incremental: {
+    state_dir: "D:/cbond_on/results/model_state/lgbm_ranker_rankfe_tanhz_20260702",
+  },
+  zscore: false,
+  standardization: {
+    enabled: true,
+    method: "tanh_zscore",
+    stage: "after_neutralization",
+    groupby: "dt",
+    tanh: {
+      base: "zscore",
+      scale: 3.0,
+    },
+  },
+  experiment: {
+    id: "ranker_feature_engineering_20260702",
+    trial: "tanh_zscore",
+    baseline_model: "lgbm_screened_no_winsor_neutral_tminus1_ranker_v2_highcap_reg_20260625",
+  },
+}

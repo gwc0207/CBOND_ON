@@ -1,0 +1,15 @@
+{
+  modules: ["models/lgbm/lgbm_screened_no_winsor_neutral_tminus1_refit1_202401_rerun_20260623"],
+
+  score_output: {
+    windows: "D:/cbond_on/results/scores/live/lgbm_screened_no_winsor_neutral_tminus1_refit1_202401_rerun_20260623",
+    linux: "/home/gswzif/cbond_on_runtime/results/scores/live/lgbm_screened_no_winsor_neutral_tminus1_refit1_202401_rerun_20260623"
+  },
+  incremental: {
+    enabled: true,
+    skip_existing_scores: true,
+    warm_start: true,
+    save_state: true,
+    state_dir: "D:/cbond_on/results/model_state/lgbm_screened_no_winsor_neutral_tminus1_refit1_202401_rerun_20260623"
+  },
+}

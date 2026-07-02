@@ -1,0 +1,81 @@
+{
+  modules: ["score/model/model_score_neutral_tminus1_ranker_v2_highcap_reg_20260625"],
+
+  start: "2024-01-01",
+  end: "2026-06-24",
+  default_model_id: "lgbm_screened_no_winsor_neutral_tminus1_ranker_v2_highcap_reg_20260625",
+  model_id: "lgbm_screened_no_winsor_neutral_tminus1_ranker_v2_highcap_reg_20260625",
+  execution: {
+    refit_every_n_days: 1,
+    train_processes: 1,
+    prep_workers: 1,
+    prefetch_windows: 2,
+  },
+
+  models: {
+    lgbm_screened_no_winsor_neutral_tminus1_ranker_v2_highcap_reg_20260625: {
+      model_type: "lgbm_ranker",
+      model_config: "models/lgbm_ranker/lgbm_screened_no_winsor_neutral_tminus1_ranker_v2_highcap_reg_20260625"
+    },
+    lgbm_ranker_rankfe_baseline_20260702: {
+      model_type: "lgbm_ranker",
+      model_config: "models/lgbm_ranker/lgbm_ranker_rankfe_baseline_20260702"
+    },
+    lgbm_ranker_rankfe_winsor_20260702: {
+      model_type: "lgbm_ranker",
+      model_config: "models/lgbm_ranker/lgbm_ranker_rankfe_winsor_20260702"
+    },
+    lgbm_ranker_rankfe_rankpct_20260702: {
+      model_type: "lgbm_ranker",
+      model_config: "models/lgbm_ranker/lgbm_ranker_rankfe_rankpct_20260702"
+    },
+    lgbm_ranker_rankfe_robustz_20260702: {
+      model_type: "lgbm_ranker",
+      model_config: "models/lgbm_ranker/lgbm_ranker_rankfe_robustz_20260702"
+    },
+    lgbm_ranker_rankfe_tanhz_20260702: {
+      model_type: "lgbm_ranker",
+      model_config: "models/lgbm_ranker/lgbm_ranker_rankfe_tanhz_20260702"
+    },
+    lgbm_ranker_rankfe_keep_nan_min25_20260702: {
+      model_type: "lgbm_ranker",
+      model_config: "models/lgbm_ranker/lgbm_ranker_rankfe_keep_nan_min25_20260702"
+    },
+    lgbm_ranker_rankfe_keep_nan_min25_validcount_20260702: {
+      model_type: "lgbm_ranker",
+      model_config: "models/lgbm_ranker/lgbm_ranker_rankfe_keep_nan_min25_validcount_20260702"
+    },
+    lgbm_ranker_rankfe_exact_dedup25_20260702: {
+      model_type: "lgbm_ranker",
+      model_config: "models/lgbm_ranker/lgbm_ranker_rankfe_exact_dedup25_20260702"
+    },
+    lgbm_ranker_rankfe_hard_dedup24_20260702: {
+      model_type: "lgbm_ranker",
+      model_config: "models/lgbm_ranker/lgbm_ranker_rankfe_hard_dedup24_20260702"
+    },
+    lgbm_ranker_rankfe_dup54_20260702: {
+      model_type: "lgbm_ranker",
+      model_config: "models/lgbm_ranker/lgbm_ranker_rankfe_dup54_20260702"
+    },
+    lgbm_ranker_rankfe_pca_family_append_20260702: {
+      model_type: "lgbm_ranker",
+      model_config: "models/lgbm_ranker/lgbm_ranker_rankfe_pca_family_append_20260702"
+    },
+    lgbm_ranker_rankfe_pca_family_replace_20260702: {
+      model_type: "lgbm_ranker",
+      model_config: "models/lgbm_ranker/lgbm_ranker_rankfe_pca_family_replace_20260702"
+    },
+    lgbm_ranker_rankfe_pca_overnight_append_20260702: {
+      model_type: "lgbm_ranker",
+      model_config: "models/lgbm_ranker/lgbm_ranker_rankfe_pca_overnight_append_20260702"
+    },
+    lgbm_ranker_rankfe_fcgrid_s10_o07_l10_m13_a10_20260702: {
+      model_type: "lgbm_ranker",
+      model_config: "models/lgbm_ranker/lgbm_ranker_rankfe_fcgrid_s10_o07_l10_m13_a10_20260702"
+    },
+    lgbm_ranker_rankfe_weight_recent_hl20_20260702: {
+      model_type: "lgbm_ranker",
+      model_config: "models/lgbm_ranker/lgbm_ranker_rankfe_weight_recent_hl20_20260702"
+    },
+  },
+}
