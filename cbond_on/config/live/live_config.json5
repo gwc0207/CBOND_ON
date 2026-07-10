@@ -30,11 +30,20 @@
   },
   model_switch: {
     enabled: true,
-    mode: "regime_bm20_sign",
-    metric: "bm20_sign",
+    mode: "scoreopt_t1430_dispersion",
+    feature_set: "disp_afternoon7",
+    state_feature_path: {
+      windows: "D:/cbond_on/results/analysis/model_switch_t1430_dispersion_live_20260709/t1430_market_state_features.csv",
+      linux: "/home/gswzif/cbond_on_runtime/results/analysis/model_switch_t1430_dispersion_live_20260709/t1430_market_state_features.csv"
+    },
+    state_price_field: "last",
+    metric: "lcb10",
+    score_mode: "lcb10",
     lookback_days: 120,
-    min_periods: 40,
-    threshold: 0.0,
+    nearest_k: 20,
+    min_periods: 20,
+    margin: 0.0003,
+    threshold: 0.0003,
     return_col: "day_return",
     benchmark_col: "benchmark_return",
     benchmark_window_days: 20,
@@ -53,8 +62,8 @@
       name: "HL20 live baseline",
       model_id: "lgbm_screened_no_winsor_neutral_tminus1_weight_recent_hl20_20260625",
       return_path: {
-        windows: "D:/cbond_on/results/analysis/model_switching_shadow_update_20260630_to_20260629/combined_daily_returns/HL20_live_baseline.csv",
-        linux: "/home/gswzif/cbond_on_runtime/results/analysis/model_switching_shadow_update_20260630_to_20260629/combined_daily_returns/HL20_live_baseline.csv"
+        windows: "D:/cbond_on/results/analysis/model_switch_scoreopt_live_20260709/return_history/Champion_HL20.csv",
+        linux: "/home/gswzif/cbond_on_runtime/results/analysis/model_switch_scoreopt_live_20260709/return_history/Champion_HL20.csv"
       }
     },
     challenger: {
@@ -66,8 +75,8 @@
         linux: "/home/gswzif/cbond_on_runtime/results/scores/live/ensemble_rankavg_baseline_hl20_labeltop20_20260626"
       },
       return_path: {
-        windows: "D:/cbond_on/results/analysis/model_switching_shadow_update_20260630_to_20260629/combined_daily_returns/Ensemble_rankavg_labeltop20.csv",
-        linux: "/home/gswzif/cbond_on_runtime/results/analysis/model_switching_shadow_update_20260630_to_20260629/combined_daily_returns/Ensemble_rankavg_labeltop20.csv"
+        windows: "D:/cbond_on/results/analysis/model_switch_scoreopt_live_20260709/return_history/Challenger_Ensemble.csv",
+        linux: "/home/gswzif/cbond_on_runtime/results/analysis/model_switch_scoreopt_live_20260709/return_history/Challenger_Ensemble.csv"
       },
       sources: [
         {
@@ -86,7 +95,49 @@
           config: "live/live_switch_source_labeltop20"
         }
       ]
-    }
+    },
+    challengers: [
+      {
+        name: "Ensemble rankavg + labeltop20",
+        model_id: "ensemble_rankavg_baseline_hl20_labeltop20_20260626",
+        kind: "rankavg",
+        score_output: {
+          windows: "D:/cbond_on/results/scores/live/ensemble_rankavg_baseline_hl20_labeltop20_20260626",
+          linux: "/home/gswzif/cbond_on_runtime/results/scores/live/ensemble_rankavg_baseline_hl20_labeltop20_20260626"
+        },
+        return_path: {
+          windows: "D:/cbond_on/results/analysis/model_switch_scoreopt_live_20260709/return_history/Challenger_Ensemble.csv",
+          linux: "/home/gswzif/cbond_on_runtime/results/analysis/model_switch_scoreopt_live_20260709/return_history/Challenger_Ensemble.csv"
+        },
+        sources: [
+          {
+            name: "baseline",
+            model_id: "lgbm_screened_no_winsor_neutral_tminus1_refit1_202401_rerun_20260623",
+            config: "live/live_switch_source_baseline"
+          },
+          {
+            name: "hl20",
+            model_id: "lgbm_screened_no_winsor_neutral_tminus1_weight_recent_hl20_20260625",
+            config: "live/live_models"
+          },
+          {
+            name: "labeltop20",
+            model_id: "lgbm_screened_no_winsor_neutral_tminus1_weight_labeltop20_20260625",
+            config: "live/live_switch_source_labeltop20"
+          }
+        ]
+      },
+      {
+        name: "Regsim w10_s15_d05",
+        model_id: "lgbm_screened_no_winsor_neutral_tminus1_regsim_w10_s15_d05_20260708",
+        kind: "single",
+        config: "live/live_switch_source_regsim_w10_s15_d05_20260708",
+        return_path: {
+          windows: "D:/cbond_on/results/analysis/model_switch_scoreopt_live_20260709/return_history/Challenger_Regsim.csv",
+          linux: "/home/gswzif/cbond_on_runtime/results/analysis/model_switch_scoreopt_live_20260709/return_history/Challenger_Regsim.csv"
+        }
+      }
+    ]
   },
   allowlist: {
     enabled: true,

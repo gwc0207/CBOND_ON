@@ -72,7 +72,7 @@
   lgbm_params: {
     objective: "regression",
     verbosity: -1,
-    device: "gpu",
+    device: "cpu",
     n_estimators: 800,
     learning_rate: 0.01,
     num_leaves: 31,

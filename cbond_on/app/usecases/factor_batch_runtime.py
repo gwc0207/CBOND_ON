@@ -12,13 +12,13 @@ import pandas as pd
 
 from cbond_on.core.config import load_config_file
 from cbond_on.core.fees import load_fees_buy_sell_bps
-from cbond_on.core.trading_days import list_trading_days_from_raw
+from cbond_on.core.trading_days import list_trading_days_from_raw, next_trading_days_from_raw
 from cbond_on.core.utils import progress
 from cbond_on.infra.factors.pipeline import run_factor_pipeline
 from cbond_on.infra.factors.quality import load_factor_specs_from_cfg, resolve_disabled_factor_names
 from cbond_on.infra.benchmark.service import (
     compute_benchmark_returns_for_days,
-    compute_strict_sell_detail_for_holdings,
+    compute_strict_cycle_detail_for_holdings,
     load_strict_market_day,
 )
 from cbond_on.infra.backtest.execution import apply_cost_to_full_cycle_return
@@ -323,6 +323,23 @@ def _date_from_dt_key(dt_value: object) -> date | None:
     return ts.date()
 
 
+def _resolve_next_trading_day(
+    raw_data_root: str | Path,
+    trade_day: date,
+    cache: dict[date, date | None],
+) -> date | None:
+    if trade_day not in cache:
+        next_days = next_trading_days_from_raw(
+            raw_data_root,
+            trade_day,
+            1,
+            kind="snapshot",
+            asset="cbond",
+        )
+        cache[trade_day] = next_days[0] if next_days else None
+    return cache[trade_day]
+
+
 def _attach_strict_market_returns(
     data: pd.DataFrame,
     *,
@@ -331,7 +348,8 @@ def _attach_strict_market_returns(
     sell_bps: float,
 ) -> tuple[pd.DataFrame, bool]:
     strict_required = ["buy_price", "buy_close_price", "buy_leg_ret_net"]
-    if not data.empty and all(c in data.columns for c in strict_required):
+    has_strict_cols = not data.empty and all(c in data.columns for c in strict_required)
+    if raw_data_root is None and has_strict_cols:
         out = data.copy()
         if "y" in out.columns and "label_y_old" not in out.columns:
             out["label_y_old"] = out["y"]
@@ -342,29 +360,81 @@ def _attach_strict_market_returns(
         return data, False
 
     frames: list[pd.DataFrame] = []
+    next_day_cache: dict[date, date | None] = {}
     for dt_key, group in data.groupby("dt", sort=True):
         trade_day = _date_from_dt_key(dt_key)
         if trade_day is None:
             continue
+        next_day = _resolve_next_trading_day(raw_data_root, trade_day, next_day_cache)
+        if next_day is None:
+            continue
+
+        if all(c in group.columns for c in strict_required):
+            joined = group.copy()
+        else:
+            try:
+                market = load_strict_market_day(
+                    raw_data_root=raw_data_root,
+                    trade_day=trade_day,
+                    buy_bps=buy_bps,
+                    sell_bps=sell_bps,
+                )
+            except Exception:
+                continue
+            if market.empty:
+                continue
+            keep_cols = ["code", *[c for c in _STRICT_MARKET_COLUMNS if c in market.columns]]
+            keep_cols = [c for c in keep_cols if c in market.columns]
+            joined = group.merge(market[keep_cols], on="code", how="inner")
+        if joined.empty:
+            continue
+
+        cycle_holdings = joined.copy()
+        cycle_holdings["weight"] = 1.0
         try:
-            market = load_strict_market_day(
+            cycle_detail = compute_strict_cycle_detail_for_holdings(
                 raw_data_root=raw_data_root,
-                trade_day=trade_day,
-                buy_bps=buy_bps,
+                buy_day=trade_day,
+                sell_day=next_day,
+                buy_holdings=cycle_holdings,
                 sell_bps=sell_bps,
             )
         except Exception:
             continue
-        if market.empty:
+        if cycle_detail.empty:
             continue
-        keep_cols = ["code", *[c for c in _STRICT_MARKET_COLUMNS if c in market.columns]]
-        keep_cols = [c for c in keep_cols if c in market.columns]
-        joined = group.merge(market[keep_cols], on="code", how="inner")
+
+        cycle_cols = [
+            "code",
+            "return_net",
+            "return_gross",
+            "full_cycle_ret_net",
+            "weighted_return",
+            "next_day",
+            "sell_day",
+            "sell_trade_day",
+            "strict_prev_close_price",
+            "strict_sell_price",
+            "sell_price",
+            "sell_price_source",
+            "sell_missing_fallback",
+            "strict_sell_leg_gross_ret",
+            "strict_sell_leg_net_ret",
+            "weighted_sell_leg_ret_net",
+            "weighted_sell_leg_ret_gross",
+            "strict_sell_fee_weighted",
+            "sell_cost_bps",
+        ]
+        cycle_cols = [c for c in cycle_cols if c in cycle_detail.columns]
+        overlap_cols = [c for c in cycle_cols if c != "code" and c in joined.columns]
+        if overlap_cols:
+            joined = joined.drop(columns=overlap_cols)
+        joined = joined.merge(cycle_detail[cycle_cols], on="code", how="inner")
         if joined.empty:
             continue
         if "y" in joined.columns:
             joined["label_y_old"] = joined["y"]
-        joined["y"] = pd.to_numeric(joined["buy_leg_ret_net"], errors="coerce")
+        joined["y"] = pd.to_numeric(joined["return_net"], errors="coerce")
         frames.append(joined)
 
     if not frames:
@@ -405,18 +475,6 @@ def _assign_intraday_bins(
     return g, bins
 
 
-def _build_equal_weight_buy_holdings(group: pd.DataFrame, *, trade_day: date) -> pd.DataFrame:
-    if group.empty:
-        return pd.DataFrame()
-    holdings = group.copy()
-    holdings["weight"] = 1.0 / len(holdings)
-    holdings["buy_trade_day"] = pd.to_datetime(trade_day)
-    holdings["close_price"] = pd.to_numeric(holdings["buy_close_price"], errors="coerce")
-    holdings["prev_close_price"] = holdings["close_price"]
-    holdings["buy_weight_base"] = pd.to_numeric(holdings["weight"], errors="coerce")
-    return holdings
-
-
 def _build_strict_bin_return_panel_intraday(
     *,
     data: pd.DataFrame,
@@ -426,7 +484,7 @@ def _build_strict_bin_return_panel_intraday(
     raw_data_root: str | Path | None,
     sell_bps: float,
 ) -> tuple[pd.DataFrame, pd.DataFrame, int]:
-    strict_cols = ["buy_leg_ret_net", "buy_close_price", "buy_price"]
+    strict_cols = ["y", "buy_leg_ret_net", "buy_close_price", "buy_price"]
     strict_enabled = raw_data_root is not None and all(c in data.columns for c in strict_cols)
     if not strict_enabled:
         return _build_legacy_bin_return_panel_intraday(
@@ -439,7 +497,6 @@ def _build_strict_bin_return_panel_intraday(
     bin_rows: list[pd.Series] = []
     bin_count_rows: list[pd.Series] = []
     bin_fail = 0
-    prev_holdings_by_bin: dict[int, pd.DataFrame] = {}
     for dt, group in data.groupby("dt", sort=True):
         trade_day = _date_from_dt_key(dt)
         if trade_day is None:
@@ -457,35 +514,14 @@ def _build_strict_bin_return_panel_intraday(
             continue
         g = g.copy()
         g["bin"] = bins.values
-        buy_returns = g.groupby("bin")["buy_leg_ret_net"].mean()
         count_returns = g.groupby("bin")["code"].size()
-        daily_returns: dict[int, float] = {}
-        next_prev_holdings: dict[int, pd.DataFrame] = {}
-        for bin_id_raw, bin_group in g.groupby("bin", sort=True):
-            bin_id = int(bin_id_raw)
-            buy_ret = float(pd.to_numeric(bin_group["buy_leg_ret_net"], errors="coerce").mean())
-            sell_ret = 0.0
-            prev = prev_holdings_by_bin.get(bin_id)
-            if prev is not None and not prev.empty and raw_data_root is not None:
-                sell_detail = compute_strict_sell_detail_for_holdings(
-                    raw_data_root=raw_data_root,
-                    sell_day=trade_day,
-                    prev_holdings=prev,
-                    sell_bps=sell_bps,
-                )
-                if not sell_detail.empty:
-                    sell_ret = float(
-                        pd.to_numeric(sell_detail["weighted_sell_leg_ret_net"], errors="coerce").sum()
-                    )
-            daily_returns[bin_id] = sell_ret + buy_ret
-            next_prev_holdings[bin_id] = _build_equal_weight_buy_holdings(bin_group, trade_day=trade_day)
+        daily_returns = g.groupby("bin")["y"].mean()
         s = pd.Series(daily_returns, dtype=float)
         s.name = dt
         c = count_returns.astype(int)
         c.name = dt
         bin_rows.append(s)
         bin_count_rows.append(c)
-        prev_holdings_by_bin = next_prev_holdings
     bin_returns = pd.DataFrame(bin_rows).sort_index() if bin_rows else pd.DataFrame()
     bin_counts = pd.DataFrame(bin_count_rows).sort_index() if bin_count_rows else pd.DataFrame()
     return bin_returns, bin_counts, int(bin_fail)
@@ -805,7 +841,6 @@ def _compute_factor_backtest_from_rows(
         if ranked_bins:
             bin_select = ranked_bins[:bin_top_k]
 
-    strategy_prev_holdings = pd.DataFrame()
     for dt, group in data.groupby("dt", sort=True):
         if strict_returns_enabled:
             required_cols = ["buy_leg_ret_net", "buy_close_price", "buy_price"]
@@ -979,24 +1014,9 @@ def _compute_factor_backtest_from_rows(
             )
             continue
         if strict_returns_enabled and raw_data_root is not None:
-            sell_ret = 0.0
-            if not strategy_prev_holdings.empty:
-                sell_detail = compute_strict_sell_detail_for_holdings(
-                    raw_data_root=raw_data_root,
-                    sell_day=trade_day_val,
-                    prev_holdings=strategy_prev_holdings,
-                    sell_bps=sell_bps,
-                )
-                if not sell_detail.empty:
-                    sell_ret = float(pd.to_numeric(sell_detail["weighted_sell_leg_ret_net"], errors="coerce").sum())
-                    sell_piece = pd.to_numeric(sell_detail["strict_sell_leg_net_ret"], errors="coerce").dropna()
-                    trade_returns_rows.extend(float(v) for v in sell_piece.to_numpy())
-            buy_holdings = _build_equal_weight_buy_holdings(picks, trade_day=trade_day_val)
-            buy_ret = float(pd.to_numeric(buy_holdings["buy_leg_ret_net"], errors="coerce").mean())
-            buy_piece = pd.to_numeric(buy_holdings["buy_leg_ret_net"], errors="coerce").dropna()
-            trade_returns_rows.extend(float(v) for v in buy_piece.to_numpy())
-            ret = sell_ret + buy_ret
-            strategy_prev_holdings = buy_holdings
+            ret = float(pd.to_numeric(picks["y"], errors="coerce").mean())
+            cycle_piece = pd.to_numeric(picks["y"], errors="coerce").dropna()
+            trade_returns_rows.extend(float(v) for v in cycle_piece.to_numpy())
         else:
             ret = picks["y"].mean()
             picks_y = pd.to_numeric(picks["y"], errors="coerce").dropna()

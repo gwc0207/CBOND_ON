@@ -33,8 +33,11 @@ from cbond_on.infra.live.holdings import load_previous_holdings
 from cbond_on.infra.live.model_switch import (
     SwitchDecision,
     build_rank_average_scores,
+    decide_scoreopt_bm_short,
+    decide_scoreopt_t1430_dispersion,
     decide_single_challenger_by_regime,
     decide_single_challenger_by_sharpe,
+    update_t1430_market_state_feature_history,
     write_switch_decision,
 )
 from cbond_on.infra.live.shadow_returns import (
@@ -173,15 +176,29 @@ def _resolve_switch_return_path(raw_path: object, *, paths_cfg: dict) -> str:
 
 def _resolve_model_switch_return_paths(switch_cfg: dict, *, paths_cfg: dict) -> dict:
     cfg = dict(switch_cfg)
-    for key in ("champion", "challenger"):
-        group_raw = cfg.get(key, {})
+
+    def _resolve_group(group_raw: object) -> dict | object:
         if not isinstance(group_raw, dict):
-            continue
+            return group_raw
         group = dict(group_raw)
         for path_key in ("return_path", "score_return_path"):
             if path_key in group:
                 group[path_key] = _resolve_switch_return_path(group.get(path_key), paths_cfg=paths_cfg)
-        cfg[key] = group
+        return group
+
+    for key in ("champion", "challenger"):
+        cfg[key] = _resolve_group(cfg.get(key, {}))
+    challengers_raw = cfg.get("challengers")
+    if isinstance(challengers_raw, list):
+        cfg["challengers"] = [_resolve_group(item) for item in challengers_raw]
+    if "state_feature_path" in cfg:
+        cfg["state_feature_path"] = str(
+            resolve_output_path(
+                cfg.get("state_feature_path"),
+                default_path=Path(paths_cfg["results_root"]) / "analysis" / "model_switch_t1430_state_features.csv",
+                results_root=paths_cfg["results_root"],
+            )
+        )
     return cfg
 
 
@@ -226,6 +243,7 @@ def _run_switch_source_score(
 def _build_switch_challenger_score(
     *,
     switch_cfg: dict,
+    challenger_cfg: dict | None = None,
     current_model_id: str,
     current_score_path: Path,
     current_score_df: pd.DataFrame,
@@ -233,11 +251,52 @@ def _build_switch_challenger_score(
     label_cutoff: date,
     paths_cfg: dict,
 ) -> tuple[str, Path, pd.DataFrame, list[dict]]:
-    challenger_cfg = dict(switch_cfg.get("challenger", {}))
+    challenger_cfg = dict(challenger_cfg or switch_cfg.get("challenger", {}))
     challenger_model_id = str(challenger_cfg.get("model_id", "")).strip()
     if not challenger_model_id:
         raise ValueError("model_switch.challenger.model_id must not be empty")
     kind = str(challenger_cfg.get("kind", "rankavg")).strip().lower()
+    if kind in {"single", "model", "direct"}:
+        if challenger_model_id == current_model_id:
+            source_name = str(challenger_cfg.get("name") or challenger_model_id).strip()
+            return (
+                challenger_model_id,
+                current_score_path,
+                current_score_df[["code", "score"]].copy(),
+                [
+                    {
+                        "name": source_name,
+                        "model_id": challenger_model_id,
+                        "score_path": str(current_score_path),
+                        "rows": int(len(current_score_df)),
+                    }
+                ],
+            )
+        source_model_id, source_name, score_path, score_df = _run_switch_source_score(
+            source_cfg=challenger_cfg,
+            score_day=score_day,
+            label_cutoff=label_cutoff,
+            paths_cfg=paths_cfg,
+        )
+        if source_model_id != challenger_model_id:
+            raise ValueError(
+                "model_switch single challenger source model mismatch: "
+                f"challenger={challenger_model_id}, source={source_model_id}"
+            )
+        return (
+            challenger_model_id,
+            score_path,
+            score_df[["code", "score"]].copy(),
+            [
+                {
+                    "name": source_name,
+                    "model_id": source_model_id,
+                    "score_path": str(score_path),
+                    "rows": int(len(score_df)),
+                }
+            ],
+        )
+
     if kind not in {"rankavg", "rank_average"}:
         raise ValueError(f"unsupported live challenger kind: {kind}")
     sources_raw = challenger_cfg.get("sources", [])
@@ -297,6 +356,55 @@ def _build_switch_challenger_score(
     return challenger_model_id, challenger_output, challenger_score_df[["code", "score"]].copy(), source_details
 
 
+def _switch_challenger_configs(switch_cfg: dict) -> list[dict]:
+    challengers_raw = switch_cfg.get("challengers")
+    if isinstance(challengers_raw, list) and challengers_raw:
+        return [dict(item) for item in challengers_raw if isinstance(item, dict)]
+    challenger = dict(switch_cfg.get("challenger", {}))
+    return [challenger] if challenger else []
+
+
+def _build_switch_challenger_scores(
+    *,
+    switch_cfg: dict,
+    current_model_id: str,
+    current_score_path: Path,
+    current_score_df: pd.DataFrame,
+    score_day: date,
+    label_cutoff: date,
+    paths_cfg: dict,
+) -> list[dict]:
+    results: list[dict] = []
+    seen_model_ids: set[str] = set()
+    for challenger_cfg in _switch_challenger_configs(switch_cfg):
+        challenger_model_id, challenger_score_path, challenger_score_df, source_details = _build_switch_challenger_score(
+            switch_cfg=switch_cfg,
+            challenger_cfg=challenger_cfg,
+            current_model_id=current_model_id,
+            current_score_path=current_score_path,
+            current_score_df=current_score_df,
+            score_day=score_day,
+            label_cutoff=label_cutoff,
+            paths_cfg=paths_cfg,
+        )
+        if challenger_model_id in seen_model_ids:
+            raise ValueError(f"duplicate model_switch challenger model_id: {challenger_model_id}")
+        seen_model_ids.add(challenger_model_id)
+        results.append(
+            {
+                "model_id": challenger_model_id,
+                "name": str(challenger_cfg.get("name") or challenger_model_id),
+                "score_path": challenger_score_path,
+                "score_df": challenger_score_df,
+                "return_path": challenger_cfg.get("return_path"),
+                "source_scores": source_details,
+            }
+        )
+    if not results:
+        raise ValueError("model_switch requires at least one challenger")
+    return results
+
+
 def _apply_live_model_switch(
     *,
     switch_cfg: dict,
@@ -307,6 +415,7 @@ def _apply_live_model_switch(
     expected_history_end: date | None,
     label_cutoff: date,
     raw_root: str,
+    clean_root: str,
     strategy_id: str,
     strategy_config: dict,
     allowlist_cfg: dict,
@@ -314,7 +423,7 @@ def _apply_live_model_switch(
 ) -> tuple[str, pd.DataFrame, SwitchDecision, dict]:
     switch_cfg = _resolve_model_switch_return_paths(switch_cfg, paths_cfg=paths_cfg)
     mode = str(switch_cfg.get("mode", "single_challenger")).strip().lower()
-    if mode not in {"single_challenger", "regime_bm20_sign"}:
+    if mode not in {"single_challenger", "regime_bm20_sign", "scoreopt_bm_short", "scoreopt_t1430_dispersion"}:
         raise ValueError(f"unsupported live model_switch.mode: {mode}")
     champion_cfg = dict(switch_cfg.get("champion", {}))
     champion_model_id = str(champion_cfg.get("model_id", "")).strip()
@@ -324,7 +433,7 @@ def _apply_live_model_switch(
             f"champion={champion_model_id}, live={current_model_id}"
         )
 
-    challenger_model_id, challenger_score_path, challenger_score_df, source_details = _build_switch_challenger_score(
+    challenger_results = _build_switch_challenger_scores(
         switch_cfg=switch_cfg,
         current_model_id=current_model_id,
         current_score_path=current_score_path,
@@ -346,12 +455,15 @@ def _apply_live_model_switch(
                 current_score_path,
                 dict(switch_cfg.get("champion", {})).get("return_path"),
             ),
-            (
-                challenger_model_id,
-                challenger_score_path,
-                dict(switch_cfg.get("challenger", {})).get("return_path"),
-            ),
         ]
+        for result in challenger_results:
+            update_targets.append(
+                (
+                    str(result["model_id"]),
+                    result["score_path"],
+                    result.get("return_path"),
+                )
+            )
         seen_return_paths: set[str] = set()
         for target_model_id, target_score_path, target_return_path in update_targets:
             if not target_return_path:
@@ -396,7 +508,20 @@ def _apply_live_model_switch(
                 f"appended={update_result.appended_rows}",
                 f"reason={update_result.reason}",
             )
-    if mode == "regime_bm20_sign":
+    if mode == "scoreopt_t1430_dispersion":
+        state_feature_path = str(switch_cfg.get("state_feature_path", "")).strip()
+        if not state_feature_path:
+            raise ValueError("scoreopt_t1430_dispersion requires model_switch.state_feature_path")
+        update_t1430_market_state_feature_history(
+            state_feature_path=state_feature_path,
+            clean_root=clean_root,
+            score_day=score_day,
+            price_field=str(switch_cfg.get("state_price_field", "last")).strip() or "last",
+        )
+        decision = decide_scoreopt_t1430_dispersion(switch_cfg, score_day=score_day)
+    elif mode == "scoreopt_bm_short":
+        decision = decide_scoreopt_bm_short(switch_cfg, score_day=score_day)
+    elif mode == "regime_bm20_sign":
         decision = decide_single_challenger_by_regime(switch_cfg, score_day=score_day)
     else:
         decision = decide_single_challenger_by_sharpe(switch_cfg, score_day=score_day)
@@ -418,14 +543,33 @@ def _apply_live_model_switch(
         else:
             raise ValueError(f"unsupported model_switch.stale_history_policy: {stale_policy}")
     selected_score_df = current_score_df
-    if decision.selected_model_id == challenger_model_id:
-        selected_score_df = challenger_score_df
+    challenger_by_model = {str(item["model_id"]): item for item in challenger_results}
+    selected_challenger = challenger_by_model.get(decision.selected_model_id)
+    if selected_challenger is not None:
+        selected_score_df = selected_challenger["score_df"]
     elif decision.selected_model_id != current_model_id:
         raise ValueError(f"model_switch selected unknown model_id: {decision.selected_model_id}")
 
     extra = {
-        "challenger_score_path": str(challenger_score_path),
-        "source_scores": source_details,
+        "challenger_score_path": (
+            str(selected_challenger["score_path"])
+            if selected_challenger is not None
+            else str(challenger_results[0]["score_path"])
+        ),
+        "challenger_score_paths": {
+            str(item["model_id"]): str(item["score_path"])
+            for item in challenger_results
+        },
+        "source_scores": [
+            {
+                "name": str(item["name"]),
+                "model_id": str(item["model_id"]),
+                "score_path": str(item["score_path"]),
+                "rows": int(len(item["score_df"])),
+                "source_scores": item["source_scores"],
+            }
+            for item in challenger_results
+        ],
         "shadow_return_updates": [item.to_dict() for item in shadow_update_results],
     }
     print(
@@ -855,6 +999,7 @@ def run_once(
             expected_history_end=prev_trade_day,
             label_cutoff=model_label_cutoff,
             raw_root=raw_root,
+            clean_root=clean_root,
             strategy_id=strategy_id,
             strategy_config=strategy_config,
             allowlist_cfg=allowlist_cfg,

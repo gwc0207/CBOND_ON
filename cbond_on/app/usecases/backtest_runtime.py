@@ -12,7 +12,7 @@ from cbond_on.core.trading_days import next_trading_days_from_raw
 from cbond_on.infra.benchmark.service import (
     build_strict_buy_holdings_from_selection,
     compute_benchmark_breakdowns_for_days,
-    compute_strict_sell_detail_for_holdings,
+    compute_strict_cycle_detail_for_holdings,
     load_strict_market_day,
 )
 from cbond_on.infra.universe.pool_filter import (
@@ -194,7 +194,6 @@ def run(
     diag_rows: list[dict] = []
     ic_rows: list[dict] = []
     prev_positions = pd.DataFrame(columns=["code", "weight"])
-    strategy_prev_holdings = pd.DataFrame()
     loop_days = [day for day in days[:-1] if start_day <= day <= end_day]
     loop_total = len(loop_days)
     loop_step = _progress_step(loop_total)
@@ -205,6 +204,7 @@ def run(
         day = days[idx]
         if not (start_day <= day <= end_day):
             continue
+        next_day = days[idx + 1]
         loop_seen += 1
         if loop_seen == 1 or loop_seen % loop_step == 0 or loop_seen == loop_total:
             print(
@@ -272,6 +272,29 @@ def run(
             diag_rows.append({"trade_date": day, "status": "skip", "reason": "empty_universe", **filter_diag})
             continue
 
+        try:
+            ic_cycle = compute_strict_cycle_detail_for_holdings(
+                raw_data_root=raw_root,
+                buy_day=day,
+                sell_day=next_day,
+                buy_holdings=merged.assign(weight=1.0),
+                sell_bps=sell_cost_bps,
+            )
+            ic_base = merged[["code", "score"]].merge(ic_cycle[["code", "return_net"]], on="code", how="inner")
+            ic_base["return_net"] = pd.to_numeric(ic_base["return_net"], errors="coerce")
+            ic_base = ic_base[ic_base["return_net"].notna()]
+            if not ic_base.empty:
+                ic_rows.append(
+                    {
+                        "trade_date": day,
+                        "ic": float(ic_base["score"].corr(ic_base["return_net"], method="pearson")),
+                        "rank_ic": float(ic_base["score"].corr(ic_base["return_net"], method="spearman")),
+                        "count": int(len(ic_base)),
+                    }
+                )
+        except Exception:
+            pass
+
         picks = select_signals(
             SignalSelectionRequest(
                 universe=merged[["code", "score"]],
@@ -297,27 +320,25 @@ def run(
             continue
 
         picks = normalize_weights(picks, weight_col="weight")
-        picks["return"] = pd.to_numeric(picks["buy_leg_ret_net"], errors="coerce")
-        picks["full_cycle_ret_net"] = picks["return"]
-        day_buy_leg_ret = float(pd.to_numeric(picks["weighted_buy_leg_ret_net"], errors="coerce").sum())
-        day_sell_leg_ret = 0.0
-        sell_count = 0
-        fallback_sell_codes = 0
-        fallback_sell_weight = 0.0
-        if not strategy_prev_holdings.empty:
-            sell_detail = compute_strict_sell_detail_for_holdings(
-                raw_data_root=raw_root,
-                sell_day=day,
-                prev_holdings=strategy_prev_holdings,
-                sell_bps=sell_cost_bps,
-            )
-            if not sell_detail.empty:
-                day_sell_leg_ret = float(pd.to_numeric(sell_detail["weighted_sell_leg_ret_net"], errors="coerce").sum())
-                sell_count = int(sell_detail["code"].nunique())
-                fallback_mask = sell_detail["sell_missing_fallback"].astype(bool)
-                fallback_sell_codes = int(fallback_mask.sum())
-                fallback_sell_weight = float(pd.to_numeric(sell_detail.loc[fallback_mask, "weight"], errors="coerce").sum())
-        day_return = day_sell_leg_ret + day_buy_leg_ret
+        cycle_detail = compute_strict_cycle_detail_for_holdings(
+            raw_data_root=raw_root,
+            buy_day=day,
+            sell_day=next_day,
+            buy_holdings=picks,
+            sell_bps=sell_cost_bps,
+        )
+        cycle_detail = cycle_detail[pd.to_numeric(cycle_detail["return_net"], errors="coerce").notna()].copy()
+        if cycle_detail.empty:
+            diag_rows.append({"trade_date": day, "status": "skip", "reason": "missing_strict_cycle_return", **filter_diag})
+            continue
+
+        day_return = float(pd.to_numeric(cycle_detail["weighted_return"], errors="coerce").sum())
+        day_buy_leg_ret = float(pd.to_numeric(cycle_detail["weighted_buy_leg_ret_net"], errors="coerce").sum())
+        day_sell_leg_ret = float(pd.to_numeric(cycle_detail["weighted_sell_leg_ret_net"], errors="coerce").sum())
+        sell_count = int(cycle_detail["code"].nunique())
+        fallback_mask = cycle_detail["sell_missing_fallback"].astype(bool)
+        fallback_sell_codes = int(fallback_mask.sum())
+        fallback_sell_weight = float(pd.to_numeric(cycle_detail.loc[fallback_mask, "weight"], errors="coerce").sum())
 
         benchmark_row = benchmark_by_day.get(day)
         if benchmark_row is None:
@@ -340,29 +361,16 @@ def run(
                 "benchmark_fallback_sell_codes": int(benchmark_row.get("fallback_sell_codes", 0)),
                 "benchmark_fallback_sell_weight": float(benchmark_row.get("fallback_sell_weight", 0.0)),
                 "benchmark_method": str(benchmark_row.get("benchmark_method", "strict_official_prev_close_split")),
-                "avg_return": float(picks["return"].mean()),
-                "total_weight": float(picks["weight"].sum()),
+                "avg_return": float(pd.to_numeric(cycle_detail["return_net"], errors="coerce").mean()),
+                "total_weight": float(pd.to_numeric(cycle_detail["weight"], errors="coerce").sum()),
                 "sell_count": sell_count,
                 "fallback_sell_codes": fallback_sell_codes,
                 "fallback_sell_weight": fallback_sell_weight,
             }
         )
-
-        ic_base = merged.copy()
-        ic_base["buy_leg_ret_net"] = pd.to_numeric(ic_base["buy_leg_ret_net"], errors="coerce")
-        ic_base = ic_base[ic_base["buy_leg_ret_net"].notna()]
-        if not ic_base.empty:
-            ic_rows.append(
-                {
-                    "trade_date": day,
-                    "ic": float(ic_base["score"].corr(ic_base["buy_leg_ret_net"], method="pearson")),
-                    "rank_ic": float(ic_base["score"].corr(ic_base["buy_leg_ret_net"], method="spearman")),
-                    "count": int(len(ic_base)),
-                }
-            )
         diag_rows.append({"trade_date": day, "status": "ok", "reason": "", "count": int(len(picks)), **filter_diag})
 
-        for _, row in picks.iterrows():
+        for _, row in cycle_detail.iterrows():
             pos_rows.append(
                 {
                     "trade_date": day,
@@ -371,16 +379,16 @@ def run(
                     "score": float(row["score"]),
                     "rank": int(row["rank"]),
                     "buy_price": float(row["buy_price"]),
+                    "sell_price": float(row["sell_price"]),
                     "buy_close_price": float(row["buy_close_price"]),
                     "bridge_prev_close": float(row["buy_close_price"]),
                     "buy_leg_ret_net": float(row["buy_leg_ret_net"]),
-                    "sell_leg_ret_net": float("nan"),
+                    "sell_leg_ret_net": float(row["strict_sell_leg_net_ret"]),
                     "full_cycle_ret_net": float(row["full_cycle_ret_net"]),
-                    "return": float(row["return"]),
+                    "return": float(row["return_net"]),
                 }
             )
         prev_positions = to_prev_positions(picks)
-        strategy_prev_holdings = picks
 
     print(
         "[backtest] daily loop done",

@@ -144,6 +144,20 @@ def _resolve_sample_weight_config(cfg: dict) -> dict:
     return out
 
 
+def _resolve_regime_config(cfg: dict) -> dict:
+    fe_cfg = cfg.get("feature_engineering", {})
+    if fe_cfg is None:
+        fe_cfg = {}
+    if not isinstance(fe_cfg, dict):
+        raise TypeError("feature_engineering must be an object")
+    raw = fe_cfg.get("regime", cfg.get("regime", {}))
+    if raw in (None, "", []):
+        return {}
+    if not isinstance(raw, dict):
+        raise TypeError("feature_engineering.regime must be an object")
+    return dict(raw)
+
+
 def _sample_weight_summary(sample_weight_cfg: dict) -> dict:
     schemes = sample_weight_cfg.get("schemes") or []
     enabled = bool(sample_weight_cfg.get("enabled", False) and schemes)
@@ -259,6 +273,390 @@ def _with_feature_contribution_params(
         )
     params["feature_contri"] = values
     return params
+
+
+def _deep_merge_dict(base: dict, override: dict) -> dict:
+    out = dict(base or {})
+    for key, value in (override or {}).items():
+        if isinstance(out.get(key), dict) and isinstance(value, dict):
+            out[key] = _deep_merge_dict(out[key], value)
+        else:
+            out[key] = value
+    return out
+
+
+def _pick_platform_config_value(value):
+    if not isinstance(value, dict):
+        return value
+    normalized = {str(k).strip().lower(): v for k, v in value.items()}
+    primary = ("windows", "win") if sys.platform.startswith("win") else ("linux", "unix", "posix", "server")
+    for key in primary:
+        if normalized.get(key) not in (None, ""):
+            return normalized[key]
+    for key in ("default", "common", "all", "value"):
+        if normalized.get(key) not in (None, ""):
+            return normalized[key]
+    for picked in normalized.values():
+        if picked not in (None, ""):
+            return picked
+    return None
+
+
+def _positive_int_list(raw, *, default: list[int]) -> list[int]:
+    if raw in (None, "", []):
+        values = list(default)
+    elif isinstance(raw, (list, tuple)):
+        values = [int(x) for x in raw]
+    else:
+        values = [int(raw)]
+    out: list[int] = []
+    seen: set[int] = set()
+    for value in values:
+        if value <= 0:
+            raise ValueError(f"regime window must be > 0: {value}")
+        if value in seen:
+            continue
+        seen.add(value)
+        out.append(value)
+    return out
+
+
+def _regime_add_features_config(regime_cfg: dict) -> dict:
+    raw = regime_cfg.get("add_features", {})
+    if raw is True:
+        raw = {"enabled": True}
+    elif raw in (None, "", [], False):
+        raw = {"enabled": False}
+    if not isinstance(raw, dict):
+        raise TypeError("feature_engineering.regime.add_features must be a bool or object")
+    return dict(raw)
+
+
+def _regime_feature_columns(regime_cfg: dict) -> list[str]:
+    if not bool(regime_cfg.get("enabled", False)):
+        return []
+    add_cfg = _regime_add_features_config(regime_cfg)
+    if not bool(add_cfg.get("enabled", False)):
+        return []
+    prefix = str(add_cfg.get("prefix", "regime")).strip() or "regime"
+    primary_window = int(regime_cfg.get("benchmark_window_days", add_cfg.get("benchmark_window_days", 20)))
+    windows = _positive_int_list(add_cfg.get("windows"), default=[primary_window])
+    vol_windows = _positive_int_list(add_cfg.get("vol_windows"), default=[])
+    cols: list[str] = []
+    for window in windows:
+        cols.append(f"{prefix}_bm{window}_sum")
+    if bool(add_cfg.get("sign", True)):
+        cols.append(f"{prefix}_bm{primary_window}_sign")
+    if bool(add_cfg.get("abs_sum", False)):
+        cols.append(f"{prefix}_bm{primary_window}_abs")
+    for window in vol_windows:
+        cols.append(f"{prefix}_bm{window}_vol")
+    return cols
+
+
+def _preview_regime_feature_cols(feature_cols: list[str], regime_cfg: dict) -> list[str]:
+    out = list(feature_cols)
+    seen = set(out)
+    for col in _regime_feature_columns(regime_cfg):
+        if col in seen:
+            raise ValueError(f"regime feature column conflicts with existing feature: {col}")
+        seen.add(col)
+        out.append(col)
+    return out
+
+
+@dataclass
+class _RegimeContext:
+    cfg: dict
+    source_path: Path
+    feature_cols: list[str]
+    state_by_day: dict[date, str | None]
+    features_by_day: dict[date, dict[str, float]]
+    primary_sum_by_day: dict[date, float]
+
+
+def _load_regime_context(regime_cfg: dict, *, paths_cfg: dict) -> _RegimeContext | None:
+    if not bool(regime_cfg.get("enabled", False)):
+        return None
+    source_raw = (
+        regime_cfg.get("source_path")
+        or regime_cfg.get("return_path")
+        or regime_cfg.get("benchmark_return_path")
+    )
+    source_raw = _pick_platform_config_value(source_raw)
+    if source_raw in (None, ""):
+        raise ValueError("feature_engineering.regime requires source_path/return_path")
+    source_path = Path(str(source_raw)).expanduser()
+    if not source_path.is_absolute():
+        source_path = Path(paths_cfg["results_root"]) / source_path
+    if not source_path.exists():
+        raise FileNotFoundError(f"regime source_path not found: {source_path}")
+
+    benchmark_col = str(regime_cfg.get("benchmark_col", "benchmark_return")).strip() or "benchmark_return"
+    date_col = str(regime_cfg.get("date_col", "trade_date")).strip() or "trade_date"
+    df = pd.read_csv(source_path)
+    if date_col not in df.columns:
+        raise KeyError(f"regime source missing date column: {date_col}")
+    if benchmark_col not in df.columns:
+        raise KeyError(f"regime source missing benchmark column: {benchmark_col}")
+    work = df[[date_col, benchmark_col]].copy()
+    work[date_col] = pd.to_datetime(work[date_col], errors="coerce").dt.date
+    work[benchmark_col] = pd.to_numeric(work[benchmark_col], errors="coerce")
+    work = work.dropna(subset=[date_col]).sort_values(date_col).reset_index(drop=True)
+    if work.empty:
+        raise ValueError(f"regime source has no valid rows: {source_path}")
+
+    add_cfg = _regime_add_features_config(regime_cfg)
+    prefix = str(add_cfg.get("prefix", "regime")).strip() or "regime"
+    primary_window = int(regime_cfg.get("benchmark_window_days", add_cfg.get("benchmark_window_days", 20)))
+    windows = _positive_int_list(add_cfg.get("windows"), default=[primary_window])
+    if primary_window not in windows:
+        windows = [primary_window, *windows]
+    vol_windows = _positive_int_list(add_cfg.get("vol_windows"), default=[])
+    feature_cols = _regime_feature_columns(regime_cfg)
+    returns = work[benchmark_col].astype(float)
+    for window in sorted(set(windows)):
+        work[f"{prefix}_bm{window}_sum"] = (
+            returns.rolling(window, min_periods=window).sum().shift(1)
+        )
+    for window in sorted(set(vol_windows)):
+        work[f"{prefix}_bm{window}_vol"] = (
+            returns.rolling(window, min_periods=window).std(ddof=0).shift(1)
+        )
+    primary_sum_col = f"{prefix}_bm{primary_window}_sum"
+    if primary_sum_col not in work.columns:
+        work[primary_sum_col] = returns.rolling(primary_window, min_periods=primary_window).sum().shift(1)
+    if bool(add_cfg.get("sign", True)):
+        sign_col = f"{prefix}_bm{primary_window}_sign"
+        work[sign_col] = np.where(
+            np.isfinite(work[primary_sum_col].astype(float)),
+            np.where(work[primary_sum_col].astype(float) >= 0.0, 1.0, -1.0),
+            np.nan,
+        )
+    if bool(add_cfg.get("abs_sum", False)):
+        work[f"{prefix}_bm{primary_window}_abs"] = work[primary_sum_col].astype(float).abs()
+
+    fill_missing = str(add_cfg.get("fill_missing", "zero")).strip().lower()
+    missing_value = np.nan if fill_missing in {"nan", "none"} else float(add_cfg.get("missing_value", 0.0))
+    state_by_day: dict[date, str | None] = {}
+    features_by_day: dict[date, dict[str, float]] = {}
+    primary_sum_by_day: dict[date, float] = {}
+    for row in work.itertuples(index=False):
+        row_dict = row._asdict()
+        day = row_dict[date_col]
+        raw_sum = row_dict.get(primary_sum_col, np.nan)
+        state = None
+        if raw_sum is not None and np.isfinite(float(raw_sum)):
+            state = "up" if float(raw_sum) >= 0.0 else "down"
+            primary_sum_by_day[day] = float(raw_sum)
+        state_by_day[day] = state
+        features: dict[str, float] = {}
+        for col in feature_cols:
+            value = row_dict.get(col, np.nan)
+            if value is None or not np.isfinite(float(value)):
+                features[col] = float(missing_value) if np.isfinite(missing_value) else float("nan")
+            else:
+                features[col] = float(value)
+        features_by_day[day] = features
+
+    observed = sum(1 for state in state_by_day.values() if state is not None)
+    up_count = sum(1 for state in state_by_day.values() if state == "up")
+    down_count = sum(1 for state in state_by_day.values() if state == "down")
+    print(
+        "[regime]",
+        f"enabled=True source={source_path}",
+        f"benchmark_col={benchmark_col}",
+        f"window={primary_window}",
+        f"feature_count={len(feature_cols)}",
+        f"observed_days={observed}",
+        f"up={up_count}",
+        f"down={down_count}",
+    )
+    return _RegimeContext(
+        cfg=regime_cfg,
+        source_path=source_path,
+        feature_cols=feature_cols,
+        state_by_day=state_by_day,
+        features_by_day=features_by_day,
+        primary_sum_by_day=primary_sum_by_day,
+    )
+
+
+def _regime_day_state(context: _RegimeContext | None, day: date | pd.Timestamp | None) -> str | None:
+    if context is None or day is None:
+        return None
+    try:
+        key = pd.Timestamp(day).date()
+    except Exception:
+        return None
+    return context.state_by_day.get(key)
+
+
+def _regime_state_series(context: _RegimeContext, dt: pd.Series) -> pd.Series:
+    days = pd.to_datetime(dt, errors="coerce").dt.date
+    return days.map(lambda day: context.state_by_day.get(day) if day is not None else None)
+
+
+def _slice_split(split: SplitData, mask: pd.Series | np.ndarray) -> SplitData:
+    mask_arr = np.asarray(mask, dtype=bool)
+    sample_weight = None
+    if split.sample_weight is not None:
+        sample_weight = split.sample_weight.iloc[mask_arr].reset_index(drop=True)
+    return SplitData(
+        x=split.x.iloc[mask_arr].reset_index(drop=True),
+        y=split.y.iloc[mask_arr].reset_index(drop=True),
+        dt=split.dt.iloc[mask_arr].reset_index(drop=True),
+        code=split.code.iloc[mask_arr].reset_index(drop=True),
+        sample_weight=sample_weight,
+    )
+
+
+def _split_day_count(split: SplitData) -> int:
+    if split.dt.empty:
+        return 0
+    return int(pd.to_datetime(split.dt, errors="coerce").dt.date.nunique())
+
+
+def _apply_regime_train_filter(
+    split: SplitData,
+    context: _RegimeContext | None,
+    *,
+    target_day: date,
+    role: str,
+) -> SplitData:
+    if context is None or split.x.empty:
+        return split
+    cfg = context.cfg.get("train_filter", {})
+    if cfg in (None, "", [], False):
+        return split
+    if cfg is True:
+        cfg = {"enabled": True}
+    if not isinstance(cfg, dict):
+        raise TypeError("feature_engineering.regime.train_filter must be a bool or object")
+    if not bool(cfg.get("enabled", False)):
+        return split
+    if role == "val" and not bool(cfg.get("apply_to_val", True)):
+        return split
+    target_state = _regime_day_state(context, target_day)
+    fallback = bool(cfg.get("fallback_to_unfiltered", True))
+    if target_state is None:
+        print(f"[regime] train_filter role={role} target_day={target_day} missing_state fallback={fallback}")
+        return split
+    states = _regime_state_series(context, split.dt)
+    include_missing = bool(cfg.get("include_missing", False))
+    mask = states.eq(target_state)
+    if include_missing:
+        mask = mask | states.isna()
+    filtered = _slice_split(split, mask)
+    min_days = int(cfg.get("min_days", 20 if role == "train" else 1))
+    min_rows = int(cfg.get("min_rows", 100 if role == "train" else 1))
+    enough = _split_day_count(filtered) >= min_days and len(filtered.y) >= min_rows
+    if not enough and fallback:
+        print(
+            f"[regime] train_filter role={role} target_day={target_day} state={target_state} "
+            f"kept_days={_split_day_count(filtered)}/{_split_day_count(split)} "
+            f"kept_rows={len(filtered.y)}/{len(split.y)} fallback=True"
+        )
+        return split
+    print(
+        f"[regime] train_filter role={role} target_day={target_day} state={target_state} "
+        f"kept_days={_split_day_count(filtered)}/{_split_day_count(split)} "
+        f"kept_rows={len(filtered.y)}/{len(split.y)} fallback=False"
+    )
+    return filtered
+
+
+def _apply_regime_features(split: SplitData, context: _RegimeContext | None) -> SplitData:
+    if context is None or not context.feature_cols or split.x.empty:
+        return split
+    x = split.x.copy()
+    days = pd.to_datetime(split.dt, errors="coerce").dt.date
+    for col in context.feature_cols:
+        x[col] = [
+            context.features_by_day.get(day, {}).get(col, 0.0)
+            for day in days
+        ]
+    return SplitData(x=x, y=split.y, dt=split.dt, code=split.code, sample_weight=split.sample_weight)
+
+
+def _apply_regime_similarity_weight(
+    split: SplitData,
+    context: _RegimeContext | None,
+    *,
+    target_day: date,
+) -> SplitData:
+    if context is None or split.x.empty:
+        return split
+    cfg = context.cfg.get("similarity_weight", {})
+    if cfg in (None, "", [], False):
+        return split
+    if cfg is True:
+        cfg = {"enabled": True}
+    if not isinstance(cfg, dict):
+        raise TypeError("feature_engineering.regime.similarity_weight must be a bool or object")
+    if not bool(cfg.get("enabled", False)):
+        return split
+    target_state = _regime_day_state(context, target_day)
+    if target_state is None:
+        print(f"[regime] similarity_weight target_day={target_day} missing_state skip")
+        return split
+    base = (
+        pd.to_numeric(split.sample_weight, errors="coerce").fillna(1.0).to_numpy(dtype=float, copy=True)
+        if split.sample_weight is not None
+        else np.ones(len(split.y), dtype=float)
+    )
+    states = _regime_state_series(context, split.dt)
+    same = float(cfg.get("same", cfg.get("same_multiplier", 1.3)))
+    different = float(cfg.get("different", cfg.get("different_multiplier", 0.7)))
+    missing = float(cfg.get("missing", cfg.get("missing_multiplier", 1.0)))
+    multipliers = np.where(states.eq(target_state).to_numpy(), same, different).astype(float)
+    multipliers = np.where(states.isna().to_numpy(), missing, multipliers)
+    weights = base * multipliers
+    normalize = str(cfg.get("normalize", "mean")).strip().lower()
+    if normalize in {"mean", "global_mean", "day_mean"}:
+        mean = float(np.nanmean(weights))
+        if mean > 0 and np.isfinite(mean):
+            weights = weights / mean
+    weights = np.where(np.isfinite(weights), weights, 1.0)
+    weights = np.maximum(weights, 1e-12)
+    print(
+        f"[regime] similarity_weight target_day={target_day} state={target_state} "
+        f"same={same} different={different} missing={missing} mean={float(np.nanmean(weights)):.4f}"
+    )
+    return SplitData(
+        x=split.x,
+        y=split.y,
+        dt=split.dt,
+        code=split.code,
+        sample_weight=pd.Series(weights, index=split.y.index, dtype=float),
+    )
+
+
+def _regime_feature_contribution_config(
+    base_cfg: dict,
+    context: _RegimeContext | None,
+    *,
+    target_day: date,
+) -> dict:
+    if context is None:
+        return base_cfg
+    raw = context.cfg.get("feature_contribution_by_state", {})
+    if raw in (None, "", [], False):
+        return base_cfg
+    if raw is True:
+        raw = {"enabled": True}
+    if not isinstance(raw, dict):
+        raise TypeError("feature_engineering.regime.feature_contribution_by_state must be a bool or object")
+    if not bool(raw.get("enabled", False)):
+        return base_cfg
+    state = _regime_day_state(context, target_day)
+    states_cfg = raw.get("states", raw)
+    override = states_cfg.get(state) if isinstance(states_cfg, dict) and state is not None else None
+    if not isinstance(override, dict) or not override:
+        return base_cfg
+    merged = _deep_merge_dict(base_cfg, override)
+    print(f"[regime] feature_contribution target_day={target_day} state={state} dynamic=True")
+    return merged
 
 
 def _format_bins(bin_dir: list[tuple[int, float, int]]) -> str:
@@ -931,7 +1329,10 @@ def main(
     )
     pca_feature_cfg = _resolve_pca_feature_config(cfg, factor_cols)
     pca_enabled = bool(pca_feature_cfg.get("enabled", False))
-    model_feature_cols = _preview_pca_feature_cols(factor_cols, pca_feature_cfg)
+    regime_cfg = _resolve_regime_config(cfg)
+    regime_context = _load_regime_context(regime_cfg, paths_cfg=paths_cfg)
+    pca_model_feature_cols = _preview_pca_feature_cols(factor_cols, pca_feature_cfg)
+    model_feature_cols = _preview_regime_feature_cols(pca_model_feature_cols, regime_cfg)
     feature_contribution_cfg = _resolve_feature_contribution_config(cfg)
     feature_contribution_summary = _feature_contribution_summary(model_feature_cols, feature_contribution_cfg)
     sample_weight_cfg = _resolve_sample_weight_config(cfg)
@@ -969,6 +1370,19 @@ def main(
             "[feature_contribution] missing configured features:",
             ",".join(str(x) for x in feature_contribution_summary["missing_features"]),
         )
+    regime_add_cfg = _regime_add_features_config(regime_cfg) if regime_cfg else {"enabled": False}
+    regime_similarity_cfg = regime_cfg.get("similarity_weight", {}) if regime_cfg else {}
+    regime_filter_cfg = regime_cfg.get("train_filter", {}) if regime_cfg else {}
+    regime_dynamic_fc_cfg = regime_cfg.get("feature_contribution_by_state", {}) if regime_cfg else {}
+    print(
+        "[regime]",
+        f"enabled={bool(regime_context is not None)}",
+        f"add_features={bool(regime_add_cfg.get('enabled', False))}",
+        f"feature_count={len(regime_context.feature_cols) if regime_context else 0}",
+        f"similarity_weight={bool(isinstance(regime_similarity_cfg, dict) and regime_similarity_cfg.get('enabled', False))}",
+        f"train_filter={bool(isinstance(regime_filter_cfg, dict) and regime_filter_cfg.get('enabled', False))}",
+        f"dynamic_feature_contribution={bool(isinstance(regime_dynamic_fc_cfg, dict) and regime_dynamic_fc_cfg.get('enabled', False))}",
+    )
     print(
         "[sample_weight]",
         f"enabled={bool(sample_weight_summary.get('enabled', False))}",
@@ -1026,6 +1440,8 @@ def main(
             "feature_contribution_max": float(
                 feature_contribution_summary.get("max", feature_contribution_summary.get("default", 1.0))
             ),
+            "regime_enabled": bool(regime_context is not None),
+            "regime_feature_count": int(len(regime_context.feature_cols) if regime_context else 0),
             "sample_weight_enabled": bool(sample_weight_summary.get("enabled", False)),
             "sample_weight_scheme_count": int(sample_weight_summary.get("scheme_count", 0)),
             "sample_weight_schemes": ",".join(str(x) for x in sample_weight_summary.get("schemes", [])),
@@ -1272,9 +1688,16 @@ def main(
                     or last_refit_pos is None
                     or (roll_idx - last_refit_pos) >= refit_every_n_days
                 )
+                current_regime_state = _regime_day_state(regime_context, test_day)
+                current_regime_sum = (
+                    regime_context.primary_sum_by_day.get(test_day, float("nan"))
+                    if regime_context is not None
+                    else float("nan")
+                )
                 print(
                     f"[rolling] {roll_idx}/{total_rolls} test_day={test_day} "
-                    f"refit={'Y' if should_refit else 'N'} cadence={refit_every_n_days}"
+                    f"refit={'Y' if should_refit else 'N'} cadence={refit_every_n_days} "
+                    f"regime={current_regime_state or 'n/a'}"
                 )
                 refit_status = "reuse"
                 if should_refit:
@@ -1285,6 +1708,18 @@ def main(
                         refit_status = "reuse_empty_train"
                     else:
                         init_model = None
+                        train_data = _apply_regime_train_filter(
+                            train_data,
+                            regime_context,
+                            target_day=test_day,
+                            role="train",
+                        )
+                        val_data = _apply_regime_train_filter(
+                            val_data,
+                            regime_context,
+                            target_day=test_day,
+                            role="val",
+                        )
                         fit_pca_transformer = _fit_pca_feature_transformer(
                             train_data.x,
                             pca_feature_cfg,
@@ -1294,7 +1729,19 @@ def main(
                             val_data = _apply_pca_feature_transformer(val_data, fit_pca_transformer)
                             for row in _pca_transformer_summary(fit_pca_transformer):
                                 pca_summary_rows.append({"trade_date": test_day, **row})
+                        train_data = _apply_regime_features(train_data, regime_context)
+                        val_data = _apply_regime_features(val_data, regime_context)
                         train_data = _apply_training_time_decay(train_data, sample_weight_cfg)
+                        train_data = _apply_regime_similarity_weight(
+                            train_data,
+                            regime_context,
+                            target_day=test_day,
+                        )
+                        current_feature_contribution_cfg = _regime_feature_contribution_config(
+                            feature_contribution_cfg,
+                            regime_context,
+                            target_day=test_day,
+                        )
                         if incremental_enabled and incremental_warm_start:
                             prev_ckpt = _find_previous_checkpoint(state_dir, test_day)
                             if prev_ckpt is not None:
@@ -1307,7 +1754,7 @@ def main(
                                 lgbm_params=_with_feature_contribution_params(
                                     lgbm_params,
                                     list(train_data.x.columns),
-                                    feature_contribution_cfg,
+                                    current_feature_contribution_cfg,
                                 ),
                                 early_stopping_rounds=int(early_rounds) if early_rounds else None,
                                 loss_mode=loss_mode,
@@ -1323,7 +1770,7 @@ def main(
                                 lgbm_params=_with_feature_contribution_params(
                                     lgbm_params,
                                     list(train_data.x.columns),
-                                    feature_contribution_cfg,
+                                    current_feature_contribution_cfg,
                                 ),
                                 early_stopping_rounds=int(early_rounds) if early_rounds else None,
                                 loss_mode=loss_mode,
@@ -1354,6 +1801,7 @@ def main(
                     if active_pca_transformer is None:
                         raise RuntimeError("PCA features are enabled but no active PCA transformer is available")
                     test_data = _apply_pca_feature_transformer(test_data, active_pca_transformer)
+                test_data = _apply_regime_features(test_data, regime_context)
                 test_pred = active_model.predict(test_data.x)
                 guard_stats = (
                     score_guard_stats(test_pred, equal_tol=score_guard_equal_tol)
@@ -1444,6 +1892,8 @@ def main(
                         "refit_status": refit_status,
                         "model_source_day": model_source_day,
                         "refit_every_n_days": refit_every_n_days,
+                        "regime_state": current_regime_state,
+                        "regime_benchmark_sum": current_regime_sum,
                         "rank_ic": test_metrics["rank_ic_mean"],
                         "ic": test_metrics["ic_mean"],
                         "dir": test_metrics["dir"],
@@ -1482,6 +1932,8 @@ def main(
                         "val_days": len(val_days),
                         "count": int(len(test_data.y)),
                         "refit": bool(refit_status == "refit"),
+                        "regime_state": current_regime_state,
+                        "regime_benchmark_sum": current_regime_sum,
                         "rank_ic": test_metrics.get("rank_ic_mean"),
                         "ic": test_metrics.get("ic_mean"),
                         "dir": test_metrics.get("dir"),
@@ -1651,6 +2103,9 @@ def main(
         pca_summary = _pca_transformer_summary(pca_transformer)
         if pca_summary:
             pd.DataFrame(pca_summary).to_csv(out_dir / "pca_features.csv", index=False)
+    train_data = _apply_regime_features(train_data, regime_context)
+    val_data = _apply_regime_features(val_data, regime_context)
+    test_data = _apply_regime_features(test_data, regime_context)
     train_data = _apply_training_time_decay(train_data, sample_weight_cfg)
 
     model = None

@@ -54,6 +54,8 @@ _PERF_SUMMARY_CACHE_LOCK = threading.Lock()
 HEARTBEAT_STALE_SECONDS = 120
 LIVE_STATUS_API_VERSION = 1
 _TWAP_COL_RE = re.compile(r"^twap_\d{4}_\d{4}$")
+_LOG_ERROR_RE = re.compile(r"\b(error|failed|traceback|fatal|exception)\b", re.IGNORECASE)
+_LOG_WARNING_RE = re.compile(r"\b(warn|warning)\b", re.IGNORECASE)
 TIMELINE_STEPS: tuple[tuple[str, str], ...] = (
     ("trade_day", "Trade Day"),
     ("ready_gate", "DataHub Ready"),
@@ -1586,10 +1588,10 @@ def _summarize_logs(lines: list[str]) -> dict:
             "message": line,
             "level": "info",
         }
-        if "error" in low or "failed" in low or "traceback" in low:
+        if _LOG_ERROR_RE.search(line):
             event["level"] = "error"
             errors.append(event)
-        elif "warning" in low or "warn" in low:
+        elif _LOG_WARNING_RE.search(line):
             event["level"] = "warning"
             warnings.append(event)
         if "[run]" in low or "[dashboard]" in low or event["level"] != "info":

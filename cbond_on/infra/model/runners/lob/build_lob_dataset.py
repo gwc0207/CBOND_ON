@@ -222,10 +222,9 @@ def _build_one_day(
         on="code",
         how="inner",
     )
-    strict_label["y"] = (
-        pd.to_numeric(strict_label["buy_leg_ret_gross"], errors="coerce")
-        + pd.to_numeric(strict_label["strict_sell_leg_gross_ret"], errors="coerce")
-    )
+    buy_ret = pd.to_numeric(strict_label["buy_leg_ret_gross"], errors="coerce")
+    sell_ret = pd.to_numeric(strict_label["strict_sell_leg_gross_ret"], errors="coerce")
+    strict_label["y"] = (1.0 + buy_ret) * (1.0 + sell_ret) - 1.0
     strict_label = strict_label.dropna(subset=["code", "y"])
     merged_twap = merged_twap.merge(strict_label[["code", "y"]], on="code", how="inner")
     if merged_twap.empty:

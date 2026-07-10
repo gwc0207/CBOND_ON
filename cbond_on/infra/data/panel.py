@@ -1168,7 +1168,7 @@ def _build_day_labels_twap(
     aligned = aligned.dropna(subset=["code", "buy_leg_ret_gross", "strict_sell_leg_gross_ret"])
     if aligned.empty:
         return pd.DataFrame()
-    aligned["y"] = aligned["buy_leg_ret_gross"] + aligned["strict_sell_leg_gross_ret"]
+    aligned["y"] = (1.0 + aligned["buy_leg_ret_gross"]) * (1.0 + aligned["strict_sell_leg_gross_ret"]) - 1.0
     return pd.DataFrame(
         {
             "code": aligned["code"].astype(str).values,

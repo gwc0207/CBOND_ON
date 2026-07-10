@@ -7,13 +7,13 @@ from pathlib import Path
 import pandas as pd
 
 from cbond_on.core.fees import load_fees_buy_sell_bps
-from cbond_on.core.trading_days import list_trading_days_from_raw
+from cbond_on.core.trading_days import list_trading_days_from_raw, next_trading_days_from_raw
 from cbond_on.domain.portfolio.service import normalize_weights, to_prev_positions
 from cbond_on.domain.signals.service import SignalSelectionRequest, select_signals
 from cbond_on.infra.benchmark.service import (
     build_strict_buy_holdings_from_selection,
     compute_benchmark_breakdowns_for_days,
-    compute_strict_sell_detail_for_holdings,
+    compute_strict_cycle_detail_for_holdings,
     load_strict_market_day,
 )
 from cbond_on.infra.model.score_io import load_scores_by_date
@@ -93,8 +93,13 @@ def _build_shadow_daily_returns(
     strategy_config: dict,
     allowlist_cfg: dict,
 ) -> pd.DataFrame:
-    days = _open_days(raw_data_root, start_day, end_day)
-    if not days:
+    base_days = _open_days(raw_data_root, start_day, end_day)
+    if not base_days:
+        return pd.DataFrame()
+    tail_day = next_trading_days_from_raw(raw_data_root, end_day, 1, kind="snapshot", asset="cbond")
+    days = sorted(set(base_days + tail_day))
+    loop_days = [day for day in days[:-1] if start_day <= day <= end_day]
+    if not loop_days:
         return pd.DataFrame()
 
     scores = load_scores_by_date(score_path)
@@ -102,7 +107,7 @@ def _build_shadow_daily_returns(
     pool_cfg = load_upstream_pool_config(allowlist_cfg or None)
     benchmark_daily = compute_benchmark_breakdowns_for_days(
         raw_data_root=raw_data_root,
-        trade_days=days,
+        trade_days=loop_days,
         buy_bps=buy_cost_bps,
         sell_bps=sell_cost_bps,
         skip_failed_days=True,
@@ -116,9 +121,11 @@ def _build_shadow_daily_returns(
 
     daily_rows: list[dict] = []
     prev_positions = pd.DataFrame(columns=["code", "weight"])
-    strategy_prev_holdings = pd.DataFrame()
 
-    for day in days:
+    for idx, day in enumerate(days[:-1]):
+        if not (start_day <= day <= end_day):
+            continue
+        next_day = days[idx + 1]
         score_df = scores.get(day, pd.DataFrame())
         if score_df.empty:
             continue
@@ -183,39 +190,32 @@ def _build_shadow_daily_returns(
             continue
 
         picks = normalize_weights(picks, weight_col="weight")
-        picks["return"] = pd.to_numeric(picks["buy_leg_ret_net"], errors="coerce")
-        picks["full_cycle_ret_net"] = picks["return"]
-        day_buy_leg_ret = float(pd.to_numeric(picks["weighted_buy_leg_ret_net"], errors="coerce").sum())
-        day_sell_leg_ret = 0.0
-        sell_count = 0
-        fallback_sell_codes = 0
-        fallback_sell_weight = 0.0
-        if not strategy_prev_holdings.empty:
-            sell_detail = compute_strict_sell_detail_for_holdings(
-                raw_data_root=raw_data_root,
-                sell_day=day,
-                prev_holdings=strategy_prev_holdings,
-                sell_bps=sell_cost_bps,
-            )
-            if not sell_detail.empty:
-                day_sell_leg_ret = float(
-                    pd.to_numeric(sell_detail["weighted_sell_leg_ret_net"], errors="coerce").sum()
-                )
-                sell_count = int(sell_detail["code"].nunique())
-                fallback_mask = sell_detail["sell_missing_fallback"].astype(bool)
-                fallback_sell_codes = int(fallback_mask.sum())
-                fallback_sell_weight = float(
-                    pd.to_numeric(sell_detail.loc[fallback_mask, "weight"], errors="coerce").sum()
-                )
+        cycle_detail = compute_strict_cycle_detail_for_holdings(
+            raw_data_root=raw_data_root,
+            buy_day=day,
+            sell_day=next_day,
+            buy_holdings=picks,
+            sell_bps=sell_cost_bps,
+        )
+        cycle_detail = cycle_detail[pd.to_numeric(cycle_detail["return_net"], errors="coerce").notna()].copy()
+        if cycle_detail.empty:
+            continue
+
+        day_return = float(pd.to_numeric(cycle_detail["weighted_return"], errors="coerce").sum())
+        day_buy_leg_ret = float(pd.to_numeric(cycle_detail["weighted_buy_leg_ret_net"], errors="coerce").sum())
+        day_sell_leg_ret = float(pd.to_numeric(cycle_detail["weighted_sell_leg_ret_net"], errors="coerce").sum())
+        sell_count = int(cycle_detail["code"].nunique())
+        fallback_mask = cycle_detail["sell_missing_fallback"].astype(bool)
+        fallback_sell_codes = int(fallback_mask.sum())
+        fallback_sell_weight = float(pd.to_numeric(cycle_detail.loc[fallback_mask, "weight"], errors="coerce").sum())
 
         benchmark_row = benchmark_by_day.get(day)
         if benchmark_row is None:
             continue
-        day_return = day_sell_leg_ret + day_buy_leg_ret
         daily_rows.append(
             {
                 "trade_date": day,
-                "count": int(len(picks)),
+                "count": int(len(cycle_detail)),
                 "day_return": day_return,
                 "full_cycle_ret_net": day_return,
                 "buy_leg_ret_net": day_buy_leg_ret,
@@ -231,15 +231,14 @@ def _build_shadow_daily_returns(
                 "benchmark_method": str(
                     benchmark_row.get("benchmark_method", "strict_official_prev_close_split")
                 ),
-                "avg_return": float(picks["return"].mean()),
-                "total_weight": float(picks["weight"].sum()),
+                "avg_return": float(pd.to_numeric(cycle_detail["return_net"], errors="coerce").mean()),
+                "total_weight": float(pd.to_numeric(cycle_detail["weight"], errors="coerce").sum()),
                 "sell_count": sell_count,
                 "fallback_sell_codes": fallback_sell_codes,
                 "fallback_sell_weight": fallback_sell_weight,
             }
         )
         prev_positions = to_prev_positions(picks)
-        strategy_prev_holdings = picks
 
     if not daily_rows:
         return pd.DataFrame()

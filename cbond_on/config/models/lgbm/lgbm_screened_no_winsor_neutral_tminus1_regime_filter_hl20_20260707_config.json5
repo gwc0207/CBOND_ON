@@ -1,0 +1,44 @@
+{
+  modules: ["models/lgbm/lgbm_screened_no_winsor_neutral_tminus1_weight_recent_hl20_20260625"],
+
+  model_name: "lgbm_screened_no_winsor_neutral_tminus1_regime_filter_hl20_20260707",
+  score_output: {
+    windows: "D:/cbond_on/results/scores/lgbm_screened_no_winsor_neutral_tminus1_regime_filter_hl20_20260707",
+    linux: "/home/gswzif/cbond_on_runtime/results/scores/lgbm_screened_no_winsor_neutral_tminus1_regime_filter_hl20_20260707"
+  },
+  score_overwrite: true,
+  incremental: {
+    skip_existing_scores: false,
+    warm_start: true,
+    save_state: true,
+    state_dir: "D:/cbond_on/results/model_state/lgbm_screened_no_winsor_neutral_tminus1_regime_filter_hl20_20260707"
+  },
+
+  feature_engineering: {
+    regime: {
+      enabled: true,
+      source_path: {
+        windows: "D:/cbond_on/results/analysis/model_switching_shadow_update_20260630_to_20260629/combined_daily_returns/HL20_live_baseline.csv",
+        linux: "/home/gswzif/cbond_on_runtime/results/analysis/model_switching_shadow_update_20260630_to_20260629/combined_daily_returns/HL20_live_baseline.csv"
+      },
+      benchmark_col: "benchmark_return",
+      benchmark_window_days: 20,
+      train_filter: {
+        enabled: true,
+        apply_to_val: true,
+        min_days: 20,
+        min_rows: 100,
+        include_missing: false,
+        fallback_to_unfiltered: true
+      }
+    }
+  },
+  lgbm_params: {
+    log_eval_period: 1000000,
+  },
+  experiment: {
+    id: "lgbm_regime_model_20260707",
+    trial: "regime_filter_hl20",
+    description: "train on same T-1 benchmark regime days when enough samples exist"
+  }
+}
