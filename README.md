@@ -2,9 +2,9 @@
 
 可转债隔夜策略工程仓库（研究、回测、实盘一体化）。
 
-当前代码已迁移到新分层架构：
-`interfaces -> app -> domain / infra`  
-旧 `services/*` 架构已移除。
+当前主入口链路为：
+`run (兼容) -> cli -> bootstrap -> workflows -> app -> domain / infra`。
+`interfaces/cli` 仅保留兼容适配，旧 `services/*` 架构已移除。
 
 ## 1. 全链路总览
 
@@ -20,12 +20,15 @@
 ## 2. 目录职责
 
 - `cbond_on/config`：业务配置（data、factor、score、live、models、backtest）。
+- `cbond_on/cli`：稳定命令入口与参数解析。
+- `cbond_on/bootstrap`：配置加载、校验和请求组装。
+- `cbond_on/workflows`：production、research、backtest 工作流入口。
 - `cbond_on/core`：通用基础能力（时间、交易日、命名、配置解析等）。
 - `cbond_on/domain`：纯领域逻辑（factors/spec、signals、portfolio、strategies）。
 - `cbond_on/app`：用例与流水线编排（usecases、pipelines）。
 - `cbond_on/infra`：外部实现适配（数据 IO、Rust 因子引擎、模型 runner、回测、实盘）。
-- `cbond_on/interfaces/cli`：CLI 入口适配层。
-- `cbond_on/run`：兼容入口（薄转发到 `interfaces/cli`）。
+- `cbond_on/interfaces/cli`：历史 CLI 兼容适配层，转发到 `cbond_on/cli`。
+- `cbond_on/run`：兼容入口，薄转发到 `cbond_on/cli`。
 - `liveLaunch`：实盘调度与可视化控制台。
 - `docs`：架构、部署、因子相关文档。
 
@@ -35,7 +38,7 @@
 2. Label 成本口径固定为 `daily_twap`，不允许回退到项目内自算 TWAP。
 3. 默认标签窗口：
    - 买入：`14:42-14:57`
-   - 卖出：次日 `09:30-09:45`
+   - 卖出：次日 `09:30-09:39`
 4. `filter_tradable` 在 backtest/live 共用，保证交易约束一致。
 
 ## 4. 配置文件地图
@@ -53,7 +56,7 @@
 - 实盘总控：`cbond_on/config/live/live_config.json5`
 - 实盘因子：`cbond_on/config/live/live_factors_config.json5`
 - 实盘模型注册：`cbond_on/config/live/live_models_config.json5`
-- 实盘模型参数：`cbond_on/config/live/live_lgbm_factor_MSE_config.json5`
+- 实盘模型参数：由 `live_models_config.json5` 引用对应的 `live/live_lgbm_*_config.json5`
 
 ## 5. 各环节详细说明
 

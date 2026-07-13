@@ -16,7 +16,8 @@ env/
 
 # Local runtime artifacts
 .runtime_logs/
-runtime/
+# Root runtime output only. Nested config directories named runtime are source.
+/runtime/
 notebook/runtime/
 wandb/
 rust/factor_engine/wandb/

@@ -1,6 +1,6 @@
 # CBOND_ON 实验记录索引
 
-更新时间: 2026-07-09
+更新时间: 2026-07-13
 
 本文档分区用于维护 CBOND_ON 研究实验台账。每个环节单独维护一张大表，后续新增实验时只追加新行，不覆盖历史行。
 
@@ -34,7 +34,9 @@
 
 ## 当前正式基准
 
-当前实盘链路为 `regime_bm20_sign` 模型切换:
+当前实盘链路为 `scoreopt_t1430_dispersion` 多模型切换。选择器使用
+`disp_afternoon7` 七个 14:30 截面分化特征，在过去 120 日中寻找 20 个
+最近邻交易日，以 `LCB10` 比较候选，并要求最优得分领先至少 `0.0003`。
 
 | 角色 | 模型 |
 | --- | --- |
@@ -49,3 +51,11 @@
 当前正式汇总:
 
 `D:\cbond_on\results\analysis\return_fix_20260709\backtest_summary_20240508_20260708.csv`
+
+当前 live selector 的直接研究证据:
+
+`D:\cbond_on\results\analysis\model_switch_t1430_dispersion_focus_20260709\dispersion_focus_grid_summary.csv`
+
+其中现行参数行记录 525 日累计收益约 `178.41%`、Sharpe 约 `3.942`。
+该 selector 产物使用的候选收益历史与上面的 `return_fix` 汇总存在数值差异，
+因此两张表不可直接混合排名；正式复核时必须统一候选日收益和回测窗口。

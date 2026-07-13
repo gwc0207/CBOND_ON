@@ -2,9 +2,18 @@
 
 ## Layer Structure
 
+- `run`
+  - compatibility wrappers only.
+  - delegates to `cbond_on.cli`; no business logic or one-off scripts.
+- `cli`
+  - stable command entrypoints and argument parsing.
+- `bootstrap`
+  - loads and validates configs and assembles workflow inputs.
+- `workflows`
+  - production, research, and backtest workflow entrypoints.
 - `interfaces`
-  - CLI/entry adapters only.
-  - Converts args to pipeline calls.
+  - legacy-compatible CLI adapters.
+  - delegates to `cbond_on.cli` while old import paths are retained.
 - `app`
   - `usecases`: single business actions.
   - `pipelines`: multi-step orchestration.
@@ -15,15 +24,22 @@
   - concrete implementations (`factors-pipeline`, `model`, `data`, `io`, `live`, `backtest`, `benchmark`, `report`, `universe`, `ai`, `data_hub`).
 - `common`
   - cross-cutting helpers.
+- `harness`
+  - agent operating layer only.
+  - stores policies, workflows, skills, and templates that guide maintenance
+    behavior.
+  - not part of production runtime, research runtime, or live scheduling.
 
 ## Dependency Rules
 
-1. `interfaces -> app`.
-2. `app -> domain` and `app -> infra`.
-3. `domain` must not import `app` / `infra` / `interfaces`.
-4. `run/*` must delegate to `interfaces/cli/*`.
-5. no code can import `cbond_on.services.*` (legacy layer removed).
-6. no code can import legacy packages:
+1. `run/* -> cli` and wrappers must stay thin.
+2. `interfaces/cli/* -> cli` for compatibility only.
+3. `cli -> bootstrap / workflows`.
+4. `workflows -> app/pipelines`, and `app -> domain / infra`.
+5. `domain` must not import `app`, `infra`, `interfaces`, `cli`, or `workflows`.
+6. no code can import `cbond_on.services.*` (legacy layer removed).
+7. `cbond_on/*` runtime code must not import `harness/*`.
+8. no code can import legacy packages:
    - `cbond_on.data`
    - `cbond_on.factors`
    - `cbond_on.models`
@@ -49,7 +65,11 @@ Completed:
   - `cbond_on/strategies`
   - `cbond_on/factor_batch`
   - `cbond_on/live`
-- `run/*` entry scripts route through `interfaces/cli/*`.
+- `run/*` entry scripts route through `cbond_on.cli/*`.
+- `interfaces/cli/*` remains as a compatibility adapter over `cbond_on.cli/*`.
+- `cli -> bootstrap -> workflows` is the active command-side architecture;
+  workflows currently delegate into `app/pipelines -> app/usecases` to preserve
+  production behavior during the migration.
 - `liveLaunch/*` routes through `app.pipelines.live_pipeline`.
 - factor definitions/spec moved to `domain/factors/*`.
 - factor execution pipeline moved to `infra/factors/*`.

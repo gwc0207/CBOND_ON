@@ -1,0 +1,131 @@
+{
+  "version": "2026-07-13",
+  "purpose": "Machine-readable guardrails for CBOND_ON agent harness preflight.",
+  "protected_paths": [
+    "cbond_on/config/live/",
+    "cbond_on/config/score/model/",
+    "cbond_on/config/score/evaluation/",
+    "cbond_on/config/data/",
+    "cbond_on/config/benchmark/",
+    "cbond_on/run/",
+    "liveLaunch/",
+    "D:/cbond_on/results/model_state/",
+    "D:/cbond_on/results/live/",
+    "D:/cbond_on/results/backtest/",
+    "D:/cbond_on/results/analysis/"
+  ],
+  "forbidden_without_owner_confirmation": [
+    "change_live_model_id",
+    "change_live_model_state",
+    "change_live_neutralization_mode",
+    "change_live_factor_set",
+    "change_live_universe_filter",
+    "change_database_target",
+    "write_production_database",
+    "restart_live_scheduler",
+    "delete_model_state",
+    "delete_live_artifact",
+    "add_run_entry_file",
+    "change_baseline_definition"
+  ],
+  "global_rules": [
+    "run_directory_is_compatibility_wrappers_only",
+    "live_neutralization_is_all_or_none",
+    "partial_neutralization_is_deprecated",
+    "baseline_defaults_to_current_live_chain_when_discussing_live",
+    "drift_prone_facts_must_be_verified_from_current_artifacts"
+  ],
+  "modes": {
+    "live-change": {
+      "workflow": "harness/workflows/live_change.md",
+      "skill": "harness/skills/cbond-live-safety-gate/SKILL.md",
+      "required_evidence": [
+        "current live_config",
+        "current live_models_config",
+        "current model_state path",
+        "neutralization mode",
+        "DB write target and db_write flag",
+        "scheduler state or intended scheduler scope",
+        "planned diff"
+      ],
+      "requires_owner_confirmation": true
+    },
+    "research-experiment": {
+      "workflow": "harness/workflows/research_experiment.md",
+      "skill": "harness/skills/cbond-research-experiment/SKILL.md",
+      "required_evidence": [
+        "baseline definition",
+        "backtest date window",
+        "warm start/refit policy",
+        "label and sell window",
+        "neutralization/winsor/zscore settings",
+        "summary metrics path",
+        "plot/result paths"
+      ],
+      "requires_owner_confirmation": false
+    },
+    "factor-backtest": {
+      "workflow": "harness/workflows/factor_backtest_protocol.md",
+      "skill": "harness/skills/cbond-factor-backtest-protocol/SKILL.md",
+      "required_evidence": [
+        "factor config",
+        "field whitelist",
+        "time visibility",
+        "NaN/inf/constant diagnostics",
+        "correlation or duplicate check",
+        "backtest summary"
+      ],
+      "requires_owner_confirmation": false
+    },
+    "incident": {
+      "workflow": "harness/workflows/incident_response.md",
+      "skill": "harness/skills/cbond-incident-response/SKILL.md",
+      "required_evidence": [
+        "latest logs",
+        "scheduler/process state",
+        "runtime artifact state",
+        "DB/API result if relevant",
+        "minimal reproduction or failing command",
+        "fix verification"
+      ],
+      "requires_owner_confirmation": false
+    },
+    "result-hygiene": {
+      "workflow": "harness/workflows/result_hygiene.md",
+      "skill": "harness/skills/cbond-result-hygiene/SKILL.md",
+      "required_evidence": [
+        "disk usage summary",
+        "protected path list",
+        "candidate delete list",
+        "reason per delete group",
+        "post-clean verification"
+      ],
+      "requires_owner_confirmation": true
+    },
+    "long-task": {
+      "workflow": "harness/workflows/long_task_context.md",
+      "skill": "harness/skills/cbond-long-task-memory/SKILL.md",
+      "required_evidence": [
+        "objective",
+        "completed steps",
+        "current verified facts",
+        "open risks",
+        "next action",
+        "artifact paths"
+      ],
+      "requires_owner_confirmation": false
+    },
+    "frontend": {
+      "workflow": "harness/workflows/frontend_change.md",
+      "skill": "harness/skills/cbond-incident-response/SKILL.md",
+      "required_evidence": [
+        "frontend/backend entrypoints",
+        "API endpoint behavior",
+        "browser or HTTP verification",
+        "screenshot if visual change",
+        "server restart scope"
+      ],
+      "requires_owner_confirmation": false
+    }
+  }
+}
