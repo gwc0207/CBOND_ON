@@ -31,17 +31,35 @@ const calendarAnchor = el("calendar-anchor");
 const dataCalendar = el("data-calendar");
 const perfLookbackInput = el("perf-lookback");
 const perfMeta = el("perf-meta");
-const perfMetricsCanvas = el("perf-metrics-chart");
+const perfSummaryGrid = el("perf-summary-grid");
+const perfChartPeriod = el("perf-chart-period");
 const perfNavCanvas = el("perf-nav-chart");
+const performanceViewSwitch = el("performance-view-switch");
+const performanceTrendView = el("performance-trend-view");
+const performancePeriodView = el("performance-period-view");
+const modelDecisionMeta = el("model-decision-meta");
+const modelDecisionMode = el("model-decision-mode");
+const modelCurrentChoice = el("model-current-choice");
+const modelScoreGrid = el("model-score-grid");
+const modelSimilarDays = el("model-similar-days");
+const modelViewSelector = el("model-view-selector");
+const modelViewMeta = el("model-view-meta");
+const modelSelectionStrip = el("model-selection-strip");
+const modelPeriodTable = el("model-period-table");
 const configMode = el("config-mode");
 
-let perfMetricsChart = null;
 let perfNavChart = null;
 let returnDistributionChart = null;
 let contributionDonutChart = null;
 let calendarSelectedDay = "";
 let followLogs = true;
 let latestLiveStatus = null;
+let latestActualHoldingsPayload = null;
+let latestModelOverview = null;
+let latestModelDayCompare = null;
+let latestPerformancePayload = null;
+let activeModelView = "actual";
+let activePerformanceView = "trend";
 let tradeRefreshInFlight = false;
 const SELL_TWAP_STORAGE_KEY = "cbond_on.dashboard.sell_twap_col";
 const SELL_TWAP_DEFAULT_COL = "twap_0930_0939";
@@ -49,6 +67,8 @@ const SELL_TWAP_MIN_MINUTE = 9 * 60 + 30;
 const SELL_TWAP_MAX_MINUTE = 10 * 60;
 const refreshInFlight = new Map();
 const refreshQueued = new Set();
+const MODEL_COLORS = ["#d97706", "#7c3aed", "#0891b2"];
+const MODEL_DASHES = [[8, 4], [4, 3], [10, 4, 2, 4]];
 
 function runDashboardRefresh(key, task, options = {}) {
   const active = refreshInFlight.get(key);
@@ -111,6 +131,14 @@ function refreshPerformanceOnce(options = {}) {
   return runDashboardRefresh("performance", refreshPerformance, options);
 }
 
+function refreshModelOverviewOnce(options = {}) {
+  return runDashboardRefresh("model_overview", refreshModelOverview, options);
+}
+
+function refreshModelDayCompareOnce(options = {}) {
+  return runDashboardRefresh("model_day_compare", refreshModelDayCompare, options);
+}
+
 function refreshDataCalendarOnce(options = {}) {
   return runDashboardRefresh("data_calendar", refreshDataCalendar, options);
 }
@@ -118,6 +146,28 @@ function refreshDataCalendarOnce(options = {}) {
 function markTradeFilterDirty() {
   if (!syncStatus) return;
   syncStatus.textContent = "筛选已修改，点击“刷新”更新持仓与绩效。";
+}
+
+function setPerformanceView(view) {
+  activePerformanceView = view === "period" ? "period" : "trend";
+  if (performanceTrendView) {
+    const active = activePerformanceView === "trend";
+    performanceTrendView.hidden = !active;
+    performanceTrendView.classList.toggle("active", active);
+  }
+  if (performancePeriodView) {
+    const active = activePerformanceView === "period";
+    performancePeriodView.hidden = !active;
+    performancePeriodView.classList.toggle("active", active);
+  }
+  performanceViewSwitch?.querySelectorAll("button[data-performance-view]").forEach((button) => {
+    const active = button.getAttribute("data-performance-view") === activePerformanceView;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", active ? "true" : "false");
+  });
+  if (activePerformanceView === "trend" && perfNavChart) {
+    window.requestAnimationFrame(() => perfNavChart?.resize());
+  }
 }
 
 function escapeHtml(text) {
@@ -131,6 +181,15 @@ function escapeHtml(text) {
 
 function normalizeDay(value) {
   return String(value ?? "").replaceAll("-", "").trim();
+}
+
+function tradeDayLabel(value) {
+  const text = String(value || "").trim();
+  const match = text.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return text;
+  const parsed = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  const weekdays = ["日", "一", "二", "三", "四", "五", "六"];
+  return `${text} · 周${weekdays[parsed.getDay()]}`;
 }
 
 function isValidTwapCol(value) {
@@ -603,19 +662,6 @@ function selectDayInDropdown(dayValue) {
   return false;
 }
 
-function ensureDayOption(dayValue, dayLabel) {
-  if (!logDaySelect) return;
-  const target = normalizeDay(dayValue);
-  if (!target) return;
-  for (const opt of Array.from(logDaySelect.options)) {
-    if (normalizeDay(opt.value) === target) return;
-  }
-  const option = document.createElement("option");
-  option.value = target;
-  option.textContent = dayLabel || target;
-  logDaySelect.insertBefore(option, logDaySelect.firstChild);
-}
-
 if (logBox) {
   logBox.addEventListener("scroll", () => {
     followLogs = atBottom(logBox);
@@ -647,12 +693,11 @@ async function loadLogDays() {
   if (!logDaySelect) return;
   const prev = logDaySelect.value;
   const res = await axios.get("/api/log_days");
-  const days = [...(res.data.days || [])];
+  const days = [...(res.data.days || [])].filter(Boolean);
   const currentDay = res.data.current_day || "";
-  if (prev && !days.some((d) => normalizeDay(d) === normalizeDay(prev))) {
-    days.unshift(prev);
-  }
-  logDaySelect.innerHTML = days.map((d) => `<option value="${escapeHtml(d)}">${escapeHtml(d)}</option>`).join("");
+  logDaySelect.innerHTML = days
+    .map((d) => `<option value="${escapeHtml(d)}">${escapeHtml(tradeDayLabel(d))}</option>`)
+    .join("");
   if (selectDayInDropdown(prev)) return;
   if (selectDayInDropdown(currentDay)) return;
   if (days.length) {
@@ -668,8 +713,8 @@ async function applyCalendarDay(day) {
   if (!selectDayInDropdown(compactDay)) {
     await refreshLogDaysOnce({ queue: true });
     if (!selectDayInDropdown(compactDay)) {
-      ensureDayOption(compactDay, day);
-      logDaySelect.value = compactDay;
+      if (syncStatus) syncStatus.textContent = `${day}不是可用交易日。`;
+      return false;
     }
   }
   return true;
@@ -679,6 +724,7 @@ async function refreshBySelectedDay() {
   await Promise.all([
     refreshLogsOnce({ queue: true }),
     refreshHoldingsOnce({ queue: true }),
+    refreshModelDayCompareOnce({ queue: true }),
     refreshPerformanceOnce({ queue: true }),
     refreshDataCalendarOnce({ queue: true }),
     refreshLiveStatusOnce({ queue: true }),
@@ -688,6 +734,7 @@ async function refreshBySelectedDay() {
 async function refreshTradeWindowOnly() {
   const tasks = [
     { name: "持仓与收益分析", run: () => refreshHoldingsOnce({ queue: true }) },
+    { name: "候选策略对比", run: () => refreshModelDayCompareOnce({ queue: true }) },
     { name: "绩效摘要", run: () => refreshPerformanceOnce({ queue: true }) },
   ];
   const results = await Promise.allSettled(tasks.map((task) => task.run()));
@@ -705,9 +752,9 @@ async function refreshTradeWindowOnly() {
 }
 
 async function onCalendarDayClick(day) {
-  calendarSelectedDay = normalizeDay(day);
   const ok = await applyCalendarDay(day);
   if (!ok) return;
+  calendarSelectedDay = normalizeDay(day);
   await refreshBySelectedDay();
 }
 
@@ -756,6 +803,444 @@ function returnClass(value) {
   if (num > 0) return "return-positive";
   if (num < 0) return "return-negative";
   return "return-flat";
+}
+
+function shortModelName(value) {
+  const text = String(value || "").trim();
+  const lower = text.toLowerCase();
+  if (lower.includes("ensemble") || lower.includes("rankavg")) return "Ensemble";
+  if (lower.includes("regsim")) return "Regsim";
+  if (lower.includes("hl20") || lower.includes("recent_hl20")) return "HL20";
+  return text.length > 24 ? `${text.slice(0, 22)}…` : text || "未知策略";
+}
+
+function fmtScoreBps(value) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return "-";
+  const bps = Number(value) * 10000;
+  const sign = bps > 0 ? "+" : "";
+  return `${sign}${bps.toFixed(2)}`;
+}
+
+function switchReasonText(reason) {
+  const text = String(reason || "").trim();
+  const labels = {
+    score_best: "最高得分领先幅度超过门槛，采用最高分策略",
+    margin_default: "最高得分领先不足切换门槛，保留 Champion",
+    feature_missing: "当日状态特征缺失，回退 Champion",
+    feature_na: "当日状态特征存在空值，回退 Champion",
+    insufficient_history: "相似样本不足，回退 Champion",
+  };
+  if (labels[text]) return labels[text];
+  if (text.startsWith("stale_return_history")) return "影子收益历史未更新到要求日期，回退 Champion";
+  if (text.startsWith("fallback_rolling_sharpe")) return "状态样本不足，使用滚动 Sharpe 回退规则";
+  return text ? text.replaceAll("_", " ") : "暂无决策说明";
+}
+
+function modelColor(modelId, candidates = []) {
+  const idx = candidates.findIndex((item) => String(item.model_id) === String(modelId));
+  return MODEL_COLORS[idx >= 0 ? idx % MODEL_COLORS.length : 0];
+}
+
+function renderModelDecision(overview) {
+  latestModelOverview = overview || null;
+  const decision = overview?.current_decision || null;
+  const candidates = overview?.candidates || [];
+  if (!decision) {
+    if (modelDecisionMeta) modelDecisionMeta.textContent = "暂无模型选择记录";
+    if (modelDecisionMode) modelDecisionMode.textContent = "未决策";
+    if (modelCurrentChoice) modelCurrentChoice.innerHTML = "<div class='empty-mini'>暂无已完成的策略决策。</div>";
+    if (modelScoreGrid) modelScoreGrid.innerHTML = "";
+    if (modelSimilarDays) modelSimilarDays.innerHTML = "<div class='empty-mini'>暂无相似日数据。</div>";
+    renderModelSelectionStrip(overview);
+    renderModelPeriodTable(overview, latestPerformancePayload);
+    return;
+  }
+
+  const scoreMap = new Map((decision.candidate_scores || []).map((item) => [String(item.model_id), item]));
+  const selectedId = String(decision.selected_model_id || "");
+  const scored = candidates
+    .map((candidate) => ({ ...candidate, score: scoreMap.get(String(candidate.model_id))?.score ?? null }))
+    .filter((candidate) => candidate.score !== null && candidate.score !== undefined)
+    .sort((a, b) => Number(b.score) - Number(a.score));
+  const best = scored[0] || null;
+  const runnerUp = scored[1] || null;
+  const gap = best && runnerUp ? Number(best.score) - Number(runnerUp.score) : null;
+  const margin = decision.threshold ?? overview?.margin;
+  const gapText = gap === null
+    ? ""
+    : `最高分差 ${fmtScoreBps(gap)} bp${margin == null ? "" : `，切换门槛 ${fmtScoreBps(margin)} bp`}`;
+
+  if (modelDecisionMeta) {
+    modelDecisionMeta.textContent = `决策/买入日 ${decision.score_day || "-"} · 目标/结算日 ${decision.target_day || "-"} · ${gapText || "等待完整评分"}`;
+  }
+  if (modelDecisionMode) {
+    const nearest = Number(overview?.nearest_k || 0);
+    modelDecisionMode.textContent = `T1430 分化 · ${String(overview?.metric || "-").toUpperCase()}${nearest ? ` · K=${nearest}` : ""}`;
+  }
+  if (modelCurrentChoice) {
+    modelCurrentChoice.innerHTML = `
+      <div class="model-choice-label">当前采用策略</div>
+      <div class="model-choice-name">${escapeHtml(shortModelName(decision.selected_name))}</div>
+      <div class="model-choice-reason">${escapeHtml(switchReasonText(decision.reason))}</div>
+      <div class="model-choice-dates">得分 ${escapeHtml(fmtScoreBps(decision.selected_score))} bp · ${escapeHtml(gapText || "无有效分差")}</div>
+    `;
+  }
+  if (modelScoreGrid) {
+    modelScoreGrid.innerHTML = candidates.map((candidate) => {
+      const scoreItem = scoreMap.get(String(candidate.model_id)) || {};
+      const selected = String(candidate.model_id) === selectedId;
+      return `
+        <div class="model-score-item ${selected ? "selected" : ""}" style="border-top: 3px solid ${modelColor(candidate.model_id, candidates)}">
+          <div class="model-score-role">${candidate.role === "champion" ? "Champion" : "Challenger"}</div>
+          <div class="model-score-name" title="${escapeHtml(candidate.name)}">${escapeHtml(shortModelName(candidate.name))}</div>
+          <div class="model-score-value">${escapeHtml(fmtScoreBps(scoreItem.score))}</div>
+          <div class="model-score-unit">bp · ${escapeHtml(String(overview?.metric || "score").toUpperCase())}</div>
+          <div class="model-score-history">样本 ${Number(scoreItem.history_days || 0)} · 截至 ${escapeHtml(scoreItem.history_end || "-")}</div>
+          ${selected ? '<div class="model-selected-mark">当前采用</div>' : ""}
+        </div>
+      `;
+    }).join("");
+  }
+  if (modelSimilarDays) {
+    const similar = (decision.similar_days || []).slice(0, 3);
+    modelSimilarDays.innerHTML = similar.length
+      ? similar.map((item) => `
+          <div class="model-similar-row" title="标准化欧氏距离，数值越小越相似">
+            <span class="model-similar-date">${escapeHtml(item.trade_date || "-")}</span>
+            <span class="model-similar-distance">距离 ${escapeHtml(fmtFixed(item.distance, 2))}</span>
+            <span class="model-similar-winner">最优 ${escapeHtml(shortModelName(item.best_name))}</span>
+          </div>
+        `).join("")
+      : "<div class='empty-mini'>该决策未保存相似日诊断。</div>";
+  }
+  renderModelSelectionStrip(overview);
+  renderModelPeriodTable(overview, latestPerformancePayload);
+}
+
+function renderModelSelectionStrip(overview) {
+  if (!modelSelectionStrip) return;
+  const decisions = overview?.decisions || [];
+  const candidates = overview?.candidates || [];
+  if (!decisions.length) {
+    modelSelectionStrip.innerHTML = "";
+    return;
+  }
+  modelSelectionStrip.innerHTML = decisions.map((item) => {
+    const selectedReturn = item.selected_return;
+    return `
+      <div class="model-selection-day" style="--model-color: ${modelColor(item.selected_model_id, candidates)}" title="${escapeHtml(`${item.score_day} · ${item.selected_name} · ${switchReasonText(item.reason)} · 收益 ${fmtPct(selectedReturn)}`)}">
+        <div class="model-selection-topline">
+          <span class="model-selection-date">${escapeHtml(String(item.score_day || "").slice(5))}</span>
+          <span class="model-selection-return ${returnClass(selectedReturn)}">${escapeHtml(fmtPct(selectedReturn))}</span>
+        </div>
+        <div class="model-selection-name">${escapeHtml(shortModelName(item.selected_name))}</div>
+      </div>
+    `;
+  }).join("");
+}
+
+function renderModelPeriodTable(overview, performancePayload = null) {
+  if (!modelPeriodTable) return;
+  const candidates = overview?.candidates || [];
+  const actualMetrics = performancePayload?.metrics || overview?.selected_strategy?.metrics || null;
+  if (!candidates.length && !actualMetrics) {
+    modelPeriodTable.innerHTML = "";
+    return;
+  }
+  const rows = [
+    ...(actualMetrics ? [{ name: "实盘选择", role: "Actual", color: "#2563eb", metrics: actualMetrics, actual: true }] : []),
+    ...candidates.map((candidate) => ({
+      name: shortModelName(candidate.name),
+      role: candidate.role === "champion" ? "Champion" : "Challenger",
+      color: modelColor(candidate.model_id, candidates),
+      metrics: candidate.metrics || {},
+      actual: false,
+    })),
+  ];
+  modelPeriodTable.innerHTML = `
+    <table>
+      <thead><tr><th>策略</th><th>角色</th><th>区间收益</th><th>Sharpe</th><th>最大回撤</th><th>最近收益</th><th>样本</th></tr></thead>
+      <tbody>
+        ${rows.map((item) => {
+          const metrics = item.metrics || {};
+          return `
+            <tr class="${item.actual ? "model-table-selected" : ""}">
+              <td><span class="model-table-dot" style="background: ${item.color}"></span><span class="model-table-name">${escapeHtml(item.name)}</span></td>
+              <td><span class="model-role-pill ${item.actual ? "actual" : ""}">${escapeHtml(item.role)}</span></td>
+              <td class="${returnClass(metrics.period_return)}">${escapeHtml(fmtPct(metrics.period_return))}</td>
+              <td>${escapeHtml(fmtFixed(metrics.sharpe, 3))}</td>
+              <td class="${returnClass(metrics.max_drawdown)}">${escapeHtml(fmtPct(metrics.max_drawdown))}</td>
+              <td class="${returnClass(metrics.last_return)}">${escapeHtml(fmtPct(metrics.last_return))}</td>
+              <td>${Number(metrics.count_days || 0)}</td>
+            </tr>
+          `;
+        }).join("")}
+      </tbody>
+    </table>
+  `;
+}
+
+function renderModelViewSelector(payload) {
+  if (!modelViewSelector) return;
+  const candidates = payload?.candidates || [];
+  const validViews = new Set(["actual", "compare", ...candidates.map((item) => String(item.model_id))]);
+  if (!validViews.has(activeModelView)) activeModelView = "actual";
+  const buttons = [
+    { id: "actual", label: "实盘选择", color: "#2563eb" },
+    ...candidates.map((item) => ({ id: String(item.model_id), label: shortModelName(item.name), color: modelColor(item.model_id, candidates) })),
+    { id: "compare", label: "并排对比", color: "#64748b" },
+  ];
+  modelViewSelector.innerHTML = buttons.map((item) => `
+    <button type="button" class="model-view-button ${activeModelView === item.id ? "active" : ""}" data-model-view="${escapeHtml(item.id)}" style="--model-color: ${item.color}">
+      <span class="model-view-dot"></span>
+      <span>${escapeHtml(item.label)}</span>
+    </button>
+  `).join("");
+}
+
+function candidateAnalysisPayload(payload, candidate) {
+  return {
+    day: payload?.score_day,
+    actual_buy_day: payload?.score_day,
+    actual_sell_day: payload?.sell_day,
+    next_day: payload?.sell_day,
+    sell_col: payload?.sell_col,
+    ready_count: candidate?.summary?.ready_count || 0,
+    pending_count: candidate?.summary?.pending_count || 0,
+    halted_count: 0,
+    unavailable_count: candidate?.summary?.unavailable_count || 0,
+    benchmark: payload?.benchmark || {},
+  };
+}
+
+function positionStrategyBannerHtml({ name, role, color, detail, dayReturn, showReturn = true }) {
+  return `
+    <div class="position-strategy-banner" style="--model-color: ${color || "#64748b"}">
+      <div class="position-strategy-main">
+        <span class="position-strategy-dot"></span>
+        <strong>${escapeHtml(name || "策略")}</strong>
+        <span class="position-strategy-role">${escapeHtml(role || "Strategy")}</span>
+      </div>
+      <div class="position-strategy-summary">
+        <span>${escapeHtml(detail || "")}</span>
+        ${showReturn ? `<strong class="${returnClass(dayReturn)}">${escapeHtml(fmtPct(dayReturn))}</strong>` : ""}
+      </div>
+    </div>
+  `;
+}
+
+function positionTableHtml(rows, { sellCol = "" } = {}) {
+  return `
+    <div class="table-responsive">
+      <table class="table table-sm align-middle position-table position-return-table">
+        <colgroup>
+          <col class="position-code-col">
+          <col class="position-rank-col">
+          <col class="position-weight-col">
+          <col class="position-score-col">
+          <col class="position-price-col">
+          <col class="position-price-col">
+          <col class="position-return-col">
+          <col class="position-return-col">
+          <col class="position-status-col">
+        </colgroup>
+        <thead>
+          <tr>
+            <th>转债代码</th>
+            <th class="text-end">排名</th>
+            <th class="text-end">权重</th>
+            <th class="text-end">分数</th>
+            <th class="text-end">买入TWAP</th>
+            <th class="text-end">${escapeHtml(`卖出TWAP(${formatTwapCol(sellCol)})`)}</th>
+            <th class="text-end">单券收益</th>
+            <th class="text-end">贡献</th>
+            <th class="text-end">状态</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.map((row) => {
+            const weight = row.weight ?? row.target_weight;
+            const weightText = weight == null ? "-" : Number(weight).toFixed(4);
+            const status = String(row.status || "unknown");
+            return `
+              <tr class="position-row-${escapeHtml(status)}" title="${escapeHtml(row.reason || "")}">
+                <td><span class="bond-code">${escapeHtml(row.symbol || row.code || "")}</span></td>
+                <td class="text-end">${escapeHtml(row.rank ?? "-")}</td>
+                <td class="text-end"><span class="weight-value">${escapeHtml(weightText)}</span></td>
+                <td class="text-end">${escapeHtml(fmtFixed(row.score, 6))}</td>
+                <td class="text-end">${escapeHtml(fmtFixed(row.buy_twap, 3))}</td>
+                <td class="text-end">${escapeHtml(fmtFixed(row.sell_twap_next, 3))}</td>
+                <td class="text-end"><span class="${returnClass(row.return_net)}">${escapeHtml(fmtPct(row.return_net))}</span></td>
+                <td class="text-end"><span class="${returnClass(row.weighted_return)}">${escapeHtml(fmtPct(row.weighted_return))}</span></td>
+                <td class="text-end"><span class="position-status-pill status-${escapeHtml(status)}">${escapeHtml(row.status_label || holdingsStatusLabel(row))}</span></td>
+              </tr>
+            `;
+          }).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function renderCandidateWorkspace(candidate, payload) {
+  if (!holdingsEl || !candidate) return;
+  const rows = candidate.rows || [];
+  const summary = candidate.summary || {};
+  if (modelViewMeta) {
+    modelViewMeta.textContent = `${shortModelName(candidate.name)} · 决策得分 ${fmtScoreBps(candidate.decision_score)} bp · 与实盘重合 ${candidate.overlap_with_actual || 0}/${payload.actual_count || 0}`;
+  }
+  const analysisPayload = candidateAnalysisPayload(payload, candidate);
+  const candidateColor = modelColor(candidate.model_id, payload?.candidates || []);
+  const benchmarkDay = payload?.benchmark?.benchmark_day || payload?.sell_day || "-";
+  const meta = [
+    `买入日 ${payload?.score_day || "-"}`,
+    `卖出日 ${payload?.sell_day || "-"}`,
+    `Benchmark日 ${benchmarkDay}`,
+    `已出 ${summary.ready_count || 0}`,
+    `等待 ${summary.pending_count || 0}`,
+    `卖出列 ${formatTwapCol(payload?.sell_col || "-")}`,
+  ].join(" · ");
+  holdingsEl.innerHTML = `
+    ${positionStrategyBannerHtml({
+      name: shortModelName(candidate.name),
+      role: candidate.selected ? "当日采用" : (candidate.role === "champion" ? "Champion" : "Challenger"),
+      color: candidateColor,
+      detail: `${rows.length}只 · 与实盘重合 ${candidate.overlap_with_actual || 0}/${payload.actual_count || 0} · 组合收益`,
+      dayReturn: summary.day_return,
+    })}
+    <div class="position-return-meta">${escapeHtml(meta)}</div>
+    ${candidate.error ? `<div class="alert alert-warning py-2">${escapeHtml(candidate.error)}</div>` : ""}
+    ${positionTableHtml(rows, { sellCol: payload?.sell_col || "" })}
+  `;
+  renderReturnOverview(rows, analysisPayload);
+  renderReturnRanking(rows, analysisPayload);
+}
+
+function renderCompareWorkspace(payload) {
+  if (!holdingsEl || !returnOverviewEl || !returnRankingEl) return;
+  const candidates = payload?.candidates || [];
+  const benchmarkReturn = payload?.benchmark?.return_net ?? payload?.benchmark?.full_cycle_ret_net;
+  if (modelViewMeta) {
+    modelViewMeta.textContent = `三策略并排比较 · 买入日 ${payload?.score_day || "-"} · 卖出日 ${payload?.sell_day || "-"}`;
+  }
+  const actualRows = latestActualHoldingsPayload?.rows || [];
+  const actualRank = new Map(actualRows.map((row, idx) => [String(row.symbol || row.code), row.rank ?? idx + 1]));
+  const union = new Map();
+  candidates.forEach((candidate) => {
+    (candidate.rows || []).forEach((row) => {
+      const code = String(row.symbol || row.code || "");
+      if (!union.has(code)) union.set(code, {});
+      union.get(code)[candidate.model_id] = row.rank;
+    });
+  });
+  const unionRows = [...union.entries()].sort((a, b) => {
+    const aRanks = Object.values(a[1]).map(Number);
+    const bRanks = Object.values(b[1]).map(Number);
+    return Math.min(...aRanks) - Math.min(...bRanks);
+  });
+  holdingsEl.innerHTML = `
+    ${positionStrategyBannerHtml({
+      name: "并排对比",
+      role: "Compare",
+      color: "#64748b",
+      detail: `${unionRows.length}只转债 · 买入日 ${payload?.score_day || "-"} · 卖出日 ${payload?.sell_day || "-"}`,
+      dayReturn: null,
+      showReturn: false,
+    })}
+    <div class="model-compare-summary">
+      ${candidates.map((candidate) => `
+        <div class="model-compare-metric ${candidate.selected ? "selected" : ""}" style="--model-color: ${modelColor(candidate.model_id, candidates)}">
+          <div class="label"><span class="model-table-dot" style="background: ${modelColor(candidate.model_id, candidates)}"></span>${escapeHtml(shortModelName(candidate.name))}${candidate.selected ? " · 当日采用" : ""}</div>
+          <div class="value ${returnClass(candidate.summary?.day_return)}">${escapeHtml(fmtPct(candidate.summary?.day_return))}</div>
+          <div class="model-table-note">实盘重合 ${candidate.overlap_with_actual || 0}/${payload.actual_count || 0}</div>
+        </div>
+      `).join("")}
+      <div class="model-compare-metric" style="--model-color: #64748b">
+        <div class="label"><span class="model-table-dot" style="background: #64748b"></span>Benchmark</div>
+        <div class="value ${returnClass(benchmarkReturn)}">${escapeHtml(fmtPct(benchmarkReturn))}</div>
+        <div class="model-table-note">统一严格周期口径</div>
+      </div>
+    </div>
+    <div class="model-overlap-wrap position-compare-wrap">
+      <table class="model-overlap-table position-compare-table">
+        <thead><tr><th>代码</th><th>实盘排名</th>${candidates.map((candidate) => `<th>${escapeHtml(shortModelName(candidate.name))}</th>`).join("")}</tr></thead>
+        <tbody>
+          ${unionRows.map(([code, ranks]) => `
+            <tr>
+              <td><span class="bond-code">${escapeHtml(code)}</span></td>
+              <td>${escapeHtml(actualRank.get(code) ?? "-")}</td>
+              ${candidates.map((candidate) => `<td>${escapeHtml(ranks[candidate.model_id] ?? "-")}</td>`).join("")}
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+  returnOverviewEl.innerHTML = `
+    <div class="analysis-card">
+      <div class="analysis-head"><div><div class="analysis-title">三策略当日收益对比</div><div class="analysis-subtitle">得分用于当日选择，收益为买入日至下一交易日卖出后的严格周期收益。</div></div></div>
+      <div class="model-compare-table-wrap">
+        <table class="model-compare-table">
+          <thead><tr><th>策略</th><th>决策得分(bp)</th><th>当日收益</th><th>相对Benchmark</th><th>实盘重合</th></tr></thead>
+          <tbody>${candidates.map((candidate) => {
+            const ret = candidate.summary?.day_return;
+            const excess = numberValue(ret) === null || numberValue(benchmarkReturn) === null ? null : Number(ret) - Number(benchmarkReturn);
+            return `<tr class="${candidate.selected ? "model-table-selected" : ""}"><td><span class="model-table-name">${escapeHtml(shortModelName(candidate.name))}</span>${candidate.selected ? " · 采用" : ""}</td><td>${escapeHtml(fmtScoreBps(candidate.decision_score))}</td><td class="${returnClass(ret)}">${escapeHtml(fmtPct(ret))}</td><td class="${returnClass(excess)}">${escapeHtml(fmtPct(excess))}</td><td>${candidate.overlap_with_actual || 0}/${payload.actual_count || 0}</td></tr>`;
+          }).join("")}</tbody>
+        </table>
+      </div>
+    </div>
+  `;
+  returnRankingEl.innerHTML = `
+    <div class="analysis-card">
+      <div class="analysis-head"><div><div class="analysis-title">策略选票重合度</div><div class="analysis-subtitle">Jaccard 越高，两个策略的 Top20 越接近。</div></div></div>
+      <div class="model-overlap-wrap">
+        <table class="model-overlap-table"><thead><tr><th>策略组合</th><th>共同票数</th><th>Jaccard</th></tr></thead><tbody>
+          ${(payload?.pairwise || []).map((item) => `<tr><td>${escapeHtml(`${shortModelName(item.left_name)} / ${shortModelName(item.right_name)}`)}</td><td>${Number(item.overlap || 0)}</td><td>${item.jaccard == null ? "-" : `${(Number(item.jaccard) * 100).toFixed(1)}%`}</td></tr>`).join("")}
+        </tbody></table>
+      </div>
+    </div>
+  `;
+}
+
+function renderActiveModelView() {
+  if (activeModelView === "actual") {
+    if (modelViewMeta) modelViewMeta.textContent = "当前展示最终实际交易清单。";
+    return;
+  }
+  if (!latestModelDayCompare) return;
+  if (activeModelView === "compare") {
+    renderCompareWorkspace(latestModelDayCompare);
+    return;
+  }
+  const candidate = (latestModelDayCompare.candidates || []).find((item) => String(item.model_id) === activeModelView);
+  if (candidate) renderCandidateWorkspace(candidate, latestModelDayCompare);
+}
+
+async function refreshModelDayCompare() {
+  const selectedDay = logDaySelect && logDaySelect.value ? logDaySelect.value : "";
+  const selectedSellCol = getSelectedSellTwapCol();
+  const res = await axios.get("/api/model_day_compare", {
+    params: {
+      ...(selectedDay ? { day: selectedDay } : {}),
+      ...(selectedSellCol ? { sell_col: selectedSellCol } : {}),
+    },
+  });
+  latestModelDayCompare = res.data || {};
+  renderModelViewSelector(latestModelDayCompare);
+  renderActiveModelView();
+}
+
+async function refreshModelOverview() {
+  const selectedDay = logDaySelect && logDaySelect.value ? logDaySelect.value : "";
+  let lookback = Number.parseInt(perfLookbackInput?.value || "20", 10);
+  if (!Number.isFinite(lookback) || lookback <= 0) lookback = 20;
+  const res = await axios.get("/api/model_overview", {
+    params: { ...(selectedDay ? { day: selectedDay } : {}), lookback },
+  });
+  const payload = res.data || {};
+  renderModelDecision(payload);
+  return payload;
 }
 
 function numberValue(value) {
@@ -1183,16 +1668,21 @@ async function refreshHoldings() {
     ...(selectedSellCol ? { sell_col: selectedSellCol } : {}),
   };
   const res = await axios.get("/api/holdings", { params });
+  latestActualHoldingsPayload = res.data || {};
   const rows = res.data.rows || [];
   if (!rows.length) {
-    renderReturnOverview([], res.data || {});
-    renderReturnRanking([], res.data || {});
-    holdingsEl.innerHTML = `
-      <div class="empty-state">
-        <div class="empty-title">暂无持仓数据</div>
-        <div class="empty-text">所选日期尚未生成 trade_list.csv，或当前目标日还未完成。</div>
-      </div>
-    `;
+    if (activeModelView === "actual") {
+      renderReturnOverview([], res.data || {});
+      renderReturnRanking([], res.data || {});
+      holdingsEl.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-title">暂无持仓数据</div>
+          <div class="empty-text">所选日期尚未生成 trade_list.csv，或当前目标日还未完成。</div>
+        </div>
+      `;
+    } else {
+      renderActiveModelView();
+    }
     return;
   }
   const benchmarkDay = res.data.benchmark?.benchmark_day || res.data.actual_sell_day || res.data.next_day || "-";
@@ -1222,146 +1712,186 @@ async function refreshHoldings() {
       </div>
     `
     : "";
+  const actualDayReturn = Number(res.data.ready_count || 0) > 0
+    ? sum(rows.map((row) => row.weighted_return))
+    : null;
   holdingsEl.innerHTML = `
+    ${positionStrategyBannerHtml({
+      name: "实盘选择",
+      role: "Actual",
+      color: "#2563eb",
+      detail: `${rows.length}只 · 已出 ${res.data.ready_count || 0} · 等待 ${res.data.pending_count || 0} · 组合收益`,
+      dayReturn: actualDayReturn,
+    })}
     <div class="position-return-meta">${escapeHtml(metaWithSell)}</div>
     ${fallbackHtml}
-    <div class="table-responsive">
-      <table class="table table-sm align-middle position-table position-return-table">
-        <colgroup>
-          <col class="position-code-col">
-          <col class="position-rank-col">
-          <col class="position-weight-col">
-          <col class="position-score-col">
-          <col class="position-price-col">
-          <col class="position-price-col">
-          <col class="position-return-col">
-          <col class="position-return-col">
-          <col class="position-status-col">
-        </colgroup>
-        <thead>
-          <tr>
-            <th>转债代码</th>
-            <th class="text-end">排名</th>
-            <th class="text-end">权重</th>
-            <th class="text-end">分数</th>
-            <th class="text-end">买入TWAP</th>
-            <th class="text-end">${escapeHtml(`卖出TWAP(${formatTwapCol(res.data.sell_col || selectedSellCol || "")})`)}</th>
-            <th class="text-end">单券收益</th>
-            <th class="text-end">贡献</th>
-            <th class="text-end">状态</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${rows
-            .map((row) => {
-              const w = row.weight == null ? "-" : Number(row.weight).toFixed(4);
-              const retClass = returnClass(row.return_net);
-              const contribClass = returnClass(row.weighted_return);
-              const status = String(row.status || "unknown");
-              return `
-                <tr class="position-row-${escapeHtml(status)}" title="${escapeHtml(row.reason || "")}">
-                  <td><span class="bond-code">${escapeHtml(row.symbol || "")}</span></td>
-                  <td class="text-end">${escapeHtml(row.rank ?? "-")}</td>
-                  <td class="text-end"><span class="weight-value">${escapeHtml(w)}</span></td>
-                  <td class="text-end">${escapeHtml(fmtFixed(row.score, 6))}</td>
-                  <td class="text-end">${escapeHtml(fmtFixed(row.buy_twap, 3))}</td>
-                  <td class="text-end">${escapeHtml(fmtFixed(row.sell_twap_next, 3))}</td>
-                  <td class="text-end"><span class="${retClass}">${escapeHtml(fmtPct(row.return_net))}</span></td>
-                  <td class="text-end"><span class="${contribClass}">${escapeHtml(fmtPct(row.weighted_return))}</span></td>
-                  <td class="text-end"><span class="position-status-pill status-${escapeHtml(status)}">${escapeHtml(holdingsStatusLabel(row))}</span></td>
-                </tr>
-              `;
-            })
-            .join("")}
-        </tbody>
-      </table>
-    </div>
+    ${positionTableHtml(rows, { sellCol: res.data.sell_col || selectedSellCol || "" })}
   `;
   renderReturnOverview(rows, res.data || {});
   renderReturnRanking(rows, res.data || {});
+  if (activeModelView !== "actual") renderActiveModelView();
 }
 
 function destroyCharts() {
-  if (perfMetricsChart) {
-    perfMetricsChart.destroy();
-    perfMetricsChart = null;
-  }
   if (perfNavChart) {
     perfNavChart.destroy();
     perfNavChart = null;
   }
 }
 
+function renderPerformanceSummary(payload, overview) {
+  if (!perfSummaryGrid) return;
+  const candidates = overview?.candidates || [];
+  const actualMetrics = Object.keys(payload?.metrics || {}).length
+    ? payload.metrics
+    : overview?.selected_strategy?.metrics || {};
+  const items = [
+    {
+      name: "实盘选择",
+      role: "Actual",
+      color: "#2563eb",
+      metrics: actualMetrics,
+      actual: true,
+    },
+    ...candidates.map((candidate) => ({
+      name: shortModelName(candidate.name),
+      role: candidate.role === "champion" ? "Champion" : "Challenger",
+      color: modelColor(candidate.model_id, candidates),
+      metrics: candidate.metrics || {},
+      actual: false,
+    })),
+  ];
+  perfSummaryGrid.innerHTML = items.map((item) => {
+    const metrics = item.metrics || {};
+    return `
+      <div class="perf-strategy-card ${item.actual ? "actual" : ""}" style="--model-color: ${item.color}">
+        <div class="perf-card-head">
+          <div class="perf-card-name"><span class="perf-card-dot"></span>${escapeHtml(item.name)}</div>
+          <span class="perf-card-role">${escapeHtml(item.role)}</span>
+        </div>
+        <div class="perf-card-return ${returnClass(metrics.period_return)}">${escapeHtml(fmtPct(metrics.period_return))}</div>
+        <div class="perf-card-caption">区间收益 · ${Number(metrics.count_days || 0)}个交易日</div>
+        <div class="perf-card-metrics">
+          <span><small>Sharpe</small><strong>${escapeHtml(fmtFixed(metrics.sharpe, 3))}</strong></span>
+          <span><small>最大回撤</small><strong class="${returnClass(metrics.max_drawdown)}">${escapeHtml(fmtPct(metrics.max_drawdown))}</strong></span>
+          <span><small>最近收益</small><strong class="${returnClass(metrics.last_return)}">${escapeHtml(fmtPct(metrics.last_return))}</strong></span>
+        </div>
+      </div>
+    `;
+  }).join("");
+}
+
+function performanceTradingLabels(payload, overview) {
+  const series = payload?.series || [];
+  const candidates = overview?.candidates || [];
+  const allDates = new Set(series.map((item) => item.trade_date));
+  candidates.forEach((candidate) => (candidate.points || []).forEach((point) => allDates.add(point.trade_date)));
+  (overview?.benchmark?.points || []).forEach((point) => allDates.add(point.trade_date));
+  const tradingDays = new Set([...(payload?.trading_days || []), ...(overview?.trading_days || [])]);
+  const labels = [...allDates]
+    .filter((day) => day && (!tradingDays.size || tradingDays.has(day)))
+    .sort();
+  const lookback = Math.max(1, Number(payload?.lookback || overview?.lookback || labels.length));
+  return labels.slice(-lookback);
+}
+
 async function refreshPerformance() {
-  if (!perfLookbackInput || !perfMeta || !perfMetricsCanvas || !perfNavCanvas) return;
+  if (!perfLookbackInput || !perfMeta || !perfNavCanvas) return;
   try {
     const selectedDay = logDaySelect && logDaySelect.value ? logDaySelect.value : "";
     const selectedSellCol = getSelectedSellTwapCol();
     let lookback = Number.parseInt(perfLookbackInput.value || "20", 10);
     if (!Number.isFinite(lookback) || lookback <= 0) lookback = 20;
     perfLookbackInput.value = String(lookback);
-    const res = await axios.get("/api/perf_summary", {
-      params: {
-        ...(selectedDay ? { day: selectedDay } : {}),
-        ...(selectedSellCol ? { sell_col: selectedSellCol } : {}),
-        lookback,
-      },
-    });
-    const payload = res.data || {};
-    const series = payload.series || [];
-    if (!series.length) {
-      destroyCharts();
-      perfMeta.textContent = "暂无绩效数据";
-      return;
+    const params = {
+      ...(selectedDay ? { day: selectedDay } : {}),
+      ...(selectedSellCol ? { sell_col: selectedSellCol } : {}),
+      lookback,
+    };
+    const [perfResult, modelResult] = await Promise.allSettled([
+      axios.get("/api/perf_summary", { params }),
+      refreshModelOverviewOnce({ queue: true }),
+    ]);
+    if (perfResult.status === "rejected" && modelResult.status === "rejected") {
+      throw perfResult.reason || modelResult.reason;
     }
-    const metrics = payload.metrics || {};
-    const sharpe = Number(metrics.sharpe || 0);
-    const vol = Number(metrics.volatility || 0);
-    const benchSharpe = Number(metrics.benchmark_sharpe || 0);
-    const benchVol = Number(metrics.benchmark_volatility || 0);
-    const labels = series.map((x) => x.trade_date);
-    const nav = series.map((x) => Number(x.strategy_nav || 0));
-    const benchNav = series.map((x) => Number(x.benchmark_nav || 0));
-    perfMeta.textContent = `截至 ${payload.asof_day || "-"} · 样本 ${payload.count_days || 0} · 回看 ${payload.lookback || lookback} · 卖出列 ${formatTwapCol(payload.sell_col || selectedSellCol || "-")}`;
-
-    if (perfMetricsChart) perfMetricsChart.destroy();
-    perfMetricsChart = new Chart(perfMetricsCanvas.getContext("2d"), {
-      type: "bar",
-      data: {
-        labels: ["夏普", "年化波动"],
-        datasets: [
-          { label: "策略", data: [sharpe, vol], backgroundColor: "#2563eb" },
-          { label: "基准", data: [benchSharpe, benchVol], backgroundColor: "#16a34a" },
-        ],
-      },
-      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: true, position: "bottom" } } },
-    });
+    const payload = perfResult.status === "fulfilled" ? (perfResult.value.data || {}) : {};
+    latestPerformancePayload = payload;
+    const modelOverview = modelResult.status === "fulfilled" ? (modelResult.value || latestModelOverview) : latestModelOverview;
+    const series = payload.series || [];
+    const modelCandidates = modelOverview?.candidates || [];
+    const labels = performanceTradingLabels(payload, modelOverview);
+    const actualNavMap = new Map(series.map((item) => [item.trade_date, numberValue(item.strategy_nav)]));
+    if (!actualNavMap.size) {
+      (modelOverview?.selected_strategy?.points || []).forEach((point) => actualNavMap.set(point.trade_date, numberValue(point.nav)));
+    }
+    const perfBenchMap = new Map(series.map((item) => [item.trade_date, numberValue(item.benchmark_nav)]));
+    if (!perfBenchMap.size) {
+      (modelOverview?.benchmark?.points || []).forEach((point) => perfBenchMap.set(point.trade_date, numberValue(point.nav)));
+    }
+    const settledThrough = modelCandidates
+      .map((candidate) => candidate.history_end)
+      .filter(Boolean)
+      .sort()
+      .at(-1);
+    perfMeta.textContent = `截至 ${payload.asof_day || modelOverview?.asof_day || "-"} · 实盘样本 ${payload.count_days || 0} · 回看 ${payload.lookback || modelOverview?.lookback || lookback} · 影子收益截至 ${settledThrough || "-"}`;
+    renderPerformanceSummary(payload, modelOverview);
+    renderModelPeriodTable(modelOverview, payload);
 
     if (perfNavChart) perfNavChart.destroy();
+    perfNavChart = null;
+    if (!labels.length) {
+      perfMeta.textContent = "暂无绩效与模型影子收益数据";
+      if (perfChartPeriod) perfChartPeriod.textContent = "";
+      return;
+    }
+    if (perfChartPeriod) {
+      perfChartPeriod.textContent = `${labels[0]} 至 ${labels.at(-1)} · ${labels.length}个交易日`;
+    }
+    const candidateDatasets = modelCandidates.map((candidate, idx) => {
+      const pointMap = new Map((candidate.points || []).map((point) => [point.trade_date, numberValue(point.nav)]));
+      return {
+        label: `${shortModelName(candidate.name)}（影子）`,
+        data: labels.map((day) => pointMap.get(day) ?? null),
+        borderColor: MODEL_COLORS[idx % MODEL_COLORS.length],
+        backgroundColor: "transparent",
+        borderDash: MODEL_DASHES[idx % MODEL_DASHES.length],
+        tension: 0.18,
+        pointRadius: 0,
+        pointHoverRadius: 5,
+        borderWidth: 1.7,
+        spanGaps: true,
+      };
+    });
     perfNavChart = new Chart(perfNavCanvas.getContext("2d"), {
       type: "line",
       data: {
         labels,
         datasets: [
           {
-            label: "策略净值",
-            data: nav,
+            label: "实盘每日选择",
+            data: labels.map((day) => actualNavMap.get(day) ?? null),
             borderColor: "#2563eb",
-            backgroundColor: "rgba(37,99,235,0.12)",
-            tension: 0.25,
-            pointRadius: 2,
+            backgroundColor: "rgba(37,99,235,0.08)",
+            fill: true,
+            tension: 0.2,
+            pointRadius: 0,
             pointHoverRadius: 5,
-            borderWidth: 2,
+            borderWidth: 2.6,
+            spanGaps: true,
           },
+          ...candidateDatasets,
           {
-            label: "基准净值",
-            data: benchNav,
-            borderColor: "#16a34a",
-            backgroundColor: "rgba(22,163,74,0.10)",
-            tension: 0.25,
-            pointRadius: 2,
+            label: "Benchmark",
+            data: labels.map((day) => perfBenchMap.get(day) ?? null),
+            borderColor: "#64748b",
+            backgroundColor: "transparent",
+            borderDash: [3, 4],
+            tension: 0.18,
+            pointRadius: 0,
             pointHoverRadius: 5,
-            borderWidth: 2,
+            borderWidth: 1.4,
+            spanGaps: true,
           },
         ],
       },
@@ -1369,12 +1899,40 @@ async function refreshPerformance() {
         responsive: true,
         maintainAspectRatio: false,
         interaction: { mode: "index", intersect: false },
-        plugins: { legend: { display: true, position: "bottom" } },
-        scales: { x: { ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: 8 } } },
+        layout: { padding: { top: 2, right: 8, bottom: 0, left: 2 } },
+        plugins: {
+          legend: {
+            display: true,
+            position: "top",
+            align: "start",
+            labels: { usePointStyle: true, pointStyle: "line", boxWidth: 24, boxHeight: 4, padding: 14, color: "#475569", font: { size: 11, weight: "600" } },
+          },
+          tooltip: {
+            backgroundColor: "rgba(15,23,42,0.92)",
+            padding: 10,
+            callbacks: {
+              label: (ctx) => `${ctx.dataset.label}: ${Number(ctx.parsed.y).toFixed(4)}`,
+            },
+          },
+        },
+        scales: {
+          x: {
+            grid: { display: false },
+            border: { display: false },
+            ticks: { color: "#64748b", maxRotation: 0, autoSkip: true, maxTicksLimit: 10, font: { size: 10 } },
+          },
+          y: {
+            border: { display: false },
+            grid: { color: "rgba(148,163,184,0.18)" },
+            ticks: { color: "#64748b", font: { size: 10 }, callback: (value) => Number(value).toFixed(2) },
+          },
+        },
       },
     });
   } catch (err) {
     destroyCharts();
+    if (perfSummaryGrid) perfSummaryGrid.innerHTML = "";
+    if (perfChartPeriod) perfChartPeriod.textContent = "";
     perfMeta.textContent = "绩效数据加载失败";
   }
 }
@@ -1405,10 +1963,12 @@ async function refreshDataCalendar() {
           (week || [])
             .map((cell) => {
               if (!cell) return "<div class='cal-cell cal-empty'></div>";
-              const isSelected = normalizeDay(cell.day) === normalizeDay(selectedDay);
+              const selectable = Boolean(cell.is_open) && !Boolean(cell.is_future);
+              const isSelected = selectable && normalizeDay(cell.day) === normalizeDay(selectedDay);
               const cls = `cal-cell cal-${cell.status || "off"}${isSelected ? " cal-selected" : ""}`;
               const title = escapeHtml(`${cell.day} | ${cell.detail || ""}`);
-              return `<button type="button" class="${cls}" data-day="${escapeHtml(cell.day)}" title="${title}">${cell.day_num}</button>`;
+              const dayAttr = selectable ? ` data-day="${escapeHtml(cell.day)}"` : "";
+              return `<button type="button" class="${cls}"${dayAttr} title="${title}" ${selectable ? "" : "disabled"}>${cell.day_num}</button>`;
             })
             .join("")
         )
@@ -1461,6 +2021,7 @@ async function refreshAfterAction() {
     refreshLiveStatusOnce({ queue: true }),
     refreshLogsOnce({ queue: true }),
     refreshHoldingsOnce({ queue: true }),
+    refreshModelDayCompareOnce({ queue: true }),
     refreshPerformanceOnce({ queue: true }),
   ]);
 }
@@ -1619,6 +2180,34 @@ if (logDaySelect) {
   });
 }
 
+if (performanceViewSwitch) {
+  performanceViewSwitch.addEventListener("click", (evt) => {
+    const target = evt.target;
+    if (!(target instanceof HTMLElement)) return;
+    const button = target.closest("button[data-performance-view]");
+    if (!button) return;
+    setPerformanceView(button.getAttribute("data-performance-view"));
+  });
+  setPerformanceView(activePerformanceView);
+}
+
+if (modelViewSelector) {
+  modelViewSelector.addEventListener("click", async (evt) => {
+    const target = evt.target;
+    if (!(target instanceof HTMLElement)) return;
+    const button = target.closest("button[data-model-view]");
+    if (!button) return;
+    activeModelView = String(button.getAttribute("data-model-view") || "actual");
+    renderModelViewSelector(latestModelDayCompare || {});
+    if (activeModelView === "actual") {
+      if (modelViewMeta) modelViewMeta.textContent = "当前展示最终实际交易清单。";
+      await refreshHoldingsOnce({ queue: true });
+      return;
+    }
+    renderActiveModelView();
+  });
+}
+
 function handleSellTwapRangeChange(source) {
   normalizeSellTwapRange(source);
   const selected = getSelectedSellTwapCol();
@@ -1689,7 +2278,9 @@ async function bootstrapDashboard() {
   ]);
   queueDashboardRefresh(() => refreshLiveStatusOnce({ queue: true }));
   queueDashboardRefresh(() => refreshLogsOnce({ queue: true }));
+  queueDashboardRefresh(() => refreshModelOverviewOnce({ queue: true }));
   queueDashboardRefresh(() => refreshHoldingsOnce({ queue: true }));
+  queueDashboardRefresh(() => refreshModelDayCompareOnce({ queue: true }));
   queueDashboardRefresh(() => refreshDataCalendarOnce({ queue: true }));
   queueDashboardRefresh(() => refreshPerformanceOnce({ queue: true }));
 }
@@ -1698,4 +2289,5 @@ bootstrapDashboard();
 startRefreshLoop(refreshLiveStatusOnce, 5000);
 startRefreshLoop(refreshLogsOnce, 10000);
 startRefreshLoop(refreshLogDaysOnce, 30000);
+startRefreshLoop(refreshModelOverviewOnce, 30000);
 startRefreshLoop(refreshDataCalendarOnce, 60000);

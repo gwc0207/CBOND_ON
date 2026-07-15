@@ -22,8 +22,9 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from flask import Flask, jsonify, render_template, request
 
-from cbond_on.core.config import load_config_file
+from cbond_on.core.config import load_config_file, resolve_output_path
 from cbond_on.core.fees import load_fees_buy_sell_bps
+from cbond_on.domain.signals.service import SignalSelectionRequest, select_signals
 from cbond_on.infra.benchmark.service import (
     build_strict_buy_holdings_from_selection,
     compute_benchmark_cycle_detail_for_day,
@@ -35,6 +36,16 @@ from cbond_on.infra.factors.quality import (
     expected_factor_columns_from_cfg,
     resolve_factor_store_label,
     scan_factor_day_coverage,
+)
+from cbond_on.infra.live.config import load_strategy_config
+from cbond_on.infra.live.model_switch import (
+    decide_scoreopt_t1430_dispersion,
+    decide_scoreopt_t1430_fusion_gate,
+)
+from cbond_on.infra.universe.pool_filter import (
+    apply_allowlist_filter_to_universe,
+    load_upstream_pool_config,
+    resolve_pool_codes_for_trade_day,
 )
 
 try:
@@ -51,6 +62,10 @@ _OPEN_DAYS_CACHE: dict = {"key": None, "ts": 0.0, "items": []}
 _OPEN_DAYS_CACHE_LOCK = threading.Lock()
 _PERF_SUMMARY_CACHE: dict = {"key": None, "ts": 0.0, "payload": None}
 _PERF_SUMMARY_CACHE_LOCK = threading.Lock()
+_MODEL_OVERVIEW_CACHE: dict = {"key": None, "ts": 0.0, "payload": None}
+_MODEL_OVERVIEW_CACHE_LOCK = threading.Lock()
+_MODEL_DAY_COMPARE_CACHE: dict = {"key": None, "ts": 0.0, "payload": None}
+_MODEL_DAY_COMPARE_CACHE_LOCK = threading.Lock()
 HEARTBEAT_STALE_SECONDS = 120
 LIVE_STATUS_API_VERSION = 1
 _TWAP_COL_RE = re.compile(r"^twap_\d{4}_\d{4}$")
@@ -724,6 +739,737 @@ def _calc_vol(ret: pd.Series) -> float:
     return float(float(s.std(ddof=0)) * math.sqrt(252.0))
 
 
+def _calc_period_metrics(ret: pd.Series) -> dict:
+    s = pd.to_numeric(ret, errors="coerce").dropna().astype(float)
+    if s.empty:
+        return {
+            "count_days": 0,
+            "period_return": None,
+            "sharpe": None,
+            "volatility": None,
+            "max_drawdown": None,
+            "last_return": None,
+        }
+    nav = (1.0 + s).cumprod()
+    drawdown = nav / nav.cummax() - 1.0
+    return {
+        "count_days": int(len(s)),
+        "period_return": float(nav.iloc[-1] - 1.0),
+        "sharpe": _calc_sharpe(s),
+        "volatility": _calc_vol(s),
+        "max_drawdown": float(drawdown.min()),
+        "last_return": float(s.iloc[-1]),
+    }
+
+
+def _model_switch_candidate_specs(live_cfg: dict, *, results_root: str | Path) -> list[dict]:
+    switch_cfg = dict(live_cfg.get("model_switch", {}))
+    champion = dict(switch_cfg.get("champion", {}))
+    challengers_raw = switch_cfg.get("challengers")
+    if isinstance(challengers_raw, list) and challengers_raw:
+        challengers = [dict(item) for item in challengers_raw if isinstance(item, dict)]
+    else:
+        challenger = dict(switch_cfg.get("challenger", {}))
+        challengers = [challenger] if challenger else []
+
+    specs: list[dict] = []
+    seen: set[str] = set()
+    for role, group in [("champion", champion), *[("challenger", item) for item in challengers]]:
+        model_id = str(group.get("model_id", "")).strip()
+        if not model_id or model_id in seen:
+            continue
+        seen.add(model_id)
+        default_score_path = Path(results_root) / "scores" / "live" / model_id
+        default_return_path = Path(results_root) / "analysis" / f"{model_id}_return_history_missing.csv"
+        specs.append(
+            {
+                "role": role,
+                "name": str(group.get("name") or model_id).strip(),
+                "model_id": model_id,
+                "kind": str(group.get("kind") or "single").strip(),
+                "score_path": resolve_output_path(
+                    group.get("score_output"),
+                    default_path=default_score_path,
+                    results_root=results_root,
+                ),
+                "return_path": resolve_output_path(
+                    group.get("return_path") or group.get("score_return_path"),
+                    default_path=default_return_path,
+                    results_root=results_root,
+                ),
+            }
+        )
+    return specs
+
+
+def _resolved_dashboard_switch_cfg(live_cfg: dict, *, results_root: str | Path) -> dict:
+    cfg = dict(live_cfg.get("model_switch", {}))
+
+    def _resolve_group(raw: object) -> object:
+        if not isinstance(raw, dict):
+            return raw
+        group = dict(raw)
+        model_id = str(group.get("model_id", "")).strip() or "unknown"
+        for key in ("return_path", "score_return_path"):
+            if key in group:
+                group[key] = str(
+                    resolve_output_path(
+                        group.get(key),
+                        default_path=Path(results_root) / "analysis" / f"{model_id}_return_history_missing.csv",
+                        results_root=results_root,
+                    )
+                )
+        return group
+
+    for key in ("champion", "challenger"):
+        cfg[key] = _resolve_group(cfg.get(key, {}))
+    challengers_raw = cfg.get("challengers")
+    if isinstance(challengers_raw, list):
+        cfg["challengers"] = [_resolve_group(item) for item in challengers_raw]
+    if "state_feature_path" in cfg:
+        cfg["state_feature_path"] = str(
+            resolve_output_path(
+                cfg.get("state_feature_path"),
+                default_path=Path(results_root) / "analysis" / "model_switch_t1430_state_features.csv",
+                results_root=results_root,
+            )
+        )
+    return cfg
+
+
+def _read_model_return_history(
+    path: str | Path,
+    *,
+    asof_day: date,
+    lookback: int,
+    return_col: str,
+    trading_days: set[date] | None = None,
+) -> pd.DataFrame:
+    csv_path = Path(path)
+    columns = ["trade_date", return_col, "benchmark_return"]
+    if not csv_path.exists() or not csv_path.is_file():
+        return pd.DataFrame(columns=columns)
+    try:
+        raw = pd.read_csv(csv_path)
+    except Exception:
+        return pd.DataFrame(columns=columns)
+    if "trade_date" not in raw.columns or return_col not in raw.columns:
+        return pd.DataFrame(columns=columns)
+    out = raw.copy()
+    if "benchmark_return" not in out.columns:
+        out["benchmark_return"] = pd.NA
+    out["trade_date"] = pd.to_datetime(out["trade_date"], errors="coerce").dt.date
+    out[return_col] = pd.to_numeric(out[return_col], errors="coerce")
+    out["benchmark_return"] = pd.to_numeric(out["benchmark_return"], errors="coerce")
+    out = out.dropna(subset=["trade_date", return_col])
+    out = out[out["trade_date"] <= asof_day]
+    if trading_days is not None:
+        out = out[out["trade_date"].isin(trading_days)]
+    out = out.drop_duplicates(subset=["trade_date"], keep="last").sort_values("trade_date")
+    return out[["trade_date", return_col, "benchmark_return"]].tail(max(1, int(lookback))).reset_index(drop=True)
+
+
+def _read_model_switch_decisions(
+    live_root: Path,
+    *,
+    asof_day: date,
+    trading_days: set[date] | None = None,
+) -> list[dict]:
+    by_score_day: dict[date, dict] = {}
+    if not live_root.exists():
+        return []
+    for path in sorted(live_root.glob("*/model_switch_decision.json")):
+        raw = _read_json(path)
+        score_day = _coerce_live_date(raw.get("score_day"))
+        if score_day is None or score_day > asof_day:
+            continue
+        if trading_days is not None and score_day not in trading_days:
+            continue
+        target_day = _coerce_live_date(path.parent.name) or _coerce_live_date(raw.get("target_day"))
+        item = {
+            "score_day": score_day,
+            "target_day": target_day,
+            "path": path,
+            "raw": raw,
+        }
+        previous = by_score_day.get(score_day)
+        previous_target = previous.get("target_day") if previous else None
+        if previous is None or (target_day or date.min) >= (previous_target or date.min):
+            by_score_day[score_day] = item
+    return [by_score_day[key] for key in sorted(by_score_day)]
+
+
+def _decision_score_map(raw: dict) -> dict[str, float | None]:
+    out: dict[str, float | None] = {}
+    for item in raw.get("candidate_scores") or []:
+        if not isinstance(item, dict):
+            continue
+        model_id = str(item.get("model_id", "")).strip()
+        if model_id:
+            out[model_id] = _safe_float(item.get("score"))
+    champion_model_id = str(raw.get("champion_model_id", "")).strip()
+    challenger_model_id = str(raw.get("challenger_model_id", "")).strip()
+    if champion_model_id and champion_model_id not in out:
+        out[champion_model_id] = _safe_float(raw.get("champion_score"))
+    if challenger_model_id and challenger_model_id not in out:
+        out[challenger_model_id] = _safe_float(raw.get("challenger_score"))
+    return out
+
+
+def _serialize_similar_days(items: object) -> list[dict]:
+    if not isinstance(items, list):
+        return []
+    out: list[dict] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        trade_day = _coerce_live_date(item.get("trade_date"))
+        model_returns = []
+        for model_item in item.get("model_returns") or []:
+            if not isinstance(model_item, dict):
+                continue
+            model_returns.append(
+                {
+                    "role": str(model_item.get("role", "")),
+                    "name": str(model_item.get("name", "")),
+                    "model_id": str(model_item.get("model_id", "")),
+                    "day_return": _safe_float(model_item.get("day_return")),
+                }
+            )
+        out.append(
+            {
+                "trade_date": None if trade_day is None else f"{trade_day:%Y-%m-%d}",
+                "distance": _safe_float(item.get("distance")),
+                "best_model_id": str(item.get("best_model_id") or ""),
+                "best_name": str(item.get("best_name") or ""),
+                "model_returns": model_returns,
+            }
+        )
+    return out
+
+
+def _model_decision_payload(
+    item: dict,
+    *,
+    return_lookup: dict[str, dict[date, float]],
+    benchmark_lookup: dict[date, float],
+) -> dict:
+    raw = dict(item.get("raw", {}))
+    score_day = item.get("score_day")
+    target_day = item.get("target_day")
+    selected_model_id = str(raw.get("selected_model_id", "")).strip()
+    score_map = _decision_score_map(raw)
+    selected_return = return_lookup.get(selected_model_id, {}).get(score_day)
+    return {
+        "score_day": None if score_day is None else f"{score_day:%Y-%m-%d}",
+        "target_day": None if target_day is None else f"{target_day:%Y-%m-%d}",
+        "selected_model_id": selected_model_id,
+        "selected_name": str(raw.get("selected_name") or selected_model_id),
+        "selected_score": score_map.get(selected_model_id),
+        "selected_return": selected_return,
+        "benchmark_return": benchmark_lookup.get(score_day),
+        "mode": str(raw.get("mode", "")),
+        "metric": str(raw.get("metric", "")),
+        "reason": str(raw.get("reason", "")),
+        "score_diff": _safe_float(raw.get("score_diff")),
+        "threshold": _safe_float(raw.get("threshold")),
+        "candidate_scores": [
+            {
+                "model_id": str(candidate.get("model_id", "")),
+                "name": str(candidate.get("name", "")),
+                "role": str(candidate.get("role", "")),
+                "score": _safe_float(candidate.get("score")),
+                "history_end": str(candidate.get("history_end") or ""),
+                "history_days": int(candidate.get("history_days", 0) or 0),
+            }
+            for candidate in raw.get("candidate_scores") or []
+            if isinstance(candidate, dict)
+        ],
+        "similar_days": _serialize_similar_days(raw.get("similar_days")),
+        "fusion": raw.get("fusion") if isinstance(raw.get("fusion"), dict) else None,
+    }
+
+
+def _build_model_overview(
+    *,
+    live_cfg: dict,
+    results_root: str | Path,
+    live_root: Path,
+    day: str | None,
+    lookback: int | None,
+    trading_days: set[date] | None = None,
+) -> dict:
+    asof_day = _parse_day_to_date(day)
+    switch_cfg = dict(live_cfg.get("model_switch", {}))
+    default_lookback = int(switch_cfg.get("lookback_days", 20) or 20)
+    lookback = max(1, min(500, int(lookback if lookback is not None else default_lookback)))
+    return_col = str(switch_cfg.get("return_col", "day_return")).strip() or "day_return"
+    cache_key = (str(Path(results_root).resolve()), f"{asof_day:%Y-%m-%d}", lookback, return_col)
+    now = time.monotonic()
+    with _MODEL_OVERVIEW_CACHE_LOCK:
+        if (
+            _MODEL_OVERVIEW_CACHE.get("key") == cache_key
+            and now - float(_MODEL_OVERVIEW_CACHE.get("ts", 0.0) or 0.0) <= 10.0
+        ):
+            payload = _MODEL_OVERVIEW_CACHE.get("payload")
+            if payload is not None:
+                return payload
+
+    specs = _model_switch_candidate_specs(live_cfg, results_root=results_root)
+    frames: dict[str, pd.DataFrame] = {}
+    candidate_payloads: list[dict] = []
+    return_lookup: dict[str, dict[date, float]] = {}
+    benchmark_lookup: dict[date, float] = {}
+    for spec in specs:
+        frame = _read_model_return_history(
+            spec["return_path"],
+            asof_day=asof_day,
+            lookback=lookback,
+            return_col=return_col,
+            trading_days=trading_days,
+        )
+        frames[spec["model_id"]] = frame
+        returns = {
+            row.trade_date: float(getattr(row, return_col))
+            for row in frame.itertuples(index=False)
+        }
+        return_lookup[spec["model_id"]] = returns
+        for row in frame.itertuples(index=False):
+            benchmark_value = _safe_float(getattr(row, "benchmark_return", None))
+            if benchmark_value is not None:
+                benchmark_lookup[row.trade_date] = benchmark_value
+        nav = 1.0
+        points = []
+        for trade_day, value in returns.items():
+            nav *= 1.0 + float(value)
+            points.append(
+                {
+                    "trade_date": f"{trade_day:%Y-%m-%d}",
+                    "day_return": float(value),
+                    "nav": float(nav),
+                }
+            )
+        metrics = _calc_period_metrics(frame[return_col] if return_col in frame.columns else pd.Series(dtype=float))
+        candidate_payloads.append(
+            {
+                "role": spec["role"],
+                "name": spec["name"],
+                "model_id": spec["model_id"],
+                "kind": spec["kind"],
+                "available": bool(points),
+                "history_end": points[-1]["trade_date"] if points else None,
+                "metrics": metrics,
+                "points": points,
+            }
+        )
+
+    benchmark_nav = 1.0
+    benchmark_points = []
+    for trade_day in sorted(benchmark_lookup)[-lookback:]:
+        value = float(benchmark_lookup[trade_day])
+        benchmark_nav *= 1.0 + value
+        benchmark_points.append(
+            {
+                "trade_date": f"{trade_day:%Y-%m-%d}",
+                "day_return": value,
+                "nav": float(benchmark_nav),
+            }
+        )
+    benchmark_metrics = _calc_period_metrics(
+        pd.Series([item["day_return"] for item in benchmark_points], dtype=float)
+    )
+
+    decisions = _read_model_switch_decisions(
+        live_root,
+        asof_day=asof_day,
+        trading_days=trading_days,
+    )
+    current_item = decisions[-1] if decisions else None
+    if current_item is not None and not current_item["raw"].get("similar_days"):
+        raw = current_item["raw"]
+        diagnostic_mode = str(raw.get("mode", "")).strip().lower()
+        if diagnostic_mode in {"scoreopt_t1430_dispersion", "scoreopt_t1430_fusion_gate"}:
+            try:
+                diagnostic_cfg = _resolved_dashboard_switch_cfg(live_cfg, results_root=results_root)
+                diagnostic = (
+                    decide_scoreopt_t1430_fusion_gate(
+                        diagnostic_cfg,
+                        score_day=current_item["score_day"],
+                    )
+                    if diagnostic_mode == "scoreopt_t1430_fusion_gate"
+                    else decide_scoreopt_t1430_dispersion(
+                        diagnostic_cfg,
+                        score_day=current_item["score_day"],
+                    )
+                )
+                current_item = dict(current_item)
+                current_item["raw"] = dict(raw)
+                current_item["raw"]["similar_days"] = diagnostic.similar_days or []
+                if diagnostic.fusion is not None:
+                    current_item["raw"]["fusion"] = diagnostic.fusion
+                decisions = [*decisions[:-1], current_item]
+            except Exception as exc:
+                current_item = dict(current_item)
+                current_item["raw"] = dict(raw)
+                current_item["raw"]["similar_days_error"] = f"{type(exc).__name__}: {exc}"
+                decisions = [*decisions[:-1], current_item]
+
+    decision_payloads = [
+        _model_decision_payload(
+            item,
+            return_lookup=return_lookup,
+            benchmark_lookup=benchmark_lookup,
+        )
+        for item in decisions[-max(lookback, 20):]
+    ]
+    current_decision = decision_payloads[-1] if decision_payloads else None
+
+    selection_nav = 1.0
+    selection_points = []
+    for item in decisions:
+        raw = item["raw"]
+        model_id = str(raw.get("selected_model_id", "")).strip()
+        score_day = item["score_day"]
+        value = return_lookup.get(model_id, {}).get(score_day)
+        if value is None:
+            continue
+        selection_nav *= 1.0 + float(value)
+        selection_points.append(
+            {
+                "trade_date": f"{score_day:%Y-%m-%d}",
+                "model_id": model_id,
+                "name": str(raw.get("selected_name") or model_id),
+                "day_return": float(value),
+                "nav": float(selection_nav),
+            }
+        )
+
+    payload = {
+        "available": any(item["available"] for item in candidate_payloads),
+        "asof_day": f"{asof_day:%Y-%m-%d}",
+        "lookback": lookback,
+        "mode": str(switch_cfg.get("mode", "")),
+        "metric": str(switch_cfg.get("score_mode") or switch_cfg.get("metric") or ""),
+        "feature_set": str(switch_cfg.get("feature_set", "")),
+        "margin": _safe_float(switch_cfg.get("margin", switch_cfg.get("threshold"))),
+        "nearest_k": int(switch_cfg.get("nearest_k", 0) or 0),
+        "trading_days": [
+            f"{item:%Y-%m-%d}"
+            for item in sorted(day for day in (trading_days or set()) if day <= asof_day)[
+                -max(120, lookback * 3) :
+            ]
+        ],
+        "candidates": candidate_payloads,
+        "benchmark": {
+            "available": bool(benchmark_points),
+            "metrics": benchmark_metrics,
+            "points": benchmark_points,
+        },
+        "current_decision": current_decision,
+        "decisions": decision_payloads,
+        "selected_strategy": {
+            "available": bool(selection_points),
+            "metrics": _calc_period_metrics(
+                pd.Series([item["day_return"] for item in selection_points], dtype=float)
+            ),
+            "points": selection_points,
+        },
+    }
+    with _MODEL_OVERVIEW_CACHE_LOCK:
+        _MODEL_OVERVIEW_CACHE["key"] = cache_key
+        _MODEL_OVERVIEW_CACHE["ts"] = time.monotonic()
+        _MODEL_OVERVIEW_CACHE["payload"] = payload
+    return payload
+
+
+def _read_daily_score_frame(score_path: str | Path, *, score_day: date) -> pd.DataFrame:
+    path = Path(score_path)
+    candidates: list[Path] = []
+    if path.is_file():
+        candidates.append(path)
+    else:
+        candidates.extend(
+            [
+                path / f"{score_day:%Y-%m}" / f"{score_day:%Y-%m-%d}.csv",
+                path / f"{score_day:%Y%m}" / f"{score_day:%Y%m%d}.csv",
+                path / f"{score_day:%Y-%m-%d}.csv",
+                path / f"{score_day:%Y%m%d}.csv",
+                path / "scores.csv",
+            ]
+        )
+    score_file = next((item for item in candidates if item.exists() and item.is_file()), None)
+    if score_file is None:
+        return pd.DataFrame(columns=["code", "score"])
+    try:
+        raw = pd.read_csv(score_file)
+    except Exception:
+        return pd.DataFrame(columns=["code", "score"])
+    if not {"code", "score"}.issubset(raw.columns):
+        return pd.DataFrame(columns=["code", "score"])
+    if "trade_date" in raw.columns:
+        raw = raw.copy()
+        raw["trade_date"] = pd.to_datetime(raw["trade_date"], errors="coerce").dt.date
+        raw = raw[raw["trade_date"] == score_day]
+    out = raw[["code", "score"]].copy()
+    out["code"] = out["code"].astype(str)
+    out["score"] = pd.to_numeric(out["score"], errors="coerce")
+    return out.dropna(subset=["code", "score"]).drop_duplicates(subset=["code"], keep="last")
+
+
+def _candidate_cycle_rows(
+    *,
+    raw_data_root: str | Path,
+    buy_day: date,
+    sell_day: date | None,
+    picks: pd.DataFrame,
+    buy_col: str,
+    sell_col: str,
+    buy_bps: float,
+    sell_bps: float,
+) -> tuple[list[dict], dict]:
+    today = datetime.now().date()
+    detail_lookup: dict[str, pd.Series] = {}
+    cycle_error = ""
+    if sell_day is not None and sell_day <= today and not picks.empty:
+        try:
+            pool_cfg = replace(
+                load_benchmark_pool_config(),
+                buy_twap_col=buy_col,
+                sell_twap_col=sell_col,
+            )
+            buy_holdings = build_strict_buy_holdings_from_selection(
+                raw_data_root=raw_data_root,
+                buy_day=buy_day,
+                selection=picks,
+                buy_bps=buy_bps,
+                pool_cfg=pool_cfg,
+                normalize=True,
+            )
+            detail = compute_strict_cycle_detail_for_holdings(
+                raw_data_root=raw_data_root,
+                buy_day=buy_day,
+                sell_day=sell_day,
+                buy_holdings=buy_holdings,
+                sell_bps=sell_bps,
+                pool_cfg=pool_cfg,
+            )
+            detail_lookup = {str(row["code"]): row for _, row in detail.iterrows()}
+        except Exception as exc:
+            cycle_error = str(exc)
+
+    rows = []
+    for pick in picks.itertuples(index=False):
+        code = str(pick.code)
+        detail_row = detail_lookup.get(code)
+        pending = sell_day is None or sell_day > today
+        status = "pending" if pending else "ready"
+        reason = "next trading day data not available yet" if pending else ""
+        if cycle_error:
+            status = "unavailable"
+            reason = cycle_error
+        elif not pending and detail_row is None:
+            status = "unavailable"
+            reason = "missing strict cycle detail"
+        return_net = None if detail_row is None else _safe_float(detail_row.get("return_net"))
+        weighted_return = None if detail_row is None else _safe_float(detail_row.get("weighted_return"))
+        if not pending and not cycle_error and detail_row is not None and return_net is None:
+            status = "unavailable"
+            reason = "missing strict split return"
+        rows.append(
+            {
+                "symbol": code,
+                "code": code,
+                "score": _safe_float(pick.score),
+                "rank": int(pick.rank),
+                "weight": _safe_float(pick.weight),
+                "target_weight": _safe_float(pick.weight),
+                "trade_date": f"{buy_day:%Y-%m-%d}",
+                "buy_day": f"{buy_day:%Y-%m-%d}",
+                "next_day": None if sell_day is None else f"{sell_day:%Y-%m-%d}",
+                "sell_day": None if sell_day is None else f"{sell_day:%Y-%m-%d}",
+                "buy_twap": None if detail_row is None else _safe_float(detail_row.get("buy_price")),
+                "sell_twap_next": None if detail_row is None else _safe_float(detail_row.get("sell_price")),
+                "buy_leg_ret_net": None if detail_row is None else _safe_float(detail_row.get("buy_leg_ret_net")),
+                "sell_leg_ret_net": None if detail_row is None else _safe_float(detail_row.get("strict_sell_leg_net_ret")),
+                "return_net": return_net,
+                "weighted_return": weighted_return,
+                "status": status,
+                "status_label": _status_label(status),
+                "reason": reason,
+            }
+        )
+    ready_returns = [row["weighted_return"] for row in rows if row["status"] == "ready" and row["weighted_return"] is not None]
+    return rows, {
+        "count": int(len(rows)),
+        "ready_count": sum(1 for row in rows if row["status"] == "ready"),
+        "pending_count": sum(1 for row in rows if row["status"] == "pending"),
+        "unavailable_count": sum(1 for row in rows if row["status"] == "unavailable"),
+        "day_return": float(sum(ready_returns)) if ready_returns else None,
+    }
+
+
+def _build_model_day_compare(
+    *,
+    live_cfg: dict,
+    paths_cfg: dict,
+    live_root: Path,
+    day: str | None,
+    sell_col_override: str | None,
+) -> dict:
+    requested_day = _parse_day_to_date(day)
+    decisions = _read_model_switch_decisions(live_root, asof_day=requested_day)
+    decision_item = decisions[-1] if decisions else None
+    score_day = decision_item["score_day"] if decision_item is not None else requested_day
+    raw_decision = dict(decision_item.get("raw", {})) if decision_item is not None else {}
+    cache_key = (
+        str(Path(paths_cfg["results_root"]).resolve()),
+        f"{requested_day:%Y-%m-%d}",
+        f"{score_day:%Y-%m-%d}",
+        str(sell_col_override or ""),
+    )
+    now = time.monotonic()
+    with _MODEL_DAY_COMPARE_CACHE_LOCK:
+        if (
+            _MODEL_DAY_COMPARE_CACHE.get("key") == cache_key
+            and now - float(_MODEL_DAY_COMPARE_CACHE.get("ts", 0.0) or 0.0) <= 10.0
+        ):
+            payload = _MODEL_DAY_COMPARE_CACHE.get("payload")
+            if payload is not None:
+                return payload
+
+    data_cfg = dict(live_cfg.get("data", {}))
+    output_cfg = dict(live_cfg.get("output", {}))
+    buy_col = str(output_cfg.get("buy_twap_col", data_cfg.get("buy_twap_col", "twap_1442_1457")))
+    default_sell_col = str(output_cfg.get("sell_twap_col", data_cfg.get("sell_twap_col", "twap_0930_0939")))
+    sell_col = _normalize_twap_col(sell_col_override, fallback=default_sell_col)
+    raw_root = paths_cfg["raw_data_root"]
+    sell_day = _next_open_day(raw_root, score_day)
+    buy_bps, sell_bps, _ = load_fees_buy_sell_bps()
+    strategy_cfg = dict(live_cfg.get("strategy", {}))
+    strategy_id = str(strategy_cfg.get("strategy_id", "strategy01_topk_turnover"))
+    strategy_config = load_strategy_config(strategy_cfg.get("strategy_config_path"))
+    allowlist_cfg = dict(live_cfg.get("allowlist", {}))
+    pool_cfg = load_upstream_pool_config(allowlist_cfg or None)
+    pool_codes, pool_info = resolve_pool_codes_for_trade_day(
+        raw_data_root=raw_root,
+        trade_day=score_day,
+        pool_cfg=pool_cfg,
+        enabled=bool(allowlist_cfg.get("enabled", True)),
+    )
+    pool_error = ""
+    if bool(pool_info.get("fallback_no_filter", False)):
+        pool_error = str(pool_info.get("fallback_reason") or "required allowlist unavailable")
+
+    actual_ctx = _read_trade_list_context_for_buy_day(score_day, raw_data_root=raw_root)
+    actual_codes = set()
+    if actual_ctx is not None:
+        actual_codes = set(actual_ctx["df"]["code"].astype(str).tolist())
+
+    score_map = _decision_score_map(raw_decision)
+    selected_model_id = str(raw_decision.get("selected_model_id", "")).strip()
+    candidates = []
+    picks_by_model: dict[str, set[str]] = {}
+    for spec in _model_switch_candidate_specs(live_cfg, results_root=paths_cfg["results_root"]):
+        score_df = _read_daily_score_frame(spec["score_path"], score_day=score_day)
+        error = ""
+        if pool_error:
+            error = pool_error
+            score_df = score_df.iloc[0:0].copy()
+        elif not score_df.empty:
+            score_df = apply_allowlist_filter_to_universe(score_df, allowlist_codes=pool_codes)
+        if score_df.empty and not error:
+            error = f"score missing for {score_day:%Y-%m-%d}"
+        picks = pd.DataFrame(columns=["code", "score", "weight", "rank"])
+        if not score_df.empty:
+            picks = select_signals(
+                SignalSelectionRequest(
+                    universe=score_df[["code", "score"]],
+                    trade_date=score_day,
+                    prev_positions=pd.DataFrame(columns=["code", "weight"]),
+                    strategy_id=strategy_id,
+                    strategy_config=strategy_config,
+                )
+            )
+        rows, summary = _candidate_cycle_rows(
+            raw_data_root=raw_root,
+            buy_day=score_day,
+            sell_day=sell_day,
+            picks=picks,
+            buy_col=buy_col,
+            sell_col=sell_col,
+            buy_bps=buy_bps,
+            sell_bps=sell_bps,
+        )
+        codes = set(picks["code"].astype(str).tolist()) if not picks.empty else set()
+        picks_by_model[spec["model_id"]] = codes
+        overlap = len(codes & actual_codes)
+        union = len(codes | actual_codes)
+        candidates.append(
+            {
+                "role": spec["role"],
+                "name": spec["name"],
+                "model_id": spec["model_id"],
+                "kind": spec["kind"],
+                "selected": spec["model_id"] == selected_model_id,
+                "decision_score": score_map.get(spec["model_id"]),
+                "error": error,
+                "summary": summary,
+                "overlap_with_actual": overlap,
+                "overlap_ratio": None if not actual_codes else float(overlap / len(actual_codes)),
+                "jaccard_with_actual": None if union == 0 else float(overlap / union),
+                "rows": rows,
+            }
+        )
+
+    pairwise = []
+    for idx, left in enumerate(candidates):
+        left_codes = picks_by_model.get(left["model_id"], set())
+        for right in candidates[idx + 1:]:
+            right_codes = picks_by_model.get(right["model_id"], set())
+            union = left_codes | right_codes
+            pairwise.append(
+                {
+                    "left_model_id": left["model_id"],
+                    "left_name": left["name"],
+                    "right_model_id": right["model_id"],
+                    "right_name": right["name"],
+                    "overlap": len(left_codes & right_codes),
+                    "jaccard": None if not union else float(len(left_codes & right_codes) / len(union)),
+                }
+            )
+
+    benchmark = _build_single_day_benchmark(
+        raw_data_root=raw_root,
+        trade_day=score_day,
+        next_day=sell_day,
+        buy_col=buy_col,
+        sell_col=sell_col,
+        buy_bps=buy_bps,
+        sell_bps=sell_bps,
+    )
+    payload = {
+        "requested_day": f"{requested_day:%Y-%m-%d}",
+        "score_day": f"{score_day:%Y-%m-%d}",
+        "sell_day": None if sell_day is None else f"{sell_day:%Y-%m-%d}",
+        "selected_model_id": selected_model_id,
+        "selected_name": str(raw_decision.get("selected_name") or selected_model_id),
+        "selection_reason": str(raw_decision.get("reason", "")),
+        "strategy_id": strategy_id,
+        "turnover_ratio": _safe_float(strategy_config.get("turnover_ratio")),
+        "buy_col": buy_col,
+        "sell_col": sell_col,
+        "actual_count": int(len(actual_codes)),
+        "candidates": candidates,
+        "pairwise": pairwise,
+        "benchmark": benchmark,
+    }
+    with _MODEL_DAY_COMPARE_CACHE_LOCK:
+        _MODEL_DAY_COMPARE_CACHE["key"] = cache_key
+        _MODEL_DAY_COMPARE_CACHE["ts"] = time.monotonic()
+        _MODEL_DAY_COMPARE_CACHE["payload"] = payload
+    return payload
+
+
 def _normalize_weights(w: pd.Series) -> pd.Series:
     s = pd.to_numeric(w, errors="coerce").fillna(0.0).clip(lower=0.0)
     total = float(s.sum())
@@ -844,12 +1590,19 @@ def _build_perf_summary(
     asof_day = _parse_day_to_date(day)
     today = datetime.now().date()
     open_days = _load_open_days(raw_data_root)
+    open_day_set = set(open_days)
+    visible_trading_days = [
+        f"{item:%Y-%m-%d}"
+        for item in open_days
+        if item <= asof_day
+    ][-max(120, lookback * 3) :]
     if not open_days:
         payload = {
             "asof_day": f"{asof_day:%Y-%m-%d}",
             "lookback": lookback,
             "count_days": 0,
             "sell_col": sell_col,
+            "trading_days": [],
             "metrics": {},
             "series": [],
         }
@@ -864,7 +1617,7 @@ def _build_perf_summary(
     context_by_buy_day: dict[date, dict] = {}
     for ctx in contexts:
         buy_day = ctx.get("buy_day")
-        if buy_day is None or buy_day > asof_day:
+        if buy_day is None or buy_day > asof_day or buy_day not in open_day_set:
             continue
         prev = context_by_buy_day.get(buy_day)
         if prev is None or str(ctx.get("path", "")) > str(prev.get("path", "")):
@@ -954,6 +1707,7 @@ def _build_perf_summary(
             "lookback": lookback,
             "count_days": 0,
             "sell_col": sell_col,
+            "trading_days": visible_trading_days,
             "metrics": {},
             "series": [],
         }
@@ -967,12 +1721,17 @@ def _build_perf_summary(
     df["strategy_nav"] = (1.0 + df["strategy_return"].fillna(0.0)).cumprod()
     df["benchmark_nav"] = (1.0 + df["benchmark_return"].fillna(0.0)).cumprod()
 
-    metrics = {
-        "sharpe": _calc_sharpe(df["strategy_return"]),
-        "volatility": _calc_vol(df["strategy_return"]),
-        "benchmark_sharpe": _calc_sharpe(df["benchmark_return"]),
-        "benchmark_volatility": _calc_vol(df["benchmark_return"]),
-    }
+    metrics = _calc_period_metrics(df["strategy_return"])
+    benchmark_metrics = _calc_period_metrics(df["benchmark_return"])
+    metrics.update(
+        {
+            "benchmark_sharpe": benchmark_metrics["sharpe"],
+            "benchmark_volatility": benchmark_metrics["volatility"],
+            "benchmark_period_return": benchmark_metrics["period_return"],
+            "benchmark_max_drawdown": benchmark_metrics["max_drawdown"],
+            "benchmark_last_return": benchmark_metrics["last_return"],
+        }
+    )
 
     series = [
         {
@@ -1005,6 +1764,7 @@ def _build_perf_summary(
         "lookback": lookback,
         "count_days": int(len(series)),
         "sell_col": sell_col,
+        "trading_days": visible_trading_days,
         "metrics": metrics,
         "series": series,
     }
@@ -1026,6 +1786,43 @@ def _normalize_day_tag(text: str | None) -> str:
         return _to_iso_day_tag(str(text).strip())
     except Exception:
         return str(text).strip()
+
+
+def _collect_dashboard_trade_days(
+    *,
+    live_root: Path,
+    current_day: date,
+    open_days: list[date],
+    trade_contexts: list[dict],
+) -> tuple[list[str], str]:
+    eligible_open_days = {item for item in open_days if item <= current_day}
+    if not eligible_open_days:
+        current_tag = f"{current_day:%Y-%m-%d}"
+        return [current_tag], current_tag
+
+    available: set[date] = set()
+    if live_root.exists():
+        for item in live_root.iterdir():
+            if not item.is_dir():
+                continue
+            if not (item / "logs").exists() and not (item / "trade_list.csv").exists():
+                continue
+            try:
+                day = datetime.strptime(item.name, "%Y-%m-%d").date()
+            except ValueError:
+                continue
+            if day in eligible_open_days:
+                available.add(day)
+
+    for ctx in trade_contexts:
+        buy_day = ctx.get("buy_day")
+        if buy_day in eligible_open_days:
+            available.add(buy_day)
+
+    selected_day = current_day if current_day in eligible_open_days else max(eligible_open_days)
+    available.add(selected_day)
+    days = [f"{item:%Y-%m-%d}" for item in sorted(available, reverse=True)]
+    return days, f"{selected_day:%Y-%m-%d}"
 
 
 def _resolve_holdings_day_for_today(state: dict, requested_day: str) -> str | None:
@@ -1892,30 +2689,23 @@ def create_app() -> Flask:
 
     @app.get("/api/log_days")
     def api_log_days():
-        current_day = _today_day_tag()
+        current_day = datetime.now().date()
         live_root = _results_live_root()
-        if not live_root.exists():
-            return jsonify({"days": [current_day], "current_day": current_day})
-        days: list[str] = []
-        for item in live_root.iterdir():
-            if not item.is_dir():
-                continue
-            if not (item / "logs").exists() and not (item / "trade_list.csv").exists():
-                continue
-            try:
-                datetime.strptime(item.name, "%Y-%m-%d")
-            except ValueError:
-                continue
-            days.append(item.name)
-        for ctx in _iter_trade_list_contexts(raw_data_root=paths_cfg["raw_data_root"]):
-            buy_day = ctx.get("buy_day")
-            if buy_day is not None:
-                days.append(f"{buy_day:%Y-%m-%d}")
-        days.sort(reverse=True)
-        days = list(dict.fromkeys(days))
-        if current_day not in days:
-            days = [current_day] + days
-        return jsonify({"days": days, "current_day": current_day})
+        open_days = _load_open_days(paths_cfg["raw_data_root"])
+        trade_contexts = _iter_trade_list_contexts(raw_data_root=paths_cfg["raw_data_root"])
+        days, selected_day = _collect_dashboard_trade_days(
+            live_root=live_root,
+            current_day=current_day,
+            open_days=open_days,
+            trade_contexts=trade_contexts,
+        )
+        return jsonify(
+            {
+                "days": days,
+                "current_day": selected_day,
+                "calendar_available": bool(open_days),
+            }
+        )
 
     @app.get("/api/logs")
     def api_logs():
@@ -2008,6 +2798,45 @@ def create_app() -> Flask:
                 raw_data_root=paths_cfg["raw_data_root"],
                 day=day,
                 lookback=lookback,
+                sell_col_override=sell_col_override,
+            )
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        return jsonify(payload)
+
+    @app.get("/api/model_overview")
+    def api_model_overview():
+        day = request.args.get("day", "").strip() or None
+        lookback_raw = request.args.get("lookback", "").strip()
+        lookback = None
+        if lookback_raw:
+            try:
+                lookback = int(lookback_raw)
+            except Exception:
+                return jsonify({"error": f"invalid lookback: {lookback_raw}"}), 400
+        try:
+            payload = _build_model_overview(
+                live_cfg=_load_live_cfg(),
+                results_root=paths_cfg["results_root"],
+                live_root=Path(paths_cfg["results_root"]) / "live",
+                day=day,
+                lookback=lookback,
+                trading_days=set(_load_open_days(paths_cfg["raw_data_root"])),
+            )
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        return jsonify(payload)
+
+    @app.get("/api/model_day_compare")
+    def api_model_day_compare():
+        day = request.args.get("day", "").strip() or None
+        sell_col_override = request.args.get("sell_col", "").strip() or None
+        try:
+            payload = _build_model_day_compare(
+                live_cfg=_load_live_cfg(),
+                paths_cfg=paths_cfg,
+                live_root=Path(paths_cfg["results_root"]) / "live",
+                day=day,
                 sell_col_override=sell_col_override,
             )
         except ValueError as exc:

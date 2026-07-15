@@ -5,9 +5,12 @@ from datetime import date
 import pandas as pd
 
 from cbond_on.infra.live.model_switch import (
+    SwitchDecision,
+    _select_t1430_fusion,
     build_rank_average_scores,
     decide_scoreopt_bm_short,
     decide_scoreopt_t1430_dispersion,
+    decide_scoreopt_t1430_fusion_gate,
     decide_single_challenger_by_regime,
     decide_single_challenger_by_sharpe,
 )
@@ -332,6 +335,134 @@ def test_decide_scoreopt_t1430_dispersion_selects_nearest_best_candidate(tmp_pat
     assert decision.history_days == 3
     assert decision.selected_model_id == "challenger"
     assert decision.reason == "score_best"
+    assert decision.similar_days is not None
+    assert len(decision.similar_days) == 3
+    assert {item["trade_date"] for item in decision.similar_days} == {
+        date(2026, 1, 2),
+        date(2026, 1, 3),
+        date(2026, 1, 4),
+    }
+    assert all(item["best_model_id"] == "challenger" for item in decision.similar_days)
+
+
+def test_decide_scoreopt_t1430_fusion_gate_overrides_low_confidence_base(tmp_path) -> None:
+    dates = pd.date_range("2025-09-01", periods=101, freq="D")
+    feature_cols = [
+        "afternoon1300_1430_std",
+        "afternoon1300_1430_iqr",
+        "afternoon1300_1430_tail_spread",
+        "last30_1330_1430_std",
+        "last30_1330_1430_iqr",
+        "last30_1330_1430_tail_spread",
+        "dispersion_accel",
+    ]
+    feature_path = tmp_path / "state_features.csv"
+    signal = pd.Series(range(len(dates)), dtype=float) / 50.0 - 1.0
+    features = pd.DataFrame({"trade_date": dates})
+    features[feature_cols[0]] = signal
+    for col in feature_cols[1:]:
+        features[col] = 0.0
+    features.to_csv(feature_path, index=False)
+
+    champion_path = tmp_path / "champion.csv"
+    ensemble_path = tmp_path / "ensemble.csv"
+    regsim_path = tmp_path / "regsim.csv"
+    history_signal = signal.iloc[:-1].to_numpy()
+    pd.DataFrame({"trade_date": dates[:-1], "day_return": 0.0}).to_csv(champion_path, index=False)
+    pd.DataFrame(
+        {"trade_date": dates[:-1], "day_return": 0.004 * history_signal}
+    ).to_csv(ensemble_path, index=False)
+    pd.DataFrame(
+        {"trade_date": dates[:-1], "day_return": -0.004 * history_signal}
+    ).to_csv(regsim_path, index=False)
+
+    cfg = {
+        "mode": "scoreopt_t1430_fusion_gate",
+        "feature_set": "disp_afternoon7",
+        "metric": "mean",
+        "lookback_days": 100,
+        "nearest_k": 20,
+        "min_periods": 20,
+        "margin": 0.1,
+        "state_feature_path": str(feature_path),
+        "champion": {
+            "name": "Champion",
+            "model_id": "champion",
+            "return_path": str(champion_path),
+        },
+        "challengers": [
+            {
+                "name": "Ensemble",
+                "model_id": "ensemble",
+                "return_path": str(ensemble_path),
+            },
+            {
+                "name": "Regsim",
+                "model_id": "regsim",
+                "return_path": str(regsim_path),
+            },
+        ],
+        "fusion": {
+            "policy": "base_low_confidence_only",
+            "robust": {
+                "lookback_days": 100,
+                "min_periods": 80,
+                "alpha": 0.0,
+                "target_clip": 0.005,
+                "margin": 0.0001,
+            },
+        },
+    }
+
+    decision = decide_scoreopt_t1430_fusion_gate(cfg, score_day=dates[-1].date())
+
+    assert decision.mode == "scoreopt_t1430_fusion_gate"
+    assert decision.selected_model_id == "ensemble"
+    assert decision.reason == "fusion_robust_override_base_low_confidence"
+    assert decision.fallback_reason == "margin_default"
+    assert decision.fusion is not None
+    assert decision.fusion["action"] == "robust_override_base_low_confidence"
+    assert decision.fusion["robust"]["confident"] is True
+    assert decision.fusion["robust"]["history_days"] == 100
+
+
+def test_select_t1430_fusion_keeps_high_confidence_base() -> None:
+    base = SwitchDecision(
+        enabled=True,
+        mode="scoreopt_t1430_dispersion",
+        metric="lcb10",
+        lookback_days=120,
+        min_periods=20,
+        threshold=0.0003,
+        score_day=date(2026, 7, 15),
+        selected_model_id="champion",
+        selected_name="Champion",
+        champion_model_id="champion",
+        champion_name="Champion",
+        challenger_model_id="ensemble",
+        challenger_name="Ensemble",
+        champion_score=0.001,
+        challenger_score=0.0005,
+        score_diff=0.0005,
+        history_end=date(2026, 7, 14),
+        history_days=20,
+        reason="score_best",
+    )
+    robust = {
+        "confident": True,
+        "selected_model_id": "ensemble",
+        "selected_name": "Ensemble",
+    }
+
+    selected_model_id, _, reason, action = _select_t1430_fusion(
+        base,
+        robust,
+        policy="base_low_confidence_only",
+    )
+
+    assert selected_model_id == "champion"
+    assert reason == "fusion_base_high_confidence"
+    assert action == "base_high_confidence"
 
 
 def test_update_shadow_return_history_appends_after_warm_start(tmp_path, monkeypatch) -> None:

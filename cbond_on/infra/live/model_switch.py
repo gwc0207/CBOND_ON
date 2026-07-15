@@ -6,6 +6,7 @@ import json
 import math
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 
@@ -48,6 +49,8 @@ class SwitchDecision:
     regime_benchmark_sum: float | None = None
     fallback_reason: str | None = None
     candidate_scores: list[dict] | None = None
+    similar_days: list[dict] | None = None
+    fusion: dict | None = None
 
 
 def _daily_return_frame(
@@ -863,6 +866,7 @@ def decide_scoreopt_t1430_dispersion(
         observations: int,
         score_gap: float | None,
         scores: pd.Series | None = None,
+        similar_days: list[dict] | None = None,
     ) -> SwitchDecision:
         details: list[dict] = []
         if scores is not None:
@@ -924,6 +928,7 @@ def decide_scoreopt_t1430_dispersion(
             history_days=observations,
             reason=reason,
             candidate_scores=details,
+            similar_days=similar_days,
         )
 
     if current_rows.empty:
@@ -966,6 +971,31 @@ def decide_scoreopt_t1430_dispersion(
     distances = (((history_features - mean) / std - (current_features - mean) / std) ** 2).sum(axis=1).pow(0.5)
     nearest_index = distances.sort_values().index[:nearest_k]
     sample = history_returns.loc[nearest_index]
+    similar_days: list[dict] = []
+    for idx in nearest_index:
+        model_returns: list[dict] = []
+        for col in model_cols:
+            meta = model_meta[col]
+            value = sample.at[idx, col]
+            model_returns.append(
+                {
+                    "role": str(meta["role"]),
+                    "name": str(meta["name"]),
+                    "model_id": str(meta["model_id"]),
+                    "day_return": None if pd.isna(value) else float(value),
+                }
+            )
+        valid_returns = [item for item in model_returns if item["day_return"] is not None]
+        best = max(valid_returns, key=lambda item: float(item["day_return"])) if valid_returns else None
+        similar_days.append(
+            {
+                "trade_date": joined.at[idx, "trade_date"],
+                "distance": float(distances.at[idx]),
+                "best_model_id": None if best is None else str(best["model_id"]),
+                "best_name": None if best is None else str(best["name"]),
+                "model_returns": model_returns,
+            }
+        )
     scores = _scoreopt_score_sample(sample, model_cols=model_cols, score_mode=metric).sort_values(ascending=False)
     best_col = str(scores.index[0])
     second_score = float(scores.iloc[1]) if len(scores) > 1 else float("nan")
@@ -983,7 +1013,307 @@ def decide_scoreopt_t1430_dispersion(
         observations=int(len(sample)),
         score_gap=score_gap,
         scores=scores,
+        similar_days=similar_days,
     )
+
+
+def _robust_pairwise_t1430_diagnostics(
+    cfg: dict,
+    *,
+    score_day: date,
+) -> dict:
+    fusion_cfg = cfg.get("fusion", {})
+    fusion_cfg = fusion_cfg if isinstance(fusion_cfg, dict) else {}
+    robust_cfg = fusion_cfg.get("robust", {})
+    robust_cfg = robust_cfg if isinstance(robust_cfg, dict) else {}
+
+    feature_set = str(cfg.get("feature_set", "disp_afternoon7")).strip().lower()
+    feature_cols = T1430_DISPERSION_FEATURE_SETS.get(feature_set)
+    if not feature_cols:
+        raise ValueError(f"unsupported live t1430 dispersion feature_set: {feature_set}")
+
+    state_feature_path = str(cfg.get("state_feature_path", "")).strip()
+    if not state_feature_path:
+        raise ValueError("scoreopt_t1430_fusion_gate requires state_feature_path")
+    state_path = Path(state_feature_path)
+    if not state_path.exists():
+        raise FileNotFoundError(f"t1430 state feature history missing: {state_path}")
+
+    lookback_days = int(robust_cfg.get("lookback_days", 252))
+    min_periods = int(robust_cfg.get("min_periods", 80))
+    alpha = float(robust_cfg.get("alpha", 100.0))
+    target_clip = float(robust_cfg.get("target_clip", 0.005))
+    margin = float(robust_cfg.get("margin", 0.0005))
+    return_col = str(cfg.get("return_col", "day_return")).strip() or "day_return"
+    if lookback_days <= 0 or min_periods <= 0:
+        raise ValueError("fusion robust lookback_days/min_periods must be positive")
+    if alpha < 0.0:
+        raise ValueError("fusion robust alpha must be non-negative")
+    if target_clip <= 0.0 or margin < 0.0:
+        raise ValueError("fusion robust target_clip must be positive and margin must be non-negative")
+
+    champion, challengers, champion_model_id, champion_name = _model_switch_groups(cfg)
+    model_groups = [("champion", champion), *[("challenger", item) for item in challengers]]
+    model_cols: list[str] = []
+    model_meta: dict[str, dict] = {}
+    returns_history: pd.DataFrame | None = None
+    for idx, (role, group) in enumerate(model_groups):
+        col = f"model_return_{idx}"
+        model_id = str(group.get("model_id", "")).strip()
+        name = str(group.get("name") or model_id).strip()
+        history = _daily_return_frame(
+            group.get("return_path") or group.get("score_return_path") or "",
+            return_col=return_col,
+        ).rename(columns={return_col: col})
+        returns_history = (
+            history[["trade_date", col]]
+            if returns_history is None
+            else returns_history.merge(history[["trade_date", col]], on="trade_date", how="inner")
+        )
+        model_cols.append(col)
+        model_meta[col] = {
+            "role": role,
+            "name": name,
+            "model_id": model_id,
+        }
+    if returns_history is None:
+        raise ValueError("fusion robust selector has no model return history")
+
+    returns_history = returns_history[returns_history["trade_date"] < score_day].sort_values("trade_date")
+    history_end = returns_history["trade_date"].max() if not returns_history.empty else None
+
+    state_features = pd.read_csv(state_path)
+    if "trade_date" not in state_features.columns:
+        raise KeyError(f"t1430 state feature history missing trade_date: {state_path}")
+    missing_features = [col for col in feature_cols if col not in state_features.columns]
+    if missing_features:
+        raise KeyError(f"t1430 state feature history missing columns {missing_features}: {state_path}")
+    state_features = state_features.copy()
+    state_features["trade_date"] = pd.to_datetime(state_features["trade_date"], errors="coerce").dt.date
+    for col in feature_cols:
+        state_features[col] = pd.to_numeric(state_features[col], errors="coerce")
+    state_features = state_features.dropna(subset=["trade_date"]).drop_duplicates(
+        subset=["trade_date"],
+        keep="last",
+    )
+
+    def _result(
+        *,
+        reason: str,
+        observations: int,
+        candidate_scores: list[dict] | None = None,
+        selected_col: str | None = None,
+        score_gap: float | None = None,
+        pairwise_predictions: list[dict] | None = None,
+    ) -> dict:
+        selected_meta = model_meta.get(selected_col or "", {})
+        return {
+            "metric": "pairwise_ridge_clipped",
+            "feature_set": feature_set,
+            "lookback_days": lookback_days,
+            "min_periods": min_periods,
+            "alpha": alpha,
+            "target_clip": target_clip,
+            "margin": margin,
+            "history_end": history_end,
+            "history_days": int(observations),
+            "reason": reason,
+            "confident": bool(score_gap is not None and score_gap > margin),
+            "score_diff": score_gap,
+            "selected_model_id": str(selected_meta.get("model_id", "")),
+            "selected_name": str(selected_meta.get("name", "")),
+            "candidate_scores": candidate_scores or [],
+            "pairwise_predictions": pairwise_predictions or [],
+        }
+
+    current_rows = state_features[state_features["trade_date"] == score_day]
+    if current_rows.empty:
+        return _result(reason="feature_missing", observations=0)
+    current_features = current_rows.iloc[-1][feature_cols]
+    if current_features.isna().any():
+        return _result(reason="feature_na", observations=0)
+
+    joined = returns_history.merge(state_features[["trade_date", *feature_cols]], on="trade_date", how="inner")
+    joined = joined.sort_values("trade_date").tail(lookback_days)
+    valid_mask = ~(joined[feature_cols].isna().any(axis=1) | joined[model_cols].isna().any(axis=1))
+    joined = joined.loc[valid_mask]
+    observations = int(len(joined))
+    if observations < min_periods:
+        empty_scores = [
+            _candidate_detail(
+                role=str(model_meta[col]["role"]),
+                name=str(model_meta[col]["name"]),
+                model_id=str(model_meta[col]["model_id"]),
+                score=None,
+                history_end=history_end,
+                history_days=observations,
+            )
+            for col in model_cols
+        ]
+        return _result(
+            reason="insufficient_history",
+            observations=observations,
+            candidate_scores=empty_scores,
+        )
+
+    train_x = joined[feature_cols].to_numpy(dtype=float)
+    current_x = current_features.to_numpy(dtype=float).reshape(1, -1)
+    means = np.mean(train_x, axis=0)
+    stds = np.std(train_x, axis=0, ddof=0)
+    stds = np.where((~np.isfinite(stds)) | (stds < 1e-12), 1.0, stds)
+    train_x = (train_x - means) / stds
+    current_x = (current_x - means) / stds
+    train_returns = joined[model_cols].to_numpy(dtype=float)
+
+    from sklearn.linear_model import Ridge
+
+    utilities = np.zeros(len(model_cols), dtype=float)
+    pairwise_predictions: list[dict] = []
+    for left_idx in range(len(model_cols)):
+        for right_idx in range(left_idx + 1, len(model_cols)):
+            target = train_returns[:, left_idx] - train_returns[:, right_idx]
+            target = np.clip(target, -target_clip, target_clip)
+            estimator = Ridge(alpha=alpha, fit_intercept=True)
+            estimator.fit(train_x, target)
+            predicted_diff = float(estimator.predict(current_x)[0])
+            utilities[left_idx] += predicted_diff / len(model_cols)
+            utilities[right_idx] -= predicted_diff / len(model_cols)
+            left_meta = model_meta[model_cols[left_idx]]
+            right_meta = model_meta[model_cols[right_idx]]
+            pairwise_predictions.append(
+                {
+                    "left_model_id": str(left_meta["model_id"]),
+                    "left_name": str(left_meta["name"]),
+                    "right_model_id": str(right_meta["model_id"]),
+                    "right_name": str(right_meta["name"]),
+                    "predicted_return_diff": predicted_diff,
+                }
+            )
+
+    scores = pd.Series(utilities, index=model_cols, dtype=float).sort_values(ascending=False)
+    best_col = str(scores.index[0])
+    second_score = float(scores.iloc[1]) if len(scores) > 1 else float("nan")
+    best_score = float(scores.iloc[0])
+    score_gap = None if not math.isfinite(second_score) else float(best_score - second_score)
+    candidate_scores = [
+        _candidate_detail(
+            role=str(model_meta[col]["role"]),
+            name=str(model_meta[col]["name"]),
+            model_id=str(model_meta[col]["model_id"]),
+            score=float(utilities[idx]),
+            history_end=history_end,
+            history_days=observations,
+        )
+        for idx, col in enumerate(model_cols)
+    ]
+    return _result(
+        reason="score_best" if score_gap is not None and score_gap > margin else "margin_default",
+        observations=observations,
+        candidate_scores=candidate_scores,
+        selected_col=best_col,
+        score_gap=score_gap,
+        pairwise_predictions=pairwise_predictions,
+    )
+
+
+def _select_t1430_fusion(
+    base_decision: SwitchDecision,
+    robust: dict,
+    *,
+    policy: str,
+) -> tuple[str, str, str, str]:
+    if policy != "base_low_confidence_only":
+        raise ValueError(f"unsupported fusion policy: {policy}")
+
+    base_confident = base_decision.reason == "score_best"
+    robust_confident = bool(robust.get("confident", False))
+    robust_model_id = str(robust.get("selected_model_id", "")).strip()
+    robust_name = str(robust.get("selected_name") or robust_model_id).strip()
+
+    if base_confident:
+        return (
+            base_decision.selected_model_id,
+            base_decision.selected_name,
+            "fusion_base_high_confidence",
+            "base_high_confidence",
+        )
+    if robust_confident and robust_model_id:
+        if robust_model_id == base_decision.selected_model_id:
+            return (
+                base_decision.selected_model_id,
+                base_decision.selected_name,
+                "fusion_robust_agrees_base_low_confidence",
+                "robust_agrees_base_low_confidence",
+            )
+        return (
+            robust_model_id,
+            robust_name,
+            "fusion_robust_override_base_low_confidence",
+            "robust_override_base_low_confidence",
+        )
+    return (
+        base_decision.selected_model_id,
+        base_decision.selected_name,
+        "fusion_base_robust_not_confident",
+        "base_robust_not_confident",
+    )
+
+
+def decide_scoreopt_t1430_fusion_gate(
+    cfg: dict,
+    *,
+    score_day: date,
+) -> SwitchDecision:
+    fusion_cfg = cfg.get("fusion", {})
+    fusion_cfg = fusion_cfg if isinstance(fusion_cfg, dict) else {}
+    policy = str(fusion_cfg.get("policy", "base_low_confidence_only")).strip().lower()
+
+    base_decision = decide_scoreopt_t1430_dispersion(cfg, score_day=score_day)
+    robust = _robust_pairwise_t1430_diagnostics(cfg, score_day=score_day)
+    selected_model_id, selected_name, reason, action = _select_t1430_fusion(
+        base_decision,
+        robust,
+        policy=policy,
+    )
+
+    base_scores = base_decision.candidate_scores or []
+    selected_detail = next(
+        (item for item in base_scores if str(item.get("model_id", "")) == selected_model_id),
+        None,
+    )
+    updates: dict = {
+        "mode": "scoreopt_t1430_fusion_gate",
+        "metric": "confidence_gate",
+        "selected_model_id": selected_model_id,
+        "selected_name": selected_name,
+        "reason": reason,
+        "fallback_reason": base_decision.reason,
+        "fusion": {
+            "policy": policy,
+            "action": action,
+            "base": {
+                "mode": base_decision.mode,
+                "metric": base_decision.metric,
+                "reason": base_decision.reason,
+                "confident": base_decision.reason == "score_best",
+                "selected_model_id": base_decision.selected_model_id,
+                "selected_name": base_decision.selected_name,
+                "score_diff": base_decision.score_diff,
+                "threshold": base_decision.threshold,
+                "candidate_scores": base_decision.candidate_scores or [],
+            },
+            "robust": robust,
+        },
+    }
+    if selected_model_id != base_decision.champion_model_id and selected_detail is not None:
+        updates.update(
+            {
+                "challenger_model_id": selected_model_id,
+                "challenger_name": selected_name,
+                "challenger_score": selected_detail.get("score"),
+            }
+        )
+    return SwitchDecision(**{**asdict(base_decision), **updates})
 
 
 def decide_single_challenger_by_regime(

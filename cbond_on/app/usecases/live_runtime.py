@@ -35,6 +35,7 @@ from cbond_on.infra.live.model_switch import (
     build_rank_average_scores,
     decide_scoreopt_bm_short,
     decide_scoreopt_t1430_dispersion,
+    decide_scoreopt_t1430_fusion_gate,
     decide_single_challenger_by_regime,
     decide_single_challenger_by_sharpe,
     update_t1430_market_state_feature_history,
@@ -423,7 +424,13 @@ def _apply_live_model_switch(
 ) -> tuple[str, pd.DataFrame, SwitchDecision, dict]:
     switch_cfg = _resolve_model_switch_return_paths(switch_cfg, paths_cfg=paths_cfg)
     mode = str(switch_cfg.get("mode", "single_challenger")).strip().lower()
-    if mode not in {"single_challenger", "regime_bm20_sign", "scoreopt_bm_short", "scoreopt_t1430_dispersion"}:
+    if mode not in {
+        "single_challenger",
+        "regime_bm20_sign",
+        "scoreopt_bm_short",
+        "scoreopt_t1430_dispersion",
+        "scoreopt_t1430_fusion_gate",
+    }:
         raise ValueError(f"unsupported live model_switch.mode: {mode}")
     champion_cfg = dict(switch_cfg.get("champion", {}))
     champion_model_id = str(champion_cfg.get("model_id", "")).strip()
@@ -508,17 +515,21 @@ def _apply_live_model_switch(
                 f"appended={update_result.appended_rows}",
                 f"reason={update_result.reason}",
             )
-    if mode == "scoreopt_t1430_dispersion":
+    if mode in {"scoreopt_t1430_dispersion", "scoreopt_t1430_fusion_gate"}:
         state_feature_path = str(switch_cfg.get("state_feature_path", "")).strip()
         if not state_feature_path:
-            raise ValueError("scoreopt_t1430_dispersion requires model_switch.state_feature_path")
+            raise ValueError(f"{mode} requires model_switch.state_feature_path")
         update_t1430_market_state_feature_history(
             state_feature_path=state_feature_path,
             clean_root=clean_root,
             score_day=score_day,
             price_field=str(switch_cfg.get("state_price_field", "last")).strip() or "last",
         )
-        decision = decide_scoreopt_t1430_dispersion(switch_cfg, score_day=score_day)
+        decision = (
+            decide_scoreopt_t1430_fusion_gate(switch_cfg, score_day=score_day)
+            if mode == "scoreopt_t1430_fusion_gate"
+            else decide_scoreopt_t1430_dispersion(switch_cfg, score_day=score_day)
+        )
     elif mode == "scoreopt_bm_short":
         decision = decide_scoreopt_bm_short(switch_cfg, score_day=score_day)
     elif mode == "regime_bm20_sign":
