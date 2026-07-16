@@ -231,6 +231,84 @@ class TorchSequenceAdapter(ModelAdapter):
         )
 
 
+class KlineImageAdapter(ModelAdapter):
+    def __init__(self, model_config_path: Path | None = None) -> None:
+        self.model_config_path = model_config_path
+
+    def fit(
+        self,
+        *,
+        start: str,
+        end: str,
+        label_cutoff: str | None = None,
+        execution: dict | None = None,
+    ) -> ModelArtifact:
+        _ = start
+        _ = end
+        _ = label_cutoff
+        _ = execution
+        return ModelArtifact(meta={"mode": "script", "model_type": "kline_image_cnn"})
+
+    def predict(
+        self,
+        *,
+        start: str,
+        end: str,
+        artifact: ModelArtifact,
+        label_cutoff: str | None = None,
+        execution: dict | None = None,
+    ) -> None:
+        _ = artifact
+        from cbond_on.infra.model.runners import train_kline_image
+
+        train_kline_image.main(
+            config_path=self.model_config_path,
+            start=start,
+            end=end,
+            label_cutoff=label_cutoff,
+            execution=execution,
+        )
+
+
+class KlineTimeFrequencyAdapter(ModelAdapter):
+    def __init__(self, model_config_path: Path | None = None) -> None:
+        self.model_config_path = model_config_path
+
+    def fit(
+        self,
+        *,
+        start: str,
+        end: str,
+        label_cutoff: str | None = None,
+        execution: dict | None = None,
+    ) -> ModelArtifact:
+        _ = start
+        _ = end
+        _ = label_cutoff
+        _ = execution
+        return ModelArtifact(meta={"mode": "script", "model_type": "kline_time_frequency_cnn"})
+
+    def predict(
+        self,
+        *,
+        start: str,
+        end: str,
+        artifact: ModelArtifact,
+        label_cutoff: str | None = None,
+        execution: dict | None = None,
+    ) -> None:
+        _ = artifact
+        from cbond_on.infra.model.runners import train_kline_time_frequency
+
+        train_kline_time_frequency.main(
+            config_path=self.model_config_path,
+            start=start,
+            end=end,
+            label_cutoff=label_cutoff,
+            execution=execution,
+        )
+
+
 def build_adapter(model_type: str, *, model_config_path: Path | None = None) -> ModelAdapter:
     kind = str(model_type).strip().lower()
     if kind == "linear":
@@ -243,5 +321,9 @@ def build_adapter(model_type: str, *, model_config_path: Path | None = None) -> 
         return LobAdapter(model_config_path=model_config_path)
     if kind in {"torch_sequence", "factor_lstm", "factor_cnn", "factor_cnn1d"}:
         return TorchSequenceAdapter(model_config_path=model_config_path)
+    if kind in {"kline_image", "kline_image_cnn"}:
+        return KlineImageAdapter(model_config_path=model_config_path)
+    if kind in {"kline_time_frequency", "kline_time_frequency_cnn"}:
+        return KlineTimeFrequencyAdapter(model_config_path=model_config_path)
     raise ValueError(f"unsupported model_type: {model_type}")
 

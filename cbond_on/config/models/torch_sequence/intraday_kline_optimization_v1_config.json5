@@ -1,0 +1,272 @@
+{
+  experiment_name: "intraday_kline_optimization_v1",
+  data_cache: {
+    windows: "D:/cbond_on/results/analysis/kline_time_frequency_cache/morning_20240102_20260714_v1.npz",
+    linux: "/home/gswzif/cbond_on_runtime/results/analysis/kline_time_frequency_cache/morning_20240102_20260714_v1.npz"
+  },
+  results_root: {
+    windows: "D:/cbond_on/results/analysis/intraday_kline_optimization_v1/development",
+    linux: "/home/gswzif/cbond_on_runtime/results/analysis/intraday_kline_optimization_v1/development"
+  },
+  top_k: 20,
+  train: {
+    device: "cpu",
+    torch_threads: 8,
+    batch_size: 256,
+    num_epochs: 3,
+    lr: 0.001,
+    weight_decay: 0.0001,
+    grad_clip_norm: 1.0,
+    seed: 42
+  },
+  development_folds: [
+    {name: "2024q3", train_start: "2024-01-02", train_end: "2024-06-30", test_start: "2024-07-01", test_end: "2024-09-30"},
+    {name: "2024q4", train_start: "2024-01-02", train_end: "2024-09-30", test_start: "2024-10-01", test_end: "2024-12-31"},
+    {name: "2025q1", train_start: "2024-01-02", train_end: "2024-12-31", test_start: "2025-01-01", test_end: "2025-03-31"},
+    {name: "2025q2", train_start: "2024-01-02", train_end: "2025-03-31", test_start: "2025-04-01", test_end: "2025-06-30"},
+    {name: "2025q3", train_start: "2024-01-02", train_end: "2025-06-30", test_start: "2025-07-01", test_end: "2025-09-30"},
+    {name: "2025q4", train_start: "2024-01-02", train_end: "2025-09-30", test_start: "2025-10-01", test_end: "2025-12-31"},
+    {name: "2026q1", train_start: "2024-01-02", train_end: "2025-12-31", test_start: "2026-01-01", test_end: "2026-03-31"}
+  ],
+  final_holdout: {
+    train_start: "2024-01-02",
+    train_end: "2026-03-31",
+    test_start: "2026-04-01",
+    test_end: "2026-07-14",
+    top_k: 5
+  },
+  candidates: [
+    {
+      name: "image_cnn_huber_z_v1",
+      architecture: "image_cnn",
+      image: {height: 96, price_limit: 0.04},
+      features: {include_levels: true, include_shape: true, level_scale: 0.04, change_scale: 0.002, clip: 8.0},
+      model_params: {base_channels: 16, dropout: 0.15},
+      loss: {name: "huber_z", huber_beta: 0.5},
+      train: {batch_size: 128}
+    },
+    {
+      name: "cnn1d_huber_z_v1",
+      architecture: "cnn1d",
+      features: {include_levels: true, include_shape: true, level_scale: 0.04, change_scale: 0.002, clip: 8.0},
+      model_params: {channels: 48, depth: 4, kernel_size: 5, dropout: 0.1, recent_steps: 20},
+      loss: {name: "huber_z", huber_beta: 0.5}
+    },
+    {
+      name: "inception_huber_z_v1",
+      architecture: "inception",
+      features: {include_levels: true, include_shape: true, level_scale: 0.04, change_scale: 0.002, clip: 8.0},
+      model_params: {branch_channels: 16, depth: 3, kernels: [3, 7, 15], dropout: 0.1, recent_steps: 20},
+      loss: {name: "huber_z", huber_beta: 0.5}
+    },
+    {
+      name: "tcn_huber_z_v1",
+      architecture: "tcn",
+      features: {include_levels: true, include_shape: true, level_scale: 0.04, change_scale: 0.002, clip: 8.0},
+      model_params: {channels: 48, dilations: [1, 2, 4, 8, 16], kernel_size: 3, dropout: 0.1, recent_steps: 20},
+      loss: {name: "huber_z", huber_beta: 0.5}
+    },
+    {
+      name: "gru_huber_z_v1",
+      architecture: "gru",
+      features: {include_levels: true, include_shape: true, level_scale: 0.04, change_scale: 0.002, clip: 8.0},
+      model_params: {hidden_size: 64, num_layers: 2, dropout: 0.1, recent_steps: 20},
+      loss: {name: "huber_z", huber_beta: 0.5},
+      train: {batch_size: 128}
+    },
+    {
+      name: "transformer_huber_z_v1",
+      architecture: "transformer",
+      features: {include_levels: true, include_shape: true, level_scale: 0.04, change_scale: 0.002, clip: 8.0},
+      model_params: {d_model: 64, nhead: 4, num_layers: 2, dim_feedforward: 128, dropout: 0.1, recent_steps: 20},
+      loss: {name: "huber_z", huber_beta: 0.5},
+      train: {batch_size: 128}
+    },
+    {
+      name: "cnn1d_huber_rank_v1",
+      architecture: "cnn1d",
+      features: {include_levels: true, include_shape: true, level_scale: 0.04, change_scale: 0.002, clip: 8.0},
+      model_params: {channels: 48, depth: 4, kernel_size: 5, dropout: 0.1, recent_steps: 20},
+      loss: {name: "huber_rank", huber_beta: 0.3}
+    },
+    {
+      name: "cnn1d_listnet_v1",
+      architecture: "cnn1d",
+      features: {include_levels: true, include_shape: true, level_scale: 0.04, change_scale: 0.002, clip: 8.0},
+      model_params: {channels: 48, depth: 4, kernel_size: 5, dropout: 0.1, recent_steps: 20},
+      loss: {name: "listnet", target_temperature: 0.75, prediction_temperature: 1.0}
+    },
+    {
+      name: "cnn1d_hybrid_listnet_v1",
+      architecture: "cnn1d",
+      features: {include_levels: true, include_shape: true, level_scale: 0.04, change_scale: 0.002, clip: 8.0},
+      model_params: {channels: 48, depth: 4, kernel_size: 5, dropout: 0.1, recent_steps: 20},
+      loss: {name: "hybrid_listnet", target_temperature: 0.75, prediction_temperature: 1.0, point_weight: 0.2, huber_beta: 0.3}
+    },
+    {
+      name: "cnn1d_tail_pairwise_v1",
+      architecture: "cnn1d",
+      features: {include_levels: true, include_shape: true, level_scale: 0.04, change_scale: 0.002, clip: 8.0},
+      model_params: {channels: 48, depth: 4, kernel_size: 5, dropout: 0.1, recent_steps: 20},
+      loss: {name: "tail_pairwise", top_n: 20, point_weight: 0.2, huber_beta: 0.3}
+    },
+    {
+      name: "cnn1d_rank_shape_only_v1",
+      architecture: "cnn1d",
+      features: {include_levels: false, include_shape: true, level_scale: 0.04, change_scale: 0.002, clip: 8.0},
+      model_params: {channels: 48, depth: 4, kernel_size: 5, dropout: 0.1, recent_steps: 20},
+      loss: {name: "huber_rank", huber_beta: 0.3}
+    },
+    {
+      name: "cnn1d_rank_levels_only_v1",
+      architecture: "cnn1d",
+      features: {include_levels: true, include_shape: false, level_scale: 0.04, change_scale: 0.002, clip: 8.0},
+      model_params: {channels: 48, depth: 4, kernel_size: 5, dropout: 0.1, recent_steps: 20},
+      loss: {name: "huber_rank", huber_beta: 0.3}
+    },
+    {
+      name: "cnn1d_rank_degap_v1",
+      architecture: "cnn1d",
+      features: {include_levels: true, include_shape: true, first_return_mode: "body", level_scale: 0.04, change_scale: 0.002, clip: 8.0},
+      model_params: {channels: 48, depth: 4, kernel_size: 5, dropout: 0.1, recent_steps: 20},
+      loss: {name: "huber_rank", huber_beta: 0.3}
+    },
+    {
+      name: "cnn1d_rank_small_v1",
+      architecture: "cnn1d",
+      features: {include_levels: true, include_shape: true, level_scale: 0.04, change_scale: 0.002, clip: 8.0},
+      model_params: {channels: 32, depth: 3, kernel_size: 5, dropout: 0.1, recent_steps: 20},
+      loss: {name: "huber_rank", huber_beta: 0.3}
+    },
+    {
+      name: "cnn1d_rank_large_v1",
+      architecture: "cnn1d",
+      features: {include_levels: true, include_shape: true, level_scale: 0.04, change_scale: 0.002, clip: 8.0},
+      model_params: {channels: 64, depth: 4, kernel_size: 5, dropout: 0.1, recent_steps: 20},
+      loss: {name: "huber_rank", huber_beta: 0.3},
+      train: {batch_size: 192}
+    },
+    {
+      name: "cnn1d_rank_kernel3_v1",
+      architecture: "cnn1d",
+      features: {include_levels: true, include_shape: true, level_scale: 0.04, change_scale: 0.002, clip: 8.0},
+      model_params: {channels: 48, depth: 4, kernel_size: 3, dropout: 0.1, recent_steps: 20},
+      loss: {name: "huber_rank", huber_beta: 0.3}
+    },
+    {
+      name: "cnn1d_rank_kernel7_v1",
+      architecture: "cnn1d",
+      features: {include_levels: true, include_shape: true, level_scale: 0.04, change_scale: 0.002, clip: 8.0},
+      model_params: {channels: 48, depth: 4, kernel_size: 7, dropout: 0.1, recent_steps: 20},
+      loss: {name: "huber_rank", huber_beta: 0.3}
+    },
+    {
+      name: "cnn1d_rank_recent10_v1",
+      architecture: "cnn1d",
+      features: {include_levels: true, include_shape: true, level_scale: 0.04, change_scale: 0.002, clip: 8.0},
+      model_params: {channels: 48, depth: 4, kernel_size: 5, dropout: 0.1, recent_steps: 10},
+      loss: {name: "huber_rank", huber_beta: 0.3}
+    },
+    {
+      name: "cnn1d_shape_rank_seed7_v1",
+      architecture: "cnn1d",
+      features: {include_levels: false, include_shape: true, level_scale: 0.04, change_scale: 0.002, clip: 8.0},
+      model_params: {channels: 48, depth: 4, kernel_size: 5, dropout: 0.1, recent_steps: 20},
+      loss: {name: "huber_rank", huber_beta: 0.3},
+      train: {seed: 7}
+    },
+    {
+      name: "cnn1d_shape_rank_seed123_v1",
+      architecture: "cnn1d",
+      features: {include_levels: false, include_shape: true, level_scale: 0.04, change_scale: 0.002, clip: 8.0},
+      model_params: {channels: 48, depth: 4, kernel_size: 5, dropout: 0.1, recent_steps: 20},
+      loss: {name: "huber_rank", huber_beta: 0.3},
+      train: {seed: 123}
+    },
+    {
+      name: "cnn1d_shape_rank_epochs2_v1",
+      architecture: "cnn1d",
+      features: {include_levels: false, include_shape: true, level_scale: 0.04, change_scale: 0.002, clip: 8.0},
+      model_params: {channels: 48, depth: 4, kernel_size: 5, dropout: 0.1, recent_steps: 20},
+      loss: {name: "huber_rank", huber_beta: 0.3},
+      train: {num_epochs: 2}
+    },
+    {
+      name: "cnn1d_shape_rank_epochs4_v1",
+      architecture: "cnn1d",
+      features: {include_levels: false, include_shape: true, level_scale: 0.04, change_scale: 0.002, clip: 8.0},
+      model_params: {channels: 48, depth: 4, kernel_size: 5, dropout: 0.1, recent_steps: 20},
+      loss: {name: "huber_rank", huber_beta: 0.3},
+      train: {num_epochs: 4}
+    },
+    {
+      name: "cnn1d_shape_rank_lr5e4_v1",
+      architecture: "cnn1d",
+      features: {include_levels: false, include_shape: true, level_scale: 0.04, change_scale: 0.002, clip: 8.0},
+      model_params: {channels: 48, depth: 4, kernel_size: 5, dropout: 0.1, recent_steps: 20},
+      loss: {name: "huber_rank", huber_beta: 0.3},
+      train: {lr: 0.0005}
+    },
+    {
+      name: "cnn1d_shape_rank_lr2e3_v1",
+      architecture: "cnn1d",
+      features: {include_levels: false, include_shape: true, level_scale: 0.04, change_scale: 0.002, clip: 8.0},
+      model_params: {channels: 48, depth: 4, kernel_size: 5, dropout: 0.1, recent_steps: 20},
+      loss: {name: "huber_rank", huber_beta: 0.3},
+      train: {lr: 0.002}
+    },
+    {
+      name: "cnn1d_shape_rank_dropout2_v1",
+      architecture: "cnn1d",
+      features: {include_levels: false, include_shape: true, level_scale: 0.04, change_scale: 0.002, clip: 8.0},
+      model_params: {channels: 48, depth: 4, kernel_size: 5, dropout: 0.2, recent_steps: 20},
+      loss: {name: "huber_rank", huber_beta: 0.3}
+    },
+    {
+      name: "cnn1d_shape_rank_small_v1",
+      architecture: "cnn1d",
+      features: {include_levels: false, include_shape: true, level_scale: 0.04, change_scale: 0.002, clip: 8.0},
+      model_params: {channels: 32, depth: 3, kernel_size: 5, dropout: 0.1, recent_steps: 20},
+      loss: {name: "huber_rank", huber_beta: 0.3}
+    },
+    {
+      name: "cnn1d_shape_small_lr5e4_v1",
+      architecture: "cnn1d",
+      features: {include_levels: false, include_shape: true, level_scale: 0.04, change_scale: 0.002, clip: 8.0},
+      model_params: {channels: 32, depth: 3, kernel_size: 5, dropout: 0.1, recent_steps: 20},
+      loss: {name: "huber_rank", huber_beta: 0.3},
+      train: {lr: 0.0005}
+    },
+    {
+      name: "cnn1d_shape_small_dropout2_v1",
+      architecture: "cnn1d",
+      features: {include_levels: false, include_shape: true, level_scale: 0.04, change_scale: 0.002, clip: 8.0},
+      model_params: {channels: 32, depth: 3, kernel_size: 5, dropout: 0.2, recent_steps: 20},
+      loss: {name: "huber_rank", huber_beta: 0.3}
+    },
+    {
+      name: "cnn1d_shape_lr5e4_dropout2_v1",
+      architecture: "cnn1d",
+      features: {include_levels: false, include_shape: true, level_scale: 0.04, change_scale: 0.002, clip: 8.0},
+      model_params: {channels: 48, depth: 4, kernel_size: 5, dropout: 0.2, recent_steps: 20},
+      loss: {name: "huber_rank", huber_beta: 0.3},
+      train: {lr: 0.0005}
+    },
+    {
+      name: "cnn1d_shape_small_lr5e4_dropout2_v1",
+      architecture: "cnn1d",
+      features: {include_levels: false, include_shape: true, level_scale: 0.04, change_scale: 0.002, clip: 8.0},
+      model_params: {channels: 32, depth: 3, kernel_size: 5, dropout: 0.2, recent_steps: 20},
+      loss: {name: "huber_rank", huber_beta: 0.3},
+      train: {lr: 0.0005}
+    },
+    {
+      name: "cnn1d_shape_mid_lr5e4_v1",
+      architecture: "cnn1d",
+      features: {include_levels: false, include_shape: true, level_scale: 0.04, change_scale: 0.002, clip: 8.0},
+      model_params: {channels: 40, depth: 3, kernel_size: 5, dropout: 0.1, recent_steps: 20},
+      loss: {name: "huber_rank", huber_beta: 0.3},
+      train: {lr: 0.0005}
+    }
+  ]
+}

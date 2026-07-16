@@ -1,0 +1,87 @@
+{
+  model_name: "kline_cwt_cnn_morning_v1",
+  model_type: "kline_time_frequency_cnn",
+
+  split: {
+    train_start: "2024-01-02",
+    train_end: "2025-06-30",
+    valid_start: "2025-07-01",
+    valid_end: "2025-09-30",
+    test_start: "2025-10-01",
+    test_end: "2026-07-14"
+  },
+
+  data: {
+    source_mode: "clean_snapshot",
+    kline_root: {
+      windows: "D:/cbond_data_hub/clean_data/snapshot/cbond",
+      linux: "/mnt/cbond_data_hub_ro/clean_data/snapshot/cbond"
+    },
+    morning_start: "09:30",
+    morning_end_exclusive: "11:30",
+    buy_start: "13:00",
+    buy_end_exclusive: "13:05",
+    sell_start: "14:50",
+    sell_end_exclusive: "14:57",
+    session_end_exclusive: "15:00",
+    min_morning_bars: 110,
+    min_buy_bars: 3,
+    min_sell_bars: 4,
+    allowlist: {
+      enabled: true,
+      table: "quant_factor_dev.researcher_xuvb.o_0005",
+      lag_trading_days: 1,
+      asset: "cbond",
+      flag_field: "factor_value",
+      fallback_field: "weight",
+      threshold: 0.0
+    }
+  },
+
+  representation: {
+    mode: "cwt",
+    num_scales: 16,
+    min_period: 2.0,
+    max_period: 48.0,
+    omega0: 6.0,
+    pad: 60,
+    return_scale: 0.002,
+    clip: 8.0
+  },
+
+  model_params: {
+    base_channels: 16,
+    dropout: 0.15
+  },
+
+  train: {
+    device: "cpu",
+    prep_workers: 4,
+    torch_threads: 8,
+    batch_size: 128,
+    num_epochs: 4,
+    early_stopping_patience: 2,
+    lr: 0.001,
+    weight_decay: 0.0001,
+    huber_beta: 0.5,
+    grad_clip_norm: 1.0,
+    seed: 42
+  },
+
+  data_cache: {
+    path: {
+      windows: "D:/cbond_on/results/analysis/kline_time_frequency_cache/morning_20240102_20260714_v1.npz",
+      linux: "/home/gswzif/cbond_on_runtime/results/analysis/kline_time_frequency_cache/morning_20240102_20260714_v1.npz"
+    }
+  },
+  top_k: 20,
+  sample_image_count: 8,
+  results_root: {
+    windows: "D:/cbond_on/results/analysis/kline_cwt_cnn_morning_v1",
+    linux: "/home/gswzif/cbond_on_runtime/results/analysis/kline_cwt_cnn_morning_v1"
+  },
+  score_output: {
+    windows: "D:/cbond_on/results/scores/kline_time_frequency/kline_cwt_cnn_morning_v1",
+    linux: "/home/gswzif/cbond_on_runtime/results/scores/kline_time_frequency/kline_cwt_cnn_morning_v1"
+  }
+}
