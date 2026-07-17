@@ -5,7 +5,7 @@
     <title>CBOND_ON 实盘控制台</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="/static/style.css?v=20260717_day_notes3" rel="stylesheet">
+    <link href="/static/style.css?v=20260717_layout8" rel="stylesheet">
   </head>
   <body>
     <div class="container-fluid dashboard-shell">
@@ -84,6 +84,20 @@
               <div id="model-view-meta" class="model-view-meta">当前展示最终实际交易清单。</div>
             </div>
 
+            <div class="day-notes-inline">
+              <div class="day-notes-main">
+                <div class="day-notes-inline-head">
+                  <span class="day-notes-title">交易日留言</span>
+                  <span id="day-notes-meta" class="day-notes-meta">按所选交易日记录复盘备注。</span>
+                </div>
+                <div id="day-notes-list" class="day-notes-list"></div>
+              </div>
+              <div class="day-notes-form">
+                <textarea id="day-note-input" class="form-control form-control-sm" rows="2" maxlength="1000" placeholder="记录今日数据、异常、复盘结论..."></textarea>
+                <button id="btn-day-note-add" class="btn btn-sm btn-outline-primary" type="button">添加留言</button>
+              </div>
+            </div>
+
             <ul class="nav nav-tabs compact-tabs" role="tablist">
               <li class="nav-item" role="presentation">
                 <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-holdings" type="button" role="tab">当前持仓</button>
@@ -150,20 +164,6 @@
             </div>
             <div id="alert-summary" class="alert-summary"></div>
             <div id="recent-events" class="recent-events"></div>
-          </section>
-
-          <section class="panel-card day-notes-card">
-            <div class="panel-head">
-              <div>
-                <h5 class="mb-0">交易日留言</h5>
-                <div id="day-notes-meta" class="panel-subtitle">按所选交易日记录复盘备注。</div>
-              </div>
-            </div>
-            <div id="day-notes-list" class="day-notes-list"></div>
-            <div class="day-notes-form">
-              <textarea id="day-note-input" class="form-control form-control-sm" rows="3" maxlength="1000" placeholder="记录今日数据、异常、复盘结论..."></textarea>
-              <button id="btn-day-note-add" class="btn btn-sm btn-outline-primary" type="button">添加留言</button>
-            </div>
           </section>
 
         </div>
@@ -297,6 +297,6 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/axios@1.7.7/dist/axios.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
-    <script src="/static/app.js?v=20260717_day_notes3"></script>
+    <script src="/static/app.js?v=20260717_layout8"></script>
   </body>
 </html>
