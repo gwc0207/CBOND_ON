@@ -9,9 +9,11 @@
   pool_lag_trading_days: 1,
   pool_asset: "cbond",
 
-  // Strict benchmark return windows. window_data_root is mapped to sibling from_snapshot at runtime.
-  use_window_data: true,
-  window_data_root: "\\\\nfs\\10.1.30.100\\data\\yinhe-data\\kline\\cbond\\window-data",
+  // Strict benchmark return windows.
+  // Default must consume local DataHub daily_twap only. Legacy NFS window-data
+  // is allowed only through an explicit research-only config, never by default.
+  use_window_data: false,
+  window_data_root: "",
   buy_twap_col: "twap_1442_1457",
   sell_twap_col: "twap_0930_0939",
 

@@ -28,6 +28,24 @@ def _pool_cfg() -> BenchmarkPoolConfig:
     )
 
 
+def test_default_benchmark_config_uses_local_daily_twap(monkeypatch) -> None:
+    def fake_load_config_file(key: str):
+        assert key == "benchmark"
+        return {
+            "method": "strict_official_prev_close_split",
+            "pool_table": "quant_factor_dev.researcher_xuvb.o_0005",
+            "buy_twap_col": "twap_1442_1457",
+            "sell_twap_col": "twap_0930_0939",
+        }
+
+    monkeypatch.setattr(service, "load_config_file", fake_load_config_file)
+
+    cfg = service.load_benchmark_pool_config()
+
+    assert cfg.use_window_data is False
+    assert cfg.window_data_root == ""
+
+
 def test_strict_cycle_detail_compounds_buy_and_sell_legs(monkeypatch) -> None:
     buy_holdings = pd.DataFrame(
         {

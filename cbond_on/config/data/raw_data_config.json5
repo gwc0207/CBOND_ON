@@ -4,19 +4,21 @@
   refresh: false,
   overwrite: false,
   assets: ["cbond"],
-  sync_snapshot: true,
-  sync_kline: true,
+  // Legacy raw sync is disabled in CBOND_ON. Raw/clean production is owned by
+  // CBOND_DATA_HUB; this project only consumes D:/cbond_data_hub artifacts.
+  sync_snapshot: false,
+  sync_kline: false,
   full_if_empty: true,
-  mode: "both",
+  mode: "datahub_consumer",
   source: {
     history: {
-      nfs_required: true,
+      nfs_required: false,
       db_optional: true
     },
     intraday: {
-      type: "redis_snapshot",
+      type: "datahub_consumer",
       asset: "cbond",
-      incremental: true
+      incremental: false
     }
   },
   data: {
@@ -42,7 +44,7 @@
     ]
   },
   nfs: {
-    nfs_root: "\\\\nfs\\999.999@10.1.30.100\\data",
-    base_dir: "yinhe-data/snapshot/cbond/raw_data"
+    nfs_root: "",
+    base_dir: ""
   }
 }

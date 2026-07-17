@@ -47,6 +47,10 @@ const modelViewMeta = el("model-view-meta");
 const modelSelectionStrip = el("model-selection-strip");
 const modelPeriodTable = el("model-period-table");
 const configMode = el("config-mode");
+const dayNotesMeta = el("day-notes-meta");
+const dayNotesList = el("day-notes-list");
+const dayNoteInput = el("day-note-input");
+const dayNoteAddBtn = el("btn-day-note-add");
 
 let perfNavChart = null;
 let returnDistributionChart = null;
@@ -141,6 +145,10 @@ function refreshModelDayCompareOnce(options = {}) {
 
 function refreshDataCalendarOnce(options = {}) {
   return runDashboardRefresh("data_calendar", refreshDataCalendar, options);
+}
+
+function refreshDayNotesOnce(options = {}) {
+  return runDashboardRefresh("day_notes", refreshDayNotes, options);
 }
 
 function markTradeFilterDirty() {
@@ -689,6 +697,63 @@ async function refreshLogsSafe() {
   }
 }
 
+function renderDayNotes(day, notes) {
+  if (!dayNotesList) return;
+  const items = Array.isArray(notes) ? notes : [];
+  if (dayNotesMeta) {
+    dayNotesMeta.textContent = `${tradeDayLabel(day)} · ${items.length} 条留言`;
+  }
+  if (!items.length) {
+    dayNotesList.innerHTML = `<div class="empty-mini">暂无留言。</div>`;
+    return;
+  }
+  dayNotesList.innerHTML = items
+    .slice()
+    .reverse()
+    .map((note) => `
+      <div class="day-note-item">
+        <div class="day-note-head">
+          <span>${escapeHtml(note.author || "本地")}</span>
+          <span>${escapeHtml(String(note.time || "").replace("T", " "))}</span>
+        </div>
+        <div class="day-note-text">${escapeHtml(note.text || "")}</div>
+      </div>
+    `)
+    .join("");
+}
+
+async function refreshDayNotes() {
+  if (!dayNotesList) return;
+  const selectedDay = logDaySelect && logDaySelect.value ? logDaySelect.value : "";
+  const res = await axios.get("/api/day_notes", { params: selectedDay ? { day: selectedDay } : {} });
+  renderDayNotes(res.data.day || selectedDay || "", res.data.notes || []);
+}
+
+async function addDayNote() {
+  if (!dayNoteInput || !dayNoteAddBtn) return;
+  const text = dayNoteInput.value.trim();
+  if (!text) {
+    dayNoteInput.focus();
+    return;
+  }
+  const selectedDay = logDaySelect && logDaySelect.value ? logDaySelect.value : "";
+  const prevText = dayNoteAddBtn.textContent;
+  dayNoteAddBtn.disabled = true;
+  dayNoteAddBtn.textContent = "保存中...";
+  try {
+    const res = await axios.post("/api/day_notes", { day: selectedDay, text });
+    dayNoteInput.value = "";
+    renderDayNotes(res.data.day || selectedDay || "", res.data.notes || []);
+  } catch (err) {
+    if (dayNotesMeta) {
+      dayNotesMeta.textContent = `留言保存失败：${err?.response?.data?.error || err?.message || err}`;
+    }
+  } finally {
+    dayNoteAddBtn.disabled = false;
+    dayNoteAddBtn.textContent = prevText || "添加留言";
+  }
+}
+
 async function loadLogDays() {
   if (!logDaySelect) return;
   const prev = logDaySelect.value;
@@ -727,6 +792,7 @@ async function refreshBySelectedDay() {
     refreshModelDayCompareOnce({ queue: true }),
     refreshPerformanceOnce({ queue: true }),
     refreshDataCalendarOnce({ queue: true }),
+    refreshDayNotesOnce({ queue: true }),
     refreshLiveStatusOnce({ queue: true }),
   ]);
 }
@@ -2177,6 +2243,20 @@ if (logDaySelect) {
   logDaySelect.addEventListener("change", () => {
     calendarSelectedDay = normalizeDay(logDaySelect.value);
     markTradeFilterDirty();
+    refreshDayNotesOnce({ queue: true });
+  });
+}
+
+if (dayNoteAddBtn) {
+  dayNoteAddBtn.addEventListener("click", () => addDayNote());
+}
+
+if (dayNoteInput) {
+  dayNoteInput.addEventListener("keydown", (evt) => {
+    if ((evt.ctrlKey || evt.metaKey) && evt.key === "Enter") {
+      evt.preventDefault();
+      addDayNote();
+    }
   });
 }
 
@@ -2283,6 +2363,7 @@ async function bootstrapDashboard() {
   queueDashboardRefresh(() => refreshModelDayCompareOnce({ queue: true }));
   queueDashboardRefresh(() => refreshDataCalendarOnce({ queue: true }));
   queueDashboardRefresh(() => refreshPerformanceOnce({ queue: true }));
+  queueDashboardRefresh(() => refreshDayNotesOnce({ queue: true }));
 }
 
 bootstrapDashboard();

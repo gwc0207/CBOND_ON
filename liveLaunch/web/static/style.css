@@ -367,8 +367,7 @@ body {
 
 .side-stack {
   display: flex;
-  height: var(--top-workspace-height);
-  min-height: 0;
+  min-height: var(--top-workspace-height);
   flex-direction: column;
   gap: 14px;
 }
@@ -1906,6 +1905,76 @@ body {
 .position-compare-table tbody tr:hover td {
   border-color: #dbe8f8;
   background: #f8fbff;
+}
+
+.day-notes-card {
+  border-left: 4px solid #2563eb;
+  flex: 0 0 auto;
+  min-height: 0;
+  padding: 12px 14px;
+}
+
+.day-notes-card .panel-head {
+  margin-bottom: 8px;
+}
+
+.day-notes-card .panel-head h5 {
+  font-size: 16px;
+}
+
+.day-notes-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 88px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.day-note-item {
+  border: 1px solid #dfe5ee;
+  border-radius: 7px;
+  background: #f8fafc;
+  padding: 7px 8px;
+}
+
+.day-note-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: #64748b;
+  font-size: 11px;
+  margin-bottom: 4px;
+}
+
+.day-note-text {
+  color: #1f2937;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.day-notes-form {
+  display: grid;
+  gap: 7px;
+  margin-top: 8px;
+}
+
+.day-notes-form textarea {
+  height: 52px;
+  min-height: 52px;
+  resize: none;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.day-notes-form .btn {
+  justify-self: end;
+  min-width: 92px;
+  min-height: 30px;
+  padding: 4px 10px;
+  font-size: 12px;
 }
 
 .coverage-summary {

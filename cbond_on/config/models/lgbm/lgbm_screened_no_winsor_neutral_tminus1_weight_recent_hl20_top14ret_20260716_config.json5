@@ -1,0 +1,38 @@
+{
+  modules: ["models/lgbm/lgbm_screened_no_winsor_neutral_tminus1_weight_recent_hl20_20260625"],
+
+  model_name: "lgbm_screened_no_winsor_neutral_tminus1_weight_recent_hl20_top14ret_20260716",
+  score_output: {
+    windows: "D:/cbond_on/results/scores/lgbm_screened_no_winsor_neutral_tminus1_weight_recent_hl20_top14ret_20260716",
+    linux: "/home/gswzif/cbond_on_runtime/results/scores/lgbm_screened_no_winsor_neutral_tminus1_weight_recent_hl20_top14ret_20260716"
+  },
+  incremental: {
+    enabled: true,
+    skip_existing_scores: true,
+    warm_start: true,
+    save_state: true,
+    state_dir: "D:/cbond_on/results/model_state/lgbm_screened_no_winsor_neutral_tminus1_weight_recent_hl20_top14ret_20260716"
+  },
+
+  factors: [
+    "cb_overnight_return_mean_60d",
+    "cb_overnight_return_mean_40d",
+    "cb_overnight_return_mean_10d",
+    "cb_overnight_return_mean_5d",
+    "alpha019_close_momentum_sign_v1",
+    "cb_overnight_return_mean_20d",
+    "range_30m",
+    "alpha001_signed_power_v1",
+    "amount_30m",
+    "alpha024_close_trend_filter_v1",
+    "vol_30m",
+    "volume_30m",
+    "alpha041_geometric_mean_vwap_v1",
+    "premium_momentum_proxy_v1"
+  ],
+  experiment: {
+    id: "lgbm_factor_prune_20260716",
+    trial: "drop_bottom_13_by_single_factor_bestbin_return_keep_top14",
+    description: "Keep the top 14 of the live 27 factors ranked by single-factor best-bin total return from batch 20260709_165557."
+  }
+}

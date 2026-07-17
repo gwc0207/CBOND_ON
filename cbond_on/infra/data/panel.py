@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from bisect import bisect_right
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime, time
 from pathlib import Path
 from typing import Any, Optional
@@ -14,7 +14,11 @@ from cbond_on.core.schedule import IntradaySchedule
 from cbond_on.core.utils import progress
 from cbond_on.core.trading_days import list_trading_days_from_raw
 from cbond_on.core.naming import make_window_label
-from cbond_on.infra.benchmark.service import compute_strict_sell_detail_for_holdings, load_strict_market_day
+from cbond_on.infra.benchmark.service import (
+    compute_strict_sell_detail_for_holdings,
+    load_benchmark_pool_config,
+    load_strict_market_day,
+)
 from .io import read_table_range
 from .snapshot_loader import SnapshotLoader, SnapshotPanel
 
@@ -1134,6 +1138,7 @@ def _build_day_labels_twap(
 
     close_window = label_cfg.get("close_window", {})
     close_start_dt = datetime.combine(day, _parse_hhmm(close_window.get("start", "14:42")))
+    pool_cfg = replace(load_benchmark_pool_config(), use_window_data=False)
 
     try:
         buy_market = load_strict_market_day(
@@ -1141,6 +1146,7 @@ def _build_day_labels_twap(
             trade_day=day,
             buy_bps=0.0,
             sell_bps=0.0,
+            pool_cfg=pool_cfg,
         )
     except Exception:
         return pd.DataFrame()
@@ -1156,6 +1162,7 @@ def _build_day_labels_twap(
             sell_day=next_day,
             prev_holdings=prev_holdings,
             sell_bps=0.0,
+            pool_cfg=pool_cfg,
         )
     except Exception:
         return pd.DataFrame()

@@ -66,6 +66,7 @@ _MODEL_OVERVIEW_CACHE: dict = {"key": None, "ts": 0.0, "payload": None}
 _MODEL_OVERVIEW_CACHE_LOCK = threading.Lock()
 _MODEL_DAY_COMPARE_CACHE: dict = {"key": None, "ts": 0.0, "payload": None}
 _MODEL_DAY_COMPARE_CACHE_LOCK = threading.Lock()
+_DAY_NOTES_LOCK = threading.Lock()
 HEARTBEAT_STALE_SECONDS = 120
 LIVE_STATUS_API_VERSION = 1
 _TWAP_COL_RE = re.compile(r"^twap_\d{4}_\d{4}$")
@@ -88,6 +89,16 @@ def _normalize_twap_col(value: str | None, *, fallback: str) -> str:
     if text and _TWAP_COL_RE.match(text):
         return text
     return str(fallback).strip()
+
+
+def _dashboard_pool_config(*, buy_col: str, sell_col: str):
+    """Dashboard复盘只读本地 DataHub daily_twap，避免 UI 被 NFS window-data 卡住。"""
+    return replace(
+        load_benchmark_pool_config(),
+        buy_twap_col=buy_col,
+        sell_twap_col=sell_col,
+        use_window_data=False,
+    )
 
 
 def _process_cache_loop() -> None:
@@ -445,11 +456,7 @@ def _read_holdings(day: str | None = None, *, sell_col_override: str | None = No
     cycle_error = ""
     if next_day is not None and next_day <= today:
         try:
-            pool_cfg = replace(
-                load_benchmark_pool_config(),
-                buy_twap_col=buy_col,
-                sell_twap_col=sell_col,
-            )
+            pool_cfg = _dashboard_pool_config(buy_col=buy_col, sell_col=sell_col)
             buy_holdings = build_strict_buy_holdings_from_selection(
                 raw_data_root=raw_root,
                 buy_day=trade_day,
@@ -1232,11 +1239,7 @@ def _candidate_cycle_rows(
     cycle_error = ""
     if sell_day is not None and sell_day <= today and not picks.empty:
         try:
-            pool_cfg = replace(
-                load_benchmark_pool_config(),
-                buy_twap_col=buy_col,
-                sell_twap_col=sell_col,
-            )
+            pool_cfg = _dashboard_pool_config(buy_col=buy_col, sell_col=sell_col)
             buy_holdings = build_strict_buy_holdings_from_selection(
                 raw_data_root=raw_data_root,
                 buy_day=buy_day,
@@ -1493,11 +1496,7 @@ def _build_single_day_benchmark(
     if trade_day is None or next_day is None:
         return {"available": False, "error": "missing_trade_or_sell_day"}
     try:
-        pool_cfg = replace(
-            load_benchmark_pool_config(),
-            buy_twap_col=buy_col,
-            sell_twap_col=sell_col,
-        )
+        pool_cfg = _dashboard_pool_config(buy_col=buy_col, sell_col=sell_col)
         detail = compute_benchmark_cycle_detail_for_day(
             raw_data_root=raw_data_root,
             buy_day=trade_day,
@@ -1623,11 +1622,7 @@ def _build_perf_summary(
         if prev is None or str(ctx.get("path", "")) > str(prev.get("path", "")):
             context_by_buy_day[buy_day] = ctx
     candidates = sorted(context_by_buy_day.keys())[-lookback:]
-    benchmark_cfg = replace(
-        load_benchmark_pool_config(),
-        buy_twap_col=buy_col,
-        sell_twap_col=sell_col,
-    )
+    benchmark_cfg = _dashboard_pool_config(buy_col=buy_col, sell_col=sell_col)
 
     rows: list[dict] = []
     for trade_day in candidates:
@@ -1892,6 +1887,66 @@ def _audit_dashboard_action(
             fp.write(json.dumps(record, ensure_ascii=False) + "\n")
     except Exception:
         return
+
+
+def _day_notes_path() -> Path:
+    return _results_live_root() / "scheduler" / "dashboard_notes.json"
+
+
+def _read_day_notes_store() -> dict:
+    path = _day_notes_path()
+    if not path.exists():
+        return {"days": {}}
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {"days": {}}
+    if not isinstance(raw, dict):
+        return {"days": {}}
+    days = raw.get("days")
+    if not isinstance(days, dict):
+        raw["days"] = {}
+    return raw
+
+
+def _write_day_notes_store(store: dict) -> None:
+    path = _day_notes_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(store, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp.replace(path)
+
+
+def _day_notes_for(day: str) -> list[dict]:
+    store = _read_day_notes_store()
+    notes = store.get("days", {}).get(day, [])
+    if not isinstance(notes, list):
+        return []
+    return [item for item in notes if isinstance(item, dict)]
+
+
+def _append_day_note(*, day: str, text: str, author: str = "") -> dict:
+    note_text = str(text or "").strip()
+    if not note_text:
+        raise ValueError("note text is empty")
+    if len(note_text) > 1000:
+        raise ValueError("note text is too long")
+    note = {
+        "id": f"{datetime.now():%Y%m%d%H%M%S%f}",
+        "time": datetime.now().isoformat(timespec="seconds"),
+        "author": str(author or "本地").strip()[:40] or "本地",
+        "text": note_text,
+    }
+    with _DAY_NOTES_LOCK:
+        store = _read_day_notes_store()
+        days = store.setdefault("days", {})
+        items = days.setdefault(day, [])
+        if not isinstance(items, list):
+            items = []
+            days[day] = items
+        items.append(note)
+        _write_day_notes_store(store)
+    return note
 
 
 def _live_cfg_path() -> Path:
@@ -2717,6 +2772,35 @@ def create_app() -> Flask:
             return jsonify({"path": "", "lines": [], "day": day, "error": "invalid day"}), 400
         path, lines = _read_latest_log(day=day)
         return jsonify({"path": path, "lines": lines})
+
+    @app.route("/api/day_notes", methods=["GET", "POST"])
+    def api_day_notes():
+        if request.method == "GET":
+            raw_day = request.args.get("day", "").strip() or _today_day_tag()
+            try:
+                day = _to_iso_day_tag(raw_day)
+            except ValueError:
+                return jsonify({"day": raw_day, "notes": [], "error": "invalid day"}), 400
+            with _DAY_NOTES_LOCK:
+                notes = _day_notes_for(day)
+            return jsonify({"day": day, "notes": notes})
+
+        payload = request.get_json(silent=True) or {}
+        raw_day = str(payload.get("day") or request.form.get("day") or _today_day_tag()).strip()
+        try:
+            day = _to_iso_day_tag(raw_day)
+        except ValueError:
+            return jsonify({"day": raw_day, "error": "invalid day"}), 400
+        try:
+            note = _append_day_note(
+                day=day,
+                text=str(payload.get("text") or request.form.get("text") or ""),
+                author=str(payload.get("author") or request.form.get("author") or ""),
+            )
+        except ValueError as exc:
+            return jsonify({"day": day, "error": str(exc)}), 400
+        _audit_dashboard_action("day_note_add", result="success", extra={"day": day})
+        return jsonify({"day": day, "note": note, "notes": _day_notes_for(day)})
 
     @app.get("/api/holdings")
     def api_holdings():

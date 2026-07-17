@@ -60,13 +60,8 @@ def load_benchmark_pool_config(cfg: dict | None = None) -> BenchmarkPoolConfig:
         pool_table=str(raw.get("pool_table", "quant_factor_dev.researcher_xuvb.o_0005")),
         buy_twap_col=str(raw.get("buy_twap_col", "twap_1442_1457")),
         sell_twap_col=str(raw.get("sell_twap_col", "twap_0930_0939")),
-        use_window_data=bool(raw.get("use_window_data", True)),
-        window_data_root=str(
-            raw.get(
-                "window_data_root",
-                r"\\nfs\10.1.30.100\data\yinhe-data\kline\cbond\window-data",
-            )
-        ),
+        use_window_data=bool(raw.get("use_window_data", False)),
+        window_data_root=str(raw.get("window_data_root", "")),
         min_price=normalize_price_bound(raw.get("min_price", 0.0)),
         max_price=normalize_price_bound(raw.get("max_price")),
         positive_field=str(raw.get("positive_field", "factor_value")),
@@ -167,6 +162,8 @@ def _read_window_twap_daily(
     *,
     twap_cols: Sequence[str] | None = None,
 ) -> pd.DataFrame:
+    if not str(cfg.window_data_root or "").strip():
+        raise RuntimeError("benchmark window_data_root is required when use_window_data=true")
     cols = [str(c).strip() for c in (twap_cols or [cfg.buy_twap_col, cfg.sell_twap_col]) if str(c).strip()]
     windows = []
     for col in cols:
@@ -803,11 +800,12 @@ def _build_next_day_map(
     *,
     raw_data_root: str | Path,
     trade_days: Iterable[date],
+    pool_cfg: BenchmarkPoolConfig | None = None,
 ) -> dict[date, date]:
     wanted = sorted(set(trade_days))
     if not wanted:
         return {}
-    cfg = load_benchmark_pool_config()
+    cfg = pool_cfg or load_benchmark_pool_config()
     all_days = _available_trade_days(raw_data_root, cfg)
     pos_map = {d: i for i, d in enumerate(all_days)}
     out: dict[date, date] = {}
@@ -842,7 +840,7 @@ def compute_benchmark_breakdowns_for_days(
     )
 
     try:
-        next_day_map = _build_next_day_map(raw_data_root=raw_data_root, trade_days=days)
+        next_day_map = _build_next_day_map(raw_data_root=raw_data_root, trade_days=days, pool_cfg=cfg)
     except Exception:
         if not skip_failed_days:
             raise

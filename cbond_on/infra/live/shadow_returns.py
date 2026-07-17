@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import date
 from pathlib import Path
 
@@ -14,6 +14,7 @@ from cbond_on.infra.benchmark.service import (
     build_strict_buy_holdings_from_selection,
     compute_benchmark_breakdowns_for_days,
     compute_strict_cycle_detail_for_holdings,
+    load_benchmark_pool_config,
     load_strict_market_day,
 )
 from cbond_on.infra.model.score_io import load_scores_by_date
@@ -105,11 +106,13 @@ def _build_shadow_daily_returns(
     scores = load_scores_by_date(score_path)
     buy_cost_bps, sell_cost_bps, _ = load_fees_buy_sell_bps()
     pool_cfg = load_upstream_pool_config(allowlist_cfg or None)
+    benchmark_pool_cfg = replace(load_benchmark_pool_config(), use_window_data=False)
     benchmark_daily = compute_benchmark_breakdowns_for_days(
         raw_data_root=raw_data_root,
         trade_days=loop_days,
         buy_bps=buy_cost_bps,
         sell_bps=sell_cost_bps,
+        pool_cfg=benchmark_pool_cfg,
         skip_failed_days=True,
     )
     benchmark_by_day: dict[date, pd.Series] = {}
@@ -135,6 +138,7 @@ def _build_shadow_daily_returns(
                 trade_day=day,
                 buy_bps=buy_cost_bps,
                 sell_bps=sell_cost_bps,
+                pool_cfg=benchmark_pool_cfg,
             )
         except Exception:
             continue
@@ -184,6 +188,7 @@ def _build_shadow_daily_returns(
             buy_day=day,
             selection=picks,
             buy_bps=buy_cost_bps,
+            pool_cfg=benchmark_pool_cfg,
             normalize=True,
         )
         if picks.empty:
@@ -196,6 +201,7 @@ def _build_shadow_daily_returns(
             sell_day=next_day,
             buy_holdings=picks,
             sell_bps=sell_cost_bps,
+            pool_cfg=benchmark_pool_cfg,
         )
         cycle_detail = cycle_detail[pd.to_numeric(cycle_detail["return_net"], errors="coerce").notna()].copy()
         if cycle_detail.empty:
