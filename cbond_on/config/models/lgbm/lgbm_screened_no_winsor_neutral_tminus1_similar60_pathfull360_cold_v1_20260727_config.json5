@@ -1,0 +1,51 @@
+{
+  modules: ["models/lgbm/lgbm_screened_no_winsor_neutral_tminus1_refit1_202401_rerun_20260623"],
+
+  // Research-only. It does not participate in live model selection or publication.
+  model_name: "lgbm_screened_no_winsor_neutral_tminus1_similar60_pathfull360_cold_v1_20260727",
+  start: "2025-10-30",
+  end: "2026-07-24",
+  score_output: {
+    windows: "D:/cbond_on/results/experiments/similar60_pathfull360_20260727/scores/similar60_cold",
+    linux: "/home/gswzif/cbond_on_runtime/results/experiments/similar60_pathfull360_20260727/scores/similar60_cold"
+  },
+  score_overwrite: true,
+  incremental: {
+    enabled: false,
+    skip_existing_scores: false,
+    warm_start: false,
+    save_state: false
+  },
+  rolling: {
+    enabled: true,
+    // Retained only for normal runner compatibility; Similar60 supplies its own train/validation days.
+    window_days: 60
+  },
+  feature_engineering: {
+    similar_day_training: {
+      enabled: true,
+      state_feature_path: {
+        // Research copy: incomplete/missing target-day rows are rebuilt from the same clean snapshots.
+        windows: "D:/cbond_on/results/experiments/similar60_pathfull360_20260727/state/t1430_market_state_features_pathfull_repaired.csv",
+        linux: "/home/gswzif/cbond_on_runtime/results/experiments/similar60_pathfull360_20260727/state/t1430_market_state_features_pathfull_repaired.csv"
+      },
+      feature_set: "path_full_t1430",
+      candidate_lookback_days: 360,
+      // Read extra eligible days so the effective state pool can remain 360 after source gaps.
+      candidate_buffer_days: 40,
+      train_top_k: 60,
+      validation_top_k: 20,
+      min_candidate_days: 80,
+      selection_mode: "nearest",
+      // A small number of historical days have irrecoverable intraday state gaps.
+      // They are retained only as explicit rolling fallbacks in the audit manifest.
+      fallback: "rolling"
+    }
+  },
+  lgbm_params: { log_eval_period: 1000000 },
+  experiment: {
+    id: "similar60_pathfull360_20260727",
+    trial: "nearest60_cold_no_hl20_no_regsim_state_gap_fallback",
+    research_only: true
+  }
+}

@@ -24,35 +24,41 @@ def _write_returns(path: Path, values: list[float]) -> None:
     ).to_csv(path, index=False)
 
 
-def _write_decision(path: Path, *, selected_model_id: str, selected_name: str) -> None:
+def _write_decision(
+    path: Path,
+    *,
+    selected_model_id: str,
+    selected_name: str,
+    fusion: dict | None = None,
+) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(
+    payload = {
+        "mode": "scoreopt_t1430_dispersion",
+        "metric": "lcb10",
+        "score_day": "2026-07-01",
+        "selected_model_id": selected_model_id,
+        "selected_name": selected_name,
+        "reason": "score_best",
+        "threshold": 0.0003,
+        "candidate_scores": [
+            {"role": "champion", "name": "HL20", "model_id": "hl20", "score": 0.001},
+            {"role": "challenger", "name": "Ensemble", "model_id": "ensemble", "score": 0.002},
+            {"role": "challenger", "name": "Regsim", "model_id": "regsim", "score": 0.0005},
+        ],
+        "similar_days": [
             {
-                "mode": "scoreopt_t1430_dispersion",
-                "metric": "lcb10",
-                "score_day": "2026-07-01",
-                "selected_model_id": selected_model_id,
-                "selected_name": selected_name,
-                "reason": "score_best",
-                "threshold": 0.0003,
-                "candidate_scores": [
-                    {"role": "champion", "name": "HL20", "model_id": "hl20", "score": 0.001},
-                    {"role": "challenger", "name": "Ensemble", "model_id": "ensemble", "score": 0.002},
-                    {"role": "challenger", "name": "Regsim", "model_id": "regsim", "score": 0.0005},
-                ],
-                "similar_days": [
-                    {
-                        "trade_date": "2026-06-20",
-                        "distance": 0.75,
-                        "best_model_id": "ensemble",
-                        "best_name": "Ensemble",
-                        "model_returns": [],
-                    }
-                ],
-            },
-            ensure_ascii=False,
-        ),
+                "trade_date": "2026-06-20",
+                "distance": 0.75,
+                "best_model_id": "ensemble",
+                "best_name": "Ensemble",
+                "model_returns": [],
+            }
+        ],
+    }
+    if fusion is not None:
+        payload["fusion"] = fusion
+    path.write_text(
+        json.dumps(payload, ensure_ascii=False),
         encoding="utf-8",
     )
 
@@ -76,6 +82,18 @@ def test_model_overview_uses_latest_target_for_duplicate_score_day(tmp_path) -> 
         live_root / "2026-07-03" / "model_switch_decision.json",
         selected_model_id="ensemble",
         selected_name="Ensemble",
+        fusion={
+            "action": "robust_override_base_low_confidence",
+            "robust": {
+                "metric": "pairwise_ridge_clipped",
+                "reason": "score_best",
+                "candidate_scores": [
+                    {"role": "champion", "name": "HL20", "model_id": "hl20", "score": -0.0001},
+                    {"role": "challenger", "name": "Ensemble", "model_id": "ensemble", "score": 0.0008},
+                    {"role": "challenger", "name": "Regsim", "model_id": "regsim", "score": 0.0003},
+                ],
+            },
+        },
     )
 
     live_cfg = {
@@ -118,6 +136,8 @@ def test_model_overview_uses_latest_target_for_duplicate_score_day(tmp_path) -> 
     assert payload["current_decision"]["target_day"] == "2026-07-03"
     assert payload["current_decision"]["selected_model_id"] == "ensemble"
     assert payload["current_decision"]["similar_days"][0]["trade_date"] == "2026-06-20"
+    assert payload["current_decision"]["fusion"]["action"] == "robust_override_base_low_confidence"
+    assert payload["current_decision"]["fusion"]["robust"]["candidate_scores"][1]["score"] == 0.0008
     assert payload["selected_strategy"]["points"] == [
         {
             "trade_date": "2026-07-01",

@@ -96,3 +96,33 @@ def test_strict_cycle_detail_compounds_buy_and_sell_legs(monkeypatch) -> None:
 
     assert float(detail.loc[0, "return_net"]) == pytest.approx(0.32)
     assert float(detail.loc[0, "weighted_return"]) == pytest.approx(0.32)
+
+
+def test_strict_market_missing_sell_twap_falls_back_to_prev_close(monkeypatch) -> None:
+    def fake_read_twap_daily(raw_root: str, day: date) -> pd.DataFrame:
+        return pd.DataFrame({"code": ["113001"], "twap_buy": [100.0]})
+
+    def fake_read_price_daily(raw_root: str, day: date) -> pd.DataFrame:
+        return pd.DataFrame(
+            {
+                "code": ["113001"],
+                "close_price": [105.0],
+                "prev_close_price": [103.0],
+            }
+        )
+
+    monkeypatch.setattr(service, "read_twap_daily", fake_read_twap_daily)
+    monkeypatch.setattr(service, "read_price_daily", fake_read_price_daily)
+
+    market = service.load_strict_market_day(
+        raw_data_root="raw",
+        trade_day=date(2026, 7, 8),
+        buy_bps=0.0,
+        sell_bps=0.0,
+        pool_cfg=_pool_cfg(),
+    )
+
+    assert float(market.loc[0, "buy_price"]) == pytest.approx(100.0)
+    assert float(market.loc[0, "strict_sell_price"]) == pytest.approx(103.0)
+    assert market.loc[0, "sell_price_source"] == "official_prev_close_fallback"
+    assert bool(market.loc[0, "sell_missing_fallback"]) is True

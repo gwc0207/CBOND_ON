@@ -14,8 +14,9 @@ BLOCK_PATTERNS = (
     "*/.runtime_logs/*",
     "wandb/*",
     "*/wandb/*",
+    # Only block known runtime artifact roots. Some config modules are named
+    # `runtime` and are legitimate tracked source files.
     "runtime/*",
-    "*/runtime/*",
     "notebook/runtime/*",
     "*/notebook/runtime/*",
     "cbond_on_rust/*.pyd",

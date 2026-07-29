@@ -1,0 +1,8 @@
+{
+  modules: ["models/linear/linear_non_tree_base_20260728"],
+  model_name: "linear_non_tree_enet_a1e5_l01_20260728",
+  score_output: { windows: "D:/cbond_on/results/experiments/linear_non_tree_grid_20260728/scores/enet_a1e5_l01", linux: "/home/gswzif/cbond_on_runtime/results/experiments/linear_non_tree_grid_20260728/scores/enet_a1e5_l01" },
+  weights_output: { windows: "D:/cbond_on/results/experiments/linear_non_tree_grid_20260728/scores/enet_a1e5_l01/weights.csv", linux: "/home/gswzif/cbond_on_runtime/results/experiments/linear_non_tree_grid_20260728/scores/enet_a1e5_l01/weights.csv" },
+  meta_output: { windows: "D:/cbond_on/results/experiments/linear_non_tree_grid_20260728/scores/enet_a1e5_l01/meta.json", linux: "/home/gswzif/cbond_on_runtime/results/experiments/linear_non_tree_grid_20260728/scores/enet_a1e5_l01/meta.json" },
+  linear: { regression_kind: "elasticnet", regression_alpha: 0.00001, elasticnet_l1_ratio: 0.1 },
+}

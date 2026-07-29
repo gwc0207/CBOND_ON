@@ -3,9 +3,13 @@ from __future__ import annotations
 from datetime import date
 
 import pandas as pd
+import pytest
 
+from cbond_on.app.usecases import live_runtime
+from cbond_on.infra.live import model_switch, shadow_returns
 from cbond_on.infra.live.model_switch import (
     SwitchDecision,
+    T1430_DISPERSION_FEATURE_SETS,
     _select_t1430_fusion,
     build_rank_average_scores,
     decide_scoreopt_bm_short,
@@ -14,7 +18,37 @@ from cbond_on.infra.live.model_switch import (
     decide_single_challenger_by_regime,
     decide_single_challenger_by_sharpe,
 )
-from cbond_on.infra.live import shadow_returns
+
+
+def _switch_decision(
+    *,
+    reason: str,
+    fallback_reason: str | None = None,
+    fusion: dict | None = None,
+) -> SwitchDecision:
+    return SwitchDecision(
+        enabled=True,
+        mode="scoreopt_t1430_fusion_gate",
+        metric="confidence_gate",
+        lookback_days=60,
+        min_periods=40,
+        threshold=0.0005,
+        score_day=date(2026, 7, 23),
+        selected_model_id="champion",
+        selected_name="Champion",
+        champion_model_id="champion",
+        champion_name="Champion",
+        challenger_model_id="challenger",
+        challenger_name="Challenger",
+        champion_score=0.001,
+        challenger_score=0.0008,
+        score_diff=0.0002,
+        history_end=date(2026, 7, 22),
+        history_days=40,
+        reason=reason,
+        fallback_reason=fallback_reason,
+        fusion=fusion,
+    )
 
 
 def test_build_rank_average_scores_uses_cross_sectional_pct_rank() -> None:
@@ -345,6 +379,58 @@ def test_decide_scoreopt_t1430_dispersion_selects_nearest_best_candidate(tmp_pat
     assert all(item["best_model_id"] == "challenger" for item in decision.similar_days)
 
 
+def test_decide_scoreopt_t1430_dispersion_supports_full_path_feature_set(tmp_path) -> None:
+    dates = pd.date_range("2026-01-01", periods=7, freq="D")
+    feature_cols = T1430_DISPERSION_FEATURE_SETS["path_full_t1430"]
+    assert "seg1000_1030_std" in feature_cols
+    assert "seg1030_1100_tail_spread" in feature_cols
+    assert "seg1100_1130_iqr" in feature_cols
+    assert "seg1400_1430_pos_ratio" in feature_cols
+
+    feature_path = tmp_path / "state_features.csv"
+    features = pd.DataFrame({"trade_date": dates})
+    for col in feature_cols:
+        features[col] = 0.0
+    features["seg1000_1030_std"] = [-5.0, 1.0, 1.1, 1.2, -5.5, -6.0, 1.05]
+    features.to_csv(feature_path, index=False)
+
+    champion_path = tmp_path / "champion.csv"
+    challenger_path = tmp_path / "challenger.csv"
+    pd.DataFrame({"trade_date": dates[:-1], "day_return": [0.0] * 6}).to_csv(champion_path, index=False)
+    pd.DataFrame(
+        {
+            "trade_date": dates[:-1],
+            "day_return": [-0.01, 0.01, 0.012, 0.011, -0.01, -0.01],
+        }
+    ).to_csv(challenger_path, index=False)
+    cfg = {
+        "mode": "scoreopt_t1430_dispersion",
+        "feature_set": "path_full_t1430",
+        "metric": "mean",
+        "lookback_days": 6,
+        "nearest_k": 3,
+        "min_periods": 3,
+        "margin": 0.0001,
+        "state_feature_path": str(feature_path),
+        "champion": {
+            "name": "Champion",
+            "model_id": "champion",
+            "return_path": str(champion_path),
+        },
+        "challenger": {
+            "name": "Challenger",
+            "model_id": "challenger",
+            "return_path": str(challenger_path),
+        },
+    }
+
+    decision = decide_scoreopt_t1430_dispersion(cfg, score_day=date(2026, 1, 7))
+
+    assert decision.selected_model_id == "challenger"
+    assert decision.reason == "score_best"
+    assert decision.history_days == 3
+
+
 def test_decide_scoreopt_t1430_fusion_gate_overrides_low_confidence_base(tmp_path) -> None:
     dates = pd.date_range("2025-09-01", periods=101, freq="D")
     feature_cols = [
@@ -418,12 +504,412 @@ def test_decide_scoreopt_t1430_fusion_gate_overrides_low_confidence_base(tmp_pat
 
     assert decision.mode == "scoreopt_t1430_fusion_gate"
     assert decision.selected_model_id == "ensemble"
-    assert decision.reason == "fusion_robust_override_base_low_confidence"
+    assert decision.reason == "fusion_robust_agrees_base_low_confidence"
     assert decision.fallback_reason == "margin_default"
     assert decision.fusion is not None
-    assert decision.fusion["action"] == "robust_override_base_low_confidence"
+    assert decision.fusion["action"] == "robust_agrees_base_low_confidence"
     assert decision.fusion["robust"]["confident"] is True
     assert decision.fusion["robust"]["history_days"] == 100
+
+
+def test_decide_scoreopt_t1430_fusion_gate_locks_narrow_champion_base_first(tmp_path) -> None:
+    dates = pd.date_range("2025-09-01", periods=101, freq="D")
+    feature_cols = [
+        "afternoon1300_1430_std",
+        "afternoon1300_1430_iqr",
+        "afternoon1300_1430_tail_spread",
+        "last30_1330_1430_std",
+        "last30_1330_1430_iqr",
+        "last30_1330_1430_tail_spread",
+        "dispersion_accel",
+    ]
+    feature_path = tmp_path / "state_features.csv"
+    signal = pd.Series(range(len(dates)), dtype=float) / 50.0 - 1.0
+    features = pd.DataFrame({"trade_date": dates})
+    features[feature_cols[0]] = signal
+    for col in feature_cols[1:]:
+        features[col] = 0.0
+    features.to_csv(feature_path, index=False)
+
+    champion_path = tmp_path / "champion.csv"
+    ensemble_path = tmp_path / "ensemble.csv"
+    hl20_path = tmp_path / "hl20.csv"
+    history_signal = signal.iloc[:-1].to_numpy()
+    pd.DataFrame(
+        {"trade_date": dates[:-1], "day_return": [0.0] * 97 + [0.0041] * 3}
+    ).to_csv(champion_path, index=False)
+    pd.DataFrame(
+        {"trade_date": dates[:-1], "day_return": 0.004 * history_signal}
+    ).to_csv(ensemble_path, index=False)
+    pd.DataFrame(
+        {"trade_date": dates[:-1], "day_return": -0.004 * history_signal}
+    ).to_csv(hl20_path, index=False)
+
+    cfg = {
+        "mode": "scoreopt_t1430_fusion_gate",
+        "feature_set": "disp_afternoon7",
+        "metric": "mean",
+        "lookback_days": 100,
+        "nearest_k": 3,
+        "min_periods": 3,
+        "margin": 0.0005,
+        "state_feature_path": str(feature_path),
+        "champion": {
+            "name": "Champion",
+            "model_id": "champion",
+            "return_path": str(champion_path),
+        },
+        "challengers": [
+            {
+                "name": "Ensemble",
+                "model_id": "ensemble",
+                "return_path": str(ensemble_path),
+            },
+            {
+                "name": "HL20",
+                "model_id": "hl20",
+                "return_path": str(hl20_path),
+            },
+        ],
+        "fusion": {
+            "policy": "base_low_confidence_only",
+            "champion_first_override": {"enabled": False},
+            "robust": {
+                "lookback_days": 100,
+                "min_periods": 80,
+                "alpha": 0.0,
+                "target_clip": 0.005,
+                "margin": 0.0001,
+            },
+        },
+    }
+
+    baseline = decide_scoreopt_t1430_fusion_gate(cfg, score_day=dates[-1].date())
+
+    assert baseline.selected_model_id == "ensemble"
+    assert baseline.reason == "fusion_robust_override_base_low_confidence"
+    assert baseline.fusion is not None
+    assert baseline.fusion["base"]["selected_model_id"] == "champion"
+    assert baseline.fusion["base"]["reason"] == "margin_default"
+    assert 0.0 < baseline.fusion["base"]["score_diff"] < baseline.fusion["base"]["threshold"]
+    assert baseline.fusion["robust"]["selected_model_id"] == "ensemble"
+    assert baseline.fusion["robust"]["confident"] is True
+
+    cfg["fusion"]["champion_first_override"]["enabled"] = True
+    decision = decide_scoreopt_t1430_fusion_gate(cfg, score_day=dates[-1].date())
+
+    assert decision.selected_model_id == "champion"
+    assert decision.reason == "fusion_champion_base_first"
+    assert decision.fallback_reason == "margin_default"
+    assert decision.fusion is not None
+    assert decision.fusion["action"] == "champion_base_first"
+    assert decision.fusion["champion_first_override"]["triggered"] is True
+    assert decision.fusion["robust"]["reason"] == "skipped_by_champion_base_first"
+    assert live_runtime._model_switch_warnings(decision) == []
+
+
+def test_decide_scoreopt_t1430_fusion_gate_champion_third_veto_skips_robust(tmp_path) -> None:
+    dates = pd.date_range("2026-01-01", periods=7, freq="D")
+    feature_cols = [
+        "afternoon1300_1430_std",
+        "afternoon1300_1430_iqr",
+        "afternoon1300_1430_tail_spread",
+        "last30_1330_1430_std",
+        "last30_1330_1430_iqr",
+        "last30_1330_1430_tail_spread",
+        "dispersion_accel",
+    ]
+    feature_path = tmp_path / "state_features.csv"
+    features = pd.DataFrame({"trade_date": dates})
+    features["afternoon1300_1430_std"] = [-5.0, 1.0, 1.1, 1.2, -5.5, -6.0, 1.05]
+    for col in feature_cols[1:]:
+        features[col] = 0.0
+    features.to_csv(feature_path, index=False)
+
+    champion_path = tmp_path / "champion.csv"
+    ensemble_path = tmp_path / "ensemble.csv"
+    hl20_path = tmp_path / "hl20.csv"
+    pd.DataFrame({"trade_date": dates[:-1], "day_return": [-0.001] * 6}).to_csv(champion_path, index=False)
+    pd.DataFrame({"trade_date": dates[:-1], "day_return": [0.0010] * 6}).to_csv(ensemble_path, index=False)
+    pd.DataFrame({"trade_date": dates[:-1], "day_return": [0.0008] * 6}).to_csv(hl20_path, index=False)
+
+    cfg = {
+        "mode": "scoreopt_t1430_fusion_gate",
+        "feature_set": "disp_afternoon7",
+        "metric": "mean",
+        "lookback_days": 6,
+        "nearest_k": 3,
+        "min_periods": 3,
+        "margin": 0.01,
+        "state_feature_path": str(feature_path),
+        "champion": {
+            "name": "Regsim",
+            "model_id": "regsim",
+            "return_path": str(champion_path),
+        },
+        "challengers": [
+            {
+                "name": "Ensemble",
+                "model_id": "ensemble",
+                "return_path": str(ensemble_path),
+            },
+            {
+                "name": "HL20",
+                "model_id": "hl20",
+                "return_path": str(hl20_path),
+            },
+        ],
+        "fusion": {
+            "policy": "base_low_confidence_only",
+            "champion_third_veto": {
+                "enabled": True,
+                "mode": "negative",
+                "order": "before_robust_skip",
+                "margin": 0.0005,
+            },
+            "robust": {
+                "lookback_days": 100,
+                "min_periods": 80,
+                "alpha": 100.0,
+                "target_clip": 0.0075,
+                "margin": 0.0005,
+            },
+        },
+    }
+
+    decision = decide_scoreopt_t1430_fusion_gate(cfg, score_day=dates[-1].date())
+
+    assert decision.selected_model_id == "ensemble"
+    assert decision.reason == "fusion_champion_third_veto"
+    assert decision.fusion is not None
+    assert decision.fusion["action"] == "champion_third_veto"
+    assert decision.fusion["champion_third_veto"]["triggered"] is True
+    assert decision.fusion["robust"]["reason"] == "skipped_by_champion_third_veto"
+
+
+def test_decide_scoreopt_t1430_fusion_gate_uses_base_best_when_robust_not_confident(tmp_path) -> None:
+    dates = pd.date_range("2026-01-01", periods=7, freq="D")
+    feature_cols = [
+        "afternoon1300_1430_std",
+        "afternoon1300_1430_iqr",
+        "afternoon1300_1430_tail_spread",
+        "last30_1330_1430_std",
+        "last30_1330_1430_iqr",
+        "last30_1330_1430_tail_spread",
+        "dispersion_accel",
+    ]
+    feature_path = tmp_path / "state_features.csv"
+    features = pd.DataFrame({"trade_date": dates})
+    features["afternoon1300_1430_std"] = [-5.0, 1.0, 1.1, 1.2, -5.5, -6.0, 1.05]
+    for col in feature_cols[1:]:
+        features[col] = 0.0
+    features.to_csv(feature_path, index=False)
+
+    champion_path = tmp_path / "champion.csv"
+    ensemble_path = tmp_path / "ensemble.csv"
+    hl20_path = tmp_path / "hl20.csv"
+    pd.DataFrame({"trade_date": dates[:-1], "day_return": [0.0] * 6}).to_csv(champion_path, index=False)
+    pd.DataFrame({"trade_date": dates[:-1], "day_return": [0.0010] * 6}).to_csv(ensemble_path, index=False)
+    pd.DataFrame({"trade_date": dates[:-1], "day_return": [0.0008] * 6}).to_csv(hl20_path, index=False)
+
+    cfg = {
+        "mode": "scoreopt_t1430_fusion_gate",
+        "feature_set": "disp_afternoon7",
+        "metric": "mean",
+        "lookback_days": 6,
+        "nearest_k": 3,
+        "min_periods": 3,
+        "margin": 0.01,
+        "state_feature_path": str(feature_path),
+        "champion": {
+            "name": "Regsim",
+            "model_id": "regsim",
+            "return_path": str(champion_path),
+        },
+        "challengers": [
+            {
+                "name": "Ensemble",
+                "model_id": "ensemble",
+                "return_path": str(ensemble_path),
+            },
+            {
+                "name": "HL20",
+                "model_id": "hl20",
+                "return_path": str(hl20_path),
+            },
+        ],
+        "fusion": {
+            "policy": "base_low_confidence_only",
+            "champion_third_veto": {
+                "enabled": True,
+                "mode": "negative",
+                "order": "before_robust_skip",
+                "margin": 0.0005,
+            },
+            "robust": {
+                "lookback_days": 100,
+                "min_periods": 80,
+                "alpha": 100.0,
+                "target_clip": 0.0075,
+                "margin": 0.0005,
+            },
+        },
+    }
+
+    decision = decide_scoreopt_t1430_fusion_gate(cfg, score_day=dates[-1].date())
+
+    assert decision.selected_model_id == "ensemble"
+    assert decision.reason == "fusion_base_robust_not_confident"
+    assert decision.fallback_reason == "margin_default"
+    assert decision.fusion is not None
+    assert decision.fusion["base"]["reason"] == "margin_default"
+    assert decision.fusion["base"]["selected_model_id"] == "ensemble"
+    assert decision.fusion["robust"]["reason"] == "insufficient_history"
+
+
+@pytest.mark.parametrize(
+    ("hl20_advantage", "expected_model_id", "expected_reason", "expected_veto_reason"),
+    [
+        (0.000733, "champion", "fusion_robust_veto_base_candidate", "base_robust_dominated_by_all"),
+        (0.000100, "ensemble", "fusion_base_robust_not_confident", "base_not_dominated_by_all"),
+    ],
+)
+def test_decide_scoreopt_t1430_fusion_gate_uses_robust_unanimous_base_veto(
+    monkeypatch,
+    hl20_advantage: float,
+    expected_model_id: str,
+    expected_reason: str,
+    expected_veto_reason: str,
+) -> None:
+    base = SwitchDecision(
+        enabled=True,
+        mode="scoreopt_t1430_dispersion",
+        metric="trim20_lcb10",
+        lookback_days=60,
+        min_periods=40,
+        threshold=0.0005,
+        score_day=date(2026, 7, 28),
+        selected_model_id="ensemble",
+        selected_name="Ensemble",
+        champion_model_id="champion",
+        champion_name="Champion",
+        challenger_model_id="ensemble",
+        challenger_name="Ensemble",
+        champion_score=-0.000299,
+        challenger_score=0.000008,
+        score_diff=0.000307,
+        history_end=date(2026, 7, 27),
+        history_days=40,
+        reason="margin_default",
+        candidate_scores=[
+            {"role": "champion", "name": "Champion", "model_id": "champion", "score": -0.000299},
+            {"role": "challenger", "name": "Ensemble", "model_id": "ensemble", "score": 0.000008},
+            {"role": "challenger", "name": "HL20", "model_id": "hl20", "score": -0.000365},
+        ],
+    )
+    robust = {
+        "reason": "margin_default",
+        "confident": False,
+        "selected_model_id": "champion",
+        "selected_name": "Champion",
+        "candidate_scores": [
+            {"role": "champion", "name": "Champion", "model_id": "champion", "score": 0.000377},
+            {"role": "challenger", "name": "Ensemble", "model_id": "ensemble", "score": -0.000546},
+            {"role": "challenger", "name": "HL20", "model_id": "hl20", "score": 0.000169},
+        ],
+        "pairwise_predictions": [
+            {
+                "left_model_id": "champion",
+                "left_name": "Champion",
+                "right_model_id": "ensemble",
+                "right_name": "Ensemble",
+                "predicted_return_diff": 0.000905,
+            },
+            {
+                "left_model_id": "champion",
+                "left_name": "Champion",
+                "right_model_id": "hl20",
+                "right_name": "HL20",
+                "predicted_return_diff": 0.000227,
+            },
+            {
+                "left_model_id": "ensemble",
+                "left_name": "Ensemble",
+                "right_model_id": "hl20",
+                "right_name": "HL20",
+                "predicted_return_diff": -hl20_advantage,
+            },
+        ],
+    }
+    monkeypatch.setattr(model_switch, "decide_scoreopt_t1430_dispersion", lambda cfg, *, score_day: base)
+    monkeypatch.setattr(model_switch, "_robust_pairwise_t1430_diagnostics", lambda cfg, *, score_day: robust)
+
+    decision = decide_scoreopt_t1430_fusion_gate(
+        {
+            "fusion": {
+                "policy": "base_low_confidence_only",
+                "robust_base_veto": {
+                    "enabled": True,
+                    "margin": 0.0005,
+                    "min_other_models": 2,
+                    "base_low_confidence_only": True,
+                },
+            }
+        },
+        score_day=date(2026, 7, 28),
+    )
+
+    assert decision.selected_model_id == expected_model_id
+    assert decision.reason == expected_reason
+    assert decision.fusion is not None
+    assert decision.fusion["robust_base_veto"]["reason"] == expected_veto_reason
+    assert decision.fusion["robust_base_veto"]["triggered"] is (expected_model_id == "champion")
+
+
+def test_live_model_switch_strict_records_margin_default_warning() -> None:
+    decision = _switch_decision(reason="margin_default")
+
+    live_runtime._assert_no_live_model_switch_fallback(
+        decision,
+        switch_cfg={"fail_on_fallback": True},
+    )
+    warnings = live_runtime._model_switch_warnings(decision)
+    assert warnings
+    assert warnings[0]["fallback_detail"] == "margin_default"
+    assert warnings[0]["selected_model_id"] == "champion"
+
+
+def test_live_model_switch_strict_records_unconfirmed_fusion_warning() -> None:
+    decision = _switch_decision(
+        reason="fusion_base_robust_not_confident",
+        fallback_reason="margin_default",
+        fusion={"base": {"reason": "margin_default"}},
+    )
+
+    live_runtime._assert_no_live_model_switch_fallback(
+        decision,
+        switch_cfg={"fail_on_fallback": True},
+    )
+    warnings = live_runtime._model_switch_warnings(decision)
+    assert warnings
+    assert warnings[0]["fallback_detail"] == "fusion_base_robust_not_confident:margin_default"
+    assert warnings[0]["selected_model_id"] == "champion"
+
+
+def test_live_model_switch_strict_allows_champion_third_veto() -> None:
+    decision = _switch_decision(
+        reason="fusion_champion_third_veto",
+        fallback_reason="margin_default",
+        fusion={
+            "action": "champion_third_veto",
+            "base": {"reason": "margin_default"},
+        },
+    )
+
+    live_runtime._assert_no_live_model_switch_fallback(
+        decision,
+        switch_cfg={"fail_on_fallback": True},
+    )
 
 
 def test_select_t1430_fusion_keeps_high_confidence_base() -> None:

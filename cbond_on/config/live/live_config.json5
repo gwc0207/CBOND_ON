@@ -24,56 +24,68 @@
     config: "live/live_factors"
   },
   model_score: {
-    config: "live/live_models",
-    model_id: "lgbm_screened_no_winsor_neutral_tminus1_weight_recent_hl20_20260625",
+    config: "live/live_switch_source_regsim_w10_s15_d05_20260708",
+    model_id: "lgbm_screened_no_winsor_neutral_tminus1_regsim_w10_s15_d05_20260708",
     label_cutoff: null
   },
   model_switch: {
     enabled: true,
     mode: "scoreopt_t1430_fusion_gate",
-    feature_set: "disp_afternoon7",
+    feature_set: "path_full_t1430",
     state_feature_path: {
-      windows: "D:/cbond_on/results/analysis/model_switch_t1430_dispersion_live_20260709/t1430_market_state_features.csv",
-      linux: "/home/gswzif/cbond_on_runtime/results/analysis/model_switch_t1430_dispersion_live_20260709/t1430_market_state_features.csv"
+      windows: "D:/cbond_on/results/analysis/model_switch_t1430_path_full_20260721/t1430_market_state_features_path_full.csv",
+      linux: "/home/gswzif/cbond_on_runtime/results/analysis/model_switch_t1430_path_full_20260721/t1430_market_state_features_path_full.csv"
     },
     state_price_field: "last",
-    metric: "lcb10",
-    score_mode: "lcb10",
-    lookback_days: 120,
-    nearest_k: 20,
-    min_periods: 20,
-    margin: 0.0003,
-    threshold: 0.0003,
+    metric: "trim20_lcb10",
+    score_mode: "trim20_lcb10",
+    lookback_days: 60,
+    nearest_k: 40,
+    min_periods: 40,
+    margin: 0.0005,
+    threshold: 0.0005,
     fusion: {
       policy: "base_low_confidence_only",
+      champion_first_override: {
+        enabled: true
+      },
+      champion_third_veto: {
+        enabled: true,
+        mode: "negative",
+        order: "before_robust_skip",
+        margin: 0.0005,
+        min_challengers: 2,
+        base_low_confidence_only: true
+      },
       robust: {
-        lookback_days: 252,
-        min_periods: 80,
+        lookback_days: 360,
+        min_periods: 120,
         alpha: 100.0,
-        target_clip: 0.005,
+        target_clip: 0.0075,
         margin: 0.0005
       }
     },
     return_col: "day_return",
     benchmark_col: "benchmark_return",
     benchmark_window_days: 20,
+    fail_on_fallback: true,
     fallback: {
       metric: "rolling_sharpe",
       lookback_days: 60,
       min_periods: 60,
       threshold: 0.0
     },
-    stale_history_policy: "champion",
+    stale_history_policy: "fail",
     shadow_return_update: {
       enabled: true,
-      fail_on_error: false
+      fail_on_error: true
     },
     champion: {
-      name: "HL20 live baseline",
-      model_id: "lgbm_screened_no_winsor_neutral_tminus1_weight_recent_hl20_20260625",
+      name: "Regsim w10_s15_d05",
+      model_id: "lgbm_screened_no_winsor_neutral_tminus1_regsim_w10_s15_d05_20260708",
       return_path: {
-        windows: "D:/cbond_on/results/analysis/model_switch_scoreopt_live_20260709/return_history/Champion_HL20.csv",
-        linux: "/home/gswzif/cbond_on_runtime/results/analysis/model_switch_scoreopt_live_20260709/return_history/Champion_HL20.csv"
+        windows: "D:/cbond_on/results/analysis/model_switch_scoreopt_live_20260709/return_history/Challenger_Regsim.csv",
+        linux: "/home/gswzif/cbond_on_runtime/results/analysis/model_switch_scoreopt_live_20260709/return_history/Challenger_Regsim.csv"
       }
     },
     challenger: {
@@ -138,13 +150,13 @@
         ]
       },
       {
-        name: "Regsim w10_s15_d05",
-        model_id: "lgbm_screened_no_winsor_neutral_tminus1_regsim_w10_s15_d05_20260708",
+        name: "HL20 live baseline",
+        model_id: "lgbm_screened_no_winsor_neutral_tminus1_weight_recent_hl20_20260625",
         kind: "single",
-        config: "live/live_switch_source_regsim_w10_s15_d05_20260708",
+        config: "live/live_models",
         return_path: {
-          windows: "D:/cbond_on/results/analysis/model_switch_scoreopt_live_20260709/return_history/Challenger_Regsim.csv",
-          linux: "/home/gswzif/cbond_on_runtime/results/analysis/model_switch_scoreopt_live_20260709/return_history/Challenger_Regsim.csv"
+          windows: "D:/cbond_on/results/analysis/model_switch_scoreopt_live_20260709/return_history/Champion_HL20.csv",
+          linux: "/home/gswzif/cbond_on_runtime/results/analysis/model_switch_scoreopt_live_20260709/return_history/Champion_HL20.csv"
         }
       }
     ]

@@ -30,6 +30,11 @@ from cbond_on.infra.model.score_guard import (
     score_guard_flags,
     score_guard_stats,
 )
+from cbond_on.infra.model.similar_day_training import (
+    SimilarDaySelection,
+    SimilarDayTrainingContext,
+    resolve_similar_day_training_config,
+)
 from cbond_on.infra.model.impl.lgbm.trainer import (
     SplitData,
     build_dataset,
@@ -119,6 +124,19 @@ def _resolve_feature_contribution_config(cfg: dict) -> dict:
     if not isinstance(raw, dict):
         raise TypeError("feature_contribution must be an object")
     return dict(raw)
+
+
+def _feature_contribution_dynamic_config(contribution_cfg: dict) -> dict:
+    raw = contribution_cfg.get("dynamic", {})
+    if raw in (None, "", [], False):
+        return {"enabled": False}
+    if raw is True:
+        raw = {"enabled": True}
+    if not isinstance(raw, dict):
+        raise TypeError("feature_contribution.dynamic must be a bool or object")
+    out = dict(raw)
+    out["enabled"] = bool(out.get("enabled", False))
+    return out
 
 
 def _resolve_sample_weight_config(cfg: dict) -> dict:
@@ -273,6 +291,198 @@ def _with_feature_contribution_params(
         )
     params["feature_contri"] = values
     return params
+
+
+def _safe_float(value: object, default: float = float("nan")) -> float:
+    try:
+        out = float(value)
+    except Exception:
+        return default
+    return out if np.isfinite(out) else default
+
+
+def _dynamic_family_groups(contribution_cfg: dict, dynamic_cfg: dict) -> list[dict]:
+    raw_groups = dynamic_cfg.get("groups") or contribution_cfg.get("groups") or []
+    if not isinstance(raw_groups, list):
+        raise TypeError("feature_contribution.dynamic.groups must be a list")
+    groups: list[dict] = []
+    default_value = float(contribution_cfg.get("default", 1.0))
+    for idx, item in enumerate(raw_groups, start=1):
+        if not isinstance(item, dict):
+            raise TypeError("feature_contribution.dynamic.groups entries must be objects")
+        name = str(item.get("name", f"group{idx}")).strip()
+        features = [str(x).strip() for x in (item.get("features") or []) if str(x).strip()]
+        if not name:
+            raise ValueError("feature_contribution.dynamic group name must be non-empty")
+        if not features:
+            raise ValueError(f"feature_contribution.dynamic group {name} has no features")
+        groups.append(
+            {
+                "name": name,
+                "features": features,
+                "base_value": float(item.get("value", default_value)),
+            }
+        )
+    return groups
+
+
+def _family_signal_by_day(x: pd.DataFrame) -> pd.Series:
+    ranked = x.apply(pd.to_numeric, errors="coerce").rank(method="average", pct=True)
+    return ranked.mean(axis=1, skipna=True)
+
+
+def _daily_spearman(signal: pd.Series, y: pd.Series) -> float:
+    work = pd.DataFrame(
+        {
+            "signal": pd.to_numeric(signal, errors="coerce"),
+            "y": pd.to_numeric(y, errors="coerce"),
+        }
+    ).dropna()
+    if len(work) < 3:
+        return float("nan")
+    if work["signal"].nunique(dropna=True) < 2 or work["y"].nunique(dropna=True) < 2:
+        return float("nan")
+    return _safe_float(work["signal"].corr(work["y"], method="spearman"))
+
+
+def _dynamic_family_strength(
+    train: SplitData,
+    features: list[str],
+    *,
+    lookback_days: int,
+    min_samples_per_day: int,
+) -> dict:
+    present = [col for col in features if col in train.x.columns]
+    if not present or train.x.empty or train.y.empty or train.dt.empty:
+        return {
+            "features_present": len(present),
+            "ic_days": 0,
+            "ic_mean": float("nan"),
+            "ic_std": float("nan"),
+            "ic_abs_mean": float("nan"),
+            "strength": 0.0,
+        }
+
+    days = pd.to_datetime(train.dt, errors="coerce").dt.date
+    unique_days = sorted({day for day in days if day is not None})
+    if lookback_days > 0 and len(unique_days) > lookback_days:
+        keep_days = set(unique_days[-lookback_days:])
+    else:
+        keep_days = set(unique_days)
+
+    ics: list[float] = []
+    for day in unique_days:
+        if day not in keep_days:
+            continue
+        mask = days.eq(day).to_numpy()
+        if int(mask.sum()) < min_samples_per_day:
+            continue
+        signal = _family_signal_by_day(train.x.loc[mask, present])
+        ic = _daily_spearman(signal, train.y.loc[mask])
+        if np.isfinite(ic):
+            ics.append(float(ic))
+
+    if not ics:
+        return {
+            "features_present": len(present),
+            "ic_days": 0,
+            "ic_mean": float("nan"),
+            "ic_std": float("nan"),
+            "ic_abs_mean": float("nan"),
+            "strength": 0.0,
+        }
+    arr = np.asarray(ics, dtype=float)
+    ic_mean = float(np.nanmean(arr))
+    ic_std = float(np.nanstd(arr, ddof=1)) if len(arr) > 1 else 0.0
+    ic_abs_mean = float(np.nanmean(np.abs(arr)))
+    strength = ic_abs_mean / (ic_std + 1e-6)
+    return {
+        "features_present": len(present),
+        "ic_days": int(len(arr)),
+        "ic_mean": ic_mean,
+        "ic_std": ic_std,
+        "ic_abs_mean": ic_abs_mean,
+        "strength": float(strength) if np.isfinite(strength) else 0.0,
+    }
+
+
+def _dynamic_feature_contribution_config(
+    base_cfg: dict,
+    train: SplitData,
+    *,
+    target_day: date,
+) -> tuple[dict, list[dict]]:
+    dynamic_cfg = _feature_contribution_dynamic_config(base_cfg)
+    if not bool(dynamic_cfg.get("enabled", False)):
+        return base_cfg, []
+
+    groups = _dynamic_family_groups(base_cfg, dynamic_cfg)
+    lookback_days = max(1, int(dynamic_cfg.get("lookback_days", 60)))
+    min_days = max(1, int(dynamic_cfg.get("min_days", 20)))
+    min_samples_per_day = max(3, int(dynamic_cfg.get("min_samples_per_day", 30)))
+    max_adjust = max(0.0, float(dynamic_cfg.get("max_adjust", 0.15)))
+    score_scale = max(1e-6, float(dynamic_cfg.get("score_scale", 0.5)))
+    min_value = max(0.0, float(dynamic_cfg.get("min_value", 0.85)))
+    max_value = max(min_value, float(dynamic_cfg.get("max_value", 1.15)))
+
+    scored: list[dict] = []
+    for group in groups:
+        stats = _dynamic_family_strength(
+            train,
+            list(group["features"]),
+            lookback_days=lookback_days,
+            min_samples_per_day=min_samples_per_day,
+        )
+        scored.append({**group, **stats})
+
+    eligible = [row for row in scored if int(row.get("ic_days", 0)) >= min_days]
+    strengths = np.asarray([float(row.get("strength", 0.0)) for row in eligible], dtype=float)
+    center = float(np.nanmean(strengths)) if len(strengths) else 0.0
+    spread = float(np.nanstd(strengths, ddof=0)) if len(strengths) else 0.0
+    if not np.isfinite(spread) or spread <= 1e-12:
+        spread = 1.0
+
+    output_groups: list[dict] = []
+    rows: list[dict] = []
+    for row in scored:
+        eligible_row = int(row.get("ic_days", 0)) >= min_days
+        raw_strength = float(row.get("strength", 0.0))
+        centered = (raw_strength - center) / spread if eligible_row else 0.0
+        multiplier = 1.0 + max_adjust * float(np.tanh(centered / score_scale))
+        base_value = float(row["base_value"])
+        value = float(np.clip(base_value * multiplier, min_value, max_value))
+        output_groups.append(
+            {
+                "name": row["name"],
+                "value": value,
+                "features": list(row["features"]),
+            }
+        )
+        rows.append(
+            {
+                "trade_date": target_day,
+                "family": row["name"],
+                "value": value,
+                "base_value": base_value,
+                "multiplier": multiplier,
+                "eligible": bool(eligible_row),
+                "lookback_days": int(lookback_days),
+                "ic_days": int(row.get("ic_days", 0)),
+                "features_configured": int(len(row["features"])),
+                "features_present": int(row.get("features_present", 0)),
+                "ic_mean": row.get("ic_mean"),
+                "ic_std": row.get("ic_std"),
+                "ic_abs_mean": row.get("ic_abs_mean"),
+                "strength": raw_strength,
+                "strength_center": center,
+                "strength_spread": spread,
+            }
+        )
+
+    out = {k: v for k, v in base_cfg.items() if k != "dynamic"}
+    out["enabled"] = True
+    out["groups"] = output_groups
+    return out, rows
 
 
 def _deep_merge_dict(base: dict, override: dict) -> dict:
@@ -629,6 +839,76 @@ def _apply_regime_similarity_weight(
         dt=split.dt,
         code=split.code,
         sample_weight=pd.Series(weights, index=split.y.index, dtype=float),
+    )
+
+
+def _effective_sample_size(weights: np.ndarray) -> float:
+    values = np.asarray(weights, dtype=float)
+    values = values[np.isfinite(values) & (values > 0)]
+    if values.size == 0:
+        return float("nan")
+    total = float(values.sum())
+    denom = float(np.square(values).sum())
+    if total <= 0 or denom <= 0:
+        return float("nan")
+    return total * total / denom
+
+
+def _apply_similar_day_kernel_weight(
+    split: SplitData,
+    selection: SimilarDaySelection | None,
+) -> tuple[SplitData, dict[str, object]]:
+    """Apply the research-only day-level kernel multiplier emitted by SimilarDaySelection.
+
+    The kernel is normalized over historical trading days. At the row level we retain the
+    existing runner's equal-row contract and report the resulting effective day count, so
+    the experiment does not silently introduce a second day-balancing mechanism.
+    """
+    if selection is None or not selection.uses_kernel_weights or split.x.empty:
+        return split, {}
+    weights_by_day = selection.train_weights_by_day()
+    if not weights_by_day:
+        raise RuntimeError("kernel similar-day selection is missing train-day weights")
+    days = pd.to_datetime(split.dt, errors="coerce").dt.date
+    kernel = pd.to_numeric(days.map(weights_by_day), errors="coerce")
+    if kernel.isna().any() or not np.isfinite(kernel.to_numpy(dtype=float)).all() or (kernel <= 0).any():
+        missing_days = sorted({day for day in days[kernel.isna()].dropna().tolist()})
+        raise RuntimeError(
+            "kernel similar-day weights do not cover all train rows: "
+            f"missing_days={missing_days[:5]}"
+        )
+    base = (
+        pd.to_numeric(split.sample_weight, errors="coerce").fillna(1.0).to_numpy(dtype=float, copy=True)
+        if split.sample_weight is not None
+        else np.ones(len(split.y), dtype=float)
+    )
+    combined = base * kernel.to_numpy(dtype=float)
+    combined = np.where(np.isfinite(combined), combined, 1.0)
+    combined = np.maximum(combined, 1e-12)
+    mean = float(np.mean(combined))
+    if not np.isfinite(mean) or mean <= 0:
+        raise RuntimeError("kernel similar-day row weights have non-positive mean")
+    combined = combined / mean
+
+    weight_frame = pd.DataFrame({"day": days, "weight": combined})
+    day_mass = weight_frame.groupby("day", dropna=False)["weight"].sum()
+    day_share = day_mass / float(day_mass.sum())
+    stats = {
+        "similarity_kernel_row_effective_samples": _effective_sample_size(combined),
+        "similarity_kernel_final_day_effective_days": _effective_sample_size(day_mass.to_numpy(dtype=float)),
+        "similarity_kernel_max_day_weight_share": float(day_share.max()),
+        "similarity_kernel_max_row_weight_share": float(np.max(combined) / np.sum(combined)),
+        "similarity_kernel_train_rows": int(len(combined)),
+    }
+    return (
+        SplitData(
+            x=split.x,
+            y=split.y,
+            dt=split.dt,
+            code=split.code,
+            sample_weight=pd.Series(combined, index=split.y.index, dtype=float),
+        ),
+        stats,
     )
 
 
@@ -1011,20 +1291,49 @@ def _prepare_rolling_payload(
     factor_cols: list[str],
     train_day_cache: dict[date, SplitData],
     test_day_cache: dict[date, SplitData],
+    similarity_context: SimilarDayTrainingContext | None = None,
 ) -> dict | None:
     window = days[idx - window_days + 1: idx + 1]
     train_pool = window[:-1]
     test_day = window[-1]
-    if len(train_pool) < 2:
+    if len(train_pool) < 2 and similarity_context is None:
         return None
-    n_pool = len(train_pool)
-    n_train = max(1, int(n_pool * train_ratio))
-    n_val = n_pool - n_train
-    if n_val <= 0:
-        n_val = 1
-        n_train = max(1, n_pool - n_val)
-    train_days = list(train_pool[:n_train])
-    val_days = list(train_pool[n_train:n_train + n_val])
+    similarity_selection = None
+    if similarity_context is not None:
+        similarity_selection = similarity_context.select(
+            target_day=test_day,
+            available_days=train_day_cache.keys(),
+        )
+        if similarity_selection.ready:
+            train_days = list(similarity_selection.train_days)
+            val_days = list(similarity_selection.validation_days)
+        elif similarity_context.config.fallback == "rolling":
+            print(
+                f"[similar_day_training] target_day={test_day} "
+                f"fallback=rolling reason={similarity_selection.reason}"
+            )
+            n_pool = len(train_pool)
+            n_train = max(1, int(n_pool * train_ratio))
+            n_val = n_pool - n_train
+            if n_val <= 0:
+                n_val = 1
+                n_train = max(1, n_pool - n_val)
+            train_days = list(train_pool[:n_train])
+            val_days = list(train_pool[n_train:n_train + n_val])
+        else:
+            raise RuntimeError(
+                f"similar_day_training cannot select target_day={test_day}: "
+                f"{similarity_selection.reason}"
+            )
+    else:
+        n_pool = len(train_pool)
+        n_train = max(1, int(n_pool * train_ratio))
+        n_val = n_pool - n_train
+        if n_val <= 0:
+            n_val = 1
+            n_train = max(1, n_pool - n_val)
+        train_days = list(train_pool[:n_train])
+        val_days = list(train_pool[n_train:n_train + n_val])
     test_data = _concat_split_data(
         [test_day_cache[d] for d in [test_day] if d in test_day_cache],
         factor_cols,
@@ -1046,6 +1355,7 @@ def _prepare_rolling_payload(
         "train_data": train_data,
         "val_data": val_data,
         "test_data": test_data,
+        "similarity_selection": similarity_selection,
     }
 
 
@@ -1185,11 +1495,32 @@ def main(
     rolling_cfg = cfg.get("rolling", {})
     rolling_enabled = bool(rolling_cfg.get("enabled", False))
     window_days = int(rolling_cfg.get("window_days", 301))
+    similar_day_cfg = resolve_similar_day_training_config(
+        cfg,
+        results_root=paths_cfg["results_root"],
+    )
+    similar_day_context = (
+        SimilarDayTrainingContext.from_config(similar_day_cfg)
+        if similar_day_cfg is not None
+        else None
+    )
+    if similar_day_context is not None and not rolling_enabled:
+        raise ValueError("similar_day_training requires rolling.enabled=true")
+    if similar_day_context is not None and refit_every_n_days != 1:
+        raise ValueError("similar_day_training requires refit_every_n_days=1")
+    history_scan_days = max(
+        window_days,
+        (
+            similar_day_cfg.candidate_lookback_days + similar_day_cfg.candidate_buffer_days
+            if similar_day_cfg is not None
+            else 0
+        ),
+    )
     if rolling_enabled:
         lookback_days = prev_trading_days_from_raw(
             raw_root,
             desired_start,
-            window_days,
+            history_scan_days,
             kind="snapshot",
             asset="cbond",
         )
@@ -1334,6 +1665,7 @@ def main(
     pca_model_feature_cols = _preview_pca_feature_cols(factor_cols, pca_feature_cfg)
     model_feature_cols = _preview_regime_feature_cols(pca_model_feature_cols, regime_cfg)
     feature_contribution_cfg = _resolve_feature_contribution_config(cfg)
+    dynamic_feature_contribution_cfg = _feature_contribution_dynamic_config(feature_contribution_cfg)
     feature_contribution_summary = _feature_contribution_summary(model_feature_cols, feature_contribution_cfg)
     sample_weight_cfg = _resolve_sample_weight_config(cfg)
     sample_weight_summary = _sample_weight_summary(sample_weight_cfg)
@@ -1364,7 +1696,17 @@ def main(
         f"weighted_count={feature_contribution_summary.get('weighted_count')}",
         f"min={feature_contribution_summary.get('min', feature_contribution_summary.get('default'))}",
         f"max={feature_contribution_summary.get('max', feature_contribution_summary.get('default'))}",
+        f"dynamic={bool(dynamic_feature_contribution_cfg.get('enabled', False))}",
     )
+    if dynamic_feature_contribution_cfg.get("enabled", False):
+        print(
+            "[feature_contribution.dynamic]",
+            f"lookback_days={dynamic_feature_contribution_cfg.get('lookback_days', 60)}",
+            f"min_days={dynamic_feature_contribution_cfg.get('min_days', 20)}",
+            f"range={dynamic_feature_contribution_cfg.get('min_value', 0.85)}.."
+            f"{dynamic_feature_contribution_cfg.get('max_value', 1.15)}",
+            f"max_adjust={dynamic_feature_contribution_cfg.get('max_adjust', 0.15)}",
+        )
     if feature_contribution_summary.get("missing_features"):
         print(
             "[feature_contribution] missing configured features:",
@@ -1390,6 +1732,18 @@ def main(
         f"schemes={','.join(str(x) for x in sample_weight_summary.get('schemes', []))}",
         f"normalize={sample_weight_summary.get('normalize')}",
     )
+    if similar_day_context is not None:
+        print(
+            "[similar_day_training]",
+            "enabled=True",
+            f"mode={similar_day_cfg.selection_mode}",
+            f"state_days={similar_day_context.state_days}",
+            f"candidate_lookback={similar_day_cfg.candidate_lookback_days}",
+            f"candidate_buffer={similar_day_cfg.candidate_buffer_days}",
+            f"train_top_k={similar_day_cfg.train_top_k}",
+            f"validation_top_k={similar_day_cfg.validation_top_k}",
+            f"feature_set={similar_day_cfg.feature_set}",
+        )
 
     lgbm_params = cfg.get("lgbm_params", {})
     grid_cfg = cfg.get("grid_search", {})
@@ -1445,6 +1799,16 @@ def main(
             "sample_weight_enabled": bool(sample_weight_summary.get("enabled", False)),
             "sample_weight_scheme_count": int(sample_weight_summary.get("scheme_count", 0)),
             "sample_weight_schemes": ",".join(str(x) for x in sample_weight_summary.get("schemes", [])),
+            "similar_day_training_enabled": bool(similar_day_context is not None),
+            "similar_day_training_mode": (
+                str(similar_day_cfg.selection_mode) if similar_day_cfg is not None else "disabled"
+            ),
+            "similar_day_training_candidate_lookback": (
+                int(similar_day_cfg.candidate_lookback_days) if similar_day_cfg is not None else 0
+            ),
+            "similar_day_training_candidate_buffer": (
+                int(similar_day_cfg.candidate_buffer_days) if similar_day_cfg is not None else 0
+            ),
         },
         prefix="run",
     )
@@ -1574,13 +1938,24 @@ def main(
             print(f"saved scores: {score_output}")
             wandb_logger.finish({"status": "no_target_for_shard"})
             return
-        train_cache_days = sorted(
-            {
-                d
-                for idx in valid_indices
-                for d in days[idx - window_days + 1: idx]
-            }
-        )
+        if similar_day_context is not None:
+            # Build each historical day once. The selector subsequently limits each target
+            # to its own effective 360-day state pool, so this is not a per-target 360-file read.
+            train_cache_days = sorted(
+                {
+                    d
+                    for idx in valid_indices
+                    for d in days[:idx]
+                }
+            )
+        else:
+            train_cache_days = sorted(
+                {
+                    d
+                    for idx in valid_indices
+                    for d in days[idx - window_days + 1: idx]
+                }
+            )
         test_cache_days = sorted({days[idx] for idx in valid_indices})
         print(
             f"[rolling] prebuild caches: train_days={len(train_cache_days)} "
@@ -1642,6 +2017,8 @@ def main(
         all_equal_days: list[date] = []
         insufficient_bin_days: list[date] = []
         pca_summary_rows: list[dict] = []
+        dynamic_fc_rows: list[dict] = []
+        similar_day_rows: list[dict] = []
         with ThreadPoolExecutor(max_workers=prep_workers, thread_name_prefix="roll_prep") as prep_pool:
             inflight: deque[tuple[int, int, object]] = deque()
             next_pos = 0
@@ -1661,6 +2038,7 @@ def main(
                     factor_cols=factor_cols,
                     train_day_cache=train_day_cache,
                     test_day_cache=test_day_cache,
+                    similarity_context=similar_day_context,
                 )
                 inflight.append((roll_pos, idx, fut))
                 next_pos += 1
@@ -1682,6 +2060,11 @@ def main(
                 train_data = payload["train_data"]
                 val_data = payload["val_data"]
                 test_data = payload["test_data"]
+                similarity_selection = payload.get("similarity_selection")
+                similarity_summary: dict[str, object] = {}
+                if similarity_selection is not None:
+                    similar_day_rows.extend(similarity_selection.audit_rows())
+                    similarity_summary = similarity_selection.summary()
                 should_refit = (
                     active_model is None
                     or refit_every_n_days <= 1
@@ -1737,11 +2120,24 @@ def main(
                             regime_context,
                             target_day=test_day,
                         )
+                        train_data, kernel_weight_stats = _apply_similar_day_kernel_weight(
+                            train_data,
+                            similarity_selection,
+                        )
+                        similarity_summary.update(kernel_weight_stats)
                         current_feature_contribution_cfg = _regime_feature_contribution_config(
                             feature_contribution_cfg,
                             regime_context,
                             target_day=test_day,
                         )
+                        current_feature_contribution_cfg, current_dynamic_fc_rows = (
+                            _dynamic_feature_contribution_config(
+                                current_feature_contribution_cfg,
+                                train_data,
+                                target_day=test_day,
+                            )
+                        )
+                        dynamic_fc_rows.extend(current_dynamic_fc_rows)
                         if incremental_enabled and incremental_warm_start:
                             prev_ckpt = _find_previous_checkpoint(state_dir, test_day)
                             if prev_ckpt is not None:
@@ -1918,6 +2314,7 @@ def main(
                         "score_bin_insufficient": bool(
                             bin_guard_stats.get("score_bin_insufficient", False)
                         ),
+                        **similarity_summary,
                     }
                 )
                 print(
@@ -1948,6 +2345,7 @@ def main(
                         "score_bin_insufficient": bool(
                             bin_guard_stats.get("score_bin_insufficient", False)
                         ),
+                        **similarity_summary,
                     },
                     step=int(roll_idx),
                     prefix="rolling",
@@ -1989,6 +2387,16 @@ def main(
                 rr[present_guard_cols].to_csv(out_dir / "rolling_score_guard.csv", index=False)
         if pca_summary_rows:
             pd.DataFrame(pca_summary_rows).to_csv(out_dir / "rolling_pca_features.csv", index=False)
+        if dynamic_fc_rows:
+            pd.DataFrame(dynamic_fc_rows).to_csv(
+                out_dir / "rolling_dynamic_feature_contribution.csv",
+                index=False,
+            )
+        if similar_day_rows:
+            pd.DataFrame(similar_day_rows).to_csv(
+                out_dir / "rolling_similar_days.csv",
+                index=False,
+            )
         (out_dir / "config.json").write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
         (out_dir / "features.json").write_text(json.dumps(model_feature_cols, ensure_ascii=False, indent=2), encoding="utf-8")
         print(f"saved rolling: {out_dir}")

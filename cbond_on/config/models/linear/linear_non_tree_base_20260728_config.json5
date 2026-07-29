@@ -1,0 +1,37 @@
+{
+  // Research-only: inherit the current T-1-neutralized 27-factor contract,
+  // but write every artifact under an isolated experiment root.
+  modules: ["live/live_lgbm_screened_no_winsor_neutral_tminus1_recent_hl20"],
+
+  model_name: "linear_non_tree_base_20260728",
+  start: "2025-10-30",
+  end: "2026-07-23",
+  results_root: {
+    windows: "D:/cbond_on/results/experiments/linear_non_tree_grid_20260728",
+    linux: "/home/gswzif/cbond_on_runtime/results/experiments/linear_non_tree_grid_20260728"
+  },
+  score_overwrite: false,
+  score_dedupe: true,
+  wandb: { enabled: false, mode: "disabled" },
+
+  linear: {
+    device: "cpu",
+    gpu_fallback_to_cpu: true,
+    weight_source: "regression",
+    lookback_days: 60,
+    refit_freq: 1,
+    regression_kind: "ridge",
+    regression_alpha: 1.0,
+    elasticnet_l1_ratio: 0.5,
+    huber_epsilon: 1.35,
+    max_iter: 1000,
+    fallback: "equal",
+    max_weight: 3.0,
+    normalize: "l1",
+    manual_weights: {},
+  },
+  experiment: {
+    id: "linear_non_tree_grid_20260728",
+    description: "causal 60-day T1430 linear non-tree baseline; no live promotion",
+  },
+}

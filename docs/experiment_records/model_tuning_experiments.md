@@ -1,6 +1,6 @@
 # 模型本身调优实验记录
 
-更新时间: 2026-07-09
+更新时间: 2026-07-27
 
 本表记录单模型内部优化，包括训练目标、样本权重、boosting 方式、训练侧 regime、单模型候选等。模型间选择/组合请看 `model_switching_experiments.md`。
 
@@ -21,6 +21,9 @@
 | MT-011 | stale_after_return_fix | 2024-05-08 至 2026-06-24 | DART / dropout boosting | LightGBM `boosting_type=dart` 替代 GBDT | DART HL20 收益 84.50%, Sharpe 2.335；同窗 HL20 收益 136.27%, Sharpe 3.315 | 明显弱于 HL20，暂不采用 | `D:\cbond_on\results\backtest\2024-05-08_2026-06-24\Backtest_lgbm_neutral_tminus1_weight_recent_hl20_dart_20260626_warm_202401_trade_20240508_20260624\20260627_025205\summary_metrics.json` |
 | MT-012 | stale_after_return_fix | 2026-06 至 2026-07 研究批次 | 加权训练方向集合 | recent 加权、label/topK 加权、收益加权等 | recent HL20 方向最稳，最终形成 MT-002 | 保留 HL20，其他加权暂不作为主线 | 历史加权实验产物 |
 | MT-013 | stale_after_return_fix | 2024-05-08 至 2026-06-24 | Regime similarity 参数网格 | 搜索 `window/same/different` 组合 | 旧口径最好 `w10_s15_d05`: 收益 147.85%, Sharpe 3.565；仍低于当时 live switcher baseline 收益 152.63%, Sharpe 3.634 | 最佳参数已沉淀为 MT-004 候选，但新口径需以后继续复核 | `D:\cbond_on\results\analysis\regime_similarity_grid_20260708\summary_vs_live_switcher_baseline.csv` |
+| MT-014 | research_only | 2025-10-30 至 2026-07-23，176 个共同严格收益日 | T1430 连续相似日训练 | 360 个有效 `path_full_t1430` 状态候选中取 nearest 60 训练、next 20 验证、daily cold-start；与 Latest60 严格对照 | Similar60 收益 15.99%、Sharpe 1.653、超额 Sharpe 1.791；Latest60 收益 4.37%、Sharpe 0.528、超额 Sharpe -0.008 | 相似日选择在本研究窗口显著优于最近日对照，但尚非 production 对照，且存在 14:30/14:29 时点与尾部集中风险 | `docs/experiment_records/similar60_pathfull360_20260727.md` |
+| MT-015 | research_only | 2025-10-30 至 2026-07-23，176 个共同严格收益日 | T1430 全维 kernel 软相似权重 | 360 日候选中保留 ranks 61--80 验证；其余 340 日按 44 维 state Gaussian kernel 加权，日 ESS 锁定 60，daily cold-start | Soft360Pool 收益 8.11%、Sharpe 0.989、超额 Sharpe 0.615；弱于 Hard Similar60（15.99%、1.653），高于 Latest60（4.37%、0.528） | 平滑软权重未超过 Hard60，且全窗训练约 23 分钟；不推进上线或与其他权重叠加 | `docs/experiment_records/soft360pool_pathfull360_ess60_20260727.md` |
+| MT-016 | research_only_rejected | 2025-10-30 至 2026-07-23；开发 140 日 / 留出 36 日；严格 Top20 | Causal Ridge / ElasticNet / Huber | T1430 27 因子、T-1 full neutral、60 日 direct-label daily refit；9 个小网格 | 开发期最佳 ElasticNet a=1e-4,l1=0.5：收益 21.95%、Sharpe 2.930；留出期 -3.98%、Sharpe -2.289；所有 9 个线性候选留出 Sharpe 均为负 | 分数与 HL20/Regsim/Ensemble 高度分散但没有稳定留出 alpha，不推广、不融合、不接入 live | `docs/experiment_records/linear_non_tree_grid_20260728.md` |
 
 ## 当前阶段结论
 

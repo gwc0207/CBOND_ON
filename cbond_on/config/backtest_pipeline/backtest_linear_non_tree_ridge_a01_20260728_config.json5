@@ -1,0 +1,5 @@
+{
+  modules: ["backtest_pipeline/backtest_linear_non_tree_base_20260728"],
+  batch_id: "Research_LinearNonTree_ridge_a01_20260728",
+  score_source: { model_id: "linear_non_tree_ridge_a01_20260728", score_root: { windows: "D:/cbond_on/results/experiments/linear_non_tree_grid_20260728/scores/ridge_a01", linux: "/home/gswzif/cbond_on_runtime/results/experiments/linear_non_tree_grid_20260728/scores/ridge_a01" } }
+}

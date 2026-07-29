@@ -1,0 +1,12 @@
+{
+  // Research-only pack; do not add this factor to the live pack.
+  factors: [
+    {
+      name: "parity_adjusted_stock_lag_v1",
+      factor: "parity_adjusted_stock_lag_v1",
+      params: {
+        daily_source: "market_cbond.daily_base",
+      },
+    },
+  ],
+}

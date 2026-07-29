@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from cbond_on.core.config import load_config_file, parse_date
+from cbond_on.core.config import load_config_file, parse_date, resolve_output_path
 from cbond_on.core.fees import load_fees_buy_sell_bps
 from cbond_on.core.trading_days import next_trading_days_from_raw
 from cbond_on.infra.benchmark.service import (
@@ -99,6 +99,15 @@ def _build_output_dir(results_root: str | Path, date_label: str, batch_id: str) 
     )
 
 
+def _resolve_output_root(bt_cfg: dict, paths_cfg: dict) -> Path:
+    """Allow research configs to keep reports outside the shared backtest root."""
+    return resolve_output_path(
+        bt_cfg.get("output_root"),
+        default_path=paths_cfg["results_root"],
+        results_root=paths_cfg["results_root"],
+    )
+
+
 def run(
     *,
     start: date | None = None,
@@ -118,12 +127,14 @@ def run(
     )
     score_path = resolve_score_path(bt_cfg, paths_cfg)
     batch_id = str(bt_cfg.get("batch_id", "Backtest"))
+    output_root = _resolve_output_root(bt_cfg, paths_cfg)
     print(
         "[backtest] start",
         f"batch={batch_id}",
         f"range={start_day:%Y-%m-%d}..{end_day:%Y-%m-%d}",
         f"strategy={strategy_id}",
         f"score_path={score_path}",
+        f"output_root={output_root}",
         flush=True,
     )
     score_cache = load_scores_by_date(score_path)
@@ -408,7 +419,7 @@ def run(
     diag_df = pd.DataFrame(diag_rows).sort_values("trade_date") if diag_rows else pd.DataFrame()
 
     date_label = f"{start_day:%Y-%m-%d}_{end_day:%Y-%m-%d}"
-    out_dir = _build_output_dir(paths_cfg["results_root"], date_label, batch_id)
+    out_dir = _build_output_dir(output_root, date_label, batch_id)
     out_dir.mkdir(parents=True, exist_ok=True)
     print("[backtest] write outputs", f"out_dir={out_dir}", flush=True)
     daily_df.to_csv(out_dir / "daily_returns.csv", index=False)

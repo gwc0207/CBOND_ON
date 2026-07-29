@@ -9,6 +9,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from cbond_on.core.naming import make_window_label
 from cbond_on.domain.factors.storage import FactorStore
 from cbond_on.infra.model.neutralization import FactorNeutralizer
 from cbond_on.infra.model.score_io import write_scores_by_date
@@ -25,6 +26,39 @@ def _iter_existing_label_days(label_root: Path, start: date, end: date) -> list[
     if not label_root.exists():
         return days
     for path in label_root.glob("*/*.parquet"):
+        stem = path.stem.strip()
+        if len(stem) != 8 or not stem.isdigit():
+            continue
+        try:
+            day = datetime.strptime(stem, "%Y%m%d").date()
+        except Exception:
+            continue
+        if start <= day <= end:
+            days.append(day)
+    return sorted(set(days))
+
+
+def _iter_existing_factor_days(
+    factor_root: Path,
+    *,
+    panel_name: str,
+    window_minutes: int,
+    start: date,
+    end: date,
+) -> list[date]:
+    """Return factor days without consulting labels.
+
+    A score day is defined by the availability of its point-in-time factor
+    panel, not by whether its future return label has already materialised.
+    This distinction is what allows the same code path to score both
+    historical and live target days.
+    """
+    label = panel_name or make_window_label(window_minutes)
+    root = factor_root / "factors" / label
+    if not root.exists():
+        return []
+    days: list[date] = []
+    for path in root.glob("*/*.parquet"):
         stem = path.stem.strip()
         if len(stem) != 8 or not stem.isdigit():
             continue
@@ -143,6 +177,10 @@ def _fit_weights(
     factor_cols: list[str],
     *,
     alpha: float,
+    regression_kind: str = "ridge",
+    elasticnet_l1_ratio: float = 0.5,
+    huber_epsilon: float = 1.35,
+    max_iter: int = 1_000,
     device: str = "cpu",
     gpu_fallback_to_cpu: bool = True,
     gpu_state: dict[str, Any] | None = None,
@@ -154,8 +192,20 @@ def _fit_weights(
     if X.empty or y.empty:
         return None
 
+    kind = str(regression_kind or "ridge").strip().lower().replace("_", "")
+    aliases = {
+        "ridge": "ridge",
+        "elasticnet": "elasticnet",
+        "enet": "elasticnet",
+        "huber": "huber",
+        "huberregressor": "huber",
+    }
+    if kind not in aliases:
+        raise ValueError(f"unsupported linear regression_kind: {regression_kind}")
+    kind = aliases[kind]
+
     use_gpu = str(device or "cpu").strip().lower() in {"gpu", "cuda"}
-    if use_gpu:
+    if use_gpu and kind == "ridge":
         try:
             import cupy as cp
             from cuml.linear_model import Ridge as CuRidge
@@ -181,14 +231,40 @@ def _fit_weights(
                     f"{type(exc).__name__}: {exc}",
                 )
                 gpu_state["warned"] = True
+    elif use_gpu and gpu_state is not None and not bool(gpu_state.get("warned", False)):
+        print(f"[linear] regression_kind={kind} uses sklearn CPU implementation")
+        gpu_state["warned"] = True
 
     try:
-        from sklearn.linear_model import Ridge
+        from sklearn.linear_model import ElasticNet, HuberRegressor, Ridge
     except Exception:
         return None
-    model = Ridge(alpha=float(alpha), fit_intercept=True)
+    if kind == "ridge":
+        model = Ridge(alpha=float(alpha), fit_intercept=True)
+    elif kind == "elasticnet":
+        if not 0.0 <= float(elasticnet_l1_ratio) <= 1.0:
+            raise ValueError("elasticnet_l1_ratio must be in [0, 1]")
+        model = ElasticNet(
+            alpha=float(alpha),
+            l1_ratio=float(elasticnet_l1_ratio),
+            fit_intercept=True,
+            max_iter=max(1, int(max_iter)),
+            selection="cyclic",
+        )
+    else:
+        if float(huber_epsilon) <= 1.0:
+            raise ValueError("huber_epsilon must be > 1")
+        model = HuberRegressor(
+            epsilon=float(huber_epsilon),
+            alpha=float(alpha),
+            fit_intercept=True,
+            max_iter=max(1, int(max_iter)),
+        )
     model.fit(X, y)
-    return pd.Series(model.coef_, index=factor_cols, dtype=float)
+    weights = pd.Series(model.coef_, index=factor_cols, dtype=float)
+    if not np.isfinite(weights.to_numpy(dtype=float)).all():
+        return None
+    return weights
 
 
 def _normalize_weights(weights: pd.Series, method: str, max_weight: float) -> pd.Series:
@@ -200,10 +276,9 @@ def _normalize_weights(weights: pd.Series, method: str, max_weight: float) -> pd
     return w
 
 
-def _score_day(
+def _prepare_factor_day(
     day: date,
     factor_store: FactorStore,
-    label_root: Path,
     *,
     factor_cols: list[str],
     winsor_lower: float | None,
@@ -214,35 +289,60 @@ def _score_day(
     label_time: str,
     neutralizer: FactorNeutralizer | None = None,
 ) -> pd.DataFrame:
+    """Build a target-day feature matrix without accessing any label file."""
     fdf = factor_store.read_day(day)
     if fdf.empty:
         return pd.DataFrame()
     if not isinstance(fdf.index, pd.MultiIndex):
         fdf = fdf.reset_index().set_index(["dt", "code"])
     fdf = fdf.reset_index()
-    label_df = _read_label_day(label_root, day, factor_time=factor_time, label_time=label_time)
-    if label_df.empty or "dt" not in label_df.columns:
+    required_cols = ["dt", "code"] + factor_cols
+    missing_cols = [col for col in required_cols if col not in fdf.columns]
+    if missing_cols:
         return pd.DataFrame()
-    label_df = label_df[["dt", "code", "y"]].dropna()
-    merged = fdf.merge(label_df, on=["dt", "code"], how="inner")
-    if merged.empty:
+    work = fdf[required_cols].copy()
+    work["dt"] = pd.to_datetime(work["dt"], errors="coerce")
+    work["code"] = work["code"].astype(str)
+    work = work.replace([np.inf, -np.inf], np.nan).dropna(subset=required_cols)
+    if work.empty:
         return pd.DataFrame()
-    merged = merged.dropna(subset=factor_cols + ["y"])
-    if merged.empty:
+    counts = work.groupby("dt")["code"].transform("size")
+    work = work[counts >= min_count]
+    if work.empty:
         return pd.DataFrame()
-    counts = merged.groupby("dt")["code"].transform("size")
-    merged = merged[counts >= min_count]
-    if merged.empty:
-        return pd.DataFrame()
-    merged = _apply_factor_preprocess(
-        merged,
+    work = _apply_factor_preprocess(
+        work,
         factor_cols,
         lower_q=winsor_lower,
         upper_q=winsor_upper,
         zscore=zscore,
         neutralizer=neutralizer,
     )
-    return merged[["dt", "code"] + factor_cols + ["y"]]
+    return work[["dt", "code"] + factor_cols]
+
+
+def _prepare_labeled_day(
+    day: date,
+    factor_df: pd.DataFrame,
+    label_root: Path,
+    *,
+    factor_time: str,
+    label_time: str,
+) -> pd.DataFrame:
+    """Attach realised labels to an already point-in-time prepared factor day."""
+    if factor_df.empty:
+        return pd.DataFrame()
+    label_df = _read_label_day(label_root, day, factor_time=factor_time, label_time=label_time)
+    if label_df.empty or not {"dt", "code", "y"}.issubset(label_df.columns):
+        return pd.DataFrame()
+    labels = label_df[["dt", "code", "y"]].copy()
+    labels["dt"] = pd.to_datetime(labels["dt"], errors="coerce")
+    labels["code"] = labels["code"].astype(str)
+    labels["y"] = pd.to_numeric(labels["y"], errors="coerce")
+    labels = labels.replace([np.inf, -np.inf], np.nan).dropna(subset=["dt", "code", "y"])
+    if labels.empty:
+        return pd.DataFrame()
+    return factor_df.merge(labels, on=["dt", "code"], how="inner")
 
 
 def run_linear_score(
@@ -271,53 +371,76 @@ def run_linear_score(
     device: str = "cpu",
     gpu_fallback_to_cpu: bool = True,
     neutralizer: FactorNeutralizer | None = None,
+    label_cutoff: date | None = None,
+    regression_kind: str = "ridge",
+    elasticnet_l1_ratio: float = 0.5,
+    huber_epsilon: float = 1.35,
+    max_iter: int = 1_000,
 ) -> ScoreResult:
-    days = _iter_existing_label_days(label_root, start, end)
-    if not days:
-        return ScoreResult(scores=pd.DataFrame(), weights_history=pd.DataFrame())
     store = FactorStore(factor_root, panel_name=panel_name, window_minutes=window_minutes)
+    target_days = _iter_existing_factor_days(
+        factor_root,
+        panel_name=panel_name,
+        window_minutes=window_minutes,
+        start=start,
+        end=end,
+    )
+    if not target_days:
+        return ScoreResult(scores=pd.DataFrame(), weights_history=pd.DataFrame())
+
+    # The label lookup includes pre-start history so a one-day live call still
+    # has a complete rolling training window.  Each target later applies the
+    # stricter d < target_day boundary, independently of this global cutoff.
+    label_end = min(end, label_cutoff) if label_cutoff is not None else end
+    label_days = _iter_existing_label_days(label_root, date.min, label_end)
     weights = manual_weights.copy()
     last_refit_idx: int | None = None
     score_rows: list[dict] = []
     weight_rows: list[dict] = []
     gpu_state: dict[str, Any] = {"warned": False}
+    factor_cache: dict[date, pd.DataFrame] = {}
+    label_cache: dict[date, pd.DataFrame] = {}
 
-    for idx, day in enumerate(days):
-        day_df = _score_day(
-            day,
-            store,
-            label_root,
-            factor_cols=factor_cols,
-            winsor_lower=winsor_lower,
-            winsor_upper=winsor_upper,
-            zscore=zscore,
-            min_count=min_count,
-            factor_time=factor_time,
-            label_time=label_time,
-            neutralizer=neutralizer,
-        )
+    def _factor_day(day: date) -> pd.DataFrame:
+        if day not in factor_cache:
+            factor_cache[day] = _prepare_factor_day(
+                day,
+                store,
+                factor_cols=factor_cols,
+                winsor_lower=winsor_lower,
+                winsor_upper=winsor_upper,
+                zscore=zscore,
+                min_count=min_count,
+                factor_time=factor_time,
+                label_time=label_time,
+                neutralizer=neutralizer,
+            )
+        return factor_cache[day]
+
+    def _labeled_day(day: date) -> pd.DataFrame:
+        if day not in label_cache:
+            label_cache[day] = _prepare_labeled_day(
+                day,
+                _factor_day(day),
+                label_root,
+                factor_time=factor_time,
+                label_time=label_time,
+            )
+        return label_cache[day]
+
+    for idx, day in enumerate(target_days):
+        day_df = _factor_day(day)
         if day_df.empty:
             continue
 
         if weight_source == "regression":
             need_refit = last_refit_idx is None or (idx - last_refit_idx) >= refit_freq
             if need_refit:
-                train_days = days[max(0, idx - lookback_days):idx]
+                train_days = [d for d in label_days if d < day]
+                train_days = train_days[-lookback_days:]
                 train_frames = []
                 for td in train_days:
-                    tdf = _score_day(
-                        td,
-                        store,
-                        label_root,
-                        factor_cols=factor_cols,
-                        winsor_lower=winsor_lower,
-                        winsor_upper=winsor_upper,
-                        zscore=zscore,
-                        min_count=min_count,
-                        factor_time=factor_time,
-                        label_time=label_time,
-                        neutralizer=neutralizer,
-                    )
+                    tdf = _labeled_day(td)
                     if not tdf.empty:
                         train_frames.append(tdf)
                 train_df = pd.concat(train_frames, ignore_index=True) if train_frames else pd.DataFrame()
@@ -325,6 +448,10 @@ def run_linear_score(
                     train_df,
                     factor_cols,
                     alpha=regression_alpha,
+                    regression_kind=regression_kind,
+                    elasticnet_l1_ratio=elasticnet_l1_ratio,
+                    huber_epsilon=huber_epsilon,
+                    max_iter=max_iter,
                     device=device,
                     gpu_fallback_to_cpu=gpu_fallback_to_cpu,
                     gpu_state=gpu_state,
@@ -339,7 +466,16 @@ def run_linear_score(
                 weights = _normalize_weights(weights, normalize_weights, max_weight)
                 for factor, weight in weights.items():
                     weight_rows.append(
-                        {"trade_date": day, "factor": factor, "weight": float(weight)}
+                        {
+                            "trade_date": day,
+                            "factor": factor,
+                            "weight": float(weight),
+                            "regression_kind": str(regression_kind),
+                            "train_start": train_days[0] if train_days else None,
+                            "train_end": train_days[-1] if train_days else None,
+                            "train_days": int(len(train_days)),
+                            "train_rows": int(len(train_df)),
+                        }
                     )
                 last_refit_idx = idx
 
@@ -369,12 +505,13 @@ def write_linear_outputs(
     meta_path: Path | None,
     meta_payload: dict,
     overwrite: bool,
+    dedupe: bool = True,
 ) -> None:
     write_scores_by_date(
         score_path,
         result.scores,
         overwrite=overwrite,
-        dedupe=True,
+        dedupe=dedupe,
     )
 
     if weights_path is not None:
@@ -382,7 +519,23 @@ def write_linear_outputs(
         if overwrite and weights_path.exists():
             weights_path.unlink()
         if not result.weights_history.empty:
-            result.weights_history.to_csv(weights_path, index=False)
+            weights = result.weights_history.copy()
+            if not overwrite and weights_path.exists():
+                try:
+                    prior = pd.read_csv(weights_path)
+                    weights = pd.concat([prior, weights], ignore_index=True, sort=False)
+                except Exception:
+                    # Keep a newly computed audit trail even if a legacy file
+                    # is unreadable; this mirrors score IO's fail-open write.
+                    pass
+            if "trade_date" in weights.columns:
+                weights["trade_date"] = pd.to_datetime(weights["trade_date"], errors="coerce").dt.strftime("%Y-%m-%d")
+            if "factor" in weights.columns:
+                weights["factor"] = weights["factor"].astype(str)
+            key_cols = [col for col in ("trade_date", "factor") if col in weights.columns]
+            if key_cols:
+                weights = weights.drop_duplicates(subset=key_cols, keep="last")
+            weights.to_csv(weights_path, index=False)
 
     if meta_path is not None:
         meta_path.parent.mkdir(parents=True, exist_ok=True)

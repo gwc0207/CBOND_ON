@@ -895,11 +895,54 @@ function switchReasonText(reason) {
     feature_missing: "当日状态特征缺失，回退 Champion",
     feature_na: "当日状态特征存在空值，回退 Champion",
     insufficient_history: "相似样本不足，回退 Champion",
+    fusion_champion_base_first: "Champion 在 base 层得分第一，忽略 5bp 门槛并直接采用 Champion",
   };
   if (labels[text]) return labels[text];
   if (text.startsWith("stale_return_history")) return "影子收益历史未更新到要求日期，回退 Champion";
   if (text.startsWith("fallback_rolling_sharpe")) return "状态样本不足，使用滚动 Sharpe 回退规则";
   return text ? text.replaceAll("_", " ") : "暂无决策说明";
+}
+
+function modelSelectionStatus(item) {
+  const reason = String(item?.reason || item?.error || "").trim();
+  const selectedName = String(item?.selected_name || "").trim();
+  const selectedModelId = String(item?.selected_model_id || "").trim();
+  const statusText = String(item?.status || item?.state || "").trim();
+  const joined = `${statusText} ${selectedName} ${selectedModelId} ${reason}`.toLowerCase();
+  const hasSelection = Boolean(selectedModelId || selectedName);
+  const explicitFailed = /\b(failed|failure|error|exception|traceback)\b/.test(joined)
+    || joined.includes("score missing");
+  const pendingReturn = item?.selected_return === null
+    || item?.selected_return === undefined
+    || Number.isNaN(Number(item?.selected_return));
+  if (!hasSelection || explicitFailed) {
+    return {
+      className: "failed",
+      color: "#dc2626",
+      name: "决策失败",
+      returnText: "失败",
+      returnClass: "return-failed",
+      reason: switchReasonText(reason),
+    };
+  }
+  if (pendingReturn) {
+    return {
+      className: "pending",
+      color: null,
+      name: shortModelName(selectedName || selectedModelId),
+      returnText: "待收益",
+      returnClass: "return-muted",
+      reason: "收益尚未完成结算",
+    };
+  }
+  return {
+    className: "",
+    color: null,
+    name: shortModelName(selectedName || selectedModelId),
+    returnText: fmtPct(item?.selected_return),
+    returnClass: returnClass(item?.selected_return),
+    reason: switchReasonText(reason),
+  };
 }
 
 function modelColor(modelId, candidates = []) {
@@ -923,6 +966,22 @@ function renderModelDecision(overview) {
   }
 
   const scoreMap = new Map((decision.candidate_scores || []).map((item) => [String(item.model_id), item]));
+  const robust = decision?.fusion?.robust;
+  const robustAction = String(decision?.fusion?.action || "");
+  const robustCandidates = Array.isArray(robust?.candidate_scores)
+    ? robust.candidate_scores.filter(
+      (item) => item?.score !== null && item?.score !== undefined && Number.isFinite(Number(item.score)),
+    )
+    : [];
+  const robustReached = [
+    "robust_agrees_base_low_confidence",
+    "robust_override_base_low_confidence",
+    "base_robust_not_confident",
+  ].includes(robustAction);
+  const showRobustScores = robustReached
+    && robustCandidates.length > 0
+    && !String(robust?.reason || "").startsWith("skipped_");
+  const robustScoreMap = new Map(robustCandidates.map((item) => [String(item.model_id), item]));
   const selectedId = String(decision.selected_model_id || "");
   const scored = candidates
     .map((candidate) => ({ ...candidate, score: scoreMap.get(String(candidate.model_id))?.score ?? null }))
@@ -954,13 +1013,15 @@ function renderModelDecision(overview) {
   if (modelScoreGrid) {
     modelScoreGrid.innerHTML = candidates.map((candidate) => {
       const scoreItem = scoreMap.get(String(candidate.model_id)) || {};
+      const robustItem = robustScoreMap.get(String(candidate.model_id));
       const selected = String(candidate.model_id) === selectedId;
       return `
         <div class="model-score-item ${selected ? "selected" : ""}" style="border-top: 3px solid ${modelColor(candidate.model_id, candidates)}">
           <div class="model-score-role">${candidate.role === "champion" ? "Champion" : "Challenger"}</div>
           <div class="model-score-name" title="${escapeHtml(candidate.name)}">${escapeHtml(shortModelName(candidate.name))}</div>
           <div class="model-score-value">${escapeHtml(fmtScoreBps(scoreItem.score))}</div>
-          <div class="model-score-unit">bp · ${escapeHtml(String(overview?.metric || "score").toUpperCase())}</div>
+          <div class="model-score-unit">Base · ${escapeHtml(String(overview?.metric || "score").toUpperCase())}</div>
+          ${showRobustScores ? `<div class="model-score-unit">Robust · ${escapeHtml(fmtScoreBps(robustItem?.score))} bp</div>` : ""}
           <div class="model-score-history">样本 ${Number(scoreItem.history_days || 0)} · 截至 ${escapeHtml(scoreItem.history_end || "-")}</div>
           ${selected ? '<div class="model-selected-mark">当前采用</div>' : ""}
         </div>
@@ -992,14 +1053,18 @@ function renderModelSelectionStrip(overview) {
     return;
   }
   modelSelectionStrip.innerHTML = decisions.map((item) => {
-    const selectedReturn = item.selected_return;
+    const visual = modelSelectionStatus(item);
+    const color = visual.color || modelColor(item.selected_model_id, candidates);
     return `
-      <div class="model-selection-day" style="--model-color: ${modelColor(item.selected_model_id, candidates)}" title="${escapeHtml(`${item.score_day} · ${item.selected_name} · ${switchReasonText(item.reason)} · 收益 ${fmtPct(selectedReturn)}`)}">
-        <div class="model-selection-topline">
-          <span class="model-selection-date">${escapeHtml(String(item.score_day || "").slice(5))}</span>
-          <span class="model-selection-return ${returnClass(selectedReturn)}">${escapeHtml(fmtPct(selectedReturn))}</span>
+      <div class="model-selection-day ${visual.className}" style="--model-color: ${color}" title="${escapeHtml(`${item.score_day} · ${item.selected_name || visual.name} · ${visual.reason} · 收益 ${visual.returnText}`)}">
+        <span class="model-selection-node" aria-hidden="true"></span>
+        <div class="model-selection-body">
+          <div class="model-selection-topline">
+            <span class="model-selection-date">${escapeHtml(String(item.score_day || "").slice(5))}</span>
+            <span class="model-selection-return ${visual.returnClass}">${escapeHtml(visual.returnText)}</span>
+          </div>
+          <div class="model-selection-name">${escapeHtml(visual.name)}</div>
         </div>
-        <div class="model-selection-name">${escapeHtml(shortModelName(item.selected_name))}</div>
       </div>
     `;
   }).join("");

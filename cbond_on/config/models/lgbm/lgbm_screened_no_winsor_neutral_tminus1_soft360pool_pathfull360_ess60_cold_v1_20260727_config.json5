@@ -1,0 +1,54 @@
+{
+  modules: ["models/lgbm/lgbm_screened_no_winsor_neutral_tminus1_refit1_202401_rerun_20260623"],
+
+  // Research-only. It does not participate in live model selection or publication.
+  model_name: "lgbm_screened_no_winsor_neutral_tminus1_soft360pool_pathfull360_ess60_cold_v1_20260727",
+  start: "2025-10-30",
+  end: "2026-07-24",
+  score_output: {
+    windows: "D:/cbond_on/results/experiments/soft360pool_pathfull360_ess60_20260727/scores/soft360pool_ess60_cold",
+    linux: "/home/gswzif/cbond_on_runtime/results/experiments/soft360pool_pathfull360_ess60_20260727/scores/soft360pool_ess60_cold"
+  },
+  score_overwrite: true,
+  incremental: {
+    enabled: false,
+    skip_existing_scores: false,
+    warm_start: false,
+    save_state: false
+  },
+  rolling: {
+    enabled: true,
+    // Retained only for runner compatibility; kernel selection supplies the actual days.
+    window_days: 60
+  },
+  feature_engineering: {
+    similar_day_training: {
+      enabled: true,
+      state_feature_path: {
+        // Research copy only; it is not point-in-time aligned with the 14:29 live cutoff.
+        windows: "D:/cbond_on/results/experiments/similar60_pathfull360_20260727/state/t1430_market_state_features_pathfull_repaired.csv",
+        linux: "/home/gswzif/cbond_on_runtime/results/experiments/similar60_pathfull360_20260727/state/t1430_market_state_features_pathfull_repaired.csv"
+      },
+      feature_set: "path_full_t1430",
+      candidate_lookback_days: 360,
+      candidate_buffer_days: 40,
+      // Enforce a full 360-day state pool instead of silently shrinking the study window.
+      min_candidate_days: 360,
+      // Preserve the Hard Similar60 local validation band: distance ranks 61--80.
+      train_top_k: 60,
+      validation_top_k: 20,
+      selection_mode: "kernel",
+      // Train on the remaining 340 days with a Gaussian distance kernel whose day ESS is 60.
+      kernel_target_effective_days: 60,
+      kernel_weight_floor: 1e-12,
+      // Historical state gaps must remain visible and use the same explicit rolling fallback.
+      fallback: "rolling"
+    }
+  },
+  lgbm_params: { log_eval_period: 1000000 },
+  experiment: {
+    id: "soft360pool_pathfull360_ess60_20260727",
+    trial: "gaussian_kernel_340fit_ess60_cold_no_hl20_no_regsim_state_gap_fallback",
+    research_only: true
+  }
+}

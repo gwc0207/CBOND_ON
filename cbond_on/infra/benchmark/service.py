@@ -125,6 +125,12 @@ def _first_price_series(df: pd.DataFrame, candidates: Iterable[str], *, label: s
     raise RuntimeError(f"benchmark daily_price missing {label} columns: {list(candidates)}")
 
 
+def _numeric_market_column(market: pd.DataFrame, col: str) -> pd.Series:
+    if col in market.columns:
+        return pd.to_numeric(market[col], errors="coerce")
+    return pd.Series(float("nan"), index=market.index, dtype=float)
+
+
 def _twap_col_to_window_file(col: str) -> str:
     text = str(col).strip()
     if text.startswith("twap_"):
@@ -380,14 +386,14 @@ def load_strict_market_day(
     price = close.reset_index().merge(prev_close.reset_index(), on="code", how="outer")
     market = price.merge(twap, on="code", how="outer")
 
-    buy_price = pd.to_numeric(market.get(cfg.buy_twap_col), errors="coerce")
+    buy_price = _numeric_market_column(market, cfg.buy_twap_col)
     buy_close = pd.to_numeric(market["buy_close_price"], errors="coerce")
     buy_rate = bps_to_rate(buy_bps)
     market["buy_price"] = buy_price
     market["buy_leg_ret_gross"] = buy_close / buy_price - 1.0
     market["buy_leg_ret_net"] = market["buy_leg_ret_gross"] - buy_rate
 
-    sell_raw = pd.to_numeric(market.get(cfg.sell_twap_col), errors="coerce")
+    sell_raw = _numeric_market_column(market, cfg.sell_twap_col)
     strict_prev_close = pd.to_numeric(market["strict_prev_close_price"], errors="coerce")
     sell_valid = sell_raw.notna() & (sell_raw > 0)
     market["strict_sell_price"] = sell_raw.where(sell_valid, strict_prev_close)

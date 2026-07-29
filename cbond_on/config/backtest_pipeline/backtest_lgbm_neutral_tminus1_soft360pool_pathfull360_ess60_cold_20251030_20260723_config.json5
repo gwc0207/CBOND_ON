@@ -1,0 +1,26 @@
+{
+  // Research-only aligned backtest. The score root is explicit to avoid production-score fallback.
+  start: "2025-10-30",
+  end: "2026-07-23",
+  batch_id: "Research_Soft360Pool_pathfull360_ess60_cold_20251030_20260723",
+  score_source: {
+    model_id: "lgbm_screened_no_winsor_neutral_tminus1_soft360pool_pathfull360_ess60_cold_v1_20260727",
+    score_root: {
+      windows: "D:/cbond_on/results/experiments/soft360pool_pathfull360_ess60_20260727/scores/soft360pool_ess60_cold",
+      linux: "/home/gswzif/cbond_on_runtime/results/experiments/soft360pool_pathfull360_ess60_20260727/scores/soft360pool_ess60_cold"
+    }
+  },
+  strategy_id: "strategy01_topk_turnover",
+  strategy_config_path: "strategies/strategy01/strategy01",
+  buy_twap_col: "twap_1442_1457",
+  sell_twap_col: "twap_0930_0939",
+  allowlist: {
+    enabled: true,
+    table: "quant_factor_dev.researcher_xuvb.o_0005",
+    lag_trading_days: 1,
+    asset: "cbond",
+    flag_field: "factor_value",
+    fallback_field: "weight",
+    threshold: 0.0
+  }
+}

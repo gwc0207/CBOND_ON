@@ -1,0 +1,87 @@
+{
+  // CB-Risk is intentionally separate from alpha scoring and the live chain.
+  // It is safe to run only as an offline replay/shadow analysis until DataHub
+  // delivers a PIT-certified risk input manifest.
+  risk_model_id: "cb_risk_v1_core_style",
+  mode: "offline_shadow",
+  start: "2024-01-02",
+  end: "",
+
+  asof: {
+    timezone: "Asia/Shanghai",
+    intraday_cutoff: "14:29",
+    static_exposure_lag_trading_days: 1,
+    require_pit_certified: false,
+    pit_status: "unverified_research_only",
+  },
+
+  inputs: {
+    source: "datahub_local_only",
+    base_table: "market_cbond.daily_base",
+    twap_table: "market_cbond.daily_twap",
+    pool_table: "quant_factor_dev.researcher_xuvb.o_0005",
+    pool_lag_trading_days: 1,
+    pool_asset: "cbond",
+    pool_positive_field: "factor_value",
+    pool_positive_fallback_field: "weight",
+    pool_positive_threshold: 0.0,
+    buy_twap_col: "twap_1442_1457",
+    sell_twap_col: "twap_0930_0939",
+    strategy_positions_path: "",
+    benchmark_positions_path: "",
+  },
+
+  // This is the currently implementable core. Industry and float-market-cap
+  // fields are deliberately disabled until DataHub publishes their PIT history.
+  factors: [
+    { name: "CB_SIZE", source_columns: ["remain_size"], transform: "log", min_coverage: 0.95 },
+    { name: "CB_LIQ", source_columns: ["cb_amount", "amount"], transform: "log", min_coverage: 0.90 },
+    { name: "CB_PREMIUM", source_columns: ["bond_prem_ratio"], transform: "identity", min_coverage: 0.95 },
+    { name: "RATE_DURATION", source_columns: ["modify_duration", "duration"], transform: "positive", min_coverage: 0.95 },
+    {
+      name: "CONVEXITY_ORTHO",
+      source_columns: ["convexity"],
+      transform: "log1p",
+      min_coverage: 0.95,
+      orthogonalize_against: ["RATE_DURATION"],
+      orthogonalize_square: true,
+    },
+    { name: "CREDIT", source_columns: ["rating"], transform: "rating_ordinal", min_coverage: 0.80 },
+    { name: "EQUITY_VOL", source_columns: ["stock_volatility"], transform: "log1p", min_coverage: 0.95 },
+  ],
+
+  regression_weight: {
+    source_columns: ["remain_size"],
+  },
+  preprocessing: {
+    winsor_lower: 0.01,
+    winsor_upper: 0.99,
+  },
+  industry: {
+    enabled: false,
+    source_column: "stock_industry_l1",
+    prefix: "IND",
+    min_group_size: 15,
+  },
+
+  estimation: {
+    min_samples: 150,
+    max_condition_number: 100.0,
+    huber_c: 1.345,
+    huber_iterations: 3,
+    covariance_half_life_days: 60.0,
+    covariance_shrinkage: 0.15,
+    covariance_min_observations: 120,
+    specific_half_life_days: 60.0,
+    specific_min_observations: 20,
+    specific_shrinkage_observations: 60.0,
+    annualization_days: 244,
+  },
+
+  output: {
+    output_root: "",
+    write_db: false,
+    live_hook_enabled: false,
+    write_html_report: true,
+  },
+}

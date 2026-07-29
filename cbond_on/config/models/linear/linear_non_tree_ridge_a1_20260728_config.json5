@@ -1,0 +1,8 @@
+{
+  modules: ["models/linear/linear_non_tree_base_20260728"],
+  model_name: "linear_non_tree_ridge_a1_20260728",
+  score_output: { windows: "D:/cbond_on/results/experiments/linear_non_tree_grid_20260728/scores/ridge_a1", linux: "/home/gswzif/cbond_on_runtime/results/experiments/linear_non_tree_grid_20260728/scores/ridge_a1" },
+  weights_output: { windows: "D:/cbond_on/results/experiments/linear_non_tree_grid_20260728/scores/ridge_a1/weights.csv", linux: "/home/gswzif/cbond_on_runtime/results/experiments/linear_non_tree_grid_20260728/scores/ridge_a1/weights.csv" },
+  meta_output: { windows: "D:/cbond_on/results/experiments/linear_non_tree_grid_20260728/scores/ridge_a1/meta.json", linux: "/home/gswzif/cbond_on_runtime/results/experiments/linear_non_tree_grid_20260728/scores/ridge_a1/meta.json" },
+  linear: { regression_kind: "ridge", regression_alpha: 1.0 },
+}

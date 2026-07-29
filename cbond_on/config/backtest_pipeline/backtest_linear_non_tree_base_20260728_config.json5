@@ -1,0 +1,24 @@
+{
+  // Strict research contract, isolated output root.  Model score roots are
+  // supplied by each child config; strategy execution and o_0005 are shared.
+  start: "2025-10-30",
+  end: "2026-07-23",
+  batch_id: "Research_LinearNonTree_base_20260728",
+  output_root: {
+    windows: "D:/cbond_on/results/experiments/linear_non_tree_grid_20260728",
+    linux: "/home/gswzif/cbond_on_runtime/results/experiments/linear_non_tree_grid_20260728"
+  },
+  strategy_id: "strategy01_topk_turnover",
+  strategy_config_path: "strategies/strategy01/strategy01",
+  buy_twap_col: "twap_1442_1457",
+  sell_twap_col: "twap_0930_0939",
+  allowlist: {
+    enabled: true,
+    table: "quant_factor_dev.researcher_xuvb.o_0005",
+    lag_trading_days: 1,
+    asset: "cbond",
+    flag_field: "factor_value",
+    fallback_field: "weight",
+    threshold: 0.0
+  }
+}

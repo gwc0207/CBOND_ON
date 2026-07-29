@@ -1,0 +1,20 @@
+{
+  modules: ["models/lgbm/lgbm_screened_no_winsor_neutral_tminus1_similar60_pathfull360_cold_v1_20260727"],
+
+  // Causal control: same 60/20 contract, selecting the newest eligible dates instead of nearest states.
+  model_name: "lgbm_screened_no_winsor_neutral_tminus1_latest60_pathfull360_cold_v1_20260727",
+  score_output: {
+    windows: "D:/cbond_on/results/experiments/similar60_pathfull360_20260727/scores/latest60_cold",
+    linux: "/home/gswzif/cbond_on_runtime/results/experiments/similar60_pathfull360_20260727/scores/latest60_cold"
+  },
+  feature_engineering: {
+    similar_day_training: {
+      selection_mode: "latest"
+    }
+  },
+  experiment: {
+    id: "similar60_pathfull360_20260727",
+    trial: "latest60_cold_no_hl20_no_regsim",
+    research_only: true
+  }
+}

@@ -10,6 +10,18 @@ import numpy as np
 import pandas as pd
 
 
+_T1430_PATH_PREFIXES: list[str] = [
+    "full0935_1430",
+    "seg0935_1000",
+    "seg1000_1030",
+    "seg1030_1100",
+    "seg1100_1130",
+    "seg1300_1330",
+    "seg1330_1400",
+    "seg1400_1430",
+]
+_T1430_PATH_STAT_SUFFIXES: list[str] = ["mean", "std", "iqr", "pos_ratio", "tail_spread"]
+
 T1430_DISPERSION_FEATURE_SETS: dict[str, list[str]] = {
     "disp_afternoon7": [
         "afternoon1300_1430_std",
@@ -19,6 +31,17 @@ T1430_DISPERSION_FEATURE_SETS: dict[str, list[str]] = {
         "last30_1330_1430_iqr",
         "last30_1330_1430_tail_spread",
         "dispersion_accel",
+    ],
+    "path_full_t1430": [
+        *[
+            f"{prefix}_{suffix}"
+            for prefix in _T1430_PATH_PREFIXES
+            for suffix in _T1430_PATH_STAT_SUFFIXES
+        ],
+        "trend_accel_median",
+        "trend_accel_mean",
+        "dispersion_accel",
+        "tail_balance_full",
     ],
 }
 
@@ -518,6 +541,20 @@ def build_t1430_market_state_feature_row(
             end="10:00",
             price_field=price_field,
         ),
+        "mid1000_1030": _snapshot_window_twap(
+            snapshot,
+            day=score_day,
+            start="10:00",
+            end="10:30",
+            price_field=price_field,
+        ),
+        "mid1030_1100": _snapshot_window_twap(
+            snapshot,
+            day=score_day,
+            start="10:30",
+            end="11:00",
+            price_field=price_field,
+        ),
         "morning1100_1130": _snapshot_window_twap(
             snapshot,
             day=score_day,
@@ -555,6 +592,13 @@ def build_t1430_market_state_feature_row(
         "afternoon1300_1430": _safe_div_return(twap_frame["afternoon1400_1430"], twap_frame["afternoon1300_1330"]),
         "last30_1330_1430": _safe_div_return(twap_frame["afternoon1400_1430"], twap_frame["afternoon1330_1400"]),
         "early0935_1000": _safe_div_return(twap_frame["early0935_1000"], twap_frame["open0930_0935"]),
+        "seg0935_1000": _safe_div_return(twap_frame["early0935_1000"], twap_frame["open0930_0935"]),
+        "seg1000_1030": _safe_div_return(twap_frame["mid1000_1030"], twap_frame["early0935_1000"]),
+        "seg1030_1100": _safe_div_return(twap_frame["mid1030_1100"], twap_frame["mid1000_1030"]),
+        "seg1100_1130": _safe_div_return(twap_frame["morning1100_1130"], twap_frame["mid1030_1100"]),
+        "seg1300_1330": _safe_div_return(twap_frame["afternoon1300_1330"], twap_frame["morning1100_1130"]),
+        "seg1330_1400": _safe_div_return(twap_frame["afternoon1330_1400"], twap_frame["afternoon1300_1330"]),
+        "seg1400_1430": _safe_div_return(twap_frame["afternoon1400_1430"], twap_frame["afternoon1330_1400"]),
     }
 
     row: dict[str, object] = {"trade_date": score_day, "valid_count": int(len(returns["full0935_1430"]))}
@@ -1004,8 +1048,8 @@ def decide_scoreopt_t1430_dispersion(
     best_meta = model_meta[best_col]
     use_best = score_gap is not None and score_gap > margin
     reason = "score_best" if use_best else "margin_default"
-    selected_model_id = str(best_meta["model_id"]) if use_best else champion_model_id
-    selected_name = str(best_meta["name"]) if use_best else champion_name
+    selected_model_id = str(best_meta["model_id"])
+    selected_name = str(best_meta["name"])
     return _decision(
         selected_model_id=selected_model_id,
         selected_name=selected_name,
@@ -1216,6 +1260,339 @@ def _robust_pairwise_t1430_diagnostics(
     )
 
 
+def _robust_base_candidate_veto(
+    base_decision: SwitchDecision,
+    robust: dict,
+    cfg: dict,
+) -> dict:
+    """Reject a weak Base winner only when robust pairwise evidence is unanimous.
+
+    Robust utilities are relative and sum to zero, so a negative utility alone
+    is not an absolute-return forecast.  The veto therefore requires the Base
+    winner to be the strict robust last-place candidate *and* to lose directly
+    to every other valid candidate by more than the configured margin.
+    """
+
+    fusion_cfg = cfg.get("fusion", {})
+    fusion_cfg = fusion_cfg if isinstance(fusion_cfg, dict) else {}
+    veto_cfg = fusion_cfg.get("robust_base_veto", {})
+    veto_cfg = veto_cfg if isinstance(veto_cfg, dict) else {}
+    enabled = bool(veto_cfg.get("enabled", False))
+    margin = float(veto_cfg.get("margin", robust.get("margin", 0.0005)))
+    min_other_models = int(veto_cfg.get("min_other_models", 2))
+    low_conf_only = bool(veto_cfg.get("base_low_confidence_only", True))
+    require_robust_worst = bool(veto_cfg.get("require_robust_worst", True))
+    result = {
+        "enabled": enabled,
+        "triggered": False,
+        "margin": margin,
+        "min_other_models": min_other_models,
+        "base_low_confidence_only": low_conf_only,
+        "require_robust_worst": require_robust_worst,
+        "reason": "disabled" if not enabled else "not_triggered",
+        "base_model_id": base_decision.selected_model_id,
+        "base_name": base_decision.selected_name,
+        "base_robust_score": None,
+        "pairwise_advantages": [],
+        "selected_model_id": "",
+        "selected_name": "",
+    }
+    if margin < 0.0:
+        raise ValueError("robust_base_veto.margin must be non-negative")
+    if min_other_models <= 0:
+        raise ValueError("robust_base_veto.min_other_models must be positive")
+    if not enabled:
+        return result
+    if low_conf_only and base_decision.reason == "score_best":
+        result["reason"] = "base_high_confidence"
+        return result
+    if str(robust.get("reason", "")).startswith("skipped_"):
+        result["reason"] = "robust_skipped"
+        return result
+
+    base_model_id = str(base_decision.selected_model_id).strip()
+    champion_model_id = str(base_decision.champion_model_id).strip()
+    if not base_model_id:
+        result["reason"] = "base_model_missing"
+        return result
+    if base_model_id == champion_model_id:
+        result["reason"] = "base_is_champion"
+        return result
+
+    candidate_scores = [
+        item
+        for item in (robust.get("candidate_scores") or [])
+        if isinstance(item, dict)
+        and item.get("score") is not None
+        and math.isfinite(float(item.get("score")))
+        and str(item.get("model_id", "")).strip()
+    ]
+    base_candidate = next(
+        (item for item in candidate_scores if str(item.get("model_id", "")).strip() == base_model_id),
+        None,
+    )
+    champion_candidate = next(
+        (item for item in candidate_scores if str(item.get("model_id", "")).strip() == champion_model_id),
+        None,
+    )
+    if base_candidate is None:
+        result["reason"] = "base_missing_from_robust"
+        return result
+    if champion_candidate is None:
+        result["reason"] = "champion_missing_from_robust"
+        return result
+
+    base_score = float(base_candidate["score"])
+    result["base_robust_score"] = base_score
+    others = [
+        item
+        for item in candidate_scores
+        if str(item.get("model_id", "")).strip() != base_model_id
+    ]
+    if len(others) < min_other_models:
+        result["reason"] = "insufficient_robust_opponents"
+        return result
+    if require_robust_worst and not all(base_score < float(item["score"]) for item in others):
+        result["reason"] = "base_not_robust_worst"
+        return result
+
+    pairwise_predictions = [
+        item for item in (robust.get("pairwise_predictions") or []) if isinstance(item, dict)
+    ]
+    advantages: list[dict] = []
+    for other in others:
+        other_model_id = str(other.get("model_id", "")).strip()
+        predicted_advantage: float | None = None
+        for pair in pairwise_predictions:
+            left_model_id = str(pair.get("left_model_id", "")).strip()
+            right_model_id = str(pair.get("right_model_id", "")).strip()
+            raw_diff = pair.get("predicted_return_diff")
+            if raw_diff is None or not math.isfinite(float(raw_diff)):
+                continue
+            if left_model_id == other_model_id and right_model_id == base_model_id:
+                predicted_advantage = float(raw_diff)
+                break
+            if left_model_id == base_model_id and right_model_id == other_model_id:
+                predicted_advantage = -float(raw_diff)
+                break
+        if predicted_advantage is None:
+            result["reason"] = "pairwise_prediction_missing"
+            return result
+        advantages.append(
+            {
+                "model_id": other_model_id,
+                "name": str(other.get("name") or other_model_id),
+                "predicted_return_advantage": predicted_advantage,
+            }
+        )
+    result["pairwise_advantages"] = advantages
+    if not all(float(item["predicted_return_advantage"]) > margin for item in advantages):
+        result["reason"] = "base_not_dominated_by_all"
+        return result
+
+    result.update(
+        {
+            "triggered": True,
+            "reason": "base_robust_dominated_by_all",
+            "selected_model_id": champion_model_id,
+            "selected_name": base_decision.champion_name,
+        }
+    )
+    return result
+
+
+def _champion_third_veto(base_decision: SwitchDecision, cfg: dict) -> dict:
+    fusion_cfg = cfg.get("fusion", {})
+    fusion_cfg = fusion_cfg if isinstance(fusion_cfg, dict) else {}
+    veto_cfg = fusion_cfg.get("champion_third_veto", {})
+    veto_cfg = veto_cfg if isinstance(veto_cfg, dict) else {}
+    enabled = bool(veto_cfg.get("enabled", False))
+    mode = str(veto_cfg.get("mode", "negative")).strip().lower()
+    order = str(veto_cfg.get("order", "before_robust_skip")).strip().lower()
+    margin = float(veto_cfg.get("margin", veto_cfg.get("threshold", 0.0)))
+    min_challengers = int(veto_cfg.get("min_challengers", 2))
+    low_conf_only = bool(veto_cfg.get("base_low_confidence_only", True))
+
+    if mode not in {"negative", "any"}:
+        raise ValueError(f"unsupported champion_third_veto.mode: {mode}")
+    if order not in {"before_robust_skip", "before_robust_allow", "after_robust"}:
+        raise ValueError(f"unsupported champion_third_veto.order: {order}")
+    if margin < 0.0:
+        raise ValueError("champion_third_veto.margin must be non-negative")
+    if min_challengers <= 0:
+        raise ValueError("champion_third_veto.min_challengers must be positive")
+
+    result = {
+        "enabled": enabled,
+        "triggered": False,
+        "mode": mode,
+        "order": order,
+        "margin": margin,
+        "min_challengers": min_challengers,
+        "base_low_confidence_only": low_conf_only,
+        "reason": "disabled" if not enabled else "not_triggered",
+        "selected_model_id": "",
+        "selected_name": "",
+        "champion_score": None,
+        "best_challenger_score": None,
+        "base_score_diff": base_decision.score_diff,
+    }
+    if not enabled:
+        return result
+    if low_conf_only and base_decision.reason == "score_best":
+        result["reason"] = "base_high_confidence"
+        return result
+
+    candidates = base_decision.candidate_scores or []
+    champion = next(
+        (
+            item
+            for item in candidates
+            if item.get("role") == "champion"
+            or str(item.get("model_id", "")) == base_decision.champion_model_id
+        ),
+        None,
+    )
+    challengers = [
+        item
+        for item in candidates
+        if item.get("role") == "challenger"
+        and item.get("score") is not None
+        and math.isfinite(float(item.get("score")))
+    ]
+    if champion is None or champion.get("score") is None or not math.isfinite(float(champion.get("score"))):
+        result["reason"] = "champion_score_missing"
+        return result
+    if len(challengers) < min_challengers:
+        result["reason"] = "insufficient_challengers"
+        return result
+
+    champion_score = float(champion["score"])
+    result["champion_score"] = champion_score
+    if mode == "negative" and champion_score >= 0.0:
+        result["reason"] = "champion_score_non_negative"
+        return result
+
+    best_challenger = max(challengers, key=lambda item: float(item["score"]))
+    result["best_challenger_score"] = float(best_challenger["score"])
+    below_all = all(float(item["score"]) - champion_score > margin for item in challengers)
+    if not below_all:
+        result["reason"] = "champion_not_below_all_challengers"
+        return result
+
+    result.update(
+        {
+            "triggered": True,
+            "reason": "champion_third_veto",
+            "selected_model_id": str(best_challenger["model_id"]),
+            "selected_name": str(best_challenger["name"]),
+        }
+    )
+    return result
+
+
+def _champion_base_first_override(base_decision: SwitchDecision, cfg: dict) -> dict:
+    """Lock the champion when it narrowly leads the base selector.
+
+    The override is deliberately limited to a base ``margin_default`` decision.
+    A clear base winner and every challenger-first case keep their existing
+    fusion behavior.
+    """
+
+    fusion_cfg = cfg.get("fusion", {})
+    fusion_cfg = fusion_cfg if isinstance(fusion_cfg, dict) else {}
+    override_cfg = fusion_cfg.get("champion_first_override", {})
+    override_cfg = override_cfg if isinstance(override_cfg, dict) else {}
+    enabled = bool(override_cfg.get("enabled", False))
+    result = {
+        "enabled": enabled,
+        "triggered": False,
+        "reason": "disabled" if not enabled else "not_triggered",
+        "selected_model_id": "",
+        "selected_name": "",
+        "champion_score": None,
+        "base_best_model_id": "",
+        "base_best_name": "",
+        "base_best_score": None,
+        "base_score_diff": base_decision.score_diff,
+    }
+    if not enabled:
+        return result
+    if base_decision.reason != "margin_default":
+        result["reason"] = "base_not_margin_default"
+        return result
+
+    candidates = [
+        item
+        for item in (base_decision.candidate_scores or [])
+        if item.get("score") is not None and math.isfinite(float(item.get("score")))
+    ]
+    if not candidates:
+        result["reason"] = "base_scores_missing"
+        return result
+
+    champion = next(
+        (
+            item
+            for item in candidates
+            if item.get("role") == "champion"
+            or str(item.get("model_id", "")) == base_decision.champion_model_id
+        ),
+        None,
+    )
+    if champion is None:
+        result["reason"] = "champion_score_missing"
+        return result
+
+    best = max(candidates, key=lambda item: float(item["score"]))
+    result.update(
+        {
+            "champion_score": float(champion["score"]),
+            "base_best_model_id": str(best["model_id"]),
+            "base_best_name": str(best["name"]),
+            "base_best_score": float(best["score"]),
+        }
+    )
+    if str(best["model_id"]) != base_decision.champion_model_id:
+        result["reason"] = "champion_not_base_best"
+        return result
+
+    result.update(
+        {
+            "triggered": True,
+            "reason": "champion_base_first",
+            "selected_model_id": base_decision.champion_model_id,
+            "selected_name": base_decision.champion_name,
+        }
+    )
+    return result
+
+
+def _skipped_t1430_robust_result(cfg: dict, *, reason: str) -> dict:
+    fusion_cfg = cfg.get("fusion", {})
+    fusion_cfg = fusion_cfg if isinstance(fusion_cfg, dict) else {}
+    robust_cfg = fusion_cfg.get("robust", {})
+    robust_cfg = robust_cfg if isinstance(robust_cfg, dict) else {}
+    return {
+        "metric": "pairwise_ridge_clipped",
+        "feature_set": str(cfg.get("feature_set", "disp_afternoon7")).strip().lower(),
+        "lookback_days": int(robust_cfg.get("lookback_days", 252)),
+        "min_periods": int(robust_cfg.get("min_periods", 80)),
+        "alpha": float(robust_cfg.get("alpha", 100.0)),
+        "target_clip": float(robust_cfg.get("target_clip", 0.005)),
+        "margin": float(robust_cfg.get("margin", 0.0005)),
+        "history_end": None,
+        "history_days": 0,
+        "reason": reason,
+        "confident": False,
+        "score_diff": None,
+        "selected_model_id": "",
+        "selected_name": "",
+        "candidate_scores": [],
+        "pairwise_predictions": [],
+    }
+
+
 def _select_t1430_fusion(
     base_decision: SwitchDecision,
     robust: dict,
@@ -1269,12 +1646,44 @@ def decide_scoreopt_t1430_fusion_gate(
     policy = str(fusion_cfg.get("policy", "base_low_confidence_only")).strip().lower()
 
     base_decision = decide_scoreopt_t1430_dispersion(cfg, score_day=score_day)
-    robust = _robust_pairwise_t1430_diagnostics(cfg, score_day=score_day)
-    selected_model_id, selected_name, reason, action = _select_t1430_fusion(
-        base_decision,
-        robust,
-        policy=policy,
-    )
+    champion_first_override = _champion_base_first_override(base_decision, cfg)
+    veto = _champion_third_veto(base_decision, cfg)
+    if champion_first_override["triggered"]:
+        robust = _skipped_t1430_robust_result(cfg, reason="skipped_by_champion_base_first")
+        robust_base_veto = _robust_base_candidate_veto(base_decision, robust, cfg)
+        selected_model_id = str(champion_first_override["selected_model_id"])
+        selected_name = str(champion_first_override["selected_name"])
+        reason = "fusion_champion_base_first"
+        action = "champion_base_first"
+    elif veto["triggered"] and veto["order"] == "before_robust_skip":
+        robust = _skipped_t1430_robust_result(cfg, reason="skipped_by_champion_third_veto")
+        robust_base_veto = _robust_base_candidate_veto(base_decision, robust, cfg)
+        selected_model_id = str(veto["selected_model_id"])
+        selected_name = str(veto["selected_name"])
+        reason = "fusion_champion_third_veto"
+        action = "champion_third_veto"
+    else:
+        robust = _robust_pairwise_t1430_diagnostics(cfg, score_day=score_day)
+        robust_base_veto = _robust_base_candidate_veto(base_decision, robust, cfg)
+        selected_model_id, selected_name, reason, action = _select_t1430_fusion(
+            base_decision,
+            robust,
+            policy=policy,
+        )
+        if (
+            veto["triggered"]
+            and veto["order"] in {"before_robust_allow", "after_robust"}
+            and action == "base_robust_not_confident"
+        ):
+            selected_model_id = str(veto["selected_model_id"])
+            selected_name = str(veto["selected_name"])
+            reason = "fusion_champion_third_veto"
+            action = "champion_third_veto"
+        elif robust_base_veto["triggered"] and action == "base_robust_not_confident":
+            selected_model_id = str(robust_base_veto["selected_model_id"])
+            selected_name = str(robust_base_veto["selected_name"])
+            reason = "fusion_robust_veto_base_candidate"
+            action = "robust_veto_base_candidate"
 
     base_scores = base_decision.candidate_scores or []
     selected_detail = next(
@@ -1302,6 +1711,9 @@ def decide_scoreopt_t1430_fusion_gate(
                 "threshold": base_decision.threshold,
                 "candidate_scores": base_decision.candidate_scores or [],
             },
+            "champion_first_override": champion_first_override,
+            "champion_third_veto": veto,
+            "robust_base_veto": robust_base_veto,
             "robust": robust,
         },
     }

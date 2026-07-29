@@ -18,11 +18,14 @@ from cbond_on.infra.model.wandb_utils import init_wandb_logger
 from cbond_on.infra.model.preprocess_config import parse_winsor_bounds
 from cbond_on.infra.model.neutralization import build_neutralizer
 from cbond_on.infra.model.impl.lgbm.trainer import (
-    _iter_existing_label_days,
     _read_label_day,
     evaluate_metrics,
 )
-from cbond_on.infra.model.impl.linear.linear_score import run_linear_score, write_linear_outputs
+from cbond_on.infra.model.impl.linear.linear_score import (
+    _iter_existing_factor_days,
+    run_linear_score,
+    write_linear_outputs,
+)
 
 
 def _select_factor_cols(sample: pd.DataFrame, cfg: dict) -> list[str]:
@@ -42,9 +45,7 @@ def _format_bins(bin_dir: list[tuple[int, float, int]]) -> str:
 def _load_model_config(path: Path | None) -> dict:
     if path is None:
         return load_config_file("models/linear/linear_factor_default")
-    import json5
-    with path.open("r", encoding="utf-8") as handle:
-        return json5.load(handle) or {}
+    return load_config_file(str(path))
 
 
 def main(
@@ -52,6 +53,7 @@ def main(
     config_path: str | Path | None = None,
     start: str | None = None,
     end: str | None = None,
+    label_cutoff: str | None = None,
     execution: dict | None = None,
 ) -> None:
     paths_cfg = load_config_file("paths")
@@ -66,6 +68,8 @@ def main(
     cfg_end = parse_date(cfg.get("end"))
     start = parse_date(start) if start else cfg_start
     end = parse_date(end) if end else cfg_end
+    cutoff_value = label_cutoff if label_cutoff is not None else cfg.get("label_cutoff")
+    cutoff_day = parse_date(cutoff_value) if cutoff_value else None
     if start > end:
         raise ValueError("start date must be <= end date")
 
@@ -80,9 +84,17 @@ def main(
     label_time = str(cfg.get("label_time", "14:42"))
 
     store = FactorStore(factor_root, panel_name=panel_name, window_minutes=window_minutes)
-    # pick factor columns from first available label day with factors
+    # Pick factor columns from the target factor days.  A live target does not
+    # have a realised label yet, so label availability cannot define the input
+    # universe here.
     sample = pd.DataFrame()
-    for day in _iter_existing_label_days(label_root, start, end):
+    for day in _iter_existing_factor_days(
+        factor_root,
+        panel_name=panel_name,
+        window_minutes=window_minutes,
+        start=start,
+        end=end,
+    ):
         sample = store.read_day(day)
         if not sample.empty:
             break
@@ -110,6 +122,10 @@ def main(
     if exec_refit is not None:
         refit_freq = max(1, int(exec_refit))
     regression_alpha = float(linear_cfg.get("regression_alpha", 1.0))
+    regression_kind = str(linear_cfg.get("regression_kind", linear_cfg.get("regression_model", "ridge")))
+    elasticnet_l1_ratio = float(linear_cfg.get("elasticnet_l1_ratio", linear_cfg.get("l1_ratio", 0.5)))
+    huber_epsilon = float(linear_cfg.get("huber_epsilon", linear_cfg.get("epsilon", 1.35)))
+    max_iter = int(linear_cfg.get("max_iter", 1_000))
     weight_source = str(linear_cfg.get("weight_source", "regression"))
     fallback = str(linear_cfg.get("fallback", "manual"))
     max_weight = float(linear_cfg.get("max_weight", 3.0))
@@ -147,6 +163,10 @@ def main(
             "lookback_days": int(lookback_days),
             "refit_freq": int(refit_freq),
             "regression_alpha": float(regression_alpha),
+            "regression_kind": str(regression_kind),
+            "elasticnet_l1_ratio": float(elasticnet_l1_ratio),
+            "huber_epsilon": float(huber_epsilon),
+            "max_iter": int(max_iter),
             "weight_source": str(weight_source),
             "fallback": str(fallback),
             "max_weight": float(max_weight),
@@ -176,6 +196,10 @@ def main(
         lookback_days=lookback_days,
         refit_freq=refit_freq,
         regression_alpha=regression_alpha,
+        regression_kind=regression_kind,
+        elasticnet_l1_ratio=elasticnet_l1_ratio,
+        huber_epsilon=huber_epsilon,
+        max_iter=max_iter,
         weight_source=weight_source,
         fallback=fallback,
         max_weight=max_weight,
@@ -184,6 +208,7 @@ def main(
         device=device,
         gpu_fallback_to_cpu=gpu_fallback_to_cpu,
         neutralizer=neutralizer,
+        label_cutoff=cutoff_day,
     )
 
     if result.scores.empty:
@@ -212,7 +237,13 @@ def main(
                 rows.append(merged)
         return pd.concat(rows, ignore_index=True) if rows else pd.DataFrame()
 
-    full_eval = _merge_labels(scores_df)
+    # A live call supplies the latest realised-label day as label_cutoff.  Do
+    # not reopen later target labels merely to print retrospective metrics: it
+    # obscures the same point-in-time boundary enforced by the scorer itself.
+    eval_scores_df = scores_df
+    if cutoff_day is not None:
+        eval_scores_df = scores_df[scores_df["trade_date"] <= cutoff_day].copy()
+    full_eval = _merge_labels(eval_scores_df)
 
     def _eval(df: pd.DataFrame) -> dict:
         if df.empty:
@@ -244,9 +275,14 @@ def main(
     print(f"all bins: {_format_bins(full_metrics['bin_dir'])}")
 
     results_root = Path(paths_cfg["results_root"])
+    artifact_root = resolve_output_path(
+        cfg.get("results_root"),
+        default_path=results_root,
+        results_root=results_root,
+    )
     date_label = f"{start.strftime('%Y-%m-%d')}_{end.strftime('%Y-%m-%d')}"
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    out_dir = results_root / "models" / model_name / date_label / ts
+    out_dir = artifact_root / "models" / model_name / date_label / ts
     out_dir.mkdir(parents=True, exist_ok=True)
 
     write_linear_outputs(
@@ -254,7 +290,7 @@ def main(
         score_path=out_dir / "scores.csv",
         weights_path=out_dir / "weights.csv",
         meta_path=out_dir / "meta.json",
-        meta_payload={"config": cfg},
+        meta_payload={"config": cfg, "label_cutoff": str(cutoff_day) if cutoff_day else None},
         overwrite=True,
     )
 
@@ -284,13 +320,16 @@ def main(
             if cfg.get("meta_output")
             else None
         )
+        score_overwrite = bool(cfg.get("score_overwrite", True))
+        score_dedupe = bool(cfg.get("score_dedupe", True))
         write_linear_outputs(
             result=result,
             score_path=score_path,
             weights_path=weights_path,
             meta_path=meta_path,
-            meta_payload={"config": cfg},
-            overwrite=True,
+            meta_payload={"config": cfg, "label_cutoff": str(cutoff_day) if cutoff_day else None},
+            overwrite=score_overwrite,
+            dedupe=score_dedupe,
         )
 
     metrics_df = pd.DataFrame(

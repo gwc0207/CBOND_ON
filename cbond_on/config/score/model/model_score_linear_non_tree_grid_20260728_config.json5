@@ -1,0 +1,24 @@
+{
+  // Isolated grid: each model config points to its own score root.
+  default_model_id: "linear_non_tree_ridge_a1_20260728",
+  model_id: "linear_non_tree_ridge_a1_20260728",
+  start: "2025-10-30",
+  end: "2026-07-23",
+  label_cutoff: null,
+  execution: {
+    refit_every_n_days: 1,
+    train_processes: 1,
+    wandb: { enabled: false, mode: "disabled" },
+  },
+  models: {
+    linear_non_tree_ridge_a01_20260728: { model_type: "linear", model_config: "models/linear/linear_non_tree_ridge_a01_20260728" },
+    linear_non_tree_ridge_a1_20260728: { model_type: "linear", model_config: "models/linear/linear_non_tree_ridge_a1_20260728" },
+    linear_non_tree_ridge_a10_20260728: { model_type: "linear", model_config: "models/linear/linear_non_tree_ridge_a10_20260728" },
+    linear_non_tree_enet_a1e5_l01_20260728: { model_type: "linear", model_config: "models/linear/linear_non_tree_enet_a1e5_l01_20260728" },
+    linear_non_tree_enet_a1e4_l01_20260728: { model_type: "linear", model_config: "models/linear/linear_non_tree_enet_a1e4_l01_20260728" },
+    linear_non_tree_enet_a1e4_l05_20260728: { model_type: "linear", model_config: "models/linear/linear_non_tree_enet_a1e4_l05_20260728" },
+    linear_non_tree_huber_e135_a1e4_20260728: { model_type: "linear", model_config: "models/linear/linear_non_tree_huber_e135_a1e4_20260728" },
+    linear_non_tree_huber_e175_a1e4_20260728: { model_type: "linear", model_config: "models/linear/linear_non_tree_huber_e175_a1e4_20260728" },
+    linear_non_tree_huber_e135_a1e2_20260728: { model_type: "linear", model_config: "models/linear/linear_non_tree_huber_e135_a1e2_20260728" },
+  },
+}

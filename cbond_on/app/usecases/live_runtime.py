@@ -2,7 +2,7 @@
 
 from dataclasses import replace
 import json
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 import pandas as pd
@@ -54,6 +54,17 @@ from cbond_on.infra.live.score import resolve_score_df_for_target
 
 
 O005_ALLOWLIST_TABLE = "quant_factor_dev.researcher_xuvb.o_0005"
+
+_LIVE_MODEL_SWITCH_FALLBACK_REASONS = frozenset(
+    {
+        "feature_missing",
+        "feature_na",
+        "insufficient_history",
+        "insufficient_history_or_zero_volatility",
+        "margin_default",
+    }
+)
+_LIVE_MODEL_SWITCH_FALLBACK_PREFIXES = ("fallback_rolling_sharpe_",)
 
 
 def _month_day_path(root: str | Path, day: date, *, filename_root: str = "") -> Path:
@@ -406,6 +417,128 @@ def _build_switch_challenger_scores(
     return results
 
 
+def _live_model_switch_fallback_reason(decision: SwitchDecision) -> str | None:
+    reason = str(decision.reason or "").strip()
+    if reason in _LIVE_MODEL_SWITCH_FALLBACK_REASONS:
+        return reason
+    if any(reason.startswith(prefix) for prefix in _LIVE_MODEL_SWITCH_FALLBACK_PREFIXES):
+        return reason
+    if reason == "fusion_base_robust_not_confident":
+        base_reason = ""
+        if isinstance(decision.fusion, dict):
+            base = decision.fusion.get("base")
+            if isinstance(base, dict):
+                base_reason = str(base.get("reason") or "").strip()
+        fallback_reason = base_reason or str(decision.fallback_reason or "").strip()
+        return f"{reason}:{fallback_reason}" if fallback_reason else reason
+    return None
+
+
+def _assert_no_live_model_switch_fallback(
+    decision: SwitchDecision,
+    *,
+    switch_cfg: dict,
+) -> None:
+    _ = switch_cfg
+    fallback_reason = _live_model_switch_fallback_reason(decision)
+    if fallback_reason is None:
+        return
+    print(
+        "live model switch soft degrade:",
+        f"mode={decision.mode}",
+        f"score_day={decision.score_day}",
+        f"reason={decision.reason}",
+        f"fallback_reason={decision.fallback_reason}",
+        f"fallback_detail={fallback_reason}",
+        f"selected={decision.selected_name}",
+        f"history_end={decision.history_end}",
+        f"history_days={decision.history_days}",
+    )
+
+
+def _model_switch_warning_message(decision: SwitchDecision, fallback_detail: str) -> str:
+    reason = str(decision.reason or "").strip()
+    selected = str(decision.selected_name or decision.selected_model_id).strip()
+    if reason in {"feature_missing", "feature_na"}:
+        return f"模型选择提示：当日T1430状态特征不可用，已按规则选择 {selected}，实盘继续写库。"
+    if reason in {"insufficient_history", "insufficient_history_or_zero_volatility"}:
+        return f"模型选择提示：历史样本不足，已按规则选择 {selected}，实盘继续写库。"
+    if reason == "fusion_base_robust_not_confident":
+        return f"模型选择提示：base与robust均未形成高置信切换信号，已按规则选择 {selected}，实盘继续写库。"
+    if reason == "margin_default":
+        return f"模型选择提示：模型分数差距低于切换门槛，已按规则选择 {selected}，实盘继续写库。"
+    if reason.startswith("fallback_rolling_sharpe_"):
+        return f"模型选择提示：状态样本不足，已使用滚动Sharpe规则选择 {selected}，实盘继续写库。"
+    return f"模型选择提示：触发软降级 {fallback_detail}，已选择 {selected}，实盘继续写库。"
+
+
+def _model_switch_warnings(decision: SwitchDecision) -> list[dict]:
+    fallback_detail = _live_model_switch_fallback_reason(decision)
+    if fallback_detail is None:
+        return []
+    return [
+        {
+            "level": "warning",
+            "category": "model_switch_soft_degrade",
+            "reason": str(decision.reason or ""),
+            "fallback_reason": None if decision.fallback_reason is None else str(decision.fallback_reason),
+            "fallback_detail": fallback_detail,
+            "selected_model_id": str(decision.selected_model_id),
+            "selected_name": str(decision.selected_name),
+            "message": _model_switch_warning_message(decision, fallback_detail),
+        }
+    ]
+
+
+def _append_live_day_notes(
+    *,
+    paths_cfg: dict,
+    day: date,
+    warnings: list[dict],
+) -> None:
+    if not warnings:
+        return
+    path = Path(paths_cfg["results_root"]) / "live" / "scheduler" / "dashboard_notes.json"
+    day_key = f"{day:%Y-%m-%d}"
+    try:
+        if path.exists():
+            raw = json.loads(path.read_text(encoding="utf-8"))
+            store = raw if isinstance(raw, dict) else {"days": {}}
+        else:
+            store = {"days": {}}
+        days = store.setdefault("days", {})
+        items = days.setdefault(day_key, [])
+        if not isinstance(items, list):
+            items = []
+            days[day_key] = items
+        existing_ids = {str(item.get("id", "")) for item in items if isinstance(item, dict)}
+        now = datetime.now().isoformat(timespec="seconds")
+        appended = False
+        for warning in warnings:
+            note_id = (
+                f"live_model_switch:{day_key}:"
+                f"{warning.get('selected_model_id')}:{warning.get('fallback_detail')}"
+            )
+            if note_id in existing_ids:
+                continue
+            items.append(
+                {
+                    "id": note_id,
+                    "time": now,
+                    "author": "live",
+                    "text": str(warning.get("message") or ""),
+                }
+            )
+            appended = True
+        if appended:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = path.with_suffix(".json.tmp")
+            tmp.write_text(json.dumps(store, ensure_ascii=False, indent=2), encoding="utf-8")
+            tmp.replace(path)
+    except Exception as exc:
+        print(f"live model switch warning note skipped: {type(exc).__name__}: {exc}")
+
+
 def _apply_live_model_switch(
     *,
     switch_cfg: dict,
@@ -536,6 +669,7 @@ def _apply_live_model_switch(
         decision = decide_single_challenger_by_regime(switch_cfg, score_day=score_day)
     else:
         decision = decide_single_challenger_by_sharpe(switch_cfg, score_day=score_day)
+    _assert_no_live_model_switch_fallback(decision, switch_cfg=switch_cfg)
     stale_policy = str(switch_cfg.get("stale_history_policy", "champion")).strip().lower()
     if expected_history_end is not None and decision.history_end != expected_history_end:
         reason = f"stale_return_history_expected_{expected_history_end:%Y-%m-%d}"
@@ -553,6 +687,12 @@ def _apply_live_model_switch(
             )
         else:
             raise ValueError(f"unsupported model_switch.stale_history_policy: {stale_policy}")
+    model_switch_warnings = _model_switch_warnings(decision)
+    _append_live_day_notes(
+        paths_cfg=paths_cfg,
+        day=score_day,
+        warnings=model_switch_warnings,
+    )
     selected_score_df = current_score_df
     challenger_by_model = {str(item["model_id"]): item for item in challenger_results}
     selected_challenger = challenger_by_model.get(decision.selected_model_id)
@@ -582,6 +722,7 @@ def _apply_live_model_switch(
             for item in challenger_results
         ],
         "shadow_return_updates": [item.to_dict() for item in shadow_update_results],
+        "warnings": model_switch_warnings,
     }
     print(
         "live model switch decision:",

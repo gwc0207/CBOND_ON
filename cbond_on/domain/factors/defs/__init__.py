@@ -194,6 +194,7 @@ from cbond_on.domain.factors.defs.t1430_relative_strength_vwap_v1 import T1430Re
 from cbond_on.domain.factors.defs.t1430_depth_pressure_return_v1 import T1430DepthPressureReturnV1
 from cbond_on.domain.factors.defs.t1430_price_range_depth_ratio_v1 import T1430PriceRangeDepthRatioV1
 from cbond_on.domain.factors.defs.ai_factory_wave80_intraday_v1 import AiFactoryWave80IntradayV1
+from cbond_on.domain.factors.defs.parity_adjusted_stock_lag_v1 import ParityAdjustedStockLagV1Factor
 __all__ = [
     "AacbFactor",
     "VolenFactor",
@@ -355,5 +356,6 @@ __all__ = [
     "T1430DepthPressureReturnV1",
     "T1430PriceRangeDepthRatioV1",
     "AiFactoryWave80IntradayV1",
+    "ParityAdjustedStockLagV1Factor",
 ]
 

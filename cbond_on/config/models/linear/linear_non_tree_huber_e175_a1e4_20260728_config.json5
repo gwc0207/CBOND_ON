@@ -1,0 +1,8 @@
+{
+  modules: ["models/linear/linear_non_tree_base_20260728"],
+  model_name: "linear_non_tree_huber_e175_a1e4_20260728",
+  score_output: { windows: "D:/cbond_on/results/experiments/linear_non_tree_grid_20260728/scores/huber_e175_a1e4", linux: "/home/gswzif/cbond_on_runtime/results/experiments/linear_non_tree_grid_20260728/scores/huber_e175_a1e4" },
+  weights_output: { windows: "D:/cbond_on/results/experiments/linear_non_tree_grid_20260728/scores/huber_e175_a1e4/weights.csv", linux: "/home/gswzif/cbond_on_runtime/results/experiments/linear_non_tree_grid_20260728/scores/huber_e175_a1e4/weights.csv" },
+  meta_output: { windows: "D:/cbond_on/results/experiments/linear_non_tree_grid_20260728/scores/huber_e175_a1e4/meta.json", linux: "/home/gswzif/cbond_on_runtime/results/experiments/linear_non_tree_grid_20260728/scores/huber_e175_a1e4/meta.json" },
+  linear: { regression_kind: "huber", regression_alpha: 0.0001, huber_epsilon: 1.75 },
+}

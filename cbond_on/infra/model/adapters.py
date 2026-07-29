@@ -64,13 +64,13 @@ class LinearAdapter(ModelAdapter):
         execution: dict | None = None,
     ) -> None:
         _ = artifact
-        _ = label_cutoff
         from cbond_on.infra.model.runners import train_linear
 
         train_linear.main(
             config_path=self.model_config_path,
             start=start,
             end=end,
+            label_cutoff=label_cutoff,
             execution=execution,
         )
 
