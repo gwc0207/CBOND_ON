@@ -282,7 +282,7 @@ def _safe_path_part(value: Any) -> str:
     return text.strip("._") or "default"
 
 
-def _panel_value_cache_path(panel_data_root: Path, spec: NeutralizationExposure, day: date) -> Path:
+def _panel_value_cache_path(cache_root: Path, spec: NeutralizationExposure, day: date) -> Path:
     month = f"{day.year:04d}-{day.month:02d}"
     filename = f"{day:%Y%m%d}.parquet"
     key = "__".join(
@@ -290,8 +290,7 @@ def _panel_value_cache_path(panel_data_root: Path, spec: NeutralizationExposure,
         for part in (spec.column, spec.select, spec.date_col, spec.code_col)
     )
     return (
-        panel_data_root
-        / "neutralization_cache"
+        cache_root
         / _safe_path_part(spec.asset)
         / _safe_path_part(spec.panel_name)
         / key
@@ -390,10 +389,20 @@ class FactorNeutralizer:
         *,
         raw_data_root: str | Path | None = None,
         panel_data_root: str | Path | None = None,
+        neutralization_cache_root: str | Path | None = None,
     ):
         self.cfg = cfg
         self.raw_data_root = Path(raw_data_root).expanduser() if raw_data_root is not None else None
         self.panel_data_root = Path(panel_data_root).expanduser() if panel_data_root is not None else None
+        # Legacy behavior keeps the compact cache beside the panel inputs.  A
+        # caller can redirect only this derived-write location while retaining
+        # the original panel_data_root as a read-only source.
+        if neutralization_cache_root is not None:
+            self.neutralization_cache_root = Path(neutralization_cache_root).expanduser()
+        elif self.panel_data_root is not None:
+            self.neutralization_cache_root = self.panel_data_root / "neutralization_cache"
+        else:
+            self.neutralization_cache_root = None
         self._raw_cache: dict[tuple[str, date], pd.DataFrame] = {}
         self._lag_day_cache: dict[tuple[str, date, int], date | None] = {}
         self._panel_cache: OrderedDict[tuple[Any, ...], pd.Series] = OrderedDict()
@@ -407,13 +416,19 @@ class FactorNeutralizer:
         *,
         raw_data_root: str | Path | None = None,
         panel_data_root: str | Path | None = None,
+        neutralization_cache_root: str | Path | None = None,
     ) -> FactorNeutralizer | None:
         cfg = parse_neutralization_config(raw)
         if not cfg.enabled:
             return None
         if not cfg.exposures:
             raise ValueError("neutralization.enabled=true requires non-empty exposures")
-        return cls(cfg, raw_data_root=raw_data_root, panel_data_root=panel_data_root)
+        return cls(
+            cfg,
+            raw_data_root=raw_data_root,
+            panel_data_root=panel_data_root,
+            neutralization_cache_root=neutralization_cache_root,
+        )
 
     @property
     def enabled(self) -> bool:
@@ -497,7 +512,10 @@ class FactorNeutralizer:
         if cached is not None:
             return cached
 
-        compact_path = _panel_value_cache_path(self.panel_data_root, spec, day)
+        cache_root = self.neutralization_cache_root
+        if cache_root is None:
+            return pd.Series(dtype="object")
+        compact_path = _panel_value_cache_path(cache_root, spec, day)
         if compact_path.exists():
             compact = pd.read_parquet(compact_path)
             if {"code", "value"} <= set(compact.columns):
@@ -727,5 +745,11 @@ def build_neutralizer(
     *,
     raw_data_root: str | Path | None = None,
     panel_data_root: str | Path | None = None,
+    neutralization_cache_root: str | Path | None = None,
 ) -> FactorNeutralizer | None:
-    return FactorNeutralizer.from_config(raw, raw_data_root=raw_data_root, panel_data_root=panel_data_root)
+    return FactorNeutralizer.from_config(
+        raw,
+        raw_data_root=raw_data_root,
+        panel_data_root=panel_data_root,
+        neutralization_cache_root=neutralization_cache_root,
+    )

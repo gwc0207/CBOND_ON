@@ -1,0 +1,41 @@
+{
+  // Small, isolated preflight for the full scratch-only build.
+  start: "2026-07-28",
+  end: "2026-07-30",
+  panel_name: "T1430",
+  factor_time: "14:30",
+  label_time: "14:42",
+  refresh: false,
+  overwrite: false,
+  workers: 1,
+  factor_workers: 1,
+  panel_source: {
+    mode: "clean_direct",
+  },
+  compute: {
+    engine: "python",
+    allow_python_engine: true,
+    backend: "cpu",
+    fallback_cpu: true,
+  },
+  context: {
+    mode: "auto",
+  },
+  backtest_enabled: false,
+  factor_files: [],
+  factors: [
+    {
+      name: "t1430_w80_amount_accel_depth_delta_10m_l1_v2",
+      factor: "t1430_amount_accel_depth_delta_v2",
+      params: {
+        window_minutes: 10,
+        recent_minutes: 5,
+        min_obs_per_segment: 2,
+        max_boundary_staleness_seconds: 90,
+        max_cumulative_correction_abs: 100.0,
+        max_cumulative_correction_ratio: 1e-5,
+        cutoff_time: "14:29:00",
+      },
+    },
+  ],
+}

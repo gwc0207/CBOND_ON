@@ -1,0 +1,26 @@
+{
+  // Research-only profile.  DataHub and the established model inputs remain
+  // read-only; every derived/output path resolves under the explicit scratch
+  // runtime root.  This is safe to pass as CBOND_ON_PATHS_CONFIG for the
+  // research run because the three model input roots are declared below.
+  raw_data_root: "D:/cbond_data_hub/raw_data",
+  clean_data_root: "D:/cbond_data_hub/clean_data",
+  cleaned_data_root: "D:/cbond_data_hub/clean_data",
+  results_root: "D:/cbond_on/research_scratch/similar60_regsim_hard1429_20260801/runtime/results",
+  read_only_input_roots: {
+    panel_data_root: "D:/cbond_on/panel_data",
+    label_data_root: "D:/cbond_on/label_data",
+    factor_data_root: "D:/cbond_on/factor_data"
+  },
+
+  strict_state_history: {
+    scratch_root: "D:/cbond_on/research_scratch/similar60_regsim_hard1429_20260801",
+    manifest_root: "D:/cbond_data_hub/manifests",
+    cutoff_time: "14:29",
+    feature_set: "path_full_t1429",
+    // The generator must use either this frozen score root calendar or a
+    // separately supplied explicit score calendar CSV; it must never infer
+    // dates from labels or a weekday heuristic.
+    expected_calendar_source: "current_regsim_score_root_or_explicit_csv"
+  }
+}

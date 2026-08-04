@@ -8,7 +8,7 @@ import pandas as pd
 
 from cbond_on.core.config import load_config_file, parse_date, resolve_output_path
 from cbond_on.core.fees import load_fees_buy_sell_bps
-from cbond_on.core.trading_days import next_trading_days_from_raw
+from cbond_on.core.trading_days import next_trading_days_from_raw, prev_trading_days_from_raw
 from cbond_on.infra.benchmark.service import (
     build_strict_buy_holdings_from_selection,
     compute_benchmark_breakdowns_for_days,
@@ -89,6 +89,34 @@ def _progress_step(total: int) -> int:
     return max(1, min(25, max(1, total // 20)))
 
 
+def _resolve_execution_lag_config(bt_cfg: dict) -> tuple[int, bool]:
+    """Parse the optional research execution contract.
+
+    The production-compatible default remains score/buy on the same trading
+    date.  With a positive lag, the score date is earlier than the actual buy
+    date.  ``freeze_signal_universe`` prevents the later execution-day pool
+    from re-ranking the signal; it is the causal mode for a T-day signal.
+    """
+    lag = int(bt_cfg.get("execution_lag_trading_days", 0) or 0)
+    if lag < 0:
+        raise ValueError("execution_lag_trading_days must be >= 0")
+    frozen_signal_universe = bool(bt_cfg.get("freeze_signal_universe", False))
+    if frozen_signal_universe and lag <= 0:
+        raise ValueError("freeze_signal_universe requires execution_lag_trading_days > 0")
+    return lag, frozen_signal_universe
+
+
+def _signal_day_for_execution_index(
+    open_days: list[date],
+    execution_idx: int,
+    execution_lag_trading_days: int,
+) -> date | None:
+    score_idx = execution_idx - max(0, int(execution_lag_trading_days))
+    if score_idx < 0 or score_idx >= len(open_days):
+        return None
+    return open_days[score_idx]
+
+
 def _build_output_dir(results_root: str | Path, date_label: str, batch_id: str) -> Path:
     return (
         Path(results_root)
@@ -120,6 +148,7 @@ def run(
 
     start_day = parse_date(start or bt_cfg.get("start"))
     end_day = parse_date(end or bt_cfg.get("end"))
+    execution_lag_trading_days, freeze_signal_universe = _resolve_execution_lag_config(bt_cfg)
     strategy_id = str(bt_cfg.get("strategy_id", "strategy01_topk_turnover"))
     strategy_cfg = load_strategy_config(
         bt_cfg.get("strategy_config_path"),
@@ -133,6 +162,8 @@ def run(
         f"batch={batch_id}",
         f"range={start_day:%Y-%m-%d}..{end_day:%Y-%m-%d}",
         f"strategy={strategy_id}",
+        f"execution_lag_trading_days={execution_lag_trading_days}",
+        f"freeze_signal_universe={freeze_signal_universe}",
         f"score_path={score_path}",
         f"output_root={output_root}",
         flush=True,
@@ -162,7 +193,18 @@ def run(
     pool_cfg = load_upstream_pool_config(allowlist_cfg or None)
 
     raw_root = paths_cfg["raw_data_root"]
-    days = iter_open_days(raw_root, start_day, end_day)
+    prior_signal_days = (
+        prev_trading_days_from_raw(
+            raw_root,
+            start_day,
+            execution_lag_trading_days,
+            kind="snapshot",
+            asset="cbond",
+        )
+        if execution_lag_trading_days > 0
+        else []
+    )
+    days = sorted(set([*prior_signal_days, *iter_open_days(raw_root, start_day, end_day)]))
     tail_day = next_trading_days_from_raw(raw_root, end_day, 1, kind="snapshot", asset="cbond")
     if tail_day:
         days = sorted(set(days + tail_day))
@@ -227,9 +269,26 @@ def run(
                 flush=True,
             )
 
-        score_df = score_cache.get(day, pd.DataFrame())
+        score_day = _signal_day_for_execution_index(
+            days,
+            idx,
+            execution_lag_trading_days,
+        )
+        if score_day is None:
+            diag_rows.append({"trade_date": day, "status": "skip", "reason": "missing_score_day"})
+            continue
+        date_context = {
+            "score_day": score_day,
+            "signal_day": score_day,
+            "buy_day": day,
+            "sell_day": next_day,
+            "execution_lag_trading_days": execution_lag_trading_days,
+        }
+        score_df = score_cache.get(score_day, pd.DataFrame())
         if score_df.empty:
-            diag_rows.append({"trade_date": day, "status": "skip", "reason": "missing_score"})
+            diag_rows.append(
+                {"trade_date": day, "status": "skip", "reason": "missing_score", **date_context}
+            )
             continue
         try:
             merged = load_strict_market_day(
@@ -239,7 +298,14 @@ def run(
                 sell_bps=sell_cost_bps,
             )
         except Exception as exc:
-            diag_rows.append({"trade_date": day, "status": "skip", "reason": f"missing_strict_market:{exc}"})
+            diag_rows.append(
+                {
+                    "trade_date": day,
+                    "status": "skip",
+                    "reason": f"missing_strict_market:{exc}",
+                    **date_context,
+                }
+            )
             continue
         merged = merged[
             pd.to_numeric(merged["buy_price"], errors="coerce").notna()
@@ -248,11 +314,19 @@ def run(
             & (pd.to_numeric(merged["buy_close_price"], errors="coerce") > 0)
         ].copy()
         if merged.empty:
-            diag_rows.append({"trade_date": day, "status": "skip", "reason": "missing_strict_buy_market"})
+            diag_rows.append(
+                {
+                    "trade_date": day,
+                    "status": "skip",
+                    "reason": "missing_strict_buy_market",
+                    **date_context,
+                }
+            )
             continue
+        pool_reference_day = score_day if freeze_signal_universe else day
         pool_codes, pool_info = resolve_pool_codes_for_trade_day(
             raw_data_root=raw_root,
-            trade_day=day,
+            trade_day=pool_reference_day,
             pool_cfg=pool_cfg,
             enabled=allowlist_enabled,
         )
@@ -267,28 +341,45 @@ def run(
         pre_allowlist_count = int(len(merged))
         merged = apply_allowlist_filter_to_universe(merged, allowlist_codes=pool_codes)
         allowlist_diag = _allowlist_diagnostics(pool_info, pre_allowlist_count, int(len(merged)))
+        allowlist_diag["allowlist_reference_day"] = pool_reference_day
         if merged.empty:
             diag_rows.append(
                 {
                     "trade_date": day,
                     "status": "skip",
                     "reason": "empty_allowlist_filtered_universe",
+                    **date_context,
                     **allowlist_diag,
                 }
             )
             continue
-        filter_diag = {**allowlist_diag, "universe_filter": "o_0005_only"}
+        filter_diag = {**date_context, **allowlist_diag, "universe_filter": "o_0005_only"}
         merged = merged.merge(score_df[["code", "score"]], on="code", how="inner")
         if merged.empty:
             diag_rows.append({"trade_date": day, "status": "skip", "reason": "empty_universe", **filter_diag})
             continue
 
         try:
+            # Keep only buy-leg fields from the execution-day market frame.
+            # Passing its sell-leg helper columns through to the cycle builder
+            # creates duplicated sell columns; passing only code/score loses
+            # the buy-leg return and makes every IC observation NaN.
+            ic_buy_columns = [
+                "code",
+                "score",
+                "buy_price",
+                "buy_close_price",
+                "buy_leg_ret_gross",
+                "buy_leg_ret_net",
+                "buy_cost_bps",
+            ]
+            ic_holdings = merged[[column for column in ic_buy_columns if column in merged.columns]].copy()
+            ic_holdings["weight"] = 1.0
             ic_cycle = compute_strict_cycle_detail_for_holdings(
                 raw_data_root=raw_root,
                 buy_day=day,
                 sell_day=next_day,
-                buy_holdings=merged.assign(weight=1.0),
+                buy_holdings=ic_holdings,
                 sell_bps=sell_cost_bps,
             )
             ic_base = merged[["code", "score"]].merge(ic_cycle[["code", "return_net"]], on="code", how="inner")
@@ -298,6 +389,7 @@ def run(
                 ic_rows.append(
                     {
                         "trade_date": day,
+                        **date_context,
                         "ic": float(ic_base["score"].corr(ic_base["return_net"], method="pearson")),
                         "rank_ic": float(ic_base["score"].corr(ic_base["return_net"], method="spearman")),
                         "count": int(len(ic_base)),
@@ -306,31 +398,61 @@ def run(
         except Exception:
             pass
 
-        picks = select_signals(
+        if freeze_signal_universe:
+            selection_universe = apply_allowlist_filter_to_universe(
+                score_df[["code", "score"]],
+                allowlist_codes=pool_codes,
+            )
+            if selection_universe.empty:
+                diag_rows.append(
+                    {
+                        "trade_date": day,
+                        "status": "skip",
+                        "reason": "empty_signal_allowlist_universe",
+                        **filter_diag,
+                    }
+                )
+                continue
+            selection_trade_date = score_day
+        else:
+            selection_universe = merged[["code", "score"]]
+            selection_trade_date = day
+
+        intended_picks = select_signals(
             SignalSelectionRequest(
-                universe=merged[["code", "score"]],
-                trade_date=day,
+                universe=selection_universe,
+                trade_date=selection_trade_date,
                 prev_positions=prev_positions,
                 strategy_id=strategy_id,
                 strategy_config=strategy_cfg,
             )
         )
-        if picks.empty:
+        if intended_picks.empty:
             diag_rows.append({"trade_date": day, "status": "skip", "reason": "empty_picks", **filter_diag})
             continue
+        intended_count = int(len(intended_picks))
+        intended_weight_series = (
+            pd.to_numeric(intended_picks["weight"], errors="coerce").fillna(0.0)
+            if "weight" in intended_picks.columns
+            else pd.Series(0.0, index=intended_picks.index)
+        )
+        intended_weight = float(intended_weight_series.sum())
 
         picks = build_strict_buy_holdings_from_selection(
             raw_data_root=raw_root,
             buy_day=day,
-            selection=picks,
+            selection=intended_picks,
             buy_bps=buy_cost_bps,
-            normalize=True,
+            # In a delayed, frozen-signal study an execution-day missing price
+            # becomes cash; re-normalising the surviving names would look ahead.
+            normalize=not freeze_signal_universe,
         )
         if picks.empty:
             diag_rows.append({"trade_date": day, "status": "skip", "reason": "missing_strict_buy_price", **filter_diag})
             continue
 
-        picks = normalize_weights(picks, weight_col="weight")
+        if not freeze_signal_universe:
+            picks = normalize_weights(picks, weight_col="weight")
         cycle_detail = compute_strict_cycle_detail_for_holdings(
             raw_data_root=raw_root,
             buy_day=day,
@@ -350,6 +472,8 @@ def run(
         fallback_mask = cycle_detail["sell_missing_fallback"].astype(bool)
         fallback_sell_codes = int(fallback_mask.sum())
         fallback_sell_weight = float(pd.to_numeric(cycle_detail.loc[fallback_mask, "weight"], errors="coerce").sum())
+        total_weight = float(pd.to_numeric(cycle_detail["weight"], errors="coerce").sum())
+        cash_weight = max(0.0, 1.0 - total_weight)
 
         benchmark_row = benchmark_by_day.get(day)
         if benchmark_row is None:
@@ -358,7 +482,12 @@ def run(
         daily_rows.append(
             {
                 "trade_date": day,
+                **date_context,
                 "count": int(len(picks)),
+                "intended_count": intended_count,
+                "intended_weight": intended_weight,
+                "fill_rate": float(len(picks) / intended_count) if intended_count else float("nan"),
+                "cash_weight": cash_weight,
                 "day_return": day_return,
                 "full_cycle_ret_net": day_return,
                 "buy_leg_ret_net": day_buy_leg_ret,
@@ -373,7 +502,7 @@ def run(
                 "benchmark_fallback_sell_weight": float(benchmark_row.get("fallback_sell_weight", 0.0)),
                 "benchmark_method": str(benchmark_row.get("benchmark_method", "strict_official_prev_close_split")),
                 "avg_return": float(pd.to_numeric(cycle_detail["return_net"], errors="coerce").mean()),
-                "total_weight": float(pd.to_numeric(cycle_detail["weight"], errors="coerce").sum()),
+                "total_weight": total_weight,
                 "sell_count": sell_count,
                 "fallback_sell_codes": fallback_sell_codes,
                 "fallback_sell_weight": fallback_sell_weight,
@@ -385,6 +514,7 @@ def run(
             pos_rows.append(
                 {
                     "trade_date": day,
+                    **date_context,
                     "code": row["code"],
                     "weight": float(row["weight"]),
                     "score": float(row["score"]),

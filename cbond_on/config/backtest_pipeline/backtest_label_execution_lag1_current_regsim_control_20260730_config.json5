@@ -1,0 +1,13 @@
+{
+  // Read-only current score control.  This does not retrain or write any live
+  // score/model-state artifact; it replays the current Regsim score history.
+  modules: ["backtest_pipeline/backtest_label_execution_lag1_base_20260730"],
+  batch_id: "Research_LabelExecutionLag1_CurrentRegsimControl_20260730",
+  score_source: {
+    model_id: "lgbm_screened_no_winsor_neutral_tminus1_regsim_w10_s15_d05_20260708",
+    score_root: {
+      windows: "D:/cbond_on/results/scores/live/lgbm_screened_no_winsor_neutral_tminus1_regsim_w10_s15_d05_20260708",
+      linux: "/home/gswzif/cbond_on_runtime/results/scores/live/lgbm_screened_no_winsor_neutral_tminus1_regsim_w10_s15_d05_20260708"
+    }
+  }
+}

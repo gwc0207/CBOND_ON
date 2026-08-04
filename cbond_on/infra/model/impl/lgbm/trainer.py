@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime, time as dt_time
 from pathlib import Path
-from typing import Any, Iterable, Sequence
+from typing import Any, Iterable, Mapping, Sequence
 
 import numpy as np
 import pandas as pd
@@ -64,6 +64,263 @@ class SplitData:
     dt: pd.Series
     code: pd.Series
     sample_weight: pd.Series | None = None
+
+
+@dataclass(frozen=True)
+class LabelTargetTransformSpec:
+    """Explicit, opt-in target treatment for cross-sectional LGBM training.
+
+    The transform only applies to labels that have already been admitted to a
+    training or validation split.  It is deliberately separate from factor
+    standardisation and is never applied to a score-day feature frame.
+    """
+
+    mode: str = "none"
+    ddof: int = 0
+    min_std: float = 1e-12
+    loss_day_mass: str = "preserve"
+
+    def __post_init__(self) -> None:
+        mode = str(self.mode or "none").strip().lower()
+        if mode not in {"none", "zscore_day"}:
+            raise ValueError("label target transform mode must be none or zscore_day")
+        if int(self.ddof) not in {0, 1}:
+            raise ValueError("label target transform ddof must be 0 or 1")
+        min_std = float(self.min_std)
+        if not np.isfinite(min_std) or min_std <= 0.0:
+            raise ValueError("label target transform min_std must be finite and > 0")
+        loss_day_mass = str(self.loss_day_mass or "preserve").strip().lower()
+        if loss_day_mass not in {"preserve", "equal"}:
+            raise ValueError("label target transform loss_day_mass must be preserve or equal")
+        object.__setattr__(self, "mode", mode)
+        object.__setattr__(self, "ddof", int(self.ddof))
+        object.__setattr__(self, "min_std", min_std)
+        object.__setattr__(self, "loss_day_mass", loss_day_mass)
+
+
+def transform_label_targets_by_day(
+    y: pd.Series,
+    dt: pd.Series,
+    spec: LabelTargetTransformSpec | None,
+) -> tuple[pd.Series, dict[str, float | int | str]]:
+    """Return a training target whose completed days are independently scaled.
+
+    ``zscore_day`` uses only the labels present in each individual completed
+    day.  It therefore cannot expose a score day to its own label.  Invalid or
+    near-constant target days become explicit missing targets so the caller can
+    drop and audit the whole completed day rather than silently falling back to
+    raw labels.
+    """
+
+    resolved = spec or LabelTargetTransformSpec()
+    if len(y) != len(dt):
+        raise ValueError(
+            "label target transform length mismatch: "
+            f"labels={len(y)} dt={len(dt)}"
+        )
+    if resolved.mode == "none":
+        return y.copy(), {
+            "mode": resolved.mode,
+            "ddof": int(resolved.ddof),
+            "min_std": float(resolved.min_std),
+            "loss_day_mass": resolved.loss_day_mass,
+            "day_count": 0,
+        }
+
+    target = pd.to_numeric(y, errors="coerce").to_numpy(dtype=float, copy=True)
+    day = pd.to_datetime(dt, errors="coerce").dt.normalize()
+    if len(target) == 0:
+        return pd.Series(target, index=y.index, dtype=float), {
+            "mode": resolved.mode,
+            "ddof": int(resolved.ddof),
+            "min_std": float(resolved.min_std),
+            "loss_day_mass": resolved.loss_day_mass,
+            "day_count": 0,
+        }
+    if pd.isna(day).any():
+        raise ValueError("label target transform received an invalid label day")
+    if not np.isfinite(target).all():
+        raise ValueError("label target transform received non-finite labels")
+
+    frame = pd.DataFrame({"day": day.to_numpy()})
+    transformed = target.copy()
+    stds: list[float] = []
+    dropped_rows = 0
+    dropped_days = 0
+    for _, positions in frame.groupby("day", sort=False).groups.items():
+        pos = np.asarray(positions, dtype=np.int64)
+        values = target[pos]
+        std = float(np.std(values, ddof=resolved.ddof))
+        if not np.isfinite(std) or std <= resolved.min_std:
+            transformed[pos] = np.nan
+            dropped_rows += int(len(pos))
+            dropped_days += 1
+            continue
+        transformed[pos] = (values - float(np.mean(values))) / std
+        stds.append(std)
+    return pd.Series(transformed, index=y.index, dtype=float), {
+        "mode": resolved.mode,
+        "ddof": int(resolved.ddof),
+        "min_std": float(resolved.min_std),
+        "loss_day_mass": resolved.loss_day_mass,
+        "day_count": int(len(stds)),
+        "raw_day_std_min": float(min(stds)) if stds else float("nan"),
+        "raw_day_std_max": float(max(stds)) if stds else float("nan"),
+        "dropped_day_count": int(dropped_days),
+        "dropped_row_count": int(dropped_rows),
+    }
+
+
+def _equalize_day_loss_mass(
+    sample_weight: pd.Series | None,
+    dt: pd.Series,
+) -> tuple[pd.Series, dict[str, float | int | str]]:
+    """Give each completed day equal aggregate MSE mass at mean weight one."""
+
+    n_rows = len(dt)
+    if sample_weight is None:
+        base = np.ones(n_rows, dtype=float)
+    else:
+        base = pd.to_numeric(sample_weight, errors="coerce").to_numpy(dtype=float, copy=True)
+    if base.shape[0] != n_rows:
+        raise ValueError(
+            "equal-day loss mass length mismatch: "
+            f"weights={base.shape[0]} dt={n_rows}"
+        )
+    if n_rows == 0:
+        return pd.Series(dtype=float), {
+            "loss_day_mass": "equal",
+            "loss_day_count": 0,
+            "loss_day_mass_min": float("nan"),
+            "loss_day_mass_max": float("nan"),
+        }
+    if not np.isfinite(base).all() or np.any(base <= 0.0):
+        raise ValueError("equal-day loss mass requires finite positive base weights")
+    day = pd.to_datetime(dt, errors="coerce").dt.normalize()
+    if day.isna().any():
+        raise ValueError("equal-day loss mass received an invalid label day")
+    frame = pd.DataFrame({"day": day.to_numpy()})
+    groups = list(frame.groupby("day", sort=False).groups.values())
+    target_day_mass = float(n_rows) / float(len(groups))
+    out = base.copy()
+    masses: list[float] = []
+    for positions in groups:
+        pos = np.asarray(positions, dtype=np.int64)
+        current_mass = float(np.sum(base[pos]))
+        if not np.isfinite(current_mass) or current_mass <= 0.0:
+            raise ValueError("equal-day loss mass encountered a non-positive day weight")
+        out[pos] = base[pos] * (target_day_mass / current_mass)
+        masses.append(float(np.sum(out[pos])))
+    if not np.isfinite(out).all() or np.any(out <= 0.0):
+        raise RuntimeError("equal-day loss mass produced invalid weights")
+    return pd.Series(out, index=dt.index, dtype=float), {
+        "loss_day_mass": "equal",
+        "loss_day_count": int(len(groups)),
+        "loss_day_mass_min": float(min(masses)),
+        "loss_day_mass_max": float(max(masses)),
+        "loss_weight_mean": float(np.mean(out)),
+    }
+
+
+def prepare_lgbm_target_split(
+    split: SplitData,
+    spec: LabelTargetTransformSpec | None,
+    *,
+    apply_loss_day_mass: bool,
+) -> tuple[SplitData, dict[str, float | int | str]]:
+    """Transform completed labels and optionally equalise only training loss mass."""
+
+    target, audit = transform_label_targets_by_day(split.y, split.dt, spec)
+    if target.empty:
+        return SplitData(
+            x=split.x.copy(),
+            y=target.copy(),
+            dt=split.dt.copy(),
+            code=split.code.copy(),
+            sample_weight=split.sample_weight.copy() if split.sample_weight is not None else None,
+        ), {
+            **audit,
+            "input_row_count": 0,
+            "output_row_count": 0,
+            "loss_day_mass_applied": False,
+        }
+    keep = np.isfinite(target.to_numpy(dtype=float, copy=False))
+    if not keep.any():
+        raise ValueError("label target transform removed every completed training row")
+    positions = np.flatnonzero(keep)
+    prepared = SplitData(
+        x=split.x.iloc[positions].reset_index(drop=True),
+        y=target.iloc[positions].reset_index(drop=True),
+        dt=split.dt.iloc[positions].reset_index(drop=True),
+        code=split.code.iloc[positions].reset_index(drop=True),
+        sample_weight=(
+            split.sample_weight.iloc[positions].reset_index(drop=True)
+            if split.sample_weight is not None
+            else None
+        ),
+    )
+    audit = {
+        **audit,
+        "input_row_count": int(len(split.y)),
+        "output_row_count": int(len(prepared.y)),
+        "loss_day_mass_applied": bool(apply_loss_day_mass and (spec or LabelTargetTransformSpec()).loss_day_mass == "equal"),
+    }
+    resolved = spec or LabelTargetTransformSpec()
+    if apply_loss_day_mass and resolved.loss_day_mass == "equal":
+        equal_weights, weight_audit = _equalize_day_loss_mass(
+            prepared.sample_weight,
+            prepared.dt,
+        )
+        prepared = SplitData(
+            x=prepared.x,
+            y=prepared.y,
+            dt=prepared.dt,
+            code=prepared.code,
+            sample_weight=equal_weights,
+        )
+        audit.update(weight_audit)
+    return prepared, audit
+
+
+@dataclass(frozen=True)
+class TemporalFactorLagSpec:
+    """An opt-in raw factor-state expansion for a prior trading day.
+
+    This is deliberately independent of label alignment.  For a factor day
+    ``T`` it emits current state, immediate-prior-state, and raw difference
+    columns.  The caller supplies the previous *calendar* trading day mapping
+    so missing factor files can never be silently bridged with an older day.
+    """
+
+    lag_trading_days: int = 1
+    outputs: tuple[str, ...] = ("t0", "lag1", "diff1")
+    missing_policy: str = "inner"
+
+    def __post_init__(self) -> None:
+        if int(self.lag_trading_days) != 1:
+            raise ValueError("temporal_factor_lag currently supports lag_trading_days=1 only")
+        allowed_outputs = {"t0", "lag1", "diff1"}
+        if not self.outputs or any(item not in allowed_outputs for item in self.outputs):
+            raise ValueError("temporal_factor_lag.outputs must be a non-empty subset of t0, lag1, diff1")
+        if len(set(self.outputs)) != len(self.outputs):
+            raise ValueError("temporal_factor_lag.outputs must not contain duplicates")
+        if self.missing_policy != "inner":
+            raise ValueError("temporal_factor_lag.missing_policy must be inner")
+
+
+def temporal_factor_feature_columns(
+    base_factor_cols: Sequence[str],
+    spec: TemporalFactorLagSpec | None,
+) -> list[str]:
+    """Return a stable model schema for the opt-in temporal factor inputs."""
+    base = [str(column) for column in base_factor_cols]
+    if spec is None:
+        return list(base)
+    suffix_by_output = {"t0": "__t0", "lag1": "__lag1", "diff1": "__diff1"}
+    output = [f"{column}{suffix_by_output[kind]}" for kind in spec.outputs for column in base]
+    if len(output) != len(set(output)) or set(output).intersection(base):
+        raise ValueError("temporal_factor_lag output columns collide with base factor columns")
+    return output
 
 
 def _normalise_missing_values_config(missing_values: dict[str, Any] | None) -> dict[str, Any]:
@@ -397,7 +654,22 @@ def _iter_existing_label_days(label_root: Path, start: date, end: date) -> Itera
         yield day
 
 
-def _read_label_day(label_root: Path, day: date, *, factor_time: str, label_time: str) -> pd.DataFrame:
+def _read_label_day(
+    label_root: Path,
+    day: date,
+    *,
+    factor_time: str,
+    label_time: str,
+    anchor_day: date | None = None,
+) -> pd.DataFrame:
+    """Read one standard label file and align it to a factor day.
+
+    ``day`` identifies the source label file.  Normally it is also the
+    factor day, so the historical behaviour is unchanged.  Research variants
+    can supply ``anchor_day`` when a factor day is intentionally trained
+    against a later standard execution label.  The label time is always
+    filtered on the source file's date before the merge timestamp is re-anchored.
+    """
     month = f"{day.year:04d}-{day.month:02d}"
     filename = f"{day.strftime('%Y%m%d')}.parquet"
     path = label_root / month / filename
@@ -424,7 +696,10 @@ def _read_label_day(label_root: Path, day: date, *, factor_time: str, label_time
     df = df[df["dt"].dt.time == label_t]
     if df.empty:
         return df
-    base_date = df["dt"].dt.normalize()
+    if anchor_day is None:
+        base_date = df["dt"].dt.normalize()
+    else:
+        base_date = pd.Series(pd.Timestamp(anchor_day), index=df.index)
     df["dt"] = base_date + pd.Timedelta(hours=factor_h, minutes=factor_m)
     return df
 
@@ -641,6 +916,66 @@ def describe_standardization(
     return _resolve_standardization_config(standardization, legacy_zscore=legacy_zscore)
 
 
+def _read_factor_frame_for_dataset(
+    *,
+    factor_store: FactorStore,
+    day: date,
+    raw_cols: Sequence[str],
+    aliases: Mapping[str, str],
+) -> pd.DataFrame:
+    """Read one unprocessed factor-day frame with aliases resolved."""
+    fdf = factor_store.read_day(day)
+    if fdf.empty:
+        return pd.DataFrame()
+    if not isinstance(fdf.index, pd.MultiIndex):
+        fdf = fdf.reset_index().set_index(["dt", "code"])
+    fdf = fdf.reset_index()
+    missing_alias_sources = [source for source in aliases.values() if source not in fdf.columns]
+    if missing_alias_sources:
+        return pd.DataFrame()
+    for alias, source in aliases.items():
+        fdf[alias] = fdf[source]
+    missing_cols = [column for column in raw_cols if column not in fdf.columns]
+    if missing_cols:
+        return pd.DataFrame()
+    return fdf
+
+
+def _build_temporal_factor_frame(
+    *,
+    current: pd.DataFrame,
+    previous: pd.DataFrame,
+    raw_cols: Sequence[str],
+    spec: TemporalFactorLagSpec,
+) -> pd.DataFrame:
+    """Join raw T and P(T) factors by code and emit a stable temporal schema."""
+    current_cols = ["dt", "code", *raw_cols]
+    previous_cols = ["code", *raw_cols]
+    current_part = current[current_cols].copy()
+    previous_part = previous[previous_cols].copy()
+    if current_part["code"].duplicated().any() or previous_part["code"].duplicated().any():
+        raise ValueError("temporal_factor_lag requires one factor row per code per day")
+
+    merged = current_part.merge(previous_part, on="code", how="inner", suffixes=("__current", "__previous"))
+    if merged.empty:
+        return merged
+
+    out = merged[["dt", "code"]].copy()
+    for kind in spec.outputs:
+        for column in raw_cols:
+            current_col = f"{column}__current"
+            previous_col = f"{column}__previous"
+            if kind == "t0":
+                out[f"{column}__t0"] = merged[current_col]
+            elif kind == "lag1":
+                out[f"{column}__lag1"] = merged[previous_col]
+            elif kind == "diff1":
+                out[f"{column}__diff1"] = merged[current_col] - merged[previous_col]
+            else:  # Defensive: TemporalFactorLagSpec validates the option.
+                raise ValueError(f"unsupported temporal factor output: {kind}")
+    return out
+
+
 def build_dataset(
     *,
     factor_store: FactorStore,
@@ -663,12 +998,21 @@ def build_dataset(
     preprocess_factor_cols: list[str] | None = None,
     missing_values: dict[str, Any] | None = None,
     sample_weight: dict[str, Any] | None = None,
+    label_day_by_factor_day: Mapping[date, date | None] | None = None,
+    read_label_when_not_required: bool = True,
+    apply_tradable_filter_when_label_not_required: bool = False,
+    temporal_factor_lag: TemporalFactorLagSpec | None = None,
+    previous_factor_day_by_factor_day: Mapping[date, date | None] | None = None,
 ) -> SplitData:
     aliases = {str(k): str(v) for k, v in (factor_aliases or {}).items()}
     raw_cols = list(raw_factor_cols or factor_cols)
     preprocess_cols = list(preprocess_factor_cols or factor_cols)
     missing_cfg = _normalise_missing_values_config(missing_values)
     missing_enabled = _missing_values_enabled(missing_cfg)
+    if temporal_factor_lag is not None and missing_enabled:
+        raise ValueError("temporal_factor_lag does not support missing_values yet")
+    if temporal_factor_lag is not None and previous_factor_day_by_factor_day is None:
+        raise ValueError("temporal_factor_lag requires previous_factor_day_by_factor_day")
     keep_nan = bool(missing_cfg.get("keep_nan", missing_enabled))
     min_available_raw = missing_cfg.get("min_available_factors")
     min_available_factors = int(min_available_raw) if min_available_raw is not None else len(raw_cols)
@@ -680,23 +1024,52 @@ def build_dataset(
     missing_feature_specs = _iter_missing_feature_specs(missing_cfg, raw_cols)
     frames: list[pd.DataFrame] = []
     for day in days:
-        fdf = factor_store.read_day(day)
+        fdf = _read_factor_frame_for_dataset(
+            factor_store=factor_store,
+            day=day,
+            raw_cols=raw_cols,
+            aliases=aliases,
+        )
         if fdf.empty:
             continue
-        if not isinstance(fdf.index, pd.MultiIndex):
-            fdf = fdf.reset_index().set_index(["dt", "code"])
-        fdf = fdf.reset_index()
-        missing_alias_sources = [source for source in aliases.values() if source not in fdf.columns]
-        if missing_alias_sources:
-            continue
-        for alias, source in aliases.items():
-            fdf[alias] = fdf[source]
-        # Backward compatibility: old factor files may miss newly added columns.
-        # Skip these days instead of raising KeyError in dropna(subset=...).
-        missing_cols = [c for c in raw_cols if c not in fdf.columns]
-        if missing_cols:
-            continue
-        label_df = _read_label_day(label_root, day, factor_time=factor_time, label_time=label_time)
+        if temporal_factor_lag is not None:
+            previous_day = previous_factor_day_by_factor_day.get(day)
+            if previous_day is None:
+                # Strict immediate-prior policy: do not bridge a missing
+                # calendar day with any earlier factor snapshot.
+                continue
+            previous_fdf = _read_factor_frame_for_dataset(
+                factor_store=factor_store,
+                day=previous_day,
+                raw_cols=raw_cols,
+                aliases=aliases,
+            )
+            if previous_fdf.empty:
+                continue
+            fdf = _build_temporal_factor_frame(
+                current=fdf,
+                previous=previous_fdf,
+                raw_cols=raw_cols,
+                spec=temporal_factor_lag,
+            )
+            if fdf.empty:
+                continue
+        label_day = label_day_by_factor_day.get(day, day) if label_day_by_factor_day is not None else day
+        if not require_label and not read_label_when_not_required:
+            label_df = pd.DataFrame(columns=["dt", "code", "y"])
+        elif label_day is None:
+            label_df = pd.DataFrame(columns=["dt", "code", "y"])
+        elif label_day == day:
+            # Preserve the legacy call shape for the default same-day contract.
+            label_df = _read_label_day(label_root, day, factor_time=factor_time, label_time=label_time)
+        else:
+            label_df = _read_label_day(
+                label_root,
+                label_day,
+                factor_time=factor_time,
+                label_time=label_time,
+                anchor_day=day,
+            )
         if label_df.empty or "dt" not in label_df.columns:
             if require_label:
                 continue
@@ -709,7 +1082,14 @@ def build_dataset(
             merged = fdf.merge(label_df, on=["dt", "code"], how="inner")
         if merged.empty:
             continue
-        if require_label and tradable_code_map is not None:
+        # The historical test path obtains its score universe from the
+        # same-day label inner join, then applies the T-1 allowlist below.
+        # A causal score-only path deliberately does not open that label, so
+        # it must opt in explicitly to applying the same existing allowlist.
+        # Keep the default false: ordinary callers retain their prior contract.
+        if tradable_code_map is not None and (
+            require_label or apply_tradable_filter_when_label_not_required
+        ):
             allowed_codes = tradable_code_map.get(day)
             if not allowed_codes:
                 if tradable_strict:
@@ -838,6 +1218,37 @@ def _mean_abs_ic_by_groups(
     if not vals:
         return float("nan")
     return float(np.mean(vals))
+
+
+def _mean_pearson_ic_by_groups(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    groups: list[np.ndarray],
+    *,
+    eps: float = 1e-12,
+) -> float:
+    """Equal-weighted, within-day Pearson IC for LightGBM early stopping."""
+
+    if not groups:
+        return float("nan")
+    values: list[float] = []
+    for idx in groups:
+        y = y_true[idx]
+        p = y_pred[idx]
+        if y.size < 2:
+            continue
+        yc = y - np.mean(y)
+        pc = p - np.mean(p)
+        y_ss = float(np.dot(yc, yc))
+        p_ss = float(np.dot(pc, pc))
+        if y_ss <= eps or p_ss <= eps:
+            continue
+        corr = float(np.dot(yc, pc)) / np.sqrt(y_ss * p_ss + eps)
+        if np.isfinite(corr):
+            values.append(corr)
+    if not values:
+        return float("nan")
+    return float(np.mean(values))
 
 
 def _average_ranks(values: np.ndarray) -> np.ndarray:
@@ -1033,6 +1444,8 @@ def train_lgbm(
     early_stopping_rounds: int | None = None,
     loss_mode: str = "mse",
     init_model: object | str | Path | None = None,
+    label_target_transform: LabelTargetTransformSpec | None = None,
+    early_stopping_metric: str = "rank_ic",
 ) -> tuple[object, dict]:
     if lgb is None:
         detail = ""
@@ -1041,27 +1454,59 @@ def train_lgbm(
         raise RuntimeError(f"lightgbm is not installed{detail}")
     params = dict(lgbm_params)
     mode = str(loss_mode or "mse").lower()
-    eval_metric_name = "rank_ic"
+    target_spec = label_target_transform or LabelTargetTransformSpec()
+    train_fit, train_target_audit = prepare_lgbm_target_split(
+        train,
+        target_spec,
+        apply_loss_day_mass=True,
+    )
+    val_fit, val_target_audit = prepare_lgbm_target_split(
+        val,
+        target_spec,
+        apply_loss_day_mass=False,
+    )
+    train_y = train_fit.y
+    val_y = val_fit.y
+    requested_metric = str(early_stopping_metric or "rank_ic").strip().lower()
+    metric_aliases = {
+        "rank": "rank_ic",
+        "rank_ic": "rank_ic",
+        "pearson": "pearson_ic",
+        "pearson_ic": "pearson_ic",
+        "ic": "pearson_ic",
+        "abs": "abs_ic",
+        "abs_ic": "abs_ic",
+    }
+    if requested_metric not in metric_aliases:
+        raise ValueError(
+            "early_stopping_metric must be rank_ic, pearson_ic, or abs_ic"
+        )
+    eval_metric_name = metric_aliases[requested_metric]
+    if eval_metric_name == "pearson_ic":
+        # LightGBM otherwise injects regression l2 beside the custom metric;
+        # disabling that default keeps this explicit opt-in stopping rule tied
+        # to the requested equal-day Pearson IC alone.
+        params.setdefault("metric", "None")
     log_eval_period = max(1, int(params.pop("log_eval_period", 10)))
     train_groups: list[np.ndarray] = []
     val_groups: list[np.ndarray] = []
-    train_rank_groups = _build_day_group_indices(train.dt)
-    val_rank_groups = _build_day_group_indices(val.dt)
+    train_rank_groups = _build_day_group_indices(train_fit.dt)
+    val_rank_groups = _build_day_group_indices(val_fit.dt)
     if mode in {"ic_abs", "abs_ic", "icabs"}:
-        objective_fn, train_groups = _make_abs_ic_objective(train.dt)
+        objective_fn, train_groups = _make_abs_ic_objective(train_fit.dt)
         params["objective"] = objective_fn
         eval_metric_name = "abs_ic"
-        val_groups = _build_day_group_indices(val.dt)
+        val_groups = _build_day_group_indices(val_fit.dt)
     gpu_requested = _lgbm_gpu_requested(params)
     model = lgb.LGBMRegressor(**params)
     history: list[dict] = []
     sample_weight = None
-    if train.sample_weight is not None:
-        sample_weight_arr = pd.to_numeric(train.sample_weight, errors="coerce").to_numpy(dtype=float)
-        if sample_weight_arr.shape[0] != train.y.shape[0]:
+    if train_fit.sample_weight is not None:
+        sample_weight_arr = pd.to_numeric(train_fit.sample_weight, errors="coerce").to_numpy(dtype=float)
+        if sample_weight_arr.shape[0] != train_y.shape[0]:
             raise ValueError(
                 "train sample_weight length mismatch: "
-                f"weights={sample_weight_arr.shape[0]} labels={train.y.shape[0]}"
+                f"weights={sample_weight_arr.shape[0]} labels={train_y.shape[0]}"
             )
         sample_weight_arr = np.where(np.isfinite(sample_weight_arr), sample_weight_arr, 1.0)
         if np.any(sample_weight_arr <= 0):
@@ -1073,7 +1518,7 @@ def train_lgbm(
             return ("rank_ic", 0.0, True)
         y_true = np.asarray(y_true, dtype=float)
         y_pred = np.asarray(y_pred, dtype=float)
-        if y_true.shape[0] == train.y.shape[0]:
+        if y_true.shape[0] == train_y.shape[0]:
             groups = train_rank_groups
         else:
             groups = val_rank_groups
@@ -1082,15 +1527,29 @@ def train_lgbm(
             val_ic = 0.0
         return ("rank_ic", val_ic, True)
 
+    def _eval_pearson_ic(y_true, y_pred):
+        if y_true is None or y_pred is None:
+            return ("pearson_ic", 0.0, True)
+        y_true = np.asarray(y_true, dtype=float)
+        y_pred = np.asarray(y_pred, dtype=float)
+        # Pearson IC stopping evaluates validation only (see _fit_once), so
+        # there is no ambiguous train/validation inference from row counts.
+        # This matters when the two splits happen to have the same number of
+        # rows but different per-day group boundaries.
+        val_ic = _mean_pearson_ic_by_groups(y_true, y_pred, val_rank_groups)
+        if not np.isfinite(val_ic):
+            val_ic = 0.0
+        return ("pearson_ic", val_ic, True)
+
     def _eval_abs_ic(y_true, y_pred):
         if y_true is None or y_pred is None:
             return ("abs_ic", 0.0, True)
         y_true = np.asarray(y_true, dtype=float)
         y_pred = np.asarray(y_pred, dtype=float)
-        if y_true.shape[0] == train.y.shape[0]:
-            groups = train_groups if train_groups else _build_day_group_indices(train.dt)
+        if y_true.shape[0] == train_y.shape[0]:
+            groups = train_groups if train_groups else _build_day_group_indices(train_fit.dt)
         else:
-            groups = val_groups if val_groups else _build_day_group_indices(val.dt)
+            groups = val_groups if val_groups else _build_day_group_indices(val_fit.dt)
         val_abs_ic = _mean_abs_ic_by_groups(y_true, y_pred, groups)
         if not np.isfinite(val_abs_ic):
             val_abs_ic = 0.0
@@ -1116,6 +1575,8 @@ def train_lgbm(
                 "iteration": iteration,
                 "train_rank_ic": train_metric if eval_metric_name == "rank_ic" else float("nan"),
                 "val_rank_ic": val_metric if eval_metric_name == "rank_ic" else float("nan"),
+                "train_pearson_ic": train_metric if eval_metric_name == "pearson_ic" else float("nan"),
+                "val_pearson_ic": val_metric if eval_metric_name == "pearson_ic" else float("nan"),
                 "train_abs_ic": train_metric if eval_metric_name == "abs_ic" else float("nan"),
                 "val_abs_ic": val_metric if eval_metric_name == "abs_ic" else float("nan"),
                 "train_r2": float("nan"),
@@ -1124,7 +1585,7 @@ def train_lgbm(
         )
         if iteration % log_eval_period != 0:
             return
-        metric_label = "rank_ic" if eval_metric_name == "rank_ic" else "abs_ic"
+        metric_label = eval_metric_name
         print(
             f"iter {iteration:03d} "
             f"train_{metric_label}={train_metric:.4f} val_{metric_label}={val_metric:.4f}"
@@ -1136,17 +1597,31 @@ def train_lgbm(
         if sample_weight is not None:
             base_fit_kwargs["sample_weight"] = sample_weight
         fit_kwargs = dict(base_fit_kwargs)
-        if early_stopping_rounds is not None and val.x is not None and not val.x.empty:
+        if early_stopping_rounds is not None and val_fit.x is not None and not val_fit.x.empty:
+            if eval_metric_name == "rank_ic":
+                eval_metric = _eval_rank_ic
+            elif eval_metric_name == "pearson_ic":
+                eval_metric = _eval_pearson_ic
+            else:
+                eval_metric = _eval_abs_ic
+            # The explicit Pearson-IC candidate must stop on validation IC
+            # alone.  Supplying the train set as a second eval set gives the
+            # sklearn custom-metric callback no dataset identity; row-count
+            # inference is unsafe when train and validation sizes coincide.
+            eval_set = [(val_fit.x, val_y)] if eval_metric_name == "pearson_ic" else [
+                (train_fit.x, train_y),
+                (val_fit.x, val_y),
+            ]
             fit_kwargs = {
                 **base_fit_kwargs,
-                "eval_set": [(train.x, train.y), (val.x, val.y)],
-                "eval_metric": _eval_abs_ic if eval_metric_name == "abs_ic" else _eval_rank_ic,
+                "eval_set": eval_set,
+                "eval_metric": eval_metric,
             }
             # lightgbm sklearn API changed early stopping signature
             try:
                 estimator.fit(
-                    train.x,
-                    train.y,
+                    train_fit.x,
+                    train_y,
                     **fit_kwargs,
                     early_stopping_rounds=int(early_stopping_rounds),
                     verbose=False,
@@ -1162,18 +1637,18 @@ def train_lgbm(
                     callbacks.append(lgb.record_evaluation(eval_result))
                 callbacks.append(lambda env: _record_callback(env))
                 try:
-                    estimator.fit(train.x, train.y, **fit_kwargs, callbacks=callbacks)
+                    estimator.fit(train_fit.x, train_y, **fit_kwargs, callbacks=callbacks)
                 except TypeError:
                     # Older sklearn wrappers may not accept init_model.
                     fit_kwargs.pop("init_model", None)
-                    estimator.fit(train.x, train.y, **fit_kwargs, callbacks=callbacks)
+                    estimator.fit(train_fit.x, train_y, **fit_kwargs, callbacks=callbacks)
                 return
         # no early stopping
         try:
-            estimator.fit(train.x, train.y, **base_fit_kwargs)
+            estimator.fit(train_fit.x, train_y, **base_fit_kwargs)
         except TypeError:
             base_fit_kwargs.pop("init_model", None)
-            estimator.fit(train.x, train.y)
+            estimator.fit(train_fit.x, train_y)
 
     try:
         _fit_once(model)
@@ -1190,5 +1665,16 @@ def train_lgbm(
         _fit_once(model)
         params = cpu_params
 
-    return model, params | {"history": history}
+    return model, params | {
+        "history": history,
+        "early_stopping_metric": eval_metric_name,
+        "label_target_transform": {
+            "mode": target_spec.mode,
+            "ddof": int(target_spec.ddof),
+            "min_std": float(target_spec.min_std),
+            "loss_day_mass": target_spec.loss_day_mass,
+            "train": train_target_audit,
+            "val": val_target_audit,
+        },
+    }
 

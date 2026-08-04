@@ -1,0 +1,9 @@
+{
+  modules: [
+    "factor/research/parity_adjusted_stock_lag_v2_oos_ic_20260731_config.json5",
+  ],
+  // Bound concurrency before committing a long clean-direct historical build.
+  start: "2026-07-23",
+  end: "2026-07-28",
+  workers: 2,
+}

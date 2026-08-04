@@ -1,0 +1,7 @@
+{
+  // Raw/clean DataHub locations are read-only; every derived result is isolated.
+  raw_data_root: "D:/cbond_data_hub/raw_data",
+  clean_data_root: "D:/cbond_data_hub/clean_data",
+  cleaned_data_root: "D:/cbond_data_hub/clean_data",
+  results_root: "D:/cbond_on/research_scratch/ic_uplift_oos_20260731/prior_intraday_return_surprise_120d/results",
+}

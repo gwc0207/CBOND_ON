@@ -1,0 +1,8 @@
+{
+  modules: [
+    "factor/research/parity_adjusted_stock_lag_v2_oos_ic_20260731_config.json5",
+  ],
+  // A two-day clean-direct integration check before the historical build.
+  start: "2026-07-29",
+  end: "2026-07-30",
+}

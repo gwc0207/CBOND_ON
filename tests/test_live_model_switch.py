@@ -12,12 +12,75 @@ from cbond_on.infra.live.model_switch import (
     T1430_DISPERSION_FEATURE_SETS,
     _select_t1430_fusion,
     build_rank_average_scores,
+    build_t1430_market_state_feature_row,
     decide_scoreopt_bm_short,
     decide_scoreopt_t1430_dispersion,
     decide_scoreopt_t1430_fusion_gate,
     decide_single_challenger_by_regime,
     decide_single_challenger_by_sharpe,
 )
+
+
+def _write_state_snapshot(root, *, score_day: date) -> None:
+    rows: list[dict[str, object]] = []
+    for code, multiplier in [("110001.SH", 1.0), ("110002.SH", 1.1)]:
+        for stamp, price in [
+            ("09:30:00", 100.0), ("09:31:00", 101.0),
+            ("09:35:00", 102.0), ("09:36:00", 103.0),
+            ("10:00:00", 104.0), ("10:01:00", 105.0),
+            ("10:30:00", 106.0), ("10:31:00", 107.0),
+            ("11:00:00", 108.0), ("11:01:00", 109.0),
+            ("13:00:00", 110.0), ("13:01:00", 111.0),
+            ("13:30:00", 112.0), ("13:31:00", 113.0),
+            ("14:00:00", 114.0), ("14:28:00", 115.0),
+            ("14:29:00", 116.0),
+            # These observations are deliberately unavailable at strict 14:29.
+            ("14:29:30", 1_000.0), ("14:30:00", 1_001.0),
+        ]:
+            rows.append(
+                {
+                    "code": code,
+                    "trade_time": pd.Timestamp(f"{score_day} {stamp}"),
+                    "last": price * multiplier,
+                }
+            )
+    path = root / "snapshot" / "cbond" / f"{score_day:%Y-%m}" / f"{score_day:%Y%m%d}.parquet"
+    path.parent.mkdir(parents=True)
+    pd.DataFrame(rows).to_parquet(path, index=False)
+
+
+def test_market_state_builder_can_enforce_strict_1429_cutoff(tmp_path) -> None:
+    score_day = date(2026, 7, 30)
+    _write_state_snapshot(tmp_path, score_day=score_day)
+
+    default = build_t1430_market_state_feature_row(clean_root=tmp_path, score_day=score_day)
+    explicit_default = build_t1430_market_state_feature_row(
+        clean_root=tmp_path,
+        score_day=score_day,
+        cutoff_time="14:30",
+    )
+    strict = build_t1430_market_state_feature_row(
+        clean_root=tmp_path,
+        score_day=score_day,
+        cutoff_time="14:29",
+    )
+
+    assert default == explicit_default
+    assert strict["full0935_1430_mean"] < default["full0935_1430_mean"]
+    assert strict["seg1400_1430_mean"] < default["seg1400_1430_mean"]
+    assert T1430_DISPERSION_FEATURE_SETS["path_full_t1429"] == T1430_DISPERSION_FEATURE_SETS["path_full_t1430"]
+
+
+def test_market_state_builder_rejects_cutoff_after_live_boundary(tmp_path) -> None:
+    score_day = date(2026, 7, 30)
+    _write_state_snapshot(tmp_path, score_day=score_day)
+
+    with pytest.raises(ValueError, match="within \\[14:00, 14:30\\]"):
+        build_t1430_market_state_feature_row(
+            clean_root=tmp_path,
+            score_day=score_day,
+            cutoff_time="14:31",
+        )
 
 
 def _switch_decision(

@@ -19,7 +19,11 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from cbond_on.core.config import load_config_file, parse_date, resolve_output_path
 from cbond_on.core.naming import make_window_label
-from cbond_on.core.trading_days import list_trading_days_from_raw, prev_trading_days_from_raw
+from cbond_on.core.trading_days import (
+    list_available_trading_days_from_raw,
+    list_trading_days_from_raw,
+    prev_trading_days_from_raw,
+)
 from cbond_on.domain.factors.storage import FactorStore
 from cbond_on.infra.model.wandb_utils import init_wandb_logger
 from cbond_on.infra.model.score_io import load_scores_by_date, write_scores_by_date
@@ -36,12 +40,15 @@ from cbond_on.infra.model.similar_day_training import (
     resolve_similar_day_training_config,
 )
 from cbond_on.infra.model.impl.lgbm.trainer import (
+    LabelTargetTransformSpec,
     SplitData,
+    TemporalFactorLagSpec,
     build_dataset,
     build_tradable_code_map,
     describe_standardization,
     evaluate_metrics,
     missing_value_feature_columns,
+    temporal_factor_feature_columns,
     train_lgbm,
     _iter_existing_label_days,
     _split_days,
@@ -53,6 +60,189 @@ def _load_model_config(path: Path | None) -> dict:
     if path is None:
         return load_config_file("models/lgbm/lgbm_factor_MSE")
     return load_config_file(path)
+
+
+def _resolve_label_anchor_lag_trading_days(cfg: dict) -> int:
+    """Return the standard-label-file offset for a factor-day training row.
+
+    The normal contract is zero: ``factor[T] -> label[T]``.  A value of one
+    is the research contract ``factor[T] -> label[next_trading_day(T)]``.
+    This is intentionally a model-config setting, not a global label-store
+    mutation.
+    """
+    raw_alignment = cfg.get("label_alignment", {})
+    if raw_alignment in (None, "", []):
+        raw_alignment = {}
+    if not isinstance(raw_alignment, dict):
+        raise TypeError("label_alignment must be an object")
+    raw_lag = raw_alignment.get(
+        "anchor_lag_trading_days",
+        cfg.get("label_anchor_lag_trading_days", 0),
+    )
+    lag = int(raw_lag or 0)
+    if lag < 0:
+        raise ValueError("label_anchor_lag_trading_days must be >= 0")
+    return lag
+
+
+def _resolve_label_target_transform_spec(cfg: dict) -> LabelTargetTransformSpec:
+    """Parse the opt-in completed-label treatment for LGBM fitting.
+
+    This does not change score-day features or label alignment.  The default
+    remains raw labels so existing model configs retain their prior behaviour.
+    """
+
+    raw = cfg.get("label_target_transform", {})
+    if raw in (None, "", [], False):
+        return LabelTargetTransformSpec()
+    if not isinstance(raw, dict):
+        raise TypeError("label_target_transform must be an object")
+    if not bool(raw.get("enabled", False)):
+        return LabelTargetTransformSpec()
+    return LabelTargetTransformSpec(
+        mode=str(raw.get("mode", "zscore_day")),
+        ddof=int(raw.get("ddof", 0)),
+        min_std=float(raw.get("min_std", 1e-12)),
+        loss_day_mass=str(raw.get("loss_day_mass", "preserve")),
+    )
+
+
+def _resolve_early_stopping_metric(cfg: dict, *, loss_mode: str) -> str:
+    """Keep the historical RankIC default unless a model opts in explicitly."""
+
+    if str(loss_mode or "mse").strip().lower() in {"ic_abs", "abs_ic", "icabs"}:
+        return "abs_ic"
+    raw = str(cfg.get("early_stopping_metric", "rank_ic") or "rank_ic").strip().lower()
+    aliases = {
+        "rank": "rank_ic",
+        "rank_ic": "rank_ic",
+        "pearson": "pearson_ic",
+        "pearson_ic": "pearson_ic",
+        "ic": "pearson_ic",
+        "abs": "abs_ic",
+        "abs_ic": "abs_ic",
+    }
+    if raw not in aliases:
+        raise ValueError("early_stopping_metric must be rank_ic, pearson_ic, or abs_ic")
+    return aliases[raw]
+
+
+def _resolve_score_only_no_target_label_read(cfg: dict) -> bool:
+    """Opt out of score-day label reads during an OOF score construction."""
+
+    raw = cfg.get("score_only_no_target_label_read", False)
+    if not isinstance(raw, (bool, int)):
+        raise TypeError("score_only_no_target_label_read must be a boolean")
+    return bool(raw)
+
+
+def _resolve_score_only_apply_tradable_filter(cfg: dict) -> bool:
+    """Opt in to the existing T-1 allowlist when score-day labels stay closed.
+
+    Kept separate from ``score_only_no_target_label_read`` so legacy and
+    unrelated research configurations retain their score-universe behaviour.
+    """
+
+    raw = cfg.get("score_only_apply_tradable_filter", False)
+    if not isinstance(raw, (bool, int)):
+        raise TypeError("score_only_apply_tradable_filter must be a boolean")
+    return bool(raw)
+
+
+def _score_cache_may_read_target_label(
+    *,
+    label_anchor_lag_trading_days: int,
+    score_only_no_target_label_read: bool,
+) -> bool:
+    """Make the score-label access boundary directly testable."""
+
+    return int(label_anchor_lag_trading_days) == 0 and not score_only_no_target_label_read
+
+
+def _build_label_anchor_by_factor_day(
+    *,
+    raw_data_root: str | Path,
+    factor_days: list[date],
+    anchor_lag_trading_days: int,
+) -> dict[date, date | None]:
+    """Map factor dates to standard label-file dates using the raw calendar."""
+    unique_days = sorted(set(factor_days))
+    lag = max(0, int(anchor_lag_trading_days))
+    if lag == 0:
+        return {day: day for day in unique_days}
+
+    calendar_days = list_available_trading_days_from_raw(
+        raw_data_root,
+        kind="snapshot",
+        asset="cbond",
+    )
+    day_to_idx = {day: idx for idx, day in enumerate(calendar_days)}
+    out: dict[date, date | None] = {}
+    for factor_day in unique_days:
+        idx = day_to_idx.get(factor_day)
+        source_idx = (idx + lag) if idx is not None else None
+        out[factor_day] = (
+            calendar_days[source_idx]
+            if source_idx is not None and source_idx < len(calendar_days)
+            else None
+        )
+    return out
+
+
+def _resolve_temporal_factor_lag_spec(cfg: dict) -> TemporalFactorLagSpec | None:
+    """Parse the opt-in T/P(T)/difference factor feature expansion.
+
+    Label alignment remains a separate contract.  Disabled configurations
+    return ``None`` so existing models retain their exact prior schema.
+    """
+    feature_engineering = cfg.get("feature_engineering", {})
+    if feature_engineering in (None, "", []):
+        feature_engineering = {}
+    if not isinstance(feature_engineering, dict):
+        raise TypeError("feature_engineering must be an object")
+    raw = feature_engineering.get("temporal_factor_lag")
+    if raw in (None, "", []):
+        return None
+    if not isinstance(raw, dict):
+        raise TypeError("feature_engineering.temporal_factor_lag must be an object")
+    if not bool(raw.get("enabled", False)):
+        return None
+    outputs_raw = raw.get("outputs", ["t0", "lag1", "diff1"])
+    if not isinstance(outputs_raw, list):
+        raise TypeError("temporal_factor_lag.outputs must be a list")
+    return TemporalFactorLagSpec(
+        lag_trading_days=int(raw.get("lag_trading_days", 1) or 1),
+        outputs=tuple(str(item) for item in outputs_raw),
+        missing_policy=str(raw.get("missing_policy", "inner")).strip().lower(),
+    )
+
+
+def _build_previous_factor_day_by_factor_day(
+    *,
+    raw_data_root: str | Path,
+    factor_days: list[date],
+    lag_trading_days: int,
+) -> dict[date, date | None]:
+    """Map factor day T to its exact prior raw-calendar trading day P(T)."""
+    lag = int(lag_trading_days)
+    if lag < 1:
+        raise ValueError("temporal_factor_lag.lag_trading_days must be >= 1")
+    calendar_days = list_available_trading_days_from_raw(
+        raw_data_root,
+        kind="snapshot",
+        asset="cbond",
+    )
+    day_to_idx = {day: idx for idx, day in enumerate(calendar_days)}
+    out: dict[date, date | None] = {}
+    for factor_day in sorted(set(factor_days)):
+        idx = day_to_idx.get(factor_day)
+        source_idx = (idx - lag) if idx is not None else None
+        out[factor_day] = (
+            calendar_days[source_idx]
+            if source_idx is not None and source_idx >= 0
+            else None
+        )
+    return out
 
 
 def _parse_factor_aliases(cfg: dict) -> dict[str, str]:
@@ -1248,6 +1438,11 @@ def _build_daily_split_cache(
     standardization: dict | None = None,
     missing_values: dict | None = None,
     sample_weight: dict | None = None,
+    label_day_by_factor_day: dict[date, date | None] | None = None,
+    read_label_when_not_required: bool = True,
+    apply_tradable_filter_when_label_not_required: bool = False,
+    temporal_factor_lag: TemporalFactorLagSpec | None = None,
+    previous_factor_day_by_factor_day: dict[date, date | None] | None = None,
 ) -> dict[date, SplitData]:
     cache: dict[date, SplitData] = {}
     total = len(days)
@@ -1273,6 +1468,13 @@ def _build_daily_split_cache(
             standardization=standardization,
             missing_values=missing_values,
             sample_weight=sample_weight if require_label else None,
+            label_day_by_factor_day=label_day_by_factor_day,
+            read_label_when_not_required=read_label_when_not_required,
+            apply_tradable_filter_when_label_not_required=(
+                apply_tradable_filter_when_label_not_required
+            ),
+            temporal_factor_lag=temporal_factor_lag,
+            previous_factor_day_by_factor_day=previous_factor_day_by_factor_day,
         )
         if not split.x.empty:
             cache[day] = split
@@ -1292,18 +1494,48 @@ def _prepare_rolling_payload(
     train_day_cache: dict[date, SplitData],
     test_day_cache: dict[date, SplitData],
     similarity_context: SimilarDayTrainingContext | None = None,
+    label_anchor_lag_trading_days: int = 0,
+    label_day_by_factor_day: dict[date, date | None] | None = None,
 ) -> dict | None:
     window = days[idx - window_days + 1: idx + 1]
-    train_pool = window[:-1]
+    label_lag = max(0, int(label_anchor_lag_trading_days))
+    # A standard label file for factor day S+L is only known after the next
+    # morning sell.  At the T-day 14:29 score cutoff, factor days T-L..T-1
+    # must therefore be embargoed.  The normal L=0 branch remains window[:-1].
+    train_pool = window[: len(window) - 1 - label_lag]
+    embargo_days = window[len(window) - 1 - label_lag: -1]
     test_day = window[-1]
     if len(train_pool) < 2 and similarity_context is None:
         return None
     similarity_selection = None
     if similarity_context is not None:
-        similarity_selection = similarity_context.select(
-            target_day=test_day,
-            available_days=train_day_cache.keys(),
-        )
+        if similarity_context.config.strict_recent_window:
+            # The strict selector derives its exact prior window from the
+            # verified manifest calendar.  Pass only actual trainable cache
+            # days here; passing ``days`` would silently reintroduce runtime
+            # raw-calendar discovery into Hard Similar60 selection.
+            similarity_selection = similarity_context.select(
+                target_day=test_day,
+                available_days=train_day_cache.keys(),
+            )
+        else:
+            expected_prior_days = days[: max(0, idx - label_lag)]
+            if label_lag > 0:
+                # Similar-day selection may use a longer state pool than the
+                # contiguous rolling fallback, but it still must honor the same
+                # lagged-label embargo immediately before the target score day.
+                embargo_start = days[idx - label_lag]
+                similarity_available_days = [
+                    day for day in train_day_cache if day < embargo_start
+                ]
+            else:
+                # Preserve the existing broad similar-day candidate contract.
+                similarity_available_days = train_day_cache.keys()
+            similarity_selection = similarity_context.select(
+                target_day=test_day,
+                available_days=similarity_available_days,
+                expected_prior_days=expected_prior_days,
+            )
         if similarity_selection.ready:
             train_days = list(similarity_selection.train_days)
             val_days = list(similarity_selection.validation_days)
@@ -1348,6 +1580,21 @@ def _prepare_rolling_payload(
         [train_day_cache[d] for d in val_days if d in train_day_cache],
         factor_cols,
     )
+    used_feature_days = sorted(
+        {
+            pd.Timestamp(value).date()
+            for value in pd.concat([train_data.dt, val_data.dt], ignore_index=True)
+            if not pd.isna(value)
+        }
+    )
+    label_map = label_day_by_factor_day or {}
+    used_label_days = sorted(
+        {
+            label_map.get(day, day)
+            for day in used_feature_days
+            if label_map.get(day, day) is not None
+        }
+    )
     return {
         "test_day": test_day,
         "train_days": train_days,
@@ -1356,6 +1603,10 @@ def _prepare_rolling_payload(
         "val_data": val_data,
         "test_data": test_data,
         "similarity_selection": similarity_selection,
+        "label_anchor_lag_trading_days": label_lag,
+        "embargo_feature_days": list(embargo_days),
+        "max_train_feature_day": max(used_feature_days) if used_feature_days else None,
+        "max_train_label_day": max(used_label_days) if used_label_days else None,
     }
 
 
@@ -1490,6 +1741,7 @@ def main(
     label_time = str(cfg.get("label_time", "14:42"))
     raw_root = paths_cfg["raw_data_root"]
     panel_root = paths_cfg["panel_data_root"]
+    label_anchor_lag_trading_days = _resolve_label_anchor_lag_trading_days(cfg)
 
     scan_start = desired_start
     rolling_cfg = cfg.get("rolling", {})
@@ -1508,6 +1760,8 @@ def main(
         raise ValueError("similar_day_training requires rolling.enabled=true")
     if similar_day_context is not None and refit_every_n_days != 1:
         raise ValueError("similar_day_training requires refit_every_n_days=1")
+    if label_anchor_lag_trading_days > 0 and not rolling_enabled:
+        raise ValueError("label_anchor_lag_trading_days requires rolling.enabled=true")
     history_scan_days = max(
         window_days,
         (
@@ -1526,14 +1780,6 @@ def main(
         )
         if lookback_days:
             scan_start = lookback_days[0]
-    days = list(_iter_existing_label_days(label_root, scan_start, desired_end))
-    if not days:
-        raise RuntimeError("no label days found for range")
-    days = sorted(set(days))
-    if cutoff_day is not None:
-        days = [d for d in days if d <= cutoff_day]
-        if not days:
-            raise RuntimeError("no label days left after label_cutoff filter")
 
     def _factor_exists(day: date) -> bool:
         label = panel_name or make_window_label(window_minutes)
@@ -1542,19 +1788,66 @@ def main(
         path = factor_root / "factors" / label / month / filename
         return path.exists()
 
-    # allow scoring for target days without labels (e.g., latest day in live)
-    last_label_day = max(days) if days else None
-    if last_label_day and desired_end > last_label_day:
-        trade_days = list_trading_days_from_raw(
+    label_day_by_factor_day: dict[date, date | None] | None = None
+    if label_anchor_lag_trading_days > 0:
+        # The feature-day list must not be inferred from same-day label files:
+        # a valid lagged score day deliberately has no completed future label.
+        factor_calendar_days = list_trading_days_from_raw(
             raw_root,
-            last_label_day,
+            scan_start,
             desired_end,
             kind="snapshot",
             asset="cbond",
         )
-        extra_days = [d for d in trade_days if d > last_label_day and _factor_exists(d)]
-        if extra_days:
-            days = sorted(set(days + extra_days))
+        days = [day for day in factor_calendar_days if _factor_exists(day)]
+        if not days:
+            raise RuntimeError("no factor days found for lagged label range")
+        label_day_by_factor_day = _build_label_anchor_by_factor_day(
+            raw_data_root=raw_root,
+            factor_days=days,
+            anchor_lag_trading_days=label_anchor_lag_trading_days,
+        )
+        if cutoff_day is not None:
+            # ``label_cutoff`` is a source-label-file boundary.  Retain factor
+            # days for scoring while making later labels unavailable for train.
+            label_day_by_factor_day = {
+                factor_day: source_day
+                if source_day is not None and source_day <= cutoff_day
+                else None
+                for factor_day, source_day in label_day_by_factor_day.items()
+            }
+        mapped_count = sum(source_day is not None for source_day in label_day_by_factor_day.values())
+        print(
+            "[label_alignment]",
+            f"anchor_lag_trading_days={label_anchor_lag_trading_days}",
+            f"factor_days={len(days)}",
+            f"mapped_label_days={mapped_count}",
+            f"label_cutoff={cutoff_day or 'none'}",
+        )
+    else:
+        # Legacy contract: factor[T] joins the standard label file L[T].
+        days = list(_iter_existing_label_days(label_root, scan_start, desired_end))
+        if not days:
+            raise RuntimeError("no label days found for range")
+        days = sorted(set(days))
+        if cutoff_day is not None:
+            days = [d for d in days if d <= cutoff_day]
+            if not days:
+                raise RuntimeError("no label days left after label_cutoff filter")
+
+        # Allow scoring for target days without labels (e.g., latest live day).
+        last_label_day = max(days) if days else None
+        if last_label_day and desired_end > last_label_day:
+            trade_days = list_trading_days_from_raw(
+                raw_root,
+                last_label_day,
+                desired_end,
+                kind="snapshot",
+                asset="cbond",
+            )
+            extra_days = [d for d in trade_days if d > last_label_day and _factor_exists(d)]
+            if extra_days:
+                days = sorted(set(days + extra_days))
 
     tradable_cfg: dict = {
         "enabled": True,
@@ -1633,16 +1926,30 @@ def main(
         sample = sample.reset_index()
     factor_aliases = _parse_factor_aliases(cfg)
     raw_factor_cols = _select_factor_cols(sample, cfg, factor_aliases)
+    temporal_factor_lag_spec = _resolve_temporal_factor_lag_spec(cfg)
+    previous_factor_day_by_factor_day: dict[date, date | None] | None = None
+    if temporal_factor_lag_spec is not None:
+        previous_factor_day_by_factor_day = _build_previous_factor_day_by_factor_day(
+            raw_data_root=raw_root,
+            factor_days=days,
+            lag_trading_days=temporal_factor_lag_spec.lag_trading_days,
+        )
     missing_values = _resolve_missing_values_config(cfg)
+    if temporal_factor_lag_spec is not None and missing_values:
+        raise ValueError("temporal_factor_lag does not support feature_engineering.missing_values")
     missing_feature_cols = missing_value_feature_columns(missing_values)
-    factor_cols = list(raw_factor_cols)
-    seen_factor_cols = set(factor_cols)
-    for col in missing_feature_cols:
-        if col in seen_factor_cols:
-            continue
-        factor_cols.append(col)
-        seen_factor_cols.add(col)
-    preprocess_factor_cols = list(raw_factor_cols)
+    if temporal_factor_lag_spec is not None:
+        factor_cols = temporal_factor_feature_columns(raw_factor_cols, temporal_factor_lag_spec)
+        preprocess_factor_cols = list(factor_cols)
+    else:
+        factor_cols = list(raw_factor_cols)
+        seen_factor_cols = set(factor_cols)
+        for col in missing_feature_cols:
+            if col in seen_factor_cols:
+                continue
+            factor_cols.append(col)
+            seen_factor_cols.add(col)
+        preprocess_factor_cols = list(raw_factor_cols)
 
     winsor_lower, winsor_upper = parse_winsor_bounds(cfg.get("winsor", {}))
     zscore = bool(cfg.get("zscore", True))
@@ -1653,10 +1960,16 @@ def main(
     )
     min_count = int(cfg.get("min_count", 30))
     bins = int(cfg.get("bins", 5))
+    neutralization_cache_root = resolve_output_path(
+        cfg.get("neutralization_cache_root"),
+        default_path=Path(panel_root) / "neutralization_cache",
+        results_root=paths_cfg["results_root"],
+    )
     neutralizer = build_neutralizer(
         cfg.get("neutralization"),
         raw_data_root=raw_root,
         panel_data_root=panel_root,
+        neutralization_cache_root=neutralization_cache_root,
     )
     pca_feature_cfg = _resolve_pca_feature_config(cfg, factor_cols)
     pca_enabled = bool(pca_feature_cfg.get("enabled", False))
@@ -1688,6 +2001,15 @@ def main(
         f"min_available_factors={missing_values.get('min_available_factors', 'all') if missing_values else 'all'}",
         f"keep_nan={bool(missing_values.get('keep_nan', False)) if missing_values else False}",
         f"missing_feature_count={len(missing_feature_cols)}",
+    )
+    print(
+        "[temporal_factor_lag]",
+        f"enabled={bool(temporal_factor_lag_spec is not None)}",
+        f"lag_trading_days={temporal_factor_lag_spec.lag_trading_days if temporal_factor_lag_spec else 0}",
+        f"outputs={','.join(temporal_factor_lag_spec.outputs) if temporal_factor_lag_spec else 'none'}",
+        f"missing_policy={temporal_factor_lag_spec.missing_policy if temporal_factor_lag_spec else 'n/a'}",
+        f"raw_factor_count={len(raw_factor_cols)}",
+        f"expanded_factor_count={len(factor_cols)}",
     )
     print(
         "[feature_contribution]",
@@ -1749,13 +2071,35 @@ def main(
     grid_cfg = cfg.get("grid_search", {})
     early_rounds = cfg.get("early_stopping_rounds")
     loss_mode = str(cfg.get("loss_mode", "mse")).lower()
+    label_target_transform_spec = _resolve_label_target_transform_spec(cfg)
+    early_stopping_metric = _resolve_early_stopping_metric(
+        cfg,
+        loss_mode=loss_mode,
+    )
+    score_only_no_target_label_read = _resolve_score_only_no_target_label_read(cfg)
+    score_only_apply_tradable_filter = _resolve_score_only_apply_tradable_filter(cfg)
+    print(
+        "[label_target_transform]",
+        f"mode={label_target_transform_spec.mode}",
+        f"ddof={label_target_transform_spec.ddof}",
+        f"min_std={label_target_transform_spec.min_std}",
+        f"loss_day_mass={label_target_transform_spec.loss_day_mass}",
+        f"early_stopping_metric={early_stopping_metric}",
+        f"score_only_no_target_label_read={score_only_no_target_label_read}",
+        f"score_only_apply_tradable_filter={score_only_apply_tradable_filter}",
+    )
 
     # results output dir
     results_root = Path(paths_cfg["results_root"])
+    artifact_output_root = resolve_output_path(
+        cfg.get("artifact_output_root"),
+        default_path=results_root,
+        results_root=results_root,
+    )
     model_name = cfg.get("model_name", "lgbm_factor")
     date_label = f"{desired_start.strftime('%Y-%m-%d')}_{desired_end.strftime('%Y-%m-%d')}"
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    out_dir = results_root / "models" / model_name / date_label / ts
+    out_dir = artifact_output_root / "models" / model_name / date_label / ts
     out_dir.mkdir(parents=True, exist_ok=True)
     wandb_logger = init_wandb_logger(
         execution_cfg=execution_cfg,
@@ -1768,6 +2112,19 @@ def main(
             "rolling_enabled": bool(rolling_enabled),
             "window_days": int(window_days),
             "loss_mode": str(loss_mode),
+            "label_target_transform": label_target_transform_spec.mode,
+            "label_target_transform_ddof": int(label_target_transform_spec.ddof),
+            "label_target_transform_loss_day_mass": label_target_transform_spec.loss_day_mass,
+            "early_stopping_metric": early_stopping_metric,
+            "score_only_no_target_label_read": score_only_no_target_label_read,
+            "score_only_apply_tradable_filter": score_only_apply_tradable_filter,
+            "label_anchor_lag_trading_days": int(label_anchor_lag_trading_days),
+            "temporal_factor_lag_enabled": bool(temporal_factor_lag_spec is not None),
+            "temporal_factor_lag_trading_days": (
+                int(temporal_factor_lag_spec.lag_trading_days)
+                if temporal_factor_lag_spec is not None
+                else 0
+            ),
         },
     )
     wandb_logger.log(
@@ -1799,6 +2156,12 @@ def main(
             "sample_weight_enabled": bool(sample_weight_summary.get("enabled", False)),
             "sample_weight_scheme_count": int(sample_weight_summary.get("scheme_count", 0)),
             "sample_weight_schemes": ",".join(str(x) for x in sample_weight_summary.get("schemes", [])),
+            "label_target_transform": label_target_transform_spec.mode,
+            "label_target_transform_ddof": int(label_target_transform_spec.ddof),
+            "label_target_transform_loss_day_mass": label_target_transform_spec.loss_day_mass,
+            "early_stopping_metric": early_stopping_metric,
+            "score_only_no_target_label_read": score_only_no_target_label_read,
+            "score_only_apply_tradable_filter": score_only_apply_tradable_filter,
             "similar_day_training_enabled": bool(similar_day_context is not None),
             "similar_day_training_mode": (
                 str(similar_day_cfg.selection_mode) if similar_day_cfg is not None else "disabled"
@@ -1809,6 +2172,19 @@ def main(
             "similar_day_training_candidate_buffer": (
                 int(similar_day_cfg.candidate_buffer_days) if similar_day_cfg is not None else 0
             ),
+            "label_anchor_lag_trading_days": int(label_anchor_lag_trading_days),
+            "temporal_factor_lag_enabled": bool(temporal_factor_lag_spec is not None),
+            "temporal_factor_lag_trading_days": (
+                int(temporal_factor_lag_spec.lag_trading_days)
+                if temporal_factor_lag_spec is not None
+                else 0
+            ),
+            "temporal_factor_lag_outputs": (
+                list(temporal_factor_lag_spec.outputs)
+                if temporal_factor_lag_spec is not None
+                else []
+            ),
+            "artifact_output_root": str(artifact_output_root),
         },
         prefix="run",
     )
@@ -1832,20 +2208,20 @@ def main(
     if parallel_shards > 1 and incremental_warm_start:
         print("[rolling] parallel_shards>1: disable warm_start to avoid cross-shard dependency")
         incremental_warm_start = False
-    state_dir_raw = str(incremental_cfg.get("state_dir", "")).strip()
+    state_dir_raw = incremental_cfg.get("state_dir")
     state_dir = resolve_output_path(
-        state_dir_raw if state_dir_raw else None,
+        state_dir_raw,
         default_path=results_root / "model_state" / model_name,
         results_root=results_root,
     )
     if incremental_enabled and (incremental_warm_start or incremental_save_state):
         state_dir.mkdir(parents=True, exist_ok=True)
 
-    def _metric_name_for_mode(mode: str) -> str:
+    def _metric_name_for_mode(mode: str, configured_metric: str) -> str:
         text = str(mode or "mse").lower()
         if text in {"ic_abs", "abs_ic", "icabs"}:
             return "abs_ic"
-        return "rank_ic"
+        return str(configured_metric)
 
     def _best_val_metric(hist: list[dict], metric_name: str) -> float:
         if not hist:
@@ -1870,7 +2246,7 @@ def main(
                 best_it = int(it)
         return best_it
 
-    metric_name = _metric_name_for_mode(loss_mode)
+    metric_name = _metric_name_for_mode(loss_mode, early_stopping_metric)
 
     if rolling_enabled:
         if len(days) < window_days:
@@ -1945,7 +2321,7 @@ def main(
                 {
                     d
                     for idx in valid_indices
-                    for d in days[:idx]
+                    for d in days[: max(0, idx - label_anchor_lag_trading_days)]
                 }
             )
         else:
@@ -1953,7 +2329,9 @@ def main(
                 {
                     d
                     for idx in valid_indices
-                    for d in days[idx - window_days + 1: idx]
+                    for d in days[
+                        idx - window_days + 1: max(0, idx - label_anchor_lag_trading_days)
+                    ]
                 }
             )
         test_cache_days = sorted({days[idx] for idx in valid_indices})
@@ -1982,6 +2360,9 @@ def main(
             standardization=standardization,
             missing_values=missing_values,
             sample_weight=sample_weight_cfg,
+            label_day_by_factor_day=label_day_by_factor_day,
+            temporal_factor_lag=temporal_factor_lag_spec,
+            previous_factor_day_by_factor_day=previous_factor_day_by_factor_day,
         )
         test_day_cache = _build_daily_split_cache(
             days=test_cache_days,
@@ -2004,6 +2385,19 @@ def main(
             standardization=standardization,
             missing_values=missing_values,
             sample_weight=None,
+            label_day_by_factor_day=label_day_by_factor_day,
+            # Lagged labels are future at the score cutoff.  The explicit
+            # score-only research mode applies the same no-label boundary to
+            # the ordinary same-day contract as well.
+            read_label_when_not_required=_score_cache_may_read_target_label(
+                label_anchor_lag_trading_days=label_anchor_lag_trading_days,
+                score_only_no_target_label_read=score_only_no_target_label_read,
+            ),
+            apply_tradable_filter_when_label_not_required=(
+                score_only_apply_tradable_filter
+            ),
+            temporal_factor_lag=temporal_factor_lag_spec,
+            previous_factor_day_by_factor_day=previous_factor_day_by_factor_day,
         )
         print(
             f"[rolling] cache_ready train_cached={len(train_day_cache)} "
@@ -2018,6 +2412,7 @@ def main(
         insufficient_bin_days: list[date] = []
         pca_summary_rows: list[dict] = []
         dynamic_fc_rows: list[dict] = []
+        label_target_transform_rows: list[dict] = []
         similar_day_rows: list[dict] = []
         with ThreadPoolExecutor(max_workers=prep_workers, thread_name_prefix="roll_prep") as prep_pool:
             inflight: deque[tuple[int, int, object]] = deque()
@@ -2039,6 +2434,8 @@ def main(
                     train_day_cache=train_day_cache,
                     test_day_cache=test_day_cache,
                     similarity_context=similar_day_context,
+                    label_anchor_lag_trading_days=label_anchor_lag_trading_days,
+                    label_day_by_factor_day=label_day_by_factor_day,
                 )
                 inflight.append((roll_pos, idx, fut))
                 next_pos += 1
@@ -2061,6 +2458,29 @@ def main(
                 val_data = payload["val_data"]
                 test_data = payload["test_data"]
                 similarity_selection = payload.get("similarity_selection")
+                label_alignment_summary = {
+                    "label_anchor_lag_trading_days": int(
+                        payload.get("label_anchor_lag_trading_days", 0)
+                    ),
+                    "max_train_feature_day": payload.get("max_train_feature_day"),
+                    "max_train_label_day": payload.get("max_train_label_day"),
+                    "embargo_feature_days": ",".join(
+                        day.isoformat() for day in payload.get("embargo_feature_days", [])
+                    ),
+                }
+                temporal_input_summary = {
+                    "temporal_factor_lag_enabled": bool(temporal_factor_lag_spec is not None),
+                    "temporal_factor_lag_trading_days": (
+                        int(temporal_factor_lag_spec.lag_trading_days)
+                        if temporal_factor_lag_spec is not None
+                        else 0
+                    ),
+                    "previous_factor_day": (
+                        previous_factor_day_by_factor_day.get(test_day)
+                        if previous_factor_day_by_factor_day is not None
+                        else None
+                    ),
+                }
                 similarity_summary: dict[str, object] = {}
                 if similarity_selection is not None:
                     similar_day_rows.extend(similarity_selection.audit_rows())
@@ -2155,6 +2575,8 @@ def main(
                                 early_stopping_rounds=int(early_rounds) if early_rounds else None,
                                 loss_mode=loss_mode,
                                 init_model=init_model,
+                                label_target_transform=label_target_transform_spec,
+                                early_stopping_metric=early_stopping_metric,
                             )
                         except Exception as exc:
                             if init_model is None:
@@ -2171,8 +2593,32 @@ def main(
                                 early_stopping_rounds=int(early_rounds) if early_rounds else None,
                                 loss_mode=loss_mode,
                                 init_model=None,
+                                label_target_transform=label_target_transform_spec,
+                                early_stopping_metric=early_stopping_metric,
                             )
                         hist = params.get("history", []) if isinstance(params, dict) else []
+                        target_audit = (
+                            params.get("label_target_transform", {})
+                            if isinstance(params, dict)
+                            else {}
+                        )
+                        if isinstance(target_audit, dict):
+                            for split_name in ("train", "val"):
+                                split_audit = target_audit.get(split_name)
+                                if isinstance(split_audit, dict):
+                                    label_target_transform_rows.append(
+                                        {
+                                            "trade_date": test_day,
+                                            "split": split_name,
+                                            "early_stopping_metric": params.get(
+                                                "early_stopping_metric"
+                                            ),
+                                            "loss_day_mass": target_audit.get(
+                                                "loss_day_mass"
+                                            ),
+                                            **split_audit,
+                                        }
+                                    )
                         if hist:
                             wandb_logger.log_history(
                                 hist,
@@ -2314,6 +2760,8 @@ def main(
                         "score_bin_insufficient": bool(
                             bin_guard_stats.get("score_bin_insufficient", False)
                         ),
+                        **label_alignment_summary,
+                        **temporal_input_summary,
                         **similarity_summary,
                     }
                 )
@@ -2345,6 +2793,8 @@ def main(
                         "score_bin_insufficient": bool(
                             bin_guard_stats.get("score_bin_insufficient", False)
                         ),
+                        **label_alignment_summary,
+                        **temporal_input_summary,
                         **similarity_summary,
                     },
                     step=int(roll_idx),
@@ -2385,11 +2835,46 @@ def main(
             present_guard_cols = [c for c in guard_cols if c in rr.columns]
             if present_guard_cols:
                 rr[present_guard_cols].to_csv(out_dir / "rolling_score_guard.csv", index=False)
+            alignment_cols = [
+                "trade_date",
+                "label_anchor_lag_trading_days",
+                "max_train_feature_day",
+                "max_train_label_day",
+                "embargo_feature_days",
+                "train_days",
+                "val_days",
+            ]
+            present_alignment_cols = [col for col in alignment_cols if col in rr.columns]
+            if present_alignment_cols:
+                rr[present_alignment_cols].to_csv(
+                    out_dir / "rolling_label_alignment.csv",
+                    index=False,
+                )
+            temporal_alignment_cols = [
+                "trade_date",
+                "temporal_factor_lag_enabled",
+                "temporal_factor_lag_trading_days",
+                "previous_factor_day",
+                "count",
+            ]
+            present_temporal_alignment_cols = [
+                col for col in temporal_alignment_cols if col in rr.columns
+            ]
+            if present_temporal_alignment_cols and temporal_factor_lag_spec is not None:
+                rr[present_temporal_alignment_cols].to_csv(
+                    out_dir / "rolling_temporal_factor_alignment.csv",
+                    index=False,
+                )
         if pca_summary_rows:
             pd.DataFrame(pca_summary_rows).to_csv(out_dir / "rolling_pca_features.csv", index=False)
         if dynamic_fc_rows:
             pd.DataFrame(dynamic_fc_rows).to_csv(
                 out_dir / "rolling_dynamic_feature_contribution.csv",
+                index=False,
+            )
+        if label_target_transform_rows:
+            pd.DataFrame(label_target_transform_rows).to_csv(
+                out_dir / "rolling_label_target_transform.csv",
                 index=False,
             )
         if similar_day_rows:
@@ -2459,6 +2944,9 @@ def main(
         standardization=standardization,
         missing_values=missing_values,
         sample_weight=sample_weight_cfg,
+        label_day_by_factor_day=label_day_by_factor_day,
+        temporal_factor_lag=temporal_factor_lag_spec,
+        previous_factor_day_by_factor_day=previous_factor_day_by_factor_day,
     )
     val_data = build_dataset(
         factor_store=store,
@@ -2480,6 +2968,9 @@ def main(
         standardization=standardization,
         missing_values=missing_values,
         sample_weight=sample_weight_cfg,
+        label_day_by_factor_day=label_day_by_factor_day,
+        temporal_factor_lag=temporal_factor_lag_spec,
+        previous_factor_day_by_factor_day=previous_factor_day_by_factor_day,
     )
     test_data = build_dataset(
         factor_store=store,
@@ -2501,6 +2992,9 @@ def main(
         standardization=standardization,
         missing_values=missing_values,
         sample_weight=None,
+        label_day_by_factor_day=label_day_by_factor_day,
+        temporal_factor_lag=temporal_factor_lag_spec,
+        previous_factor_day_by_factor_day=previous_factor_day_by_factor_day,
     )
 
     pca_transformer = _fit_pca_feature_transformer(train_data.x, pca_feature_cfg)
@@ -2559,6 +3053,8 @@ def main(
                             ),
                             early_stopping_rounds=int(early_rounds) if early_rounds else None,
                             loss_mode=loss_mode,
+                            label_target_transform=label_target_transform_spec,
+                            early_stopping_metric=early_stopping_metric,
                         )
                         trial_hist = trial_meta.get("history", [])
                         trial_best = _best_val_metric(trial_hist, metric_name)
@@ -2613,6 +3109,8 @@ def main(
             ),
             early_stopping_rounds=int(early_rounds) if early_rounds else None,
             loss_mode=loss_mode,
+            label_target_transform=label_target_transform_spec,
+            early_stopping_metric=early_stopping_metric,
         )
         history = params.get("history", [])
 

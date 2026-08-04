@@ -17,6 +17,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from cbond_on.core.config import load_config_file, parse_time
 from cbond_on.core.trading_days import next_trading_days_from_raw
 from cbond_on.app.pipelines.live_pipeline import execute as run_once
+from liveLaunch.attempt_journal import append_attempt_event, config_fingerprint, new_attempt_id
 
 WIN_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 HEARTBEAT_LOG_INTERVAL_SECONDS = 300
@@ -81,6 +82,9 @@ def _drop_run_fields(state: dict) -> dict:
         "run_finished_at",
         "last_return_code",
         "out_dir",
+        "attempt_id",
+        "attempt_journal_path",
+        "attempt_journal_error",
     ]:
         cleaned.pop(key, None)
     return cleaned
@@ -113,6 +117,24 @@ def _append_heartbeat_log(live_root: Path, now: datetime, status: str, today: da
     )
     with log_path.open("a", encoding="utf-8") as fp:
         fp.write(line)
+
+
+def _append_attempt_event(
+    *,
+    sched_dir: Path,
+    score_day: date,
+    event: dict,
+) -> tuple[str, str]:
+    """Record scheduler evidence without allowing observability to republish live output."""
+    try:
+        path = append_attempt_event(
+            scheduler_dir=sched_dir,
+            score_day=score_day,
+            event=event,
+        )
+        return str(path), ""
+    except Exception as exc:
+        return "", f"{type(exc).__name__}: {exc}"
 
 
 def main() -> None:
@@ -204,21 +226,47 @@ def main() -> None:
             continue
 
         log_path = _day_logs_dir(live_root, now.date()) / f"live_scheduler_{now:%Y-%m-%d}.log"
+        attempt_started_at = datetime.now()
+        attempt_id = new_attempt_id(now=attempt_started_at, pid=os.getpid())
+        config_sha256 = config_fingerprint(live_cfg)
+        attempt_journal_path, attempt_journal_error = _append_attempt_event(
+            sched_dir=sched_dir,
+            score_day=today,
+            event={
+                "event": "attempt_started",
+                "attempt_id": attempt_id,
+                "mode": "scheduler",
+                "score_day": str(today),
+                "target_day": str(target),
+                "pid": os.getpid(),
+                "started_at": attempt_started_at.isoformat(timespec="seconds"),
+                "config_sha256": config_sha256,
+            },
+        )
+        state_before_attempt = dict(st)
+        state_before_attempt.pop("attempt_journal_error", None)
+        running_state = {
+            **state_before_attempt,
+            "status": "running_live",
+            "today": str(today),
+            "target": str(target),
+            "log_path": str(log_path),
+            "run_started_at": attempt_started_at.isoformat(timespec="seconds"),
+            "heartbeat": attempt_started_at.isoformat(timespec="seconds"),
+            "attempt_id": attempt_id,
+            "attempt_journal_path": attempt_journal_path,
+        }
+        if attempt_journal_error:
+            running_state["attempt_journal_error"] = attempt_journal_error
         _write_json(
             state_path,
-            {
-                **st,
-                "status": "running_live",
-                "today": str(today),
-                "target": str(target),
-                "log_path": str(log_path),
-                "run_started_at": datetime.now().isoformat(timespec="seconds"),
-                "heartbeat": datetime.now().isoformat(timespec="seconds"),
-            },
+            running_state,
         )
 
         rc = 0
         out_dir = ""
+        error_type = ""
+        error_message = ""
         with log_path.open("a", encoding="utf-8") as fp:
             with redirect_stdout(fp), redirect_stderr(fp):
                 print(f"{datetime.now():%Y-%m-%d %H:%M:%S} [run] start target={target}")
@@ -228,6 +276,8 @@ def main() -> None:
                     print(f"{datetime.now():%Y-%m-%d %H:%M:%S} [run] success out={out_dir}")
                 except Exception as exc:
                     rc = 1
+                    error_type = type(exc).__name__
+                    error_message = str(exc)
                     print(
                         f"{datetime.now():%Y-%m-%d %H:%M:%S} [run] failed "
                         f"{type(exc).__name__}: {exc}"
@@ -235,6 +285,26 @@ def main() -> None:
                     traceback.print_exc()
 
         now_done = datetime.now()
+        terminal_journal_path, terminal_journal_error = _append_attempt_event(
+            sched_dir=sched_dir,
+            score_day=today,
+            event={
+                "event": "attempt_finished",
+                "attempt_id": attempt_id,
+                "mode": "scheduler",
+                "score_day": str(today),
+                "target_day": str(target),
+                "pid": os.getpid(),
+                "started_at": attempt_started_at.isoformat(timespec="seconds"),
+                "finished_at": now_done.isoformat(timespec="seconds"),
+                "result": "success" if rc == 0 else "failed",
+                "return_code": int(rc),
+                "out_dir": out_dir,
+                "error_type": error_type,
+                "error_message": error_message,
+                "config_sha256": config_sha256,
+            },
+        )
         done = {
             **_read_json(state_path),
             "run_finished_at": now_done.isoformat(timespec="seconds"),
@@ -242,7 +312,11 @@ def main() -> None:
             "last_target_attempt": str(target),
             "heartbeat": now_done.isoformat(timespec="seconds"),
             "out_dir": out_dir,
+            "attempt_id": attempt_id,
+            "attempt_journal_path": terminal_journal_path or attempt_journal_path,
         }
+        if terminal_journal_error or attempt_journal_error:
+            done["attempt_journal_error"] = terminal_journal_error or attempt_journal_error
         if rc == 0:
             done["last_target_run"] = str(target)
             done["status"] = "success"

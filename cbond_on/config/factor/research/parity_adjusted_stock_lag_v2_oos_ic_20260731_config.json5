@@ -1,0 +1,41 @@
+{
+  // Research-only factor build.  It must never be added to a live factor pack.
+  start: "2024-05-08",
+  // Aligned with the existing 122-factor fair-coverage window.
+  end: "2026-06-05",
+  panel_name: "T1430",
+  factor_time: "14:30",
+  label_time: "14:42",
+  refresh: false,
+  overwrite: false,
+  // Clean-direct historical panels can peak above the workstation memory
+  // budget under two-day concurrency; resume the long build one day at a time.
+  workers: 1,
+  factor_workers: 1,
+  panel_source: {
+    // Do not create or modify the production panel cache.
+    mode: "clean_direct",
+  },
+  compute: {
+    // This candidate has no Rust kernel and is strictly research-only.
+    engine: "python",
+    allow_python_engine: true,
+    backend: "cpu",
+    fallback_cpu: true,
+  },
+  context: {
+    mode: "auto",
+  },
+  backtest_enabled: false,
+  factor_files: [],
+  factors: [
+    {
+      name: "parity_adjusted_stock_lag_v2",
+      factor: "parity_adjusted_stock_lag_v2",
+      params: {
+        daily_source: "market_cbond.daily_base",
+        max_kappa: 2.0,
+      },
+    },
+  ],
+}

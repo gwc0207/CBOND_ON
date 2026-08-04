@@ -1,0 +1,8 @@
+{
+  // Read production inputs only.  With CBOND_ON_PATHS_CONFIG set to this file,
+  // the loader derives every runtime output below the scratch runtime root.
+  raw_data_root: "D:/cbond_data_hub/raw_data",
+  clean_data_root: "D:/cbond_data_hub/clean_data",
+  cleaned_data_root: "D:/cbond_data_hub/clean_data",
+  results_root: "D:/cbond_on/research_scratch/ic_uplift_oos_20260731/parity_v2/results",
+}

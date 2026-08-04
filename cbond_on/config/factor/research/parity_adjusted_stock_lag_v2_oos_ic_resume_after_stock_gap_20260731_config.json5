@@ -1,0 +1,8 @@
+{
+  modules: [
+    "factor/research/parity_adjusted_stock_lag_v2_oos_ic_20260731_config.json5",
+  ],
+  // 2026-04-23 has no stock snapshots after 11:18:49, so v2 correctly has no
+  // causal 14:00--14:29 value.  Preserve that explicit missing day and resume.
+  start: "2026-04-24",
+}

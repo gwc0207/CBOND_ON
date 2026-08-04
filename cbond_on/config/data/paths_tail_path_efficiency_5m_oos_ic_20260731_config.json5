@@ -1,0 +1,8 @@
+{
+  // Production inputs are read-only; factor output resolves only below this
+  // scratch root when used with the research factor-batch config.
+  raw_data_root: "D:/cbond_data_hub/raw_data",
+  clean_data_root: "D:/cbond_data_hub/clean_data",
+  cleaned_data_root: "D:/cbond_data_hub/clean_data",
+  results_root: "D:/cbond_on/research_scratch/ic_uplift_oos_20260731/tail_path_efficiency_5m/results",
+}

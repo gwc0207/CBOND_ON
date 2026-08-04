@@ -1,0 +1,39 @@
+{
+  // Three-day scratch-only smoke for the strict T-1 daily factor.
+  start: "2026-07-28",
+  end: "2026-07-30",
+  panel_name: "T1430",
+  factor_time: "14:30",
+  label_time: "14:42",
+  refresh: false,
+  overwrite: false,
+  workers: 1,
+  factor_workers: 1,
+  panel_source: {
+    mode: "clean_direct",
+  },
+  compute: {
+    engine: "python",
+    allow_python_engine: true,
+    backend: "cpu",
+    fallback_cpu: true,
+  },
+  context: {
+    mode: "auto",
+  },
+  backtest_enabled: false,
+  factor_files: [],
+  factors: [
+    {
+      name: "daily_prior_intraday_sharpe_120d_v1",
+      factor: "daily_prior_intraday_sharpe_v1",
+      params: {
+        source: "market_cbond.daily_twap",
+        open_col: "twap_0930_0935",
+        close_col: "twap_1442_1457",
+        window: 120,
+        context_lookback_days: 121,
+      },
+    },
+  ],
+}

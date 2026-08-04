@@ -1,0 +1,32 @@
+{
+  // Isolated 20-trading-day causal smoke. The generic runner receives the
+  // date range at invocation; every writable path stays below /smoke.
+  modules: ["models/lgbm/lgbm_regsim_label_execution_lag1_temporal_inputs_20260731"],
+
+  model_name: "research_regsim_label_execution_lag1_temporal_inputs_smoke_20260731",
+  artifact_output_root: {
+    windows: "D:/cbond_on/results/experiments/label_execution_lag1_temporal_inputs_20260731/smoke/artifacts",
+    linux: "/home/gswzif/cbond_on_runtime/results/experiments/label_execution_lag1_temporal_inputs_20260731/smoke/artifacts"
+  },
+  score_output: {
+    windows: "D:/cbond_on/results/experiments/label_execution_lag1_temporal_inputs_20260731/smoke/scores/regsim_label_lag1_temporal_inputs",
+    linux: "/home/gswzif/cbond_on_runtime/results/experiments/label_execution_lag1_temporal_inputs_20260731/smoke/scores/regsim_label_lag1_temporal_inputs"
+  },
+  incremental: {
+    enabled: true,
+    skip_existing_scores: false,
+    warm_start: true,
+    save_state: true,
+    state_dir: {
+      windows: "D:/cbond_on/results/experiments/label_execution_lag1_temporal_inputs_20260731/smoke/model_state",
+      linux: "/home/gswzif/cbond_on_runtime/results/experiments/label_execution_lag1_temporal_inputs_20260731/smoke/model_state"
+    }
+  },
+  wandb: {
+    enabled: false,
+    local_dir: {
+      windows: "D:/cbond_on/results/experiments/label_execution_lag1_temporal_inputs_20260731/smoke/wandb",
+      linux: "/home/gswzif/cbond_on_runtime/results/experiments/label_execution_lag1_temporal_inputs_20260731/smoke/wandb"
+    }
+  }
+}

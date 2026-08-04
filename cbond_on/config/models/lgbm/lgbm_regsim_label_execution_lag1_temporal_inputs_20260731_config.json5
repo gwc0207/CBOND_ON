@@ -1,0 +1,67 @@
+{
+  // Research-only: preserve the causal label/execution lag-one contract and
+  // add raw T / prior-trading-day / difference factor inputs.
+  modules: ["models/lgbm/lgbm_regsim_label_execution_lag1_20260730"],
+
+  model_name: "research_regsim_label_execution_lag1_temporal_inputs_20260731",
+  feature_engineering: {
+    // Preserve the inherited regime context and add an explicit, independent
+    // temporal factor input spec.  This is not label alignment.
+    regime: {
+      enabled: true,
+      source_path: {
+        windows: "D:/cbond_on/results/analysis/return_fix_20260709/combined_daily_returns/HL20_live_baseline.csv",
+        linux: "/home/gswzif/cbond_on_runtime/results/analysis/return_fix_20260709/combined_daily_returns/HL20_live_baseline.csv"
+      },
+      benchmark_col: "benchmark_return",
+      benchmark_window_days: 10,
+      similarity_weight: {
+        enabled: true,
+        same: 1.5,
+        different: 0.5,
+        missing: 1.0,
+        normalize: "mean"
+      }
+    },
+    temporal_factor_lag: {
+      enabled: true,
+      lag_trading_days: 1,
+      outputs: ["t0", "lag1", "diff1"],
+      // A missing P(T) factor day/code is dropped.  Never bridge to T-2.
+      missing_policy: "inner"
+    }
+  },
+
+  artifact_output_root: {
+    windows: "D:/cbond_on/results/experiments/label_execution_lag1_temporal_inputs_20260731/artifacts",
+    linux: "/home/gswzif/cbond_on_runtime/results/experiments/label_execution_lag1_temporal_inputs_20260731/artifacts"
+  },
+  score_output: {
+    windows: "D:/cbond_on/results/experiments/label_execution_lag1_temporal_inputs_20260731/scores/regsim_label_lag1_temporal_inputs",
+    linux: "/home/gswzif/cbond_on_runtime/results/experiments/label_execution_lag1_temporal_inputs_20260731/scores/regsim_label_lag1_temporal_inputs"
+  },
+  score_overwrite: true,
+  score_dedupe: true,
+  incremental: {
+    enabled: true,
+    skip_existing_scores: false,
+    warm_start: true,
+    save_state: true,
+    state_dir: {
+      windows: "D:/cbond_on/results/experiments/label_execution_lag1_temporal_inputs_20260731/model_state/regsim_label_lag1_temporal_inputs",
+      linux: "/home/gswzif/cbond_on_runtime/results/experiments/label_execution_lag1_temporal_inputs_20260731/model_state/regsim_label_lag1_temporal_inputs"
+    }
+  },
+  wandb: {
+    enabled: false,
+    local_dir: {
+      windows: "D:/cbond_on/results/experiments/label_execution_lag1_temporal_inputs_20260731/wandb",
+      linux: "/home/gswzif/cbond_on_runtime/results/experiments/label_execution_lag1_temporal_inputs_20260731/wandb"
+    }
+  },
+  experiment: {
+    id: "label_execution_lag1_temporal_inputs_20260731",
+    trial: "regsim_t0_lag1_diff1",
+    description: "factor T plus factor P(T) plus raw delta; target L(T+1), execute T+1 to T+2"
+  }
+}

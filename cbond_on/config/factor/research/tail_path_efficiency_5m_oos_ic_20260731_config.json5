@@ -1,0 +1,26 @@
+{
+  // Single research-only factor build. It never writes the production FactorStore.
+  start: "2024-05-08",
+  end: "2026-04-30",
+  panel_name: "T1430",
+  factor_time: "14:30",
+  label_time: "14:42",
+  refresh: false,
+  overwrite: false,
+  workers: 1,
+  factor_workers: 1,
+  panel_source: { mode: "clean_direct" },
+  compute: { engine: "python", allow_python_engine: true, backend: "cpu", fallback_cpu: true },
+  context: { mode: "auto" },
+  backtest_enabled: false,
+  factor_files: [],
+  factors: [
+    {
+      name: "tail_path_efficiency_5m_v1",
+      factor: "tail_path_efficiency_5m_v1",
+      // Formula and 14:24..14:30-exclusive interval are code-fixed, so there
+      // is no window or threshold hyperparameter to tune.
+      params: {},
+    },
+  ],
+}

@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date
+import hashlib
+import json
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Mapping
 
 import numpy as np
 import pandas as pd
@@ -24,8 +26,26 @@ class SimilarDayTrainingConfig:
     min_candidate_days: int
     selection_mode: str
     fallback: str
+    strict_recent_window: bool = False
+    state_manifest_path: Path | None = None
     kernel_target_effective_days: int | None = None
     kernel_weight_floor: float = 1e-12
+
+
+@dataclass(frozen=True)
+class StrictStateManifestBinding:
+    """Verified immutable inputs for the strict Similar60 selector.
+
+    The frozen score calendar is deliberately loaded once from the manifest
+    contract.  Strict selection must never substitute a calendar inferred from
+    currently discoverable raw data, labels, or factor files.
+    """
+
+    manifest_path: Path
+    audit_path: Path
+    calendar_path: Path
+    frozen_calendar_days: tuple[date, ...]
+    audit_by_day: Mapping[date, Mapping[str, object]]
 
 
 @dataclass(frozen=True)
@@ -74,6 +94,12 @@ class SimilarDaySelection:
             "similarity_validation_distance_min": float(val["distance"].min()) if not val.empty else float("nan"),
             "similarity_validation_distance_max": float(val["distance"].max()) if not val.empty else float("nan"),
             "similarity_reason": self.reason or "ok",
+            "similarity_strict_recent_window": bool(self.config.strict_recent_window),
+            "similarity_state_manifest_path": (
+                str(self.config.state_manifest_path)
+                if self.config.state_manifest_path is not None
+                else ""
+            ),
         }
         if self.config.selection_mode == "kernel":
             weights = pd.to_numeric(train.get("weight"), errors="coerce").dropna()
@@ -103,7 +129,13 @@ class SimilarDaySelection:
                     "feature_set": self.config.feature_set,
                     "feature_count": len(self.config.feature_cols),
                     "selection_mode": self.config.selection_mode,
+                    "strict_recent_window": bool(self.config.strict_recent_window),
                     "state_feature_path": str(self.config.state_feature_path),
+                    "state_manifest_path": (
+                        str(self.config.state_manifest_path)
+                        if self.config.state_manifest_path is not None
+                        else None
+                    ),
                     "weight": None,
                     "kernel_bandwidth": self.kernel_bandwidth,
                     "kernel_target_effective_days": self.config.kernel_target_effective_days,
@@ -125,7 +157,13 @@ class SimilarDaySelection:
                     "feature_set": self.config.feature_set,
                     "feature_count": len(self.config.feature_cols),
                     "selection_mode": self.config.selection_mode,
+                    "strict_recent_window": bool(self.config.strict_recent_window),
                     "state_feature_path": str(self.config.state_feature_path),
+                    "state_manifest_path": (
+                        str(self.config.state_manifest_path)
+                        if self.config.state_manifest_path is not None
+                        else None
+                    ),
                     "weight": float(item.weight) if hasattr(item, "weight") and pd.notna(item.weight) else None,
                     "kernel_bandwidth": self.kernel_bandwidth,
                     "kernel_target_effective_days": self.config.kernel_target_effective_days,
@@ -176,6 +214,20 @@ def resolve_similar_day_training_config(
     min_candidate_days = int(raw.get("min_candidate_days", train_top_k + validation_top_k))
     selection_mode = str(raw.get("selection_mode", "nearest")).strip().lower()
     fallback = str(raw.get("fallback", "error")).strip().lower()
+    strict_recent_window_raw = raw.get("strict_recent_window", False)
+    if not isinstance(strict_recent_window_raw, (bool, int)):
+        raise TypeError("similar_day_training.strict_recent_window must be a boolean")
+    strict_recent_window = bool(strict_recent_window_raw)
+    manifest_raw = raw.get("state_manifest_path")
+    state_manifest_path = (
+        resolve_output_path(
+            manifest_raw,
+            default_path=state_path.with_name("t1430_market_state_features_pathfull_t1429_manifest.json"),
+            results_root=results_root,
+        )
+        if manifest_raw not in (None, "")
+        else None
+    )
     kernel_target_effective_days = raw.get("kernel_target_effective_days")
     if selection_mode == "kernel" and kernel_target_effective_days is None:
         kernel_target_effective_days = train_top_k
@@ -192,10 +244,24 @@ def resolve_similar_day_training_config(
         raise ValueError("similar_day_training train_top_k + validation_top_k exceeds candidate lookback")
     if min_candidate_days < train_top_k + validation_top_k:
         raise ValueError("similar_day_training.min_candidate_days must cover train and validation samples")
+    if strict_recent_window and min_candidate_days != candidate_lookback_days:
+        raise ValueError(
+            "similar_day_training.strict_recent_window requires min_candidate_days "
+            "to equal candidate_lookback_days"
+        )
+    if strict_recent_window and feature_set != "path_full_t1429":
+        raise ValueError("similar_day_training.strict_recent_window requires feature_set=path_full_t1429")
+    if strict_recent_window and state_manifest_path is None:
+        raise ValueError("similar_day_training.strict_recent_window requires state_manifest_path")
     if selection_mode not in {"nearest", "latest", "kernel"}:
         raise ValueError("similar_day_training.selection_mode must be nearest, latest, or kernel")
     if fallback not in {"error", "rolling"}:
         raise ValueError("similar_day_training.fallback must be error or rolling")
+    if strict_recent_window and fallback != "error":
+        raise ValueError(
+            "similar_day_training.strict_recent_window requires fallback=error; "
+            "Hard Similar60 must not emit a rolling fallback score"
+        )
     if selection_mode == "kernel":
         if kernel_target_effective_days is None or kernel_target_effective_days <= 0:
             raise ValueError("similar_day_training.kernel_target_effective_days must be positive for kernel mode")
@@ -216,6 +282,8 @@ def resolve_similar_day_training_config(
         min_candidate_days=min_candidate_days,
         selection_mode=selection_mode,
         fallback=fallback,
+        strict_recent_window=strict_recent_window,
+        state_manifest_path=state_manifest_path,
         kernel_target_effective_days=kernel_target_effective_days,
         kernel_weight_floor=kernel_weight_floor,
     )
@@ -287,10 +355,317 @@ def _gaussian_kernel_weights_for_ess(
     return normalized, (lower + upper) / 2.0, _effective_sample_size(normalized), "ok"
 
 
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _same_path(left: Path, right: Path) -> bool:
+    """Compare manifest/config paths without making case sensitivity implicit."""
+
+    try:
+        left_text = str(left.resolve())
+    except OSError:
+        left_text = str(left)
+    try:
+        right_text = str(right.resolve())
+    except OSError:
+        right_text = str(right)
+    return left_text.replace("/", "\\").casefold() == right_text.replace("/", "\\").casefold()
+
+
+def _require_sha256(value: object, *, field: str) -> str:
+    digest = str(value or "").strip().lower()
+    if len(digest) != 64 or any(char not in "0123456789abcdef" for char in digest):
+        raise ValueError(f"strict similar-day state manifest missing valid {field}")
+    return digest
+
+
+def _manifest_output_path(
+    value: object,
+    *,
+    field: str,
+    manifest_path: Path,
+) -> Path:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"strict similar-day state manifest missing {field}")
+    path = Path(value.strip())
+    # The V1 producer writes absolute paths.  Resolving a relative path against
+    # the manifest is still deterministic and makes a malformed/legacy payload
+    # fail later on its mandatory byte-level path binding rather than silently
+    # reading from the process working directory.
+    if not path.is_absolute():
+        path = manifest_path.parent / path
+    return path
+
+
+def _verify_hashed_artifact(
+    path: Path,
+    *,
+    expected_sha256: object,
+    field: str,
+) -> str:
+    expected = _require_sha256(expected_sha256, field=f"{field}_sha256")
+    if not path.is_file():
+        raise FileNotFoundError(f"strict similar-day {field} missing: {path}")
+    try:
+        actual = _sha256_file(path).lower()
+    except OSError as exc:
+        raise ValueError(f"strict similar-day {field} unreadable: {path}") from exc
+    if actual != expected:
+        raise ValueError(f"strict similar-day {field} SHA-256 does not match manifest")
+    return actual
+
+
+def _normalise_calendar_days(frame: pd.DataFrame, *, artifact_name: str) -> tuple[date, ...]:
+    if "trade_date" not in frame.columns:
+        raise KeyError(f"strict similar-day {artifact_name} missing trade_date")
+    parsed = pd.to_datetime(frame["trade_date"], errors="coerce")
+    if parsed.isna().any():
+        raise ValueError(f"strict similar-day {artifact_name} has invalid trade_date")
+    days = tuple(pd.Timestamp(item).date() for item in parsed)
+    if not days:
+        raise ValueError(f"strict similar-day {artifact_name} has no trade dates")
+    if len(set(days)) != len(days):
+        raise ValueError(f"strict similar-day {artifact_name} has duplicate trade_date")
+    if tuple(sorted(days)) != days:
+        raise ValueError(f"strict similar-day {artifact_name} must be strictly ascending")
+    return days
+
+
+def _read_frozen_calendar(path: Path) -> tuple[date, ...]:
+    try:
+        frame = pd.read_csv(path)
+    except Exception as exc:
+        raise ValueError(f"strict similar-day frozen calendar unreadable: {path}") from exc
+    return _normalise_calendar_days(frame, artifact_name="frozen calendar")
+
+
+def _audit_forward_pit_certified(value: object) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, np.integer)) and not isinstance(value, bool):
+        return int(value) == 1
+    if isinstance(value, str):
+        return value.strip().lower() in {"true", "1"}
+    return False
+
+
+def _read_strict_audit(
+    path: Path,
+    *,
+    frozen_calendar_days: tuple[date, ...],
+) -> dict[date, Mapping[str, object]]:
+    try:
+        frame = pd.read_csv(path)
+    except Exception as exc:
+        raise ValueError(f"strict similar-day audit unreadable: {path}") from exc
+    required = {"trade_date", "outcome", "provenance_classification", "forward_pit_certified"}
+    missing = sorted(required.difference(frame.columns))
+    if missing:
+        raise KeyError(f"strict similar-day audit missing columns {missing}")
+    audit_days = _normalise_calendar_days(frame, artifact_name="audit")
+    if set(audit_days) != set(frozen_calendar_days):
+        raise ValueError("strict similar-day audit dates do not exactly match frozen calendar")
+    records = frame.to_dict(orient="records")
+    by_day: dict[date, Mapping[str, object]] = {}
+    for day, record in zip(audit_days, records, strict=True):
+        outcome = str(record.get("outcome", "")).strip().lower()
+        provenance = str(record.get("provenance_classification", "")).strip().lower()
+        if not outcome or not provenance:
+            raise ValueError("strict similar-day audit has blank outcome or provenance classification")
+        by_day[day] = {
+            **record,
+            "outcome": outcome,
+            "provenance_classification": provenance,
+            "forward_pit_certified": _audit_forward_pit_certified(
+                record.get("forward_pit_certified")
+            ),
+        }
+    return by_day
+
+
+def _require_nonnegative_int(value: object, *, field: str) -> int:
+    if isinstance(value, bool):
+        raise ValueError(f"strict similar-day state manifest invalid {field}")
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"strict similar-day state manifest invalid {field}") from exc
+    if parsed < 0:
+        raise ValueError(f"strict similar-day state manifest invalid {field}")
+    return parsed
+
+
+def _verify_strict_state_manifest(config: SimilarDayTrainingConfig) -> StrictStateManifestBinding:
+    """Load the forward-certified, byte-bound strict Similar60 inputs.
+
+    A historical reconstruction may have valid same-day values, but it does
+    not establish an immutable forward point-in-time artifact.  This consumer
+    therefore accepts only the future, explicit forward-PIT certificate; it
+    never treats a blocked or reconstructed manifest as an eligible fallback.
+    """
+
+    manifest_path = config.state_manifest_path
+    if manifest_path is None:
+        raise ValueError("strict_recent_window requires state_manifest_path")
+    if not manifest_path.is_file():
+        raise FileNotFoundError(f"strict similar-day state manifest missing: {manifest_path}")
+    try:
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError(
+            f"strict similar-day state manifest unreadable: {manifest_path} ({type(exc).__name__})"
+        ) from exc
+    if not isinstance(payload, dict):
+        raise ValueError("strict similar-day state manifest must be an object")
+    if payload.get("schema_version") != 1:
+        raise ValueError("strict similar-day state manifest schema_version must be 1")
+    if str(payload.get("status", "")).strip().lower() != "complete":
+        raise ValueError(
+            "strict similar-day state manifest must be complete; "
+            "historical reconstruction and blocked manifests are not forward-PIT eligible"
+        )
+    certification = payload.get("certification")
+    if not isinstance(certification, dict):
+        raise ValueError("strict similar-day state manifest missing certification")
+    if str(certification.get("status", "")).strip().lower() != "forward_pit_certified":
+        raise ValueError("strict similar-day state manifest certification.status must be forward_pit_certified")
+    if certification.get("forward_pit_certified") is not True:
+        raise ValueError("strict similar-day state manifest is not forward-PIT certified")
+    if str(payload.get("strict_cutoff_time", "")).strip() != "14:29":
+        raise ValueError("strict similar-day state manifest cutoff must be 14:29")
+    if str(payload.get("state_feature_set", "")).strip().lower() != config.feature_set:
+        raise ValueError("strict similar-day state manifest feature_set mismatch")
+    raw_columns = payload.get("state_feature_columns")
+    if not isinstance(raw_columns, list) or tuple(str(item) for item in raw_columns) != config.feature_cols:
+        raise ValueError("strict similar-day state manifest feature columns mismatch")
+    outputs = payload.get("outputs")
+    if not isinstance(outputs, dict):
+        raise ValueError("strict similar-day state manifest outputs must be an object")
+    manifest_state_path = _manifest_output_path(
+        outputs.get("state_path"),
+        field="outputs.state_path",
+        manifest_path=manifest_path,
+    )
+    if not _same_path(manifest_state_path, config.state_feature_path):
+        raise ValueError("strict similar-day state manifest state_path does not match configured state_feature_path")
+    _verify_hashed_artifact(
+        config.state_feature_path,
+        expected_sha256=outputs.get("state_sha256"),
+        field="state CSV",
+    )
+    audit_path = _manifest_output_path(
+        outputs.get("audit_path"),
+        field="outputs.audit_path",
+        manifest_path=manifest_path,
+    )
+    _verify_hashed_artifact(
+        audit_path,
+        expected_sha256=outputs.get("audit_sha256"),
+        field="audit CSV",
+    )
+    calendar_path = _manifest_output_path(
+        outputs.get("calendar_path"),
+        field="outputs.calendar_path",
+        manifest_path=manifest_path,
+    )
+    calendar_hash = _verify_hashed_artifact(
+        calendar_path,
+        expected_sha256=outputs.get("calendar_sha256"),
+        field="frozen calendar CSV",
+    )
+    expected_days = payload.get("expected_days")
+    if not isinstance(expected_days, dict):
+        raise ValueError("strict similar-day state manifest expected_days must be an object")
+    if not _same_path(
+        _manifest_output_path(
+            expected_days.get("frozen_calendar_path"),
+            field="expected_days.frozen_calendar_path",
+            manifest_path=manifest_path,
+        ),
+        calendar_path,
+    ):
+        raise ValueError("strict similar-day expected_days frozen calendar path does not match outputs.calendar_path")
+    expected_calendar_hash = _require_sha256(
+        expected_days.get("frozen_calendar_sha256"),
+        field="expected_days.frozen_calendar_sha256",
+    )
+    if expected_calendar_hash != calendar_hash:
+        raise ValueError("strict similar-day expected_days frozen calendar SHA-256 does not match outputs")
+    _require_sha256(expected_days.get("source_sha256"), field="expected_days.source_sha256")
+    frozen_calendar_days = _read_frozen_calendar(calendar_path)
+    if _require_nonnegative_int(expected_days.get("count"), field="expected_days.count") != len(
+        frozen_calendar_days
+    ):
+        raise ValueError("strict similar-day expected_days.count does not match frozen calendar")
+    audit_by_day = _read_strict_audit(
+        audit_path,
+        frozen_calendar_days=frozen_calendar_days,
+    )
+    certified_days = sum(
+        bool(record["forward_pit_certified"]) for record in audit_by_day.values()
+    )
+    certification_count = _require_nonnegative_int(
+        certification.get("forward_pit_certified_days"),
+        field="certification.forward_pit_certified_days",
+    )
+    if certification_count != certified_days:
+        raise ValueError(
+            "strict similar-day certification.forward_pit_certified_days does not match audit"
+        )
+    counts = payload.get("counts")
+    if not isinstance(counts, dict):
+        raise ValueError("strict similar-day state manifest counts must be an object")
+    if _require_nonnegative_int(
+        counts.get("forward_pit_certified_days"),
+        field="counts.forward_pit_certified_days",
+    ) != certified_days:
+        raise ValueError("strict similar-day counts.forward_pit_certified_days does not match audit")
+    return StrictStateManifestBinding(
+        manifest_path=manifest_path,
+        audit_path=audit_path,
+        calendar_path=calendar_path,
+        frozen_calendar_days=frozen_calendar_days,
+        audit_by_day=audit_by_day,
+    )
+
+
+def _verify_strict_state_rows(
+    states: pd.DataFrame,
+    *,
+    binding: StrictStateManifestBinding,
+) -> None:
+    """Make the hashed state CSV and hashed audit describe the same rows."""
+
+    state_days = set(states["trade_date"])
+    calendar_days = set(binding.frozen_calendar_days)
+    unexpected_state_days = sorted(state_days.difference(calendar_days))
+    if unexpected_state_days:
+        raise ValueError("strict similar-day state CSV contains dates outside frozen calendar")
+    built_audit_days = {
+        day
+        for day, record in binding.audit_by_day.items()
+        if str(record["outcome"]).strip().lower() == "built"
+    }
+    if state_days != built_audit_days:
+        raise ValueError("strict similar-day state CSV dates do not exactly match audit built dates")
+
+
 class SimilarDayTrainingContext:
-    def __init__(self, config: SimilarDayTrainingConfig, states: pd.DataFrame) -> None:
+    def __init__(
+        self,
+        config: SimilarDayTrainingConfig,
+        states: pd.DataFrame,
+        *,
+        strict_binding: StrictStateManifestBinding | None = None,
+    ) -> None:
         self.config = config
         self._states = states
+        self._strict_binding = strict_binding
 
     @classmethod
     def from_config(cls, config: SimilarDayTrainingConfig) -> "SimilarDayTrainingContext":
@@ -298,9 +673,20 @@ class SimilarDayTrainingContext:
             raise FileNotFoundError(
                 f"similar_day_training state feature history missing: {config.state_feature_path}"
             )
+        strict_binding = (
+            _verify_strict_state_manifest(config)
+            if config.strict_recent_window
+            else None
+        )
         states = pd.read_csv(config.state_feature_path)
         if "trade_date" not in states.columns:
             raise KeyError("similar_day_training state feature history missing trade_date")
+        if strict_binding is not None:
+            raw_state_days = pd.to_datetime(states["trade_date"], errors="coerce")
+            if raw_state_days.isna().any():
+                raise ValueError("strict similar-day state CSV has invalid trade_date")
+            if raw_state_days.dt.date.duplicated().any():
+                raise ValueError("strict similar-day state CSV has duplicate trade_date")
         missing = [col for col in config.feature_cols if col not in states.columns]
         if missing:
             raise KeyError(f"similar_day_training state feature history missing columns {missing}")
@@ -313,7 +699,9 @@ class SimilarDayTrainingContext:
         states = states.dropna(subset=list(config.feature_cols)).sort_values("trade_date").reset_index(drop=True)
         if states.empty:
             raise ValueError("similar_day_training state feature history has no complete rows")
-        return cls(config, states)
+        if strict_binding is not None:
+            _verify_strict_state_rows(states, binding=strict_binding)
+        return cls(config, states, strict_binding=strict_binding)
 
     @property
     def state_days(self) -> int:
@@ -324,17 +712,94 @@ class SimilarDayTrainingContext:
         *,
         target_day: date,
         available_days: Iterable[date],
+        expected_prior_days: Iterable[date] | None = None,
     ) -> SimilarDaySelection:
         available = {pd.Timestamp(day).date() for day in available_days}
-        current_rows = self._states[self._states["trade_date"] == target_day]
-        if current_rows.empty:
-            return self._failure(target_day, "current_state_missing")
-        current = current_rows.iloc[-1][list(self.config.feature_cols)]
-        candidates = self._states[
-            (self._states["trade_date"] < target_day)
-            & self._states["trade_date"].isin(available)
-        ].sort_values("trade_date")
-        candidates = candidates.tail(self.config.candidate_lookback_days).copy()
+        if self.config.strict_recent_window:
+            # ``expected_prior_days`` used to be supplied by the runner's
+            # raw-data calendar.  Hard Similar60 must not let currently
+            # discoverable days alter its candidate window; the manifest's
+            # frozen score calendar is the only calendar authority.
+            if expected_prior_days is not None:
+                return self._failure(
+                    target_day,
+                    "strict_recent_window_runtime_calendar_not_permitted",
+                )
+            binding = self._strict_binding
+            if binding is None:
+                raise RuntimeError("strict similar-day context missing verified manifest binding")
+            frozen_calendar_days = binding.frozen_calendar_days
+            if target_day not in binding.audit_by_day:
+                return self._failure(target_day, "strict_recent_window_target_not_in_frozen_calendar")
+            target_audit = binding.audit_by_day[target_day]
+            if (
+                not bool(target_audit["forward_pit_certified"])
+                or str(target_audit["outcome"]).strip().lower() != "built"
+            ):
+                return self._failure(
+                    target_day,
+                    "strict_recent_window_target_not_forward_pit_certified",
+                )
+            target_index = frozen_calendar_days.index(target_day)
+            if target_index < self.config.candidate_lookback_days:
+                return self._failure(
+                    target_day,
+                    "strict_recent_window_frozen_prior_days_"
+                    f"{target_index}_lt_{self.config.candidate_lookback_days}",
+                    candidate_days=target_index,
+                )
+            expected_window = frozen_calendar_days[
+                target_index - self.config.candidate_lookback_days:target_index
+            ]
+            uncertified = [
+                day
+                for day in expected_window
+                if (
+                    not bool(binding.audit_by_day[day]["forward_pit_certified"])
+                    or str(binding.audit_by_day[day]["outcome"]).strip().lower() != "built"
+                )
+            ]
+            if uncertified:
+                return self._failure(
+                    target_day,
+                    "strict_recent_window_prior_not_forward_pit_certified_"
+                    f"{len(uncertified)}",
+                    candidate_days=self.config.candidate_lookback_days - len(uncertified),
+                )
+            current_rows = self._states[self._states["trade_date"] == target_day]
+            if current_rows.empty:
+                return self._failure(target_day, "current_state_missing")
+            current = current_rows.iloc[-1][list(self.config.feature_cols)]
+            state_days = set(self._states["trade_date"])
+            missing_state = [day for day in expected_window if day not in state_days]
+            missing_trainable = [day for day in expected_window if day not in available]
+            eligible_days = [
+                day
+                for day in expected_window
+                if day in state_days and day in available
+            ]
+            if missing_state or missing_trainable:
+                return self._failure(
+                    target_day,
+                    (
+                        "strict_recent_window_missing_state_"
+                        f"{len(missing_state)}_missing_trainable_{len(missing_trainable)}"
+                    ),
+                    candidate_days=len(eligible_days),
+                )
+            candidates = self._states[
+                self._states["trade_date"].isin(expected_window)
+            ].sort_values("trade_date").copy()
+        else:
+            current_rows = self._states[self._states["trade_date"] == target_day]
+            if current_rows.empty:
+                return self._failure(target_day, "current_state_missing")
+            current = current_rows.iloc[-1][list(self.config.feature_cols)]
+            candidates = self._states[
+                (self._states["trade_date"] < target_day)
+                & self._states["trade_date"].isin(available)
+            ].sort_values("trade_date")
+            candidates = candidates.tail(self.config.candidate_lookback_days).copy()
         candidate_days = int(len(candidates))
         if candidate_days < self.config.min_candidate_days:
             return self._failure(

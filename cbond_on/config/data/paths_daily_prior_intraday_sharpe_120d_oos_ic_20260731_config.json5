@@ -1,0 +1,8 @@
+{
+  // Production raw/clean data is read-only. All derived paths resolve below
+  // this separate scratch runtime root when CBOND_ON_PATHS_CONFIG is set.
+  raw_data_root: "D:/cbond_data_hub/raw_data",
+  clean_data_root: "D:/cbond_data_hub/clean_data",
+  cleaned_data_root: "D:/cbond_data_hub/clean_data",
+  results_root: "D:/cbond_on/research_scratch/ic_uplift_oos_20260731/prior_intraday_sharpe_120d/results",
+}

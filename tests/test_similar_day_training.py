@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 from datetime import date, timedelta
+import hashlib
+import json
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -32,19 +35,107 @@ def _write_state_file(tmp_path, *, days: list[date]) -> str:
     return str(path)
 
 
+def _write_strict_state_manifest(
+    tmp_path,
+    *,
+    state_path: str,
+    feature_set: str = "path_full_t1429",
+    calendar_days: list[date] | None = None,
+    forward_pit_certified: bool = True,
+) -> str:
+    state_file = Path(state_path)
+    state_days = pd.to_datetime(pd.read_csv(state_file)["trade_date"]).dt.date.tolist()
+    calendar_days = list(calendar_days if calendar_days is not None else state_days)
+    calendar_path = tmp_path / "frozen_calendar.csv"
+    audit_path = tmp_path / "states_audit.csv"
+    manifest_path = tmp_path / "states_manifest.json"
+    pd.DataFrame({"trade_date": calendar_days}).to_csv(calendar_path, index=False)
+    state_day_set = set(state_days)
+    audit_rows = []
+    for day in calendar_days:
+        built = day in state_day_set
+        audit_rows.append(
+            {
+                "trade_date": day,
+                "outcome": "built" if built else "blocked",
+                "provenance_classification": (
+                    "forward_pit_certified" if forward_pit_certified else "historical_reconstruction"
+                ),
+                "forward_pit_certified": bool(forward_pit_certified and built),
+            }
+        )
+    pd.DataFrame(audit_rows).to_csv(audit_path, index=False)
+    state_digest = hashlib.sha256(state_file.read_bytes()).hexdigest()
+    audit_digest = hashlib.sha256(audit_path.read_bytes()).hexdigest()
+    calendar_digest = hashlib.sha256(calendar_path.read_bytes()).hexdigest()
+    certified_days = sum(row["forward_pit_certified"] for row in audit_rows)
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "status": "complete" if forward_pit_certified else "historical_reconstruction_not_forward_certified",
+                "strict_cutoff_time": "14:29",
+                "state_feature_set": feature_set,
+                "state_feature_columns": T1430_DISPERSION_FEATURE_SETS["path_full_t1430"],
+                "expected_days": {
+                    "count": len(calendar_days),
+                    "source_kind": "test_calendar",
+                    "source_path": str(calendar_path),
+                    "source_sha256": calendar_digest,
+                    "frozen_calendar_path": str(calendar_path),
+                    "frozen_calendar_sha256": calendar_digest,
+                },
+                "outputs": {
+                    "state_path": str(state_file),
+                    "state_sha256": state_digest,
+                    "audit_path": str(audit_path),
+                    "audit_sha256": audit_digest,
+                    "calendar_path": str(calendar_path),
+                    "calendar_sha256": calendar_digest,
+                },
+                "counts": {
+                    "requested_days": len(calendar_days),
+                    "built_days": len(state_days),
+                    "historical_reconstruction_days": 0 if forward_pit_certified else len(state_days),
+                    "blocked_days": len(calendar_days) - len(state_days),
+                    "forward_pit_certified_days": certified_days,
+                },
+                "certification": {
+                    "status": "forward_pit_certified" if forward_pit_certified else "historical_reconstruction_not_forward_certified",
+                    "forward_pit_certified": forward_pit_certified,
+                    "forward_pit_certified_days": certified_days,
+                    "reason": "test-only",
+                    "consumer_policy": "reject unless forward_pit_certified",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    return str(manifest_path)
+
+
 def _context(tmp_path, *, days: list[date], **overrides):
+    state_path = _write_state_file(tmp_path, days=days)
+    strict_recent_window = bool(overrides.get("strict_recent_window", False))
+    feature_set = str(overrides.get("feature_set", "path_full_t1429" if strict_recent_window else "path_full_t1430"))
+    state_manifest_path = (
+        _write_strict_state_manifest(tmp_path, state_path=state_path, feature_set=feature_set)
+        if strict_recent_window
+        else None
+    )
     cfg = {
         "feature_engineering": {
             "similar_day_training": {
                 "enabled": True,
-                "state_feature_path": _write_state_file(tmp_path, days=days),
-                "feature_set": "path_full_t1430",
+                "state_feature_path": state_path,
+                "feature_set": feature_set,
                 "candidate_lookback_days": 5,
                 "train_top_k": 2,
                 "validation_top_k": 1,
                 "min_candidate_days": 3,
                 "selection_mode": "nearest",
                 "fallback": "error",
+                **({"state_manifest_path": state_manifest_path} if state_manifest_path else {}),
                 **overrides,
             }
         }
@@ -52,6 +143,24 @@ def _context(tmp_path, *, days: list[date], **overrides):
     resolved = resolve_similar_day_training_config(cfg, results_root=tmp_path)
     assert resolved is not None
     return SimilarDayTrainingContext.from_config(resolved)
+
+
+def _strict_context_config(tmp_path, *, state_path: str, state_manifest_path: str | None) -> dict:
+    state_cfg = {
+        "enabled": True,
+        "state_feature_path": state_path,
+        "feature_set": "path_full_t1429",
+        "candidate_lookback_days": 5,
+        "train_top_k": 2,
+        "validation_top_k": 1,
+        "min_candidate_days": 5,
+        "selection_mode": "nearest",
+        "fallback": "error",
+        "strict_recent_window": True,
+    }
+    if state_manifest_path is not None:
+        state_cfg["state_manifest_path"] = state_manifest_path
+    return {"feature_engineering": {"similar_day_training": state_cfg}}
 
 
 def test_nearest_selection_uses_only_prior_available_days_and_local_scaling(tmp_path) -> None:
@@ -93,6 +202,210 @@ def test_missing_current_state_returns_auditable_failure(tmp_path) -> None:
     assert not selection.ready
     assert selection.reason == "current_state_missing"
     assert selection.audit_rows()[0]["role"] == "fallback"
+
+
+def test_default_candidate_window_can_still_backfill_older_complete_days(tmp_path) -> None:
+    start = date(2026, 1, 1)
+    days = [start + timedelta(days=i) for i in range(8)]
+    # The recent five-day window before day 7 is days 2..6.  Day 5 has no
+    # state, so the legacy/default selector legitimately fills it with day 1.
+    context = _context(tmp_path, days=[day for day in days if day != days[5]])
+
+    selection = context.select(
+        target_day=days[7],
+        available_days=days[:7],
+        expected_prior_days=list(reversed(days[:7])),
+    )
+
+    assert selection.ready
+    assert selection.config.strict_recent_window is False
+    # There are only four complete days in the latest five-day raw window;
+    # a candidate count of five proves legacy mode filled from an older day.
+    assert selection.candidate_days == 5
+
+
+def test_strict_recent_window_derives_exact_prior_days_from_frozen_calendar(tmp_path) -> None:
+    start = date(2026, 1, 1)
+    days = [start + timedelta(days=i) for i in range(8)]
+    context = _context(
+        tmp_path,
+        days=days,
+        strict_recent_window=True,
+        min_candidate_days=5,
+    )
+
+    selection = context.select(
+        target_day=days[7],
+        available_days=days[:7],
+    )
+
+    assert selection.ready
+    assert selection.candidate_days == 5
+    assert set(selection.selections["trade_date"]).issubset(set(days[2:7]))
+    assert selection.audit_rows()[0]["strict_recent_window"] is True
+
+    # The strict selector must not accept a runner/raw-calendar substitute.
+    rejected = context.select(
+        target_day=days[7],
+        available_days=days[:7],
+        expected_prior_days=days[:2],
+    )
+    assert not rejected.ready
+    assert rejected.reason == "strict_recent_window_runtime_calendar_not_permitted"
+
+    unknown_target = context.select(
+        target_day=days[-1] + timedelta(days=1),
+        available_days=days,
+    )
+    assert not unknown_target.ready
+    assert unknown_target.reason == "strict_recent_window_target_not_in_frozen_calendar"
+
+
+def test_strict_recent_window_refuses_missing_recent_trainable_day(tmp_path) -> None:
+    start = date(2026, 1, 1)
+    days = [start + timedelta(days=i) for i in range(8)]
+    context = _context(
+        tmp_path,
+        days=days,
+        strict_recent_window=True,
+        min_candidate_days=5,
+    )
+
+    selection = context.select(
+        target_day=days[7],
+        available_days=[day for day in days[:7] if day != days[6]],
+    )
+
+    assert not selection.ready
+    assert selection.candidate_days == 4
+    assert selection.reason == "strict_recent_window_missing_state_0_missing_trainable_1"
+
+
+def test_strict_recent_window_requires_manifest_path(tmp_path) -> None:
+    start = date(2026, 1, 1)
+    state_path = _write_state_file(tmp_path, days=[start + timedelta(days=i) for i in range(8)])
+
+    with pytest.raises(ValueError, match="requires state_manifest_path"):
+        resolve_similar_day_training_config(
+            _strict_context_config(tmp_path, state_path=state_path, state_manifest_path=None),
+            results_root=tmp_path,
+        )
+
+
+def test_strict_recent_window_rejects_missing_or_tampered_state_manifest(tmp_path) -> None:
+    start = date(2026, 1, 1)
+    days = [start + timedelta(days=i) for i in range(8)]
+    state_path = _write_state_file(tmp_path, days=days)
+    missing_cfg = resolve_similar_day_training_config(
+        _strict_context_config(
+            tmp_path,
+            state_path=state_path,
+            state_manifest_path=str(tmp_path / "missing_manifest.json"),
+        ),
+        results_root=tmp_path,
+    )
+    assert missing_cfg is not None
+    with pytest.raises(FileNotFoundError, match="state manifest missing"):
+        SimilarDayTrainingContext.from_config(missing_cfg)
+
+    manifest_path = _write_strict_state_manifest(tmp_path, state_path=state_path)
+    tampered_cfg = resolve_similar_day_training_config(
+        _strict_context_config(
+            tmp_path,
+            state_path=state_path,
+            state_manifest_path=manifest_path,
+        ),
+        results_root=tmp_path,
+    )
+    assert tampered_cfg is not None
+    Path(state_path).write_text(Path(state_path).read_text(encoding="utf-8") + "\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="SHA-256 does not match"):
+        SimilarDayTrainingContext.from_config(tampered_cfg)
+
+
+def test_strict_recent_window_rejects_nonforward_manifest_and_tampered_audit_or_calendar(tmp_path) -> None:
+    start = date(2026, 1, 1)
+    days = [start + timedelta(days=i) for i in range(8)]
+    state_path = _write_state_file(tmp_path, days=days)
+    historical_manifest_path = _write_strict_state_manifest(
+        tmp_path,
+        state_path=state_path,
+        forward_pit_certified=False,
+    )
+    historical_cfg = resolve_similar_day_training_config(
+        _strict_context_config(
+            tmp_path,
+            state_path=state_path,
+            state_manifest_path=historical_manifest_path,
+        ),
+        results_root=tmp_path,
+    )
+    assert historical_cfg is not None
+    with pytest.raises(ValueError, match="not forward-PIT eligible"):
+        SimilarDayTrainingContext.from_config(historical_cfg)
+
+    manifest_path = _write_strict_state_manifest(tmp_path, state_path=state_path)
+    payload = json.loads(Path(manifest_path).read_text(encoding="utf-8"))
+    audit_path = Path(payload["outputs"]["audit_path"])
+    audit_original = audit_path.read_bytes()
+    audit_path.write_bytes(audit_original + b"\n")
+    audit_cfg = resolve_similar_day_training_config(
+        _strict_context_config(tmp_path, state_path=state_path, state_manifest_path=manifest_path),
+        results_root=tmp_path,
+    )
+    assert audit_cfg is not None
+    with pytest.raises(ValueError, match="audit CSV SHA-256"):
+        SimilarDayTrainingContext.from_config(audit_cfg)
+
+    audit_path.write_bytes(audit_original)
+    calendar_path = Path(payload["outputs"]["calendar_path"])
+    calendar_original = calendar_path.read_bytes()
+    calendar_path.write_bytes(calendar_original + b"\n")
+    calendar_cfg = resolve_similar_day_training_config(
+        _strict_context_config(tmp_path, state_path=state_path, state_manifest_path=manifest_path),
+        results_root=tmp_path,
+    )
+    assert calendar_cfg is not None
+    with pytest.raises(ValueError, match="frozen calendar CSV SHA-256"):
+        SimilarDayTrainingContext.from_config(calendar_cfg)
+
+
+def test_rolling_payload_uses_manifest_frozen_calendar_not_rolling_window(tmp_path) -> None:
+    start = date(2026, 1, 1)
+    days = [start + timedelta(days=i) for i in range(9)]
+    context = _context(
+        tmp_path,
+        days=days,
+        strict_recent_window=True,
+        min_candidate_days=5,
+    )
+
+    def split(day: date) -> SplitData:
+        return SplitData(
+            x=pd.DataFrame({"factor": [1.0]}),
+            y=pd.Series([0.1]),
+            dt=pd.Series([pd.Timestamp(day)]),
+            code=pd.Series(["110001.SH"]),
+        )
+
+    payload = _prepare_rolling_payload(
+        idx=8,
+        days=days,
+        window_days=2,
+        train_ratio=0.7,
+        factor_cols=["factor"],
+        train_day_cache={day: split(day) for day in days[:8]},
+        test_day_cache={days[8]: split(days[8])},
+        similarity_context=context,
+    )
+
+    assert payload is not None
+    selection = payload["similarity_selection"]
+    assert selection is not None and selection.ready
+    # The ordinary rolling window is only two days, but the strict candidate
+    # must use the frozen calendar's exact five predecessors of target day 8.
+    assert selection.candidate_days == 5
+    assert set(selection.selections["trade_date"]).issubset(set(days[3:8]))
 
 
 def test_rolling_payload_replaces_contiguous_split_with_similar_days(tmp_path) -> None:
@@ -156,6 +469,55 @@ def test_rolling_payload_records_state_gap_and_uses_explicit_rolling_fallback(tm
     assert payload["similarity_selection"].reason == "current_state_missing"
     assert len(payload["train_days"]) == 2
     assert len(payload["val_days"]) == 2
+
+
+def test_strict_recent_window_rejects_rolling_fallback_at_config_parse(tmp_path) -> None:
+    start = date(2026, 1, 1)
+    state_path = _write_state_file(tmp_path, days=[start + timedelta(days=i) for i in range(8)])
+    manifest_path = _write_strict_state_manifest(tmp_path, state_path=state_path)
+    cfg = _strict_context_config(
+        tmp_path,
+        state_path=state_path,
+        state_manifest_path=manifest_path,
+    )
+    cfg["feature_engineering"]["similar_day_training"]["fallback"] = "rolling"
+
+    with pytest.raises(ValueError, match="requires fallback=error"):
+        resolve_similar_day_training_config(cfg, results_root=tmp_path)
+
+
+def test_hard_similar60_payload_raises_instead_of_emitting_rolling_fallback(tmp_path) -> None:
+    start = date(2026, 1, 1)
+    days = [start + timedelta(days=i) for i in range(8)]
+    context = _context(
+        tmp_path,
+        days=days,
+        strict_recent_window=True,
+        min_candidate_days=5,
+    )
+
+    def split(day: date) -> SplitData:
+        return SplitData(
+            x=pd.DataFrame({"factor": [1.0]}),
+            y=pd.Series([0.1]),
+            dt=pd.Series([pd.Timestamp(day)]),
+            code=pd.Series(["110001.SH"]),
+        )
+
+    # Day 6 belongs to the frozen exact five-day pool for target day 7, but
+    # is not trainable. A Hard Similar60 config must fail before constructing
+    # any ordinary rolling payload/score.
+    with pytest.raises(RuntimeError, match="strict_recent_window_missing_state_0_missing_trainable_1"):
+        _prepare_rolling_payload(
+            idx=7,
+            days=days,
+            window_days=2,
+            train_ratio=0.7,
+            factor_cols=["factor"],
+            train_day_cache={day: split(day) for day in days[:6]},
+            test_day_cache={days[7]: split(days[7])},
+            similarity_context=context,
+        )
 
 
 def test_kernel_selection_reserves_shared_validation_band_and_targets_day_ess(tmp_path) -> None:

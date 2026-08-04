@@ -1,0 +1,15 @@
+{
+  // Full primary arm: lagged training labels and frozen one-day-delayed
+  // execution.  Its score root is exclusively owned by this experiment.
+  modules: ["backtest_pipeline/backtest_label_execution_lag1_base_20260730"],
+  batch_id: "Research_LabelExecutionLag1_RegsimFull_20260730",
+  execution_lag_trading_days: 1,
+  freeze_signal_universe: true,
+  score_source: {
+    model_id: "research_regsim_label_execution_lag1_20260730",
+    score_root: {
+      windows: "D:/cbond_on/results/experiments/label_execution_lag1_20260730/scores/regsim_label_lag1",
+      linux: "/home/gswzif/cbond_on_runtime/results/experiments/label_execution_lag1_20260730/scores/regsim_label_lag1"
+    }
+  }
+}

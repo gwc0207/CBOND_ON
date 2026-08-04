@@ -269,7 +269,9 @@ def _infer_runtime_root(cfg: dict[str, Any]) -> Path:
     current_results = str(cfg.get("results_root", "")).strip()
     profile = _env_text("CBOND_ON_PATHS_PROFILE").lower()
     explicit_paths_cfg = bool(_env_text("CBOND_ON_PATHS_CONFIG"))
-    if explicit_paths_cfg and current_results:
+    read_only_inputs = cfg.get("read_only_input_roots")
+    explicit_research_profile = isinstance(read_only_inputs, dict)
+    if (explicit_paths_cfg or explicit_research_profile) and current_results:
         return Path(current_results).expanduser().parent
     if profile in {"server", "linux"} and current_results:
         return Path(current_results).expanduser().parent
@@ -300,8 +302,88 @@ def _resolve_paths_profile_path(default_path: Path) -> Path:
     return default_path
 
 
+def _resolve_read_only_input_roots(cfg: dict[str, Any]) -> dict[str, Path] | None:
+    """Resolve an opt-in research profile's immutable model input roots.
+
+    Ordinary profiles intentionally derive panel/label/factor paths from one
+    runtime root.  A research scorer may instead need to read the established
+    production inputs while writing every artifact below a separate scratch
+    root.  The mapping is opt-in and requires every model-side input so a
+    partially configured profile cannot silently mix scratch and production
+    data.
+    """
+
+    raw = cfg.get("read_only_input_roots")
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise TypeError("read_only_input_roots must be an object")
+    required = ("panel_data_root", "label_data_root", "factor_data_root")
+    missing = [key for key in required if key not in raw]
+    if missing:
+        raise ValueError(
+            "read_only_input_roots must declare panel_data_root, label_data_root, and factor_data_root; "
+            f"missing {missing}"
+        )
+    resolved: dict[str, Path] = {}
+    for key in required:
+        value = _pick_platform_value(raw.get(key))
+        text = str(value or "").strip()
+        if not text:
+            raise ValueError(f"read_only_input_roots.{key} must be non-empty")
+        resolved[key] = Path(text).expanduser()
+    return resolved
+
+
+def _normalise_path_for_comparison(value: str | Path) -> str:
+    """Return a lexical, platform-aware path form without requiring it to exist."""
+
+    path = Path(value).expanduser()
+    return os.path.normcase(os.path.normpath(os.path.abspath(str(path))))
+
+
+def _reject_conflicting_research_path_overrides(cfg: dict[str, Any]) -> None:
+    """Fail closed when a read-only-input research profile would escape its roots.
+
+    ``CBOND_ON_RUNTIME_ROOT``, ``CBOND_ON_RAW_ROOT``, and
+    ``CBOND_ON_CLEAN_ROOT`` normally act as useful operational overrides.  For
+    a profile that deliberately reads established inputs while writing into an
+    isolated scratch runtime, silently honoring a different override defeats
+    the isolation contract.  Matching values remain valid so an explicitly
+    pinned launcher remains usable.
+    """
+
+    if not isinstance(cfg.get("read_only_input_roots"), dict):
+        return
+
+    results_raw = _pick_platform_value(cfg.get("results_root"))
+    results_text = str(results_raw or "").strip()
+    raw_text = str(_pick_platform_value(cfg.get("raw_data_root")) or "").strip()
+    clean_text = str(_pick_platform_value(cfg.get("clean_data_root")) or "").strip()
+    if not results_text or not raw_text or not clean_text:
+        raise ValueError(
+            "read_only_input_roots research profile requires explicit results_root, "
+            "raw_data_root, and clean_data_root"
+        )
+
+    expected = {
+        "CBOND_ON_RUNTIME_ROOT": Path(results_text).expanduser().parent,
+        "CBOND_ON_RAW_ROOT": Path(raw_text).expanduser(),
+        "CBOND_ON_CLEAN_ROOT": Path(clean_text).expanduser(),
+    }
+    for env_name, expected_path in expected.items():
+        supplied = _env_text(env_name)
+        if supplied and _normalise_path_for_comparison(supplied) != _normalise_path_for_comparison(expected_path):
+            raise ValueError(
+                f"read_only_input_roots research profile rejects conflicting {env_name}; "
+                f"unset it or set it to {expected_path}"
+            )
+
+
 def _apply_runtime_paths_profile(cfg: dict[str, Any]) -> dict[str, Any]:
     out = dict(cfg)
+
+    _reject_conflicting_research_path_overrides(out)
 
     env_raw = _env_text("CBOND_ON_RAW_ROOT")
     env_clean = _env_text("CBOND_ON_CLEAN_ROOT")
@@ -338,13 +420,20 @@ def _apply_runtime_paths_profile(cfg: dict[str, Any]) -> dict[str, Any]:
 
     runtime_root = _infer_runtime_root(out)
     results_root = runtime_root / "results"
+    read_only_inputs = _resolve_read_only_input_roots(out)
 
     out["raw_data_root"] = _to_text_path(raw_root)
     out["clean_data_root"] = _to_text_path(clean_root)
     out["cleaned_data_root"] = _to_text_path(clean_root)
-    out["panel_data_root"] = _to_text_path(runtime_root / "panel_data")
-    out["label_data_root"] = _to_text_path(runtime_root / "label_data")
-    out["factor_data_root"] = _to_text_path(runtime_root / "factor_data")
+    out["panel_data_root"] = _to_text_path(
+        read_only_inputs["panel_data_root"] if read_only_inputs is not None else runtime_root / "panel_data"
+    )
+    out["label_data_root"] = _to_text_path(
+        read_only_inputs["label_data_root"] if read_only_inputs is not None else runtime_root / "label_data"
+    )
+    out["factor_data_root"] = _to_text_path(
+        read_only_inputs["factor_data_root"] if read_only_inputs is not None else runtime_root / "factor_data"
+    )
     out["ads_root"] = _to_text_path(runtime_root / "ads")
     out["results_root"] = _to_text_path(results_root)
     out["model_root"] = _to_text_path(results_root / "models")

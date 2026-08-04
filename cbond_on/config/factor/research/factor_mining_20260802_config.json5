@@ -1,0 +1,65 @@
+{
+  // Research-only catalogue build.  This file is intentionally self-contained:
+  // do not add default factor-pack or report modules here.  The harness runner
+  // expands the catalogue metadata below into auditable factor specs.
+  start: "2025-01-01",
+  end: "2026-07-30",
+  panel_name: "T1430",
+  factor_time: "14:30",
+  label_time: "14:42",
+
+  // Existing scratch output is never replaced by this research job.
+  refresh: false,
+  overwrite: false,
+  workers: 1,
+  factor_workers: 1,
+
+  // Use the on-demand DataHub-clean panel; never populate or consume the
+  // production panel cache for this experiment.
+  panel_source: {
+    mode: "clean_direct",
+  },
+  compute: {
+    engine: "python",
+    allow_python_engine: true,
+    backend: "cpu",
+    fallback_cpu: true,
+  },
+  context: {
+    mode: "auto",
+  },
+
+  // IC evaluation is deliberately delegated to factor_mining_screen.py after
+  // the build, under its fixed T-1 o_0005 universe and temporal splits.
+  backtest_enabled: false,
+  backtest: {
+    workers: 1,
+    batch_context: false,
+  },
+  screening: {
+    enabled: false,
+    copy_reports: false,
+    walk_forward_strategy: {
+      enabled: false,
+    },
+  },
+  bad_factor_report: {
+    enabled: false,
+  },
+
+  // This config must be launched through
+  // harness/tools/run_factor_mining_20260802.py.  Keeping the static factor
+  // list empty prevents a direct generic factor_batch invocation from silently
+  // inheriting a production pack or writing an unintended set of factors.
+  factor_files: [],
+  factors: [],
+  // Do not inherit the mutable global disabled-factor guard: research must
+  // evaluate the complete declared catalogue, then record its own exclusions.
+  disabled_factors_file: "factor/guards/factor_disabled_factors_empty.json",
+  factor_mining_catalog: {
+    module: "cbond_on.domain.factors.defs.research_factor_mining_catalog_v1",
+    version: "20260802_v3",
+    expected_signal_count: 238,
+    expected_family_count: 27,
+  },
+}

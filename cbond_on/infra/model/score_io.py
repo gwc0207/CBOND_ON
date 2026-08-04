@@ -43,6 +43,17 @@ def _iter_daily_score_files(root: Path) -> list[Path]:
     return []
 
 
+def _daily_score_file_candidates(root: Path, day: date) -> list[Path]:
+    """Return the bounded set of supported per-day score-file locations."""
+    month = root / f"{day:%Y-%m}"
+    return [
+        month / f"{day:%Y-%m-%d}.csv",
+        month / f"{day:%Y%m%d}.csv",
+        root / f"{day:%Y-%m-%d}.csv",
+        root / f"{day:%Y%m%d}.csv",
+    ]
+
+
 def _clear_score_target(path: Path) -> None:
     if path.is_file():
         path.unlink(missing_ok=True)
@@ -121,6 +132,36 @@ def load_scores_by_date(score_path: str | Path) -> dict[date, pd.DataFrame]:
     for day, group in df.groupby("trade_date"):
         cache[day] = group[["code", "score"]].copy()
     return cache
+
+
+def load_scores_for_day(score_path: str | Path, score_day: date) -> pd.DataFrame:
+    """Read one score day without recursively scanning historical score files.
+
+    Live score writers use one file per date.  The post-close monitor only needs
+    the current score day, so it must not turn a small readiness check into a
+    full historical score-tree read.  A legacy single ``scores.csv`` remains
+    supported as a compatibility fallback.
+    """
+    path = Path(score_path)
+    if not path.exists():
+        raise FileNotFoundError(f"score file not found or empty: {path}")
+    if path.is_file():
+        source = path
+    else:
+        source = next((candidate for candidate in _daily_score_file_candidates(path, score_day) if candidate.exists()), None)
+        if source is None:
+            legacy = path / "scores.csv"
+            source = legacy if legacy.exists() else None
+        if source is None:
+            raise FileNotFoundError(f"score day {score_day} is missing under: {path}")
+    if source.stat().st_size == 0:
+        raise FileNotFoundError(f"score file not found or empty: {source}")
+    df = _read_score_csv(source)
+    out = df.loc[df["trade_date"] == score_day, ["code", "score"]].copy()
+    out = out.drop_duplicates(subset=["code"], keep="last")
+    if out.empty:
+        raise FileNotFoundError(f"score day {score_day} is missing in: {source}")
+    return out
 
 
 def write_scores_by_date(

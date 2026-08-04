@@ -198,6 +198,59 @@ def test_panel_exposure_uses_last_trade_before_panel_dt(tmp_path):
 
     assert out.iloc[:3].tolist() == [101.0, 201.0, 300.0]
     assert pd.isna(out.iloc[3])
+    # Without an explicit override, retain the legacy cache location beside
+    # the panel source.
+    assert list((panel_root / "neutralization_cache").rglob("*.parquet"))
+
+
+def test_panel_exposure_can_redirect_compact_cache_to_research_scratch(tmp_path):
+    panel_root = tmp_path / "production_panel"
+    panel_dir = panel_root / "panels" / "cbond" / "T1430" / "2026-05"
+    panel_dir.mkdir(parents=True)
+    dt = pd.Timestamp("2026-05-20 14:30:00")
+    pd.DataFrame(
+        {
+            "dt": [dt, dt, dt],
+            "code": ["110001.SH", "110002.SH", "110003.SH"],
+            "seq": [0, 0, 0],
+            "trade_time": [
+                pd.Timestamp("2026-05-20 14:29:00"),
+                pd.Timestamp("2026-05-20 14:29:00"),
+                pd.Timestamp("2026-05-20 14:29:00"),
+            ],
+            "last": [101.0, 201.0, 301.0],
+        }
+    ).set_index(["dt", "code", "seq"]).to_parquet(panel_dir / "20260520.parquet")
+
+    cache_root = tmp_path / "research_scratch" / "neutralization_cache"
+    neutralizer = build_neutralizer(
+        {
+            "enabled": True,
+            "min_count": 3,
+            "exposures": [
+                {
+                    "name": "last_1430",
+                    "source": "panel",
+                    "panel_name": "T1430",
+                    "column": "last",
+                    "select": "last_before_dt",
+                }
+            ],
+        },
+        panel_data_root=panel_root,
+        neutralization_cache_root=cache_root,
+    )
+
+    spec = neutralizer.cfg.exposures[0]
+    out = neutralizer._panel_exposure(
+        spec,
+        date(2026, 5, 20),
+        pd.Series(["110001.SH", "110002.SH", "110003.SH"]),
+    )
+
+    assert out.tolist() == [101.0, 201.0, 301.0]
+    assert list(cache_root.rglob("*.parquet"))
+    assert not (panel_root / "neutralization_cache").exists()
 
 
 def test_neutralizer_preserves_dt_when_exposure_source_is_missing(tmp_path):

@@ -1,0 +1,50 @@
+{
+  // Research-only.  Keep the current Regsim feature/model contract while
+  // mapping factor[T] to standard label[T+1] and freezing all outputs under
+  // an experiment root.
+  modules: ["models/lgbm/lgbm_screened_no_winsor_neutral_tminus1_regsim_w10_s15_d05_20260708"],
+
+  model_name: "research_regsim_label_execution_lag1_20260730",
+  start: "2025-10-30",
+  end: "2026-07-28",
+  label_alignment: {
+    anchor_lag_trading_days: 1
+  },
+  rolling: {
+    // 59 usable prior factor days, plus one embargo day and the score day.
+    window_days: 61
+  },
+
+  artifact_output_root: {
+    windows: "D:/cbond_on/results/experiments/label_execution_lag1_20260730/artifacts",
+    linux: "/home/gswzif/cbond_on_runtime/results/experiments/label_execution_lag1_20260730/artifacts"
+  },
+  score_output: {
+    windows: "D:/cbond_on/results/experiments/label_execution_lag1_20260730/scores/regsim_label_lag1",
+    linux: "/home/gswzif/cbond_on_runtime/results/experiments/label_execution_lag1_20260730/scores/regsim_label_lag1"
+  },
+  score_overwrite: true,
+  score_dedupe: true,
+  incremental: {
+    enabled: true,
+    skip_existing_scores: false,
+    warm_start: true,
+    save_state: true,
+    state_dir: {
+      windows: "D:/cbond_on/results/experiments/label_execution_lag1_20260730/model_state/regsim_label_lag1",
+      linux: "/home/gswzif/cbond_on_runtime/results/experiments/label_execution_lag1_20260730/model_state/regsim_label_lag1"
+    }
+  },
+  wandb: {
+    enabled: false,
+    local_dir: {
+      windows: "D:/cbond_on/results/experiments/label_execution_lag1_20260730/wandb",
+      linux: "/home/gswzif/cbond_on_runtime/results/experiments/label_execution_lag1_20260730/wandb"
+    }
+  },
+  experiment: {
+    id: "label_execution_lag1_20260730",
+    trial: "regsim_current_contract_lag1",
+    description: "factor T -> standard label T+1; execution T+1 buy to T+2 sell"
+  }
+}

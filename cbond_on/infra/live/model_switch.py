@@ -44,6 +44,12 @@ T1430_DISPERSION_FEATURE_SETS: dict[str, list[str]] = {
         "tail_balance_full",
     ],
 }
+# This is intentionally an alias of the existing 44 state columns.  It marks
+# a research state history whose source snapshots are cut at 14:29 rather than
+# changing the live 14:30 feature contract or the values' column names.
+T1430_DISPERSION_FEATURE_SETS["path_full_t1429"] = list(
+    T1430_DISPERSION_FEATURE_SETS["path_full_t1430"]
+)
 
 
 @dataclass(frozen=True)
@@ -421,6 +427,20 @@ def _parse_hhmm(value: str) -> time:
     return time(int(hour), int(minute))
 
 
+def _resolve_state_cutoff_time(value: str | time) -> time:
+    """Validate the intraday point-in-time boundary for state features.
+
+    State features always begin with the same 09:30--14:00 windows.  Only the
+    final window may be shortened for a research replay, and it may never
+    extend past the production 14:30 state boundary.
+    """
+
+    cutoff = value if isinstance(value, time) else _parse_hhmm(str(value))
+    if cutoff < time(14, 0) or cutoff > time(14, 30):
+        raise ValueError("t1430 state cutoff_time must be within [14:00, 14:30]")
+    return cutoff
+
+
 def _clean_snapshot_path(clean_root: str | Path, day: date) -> Path:
     base = Path(clean_root)
     month = f"{day.year:04d}-{day.month:02d}"
@@ -511,7 +531,10 @@ def build_t1430_market_state_feature_row(
     clean_root: str | Path,
     score_day: date,
     price_field: str = "last",
+    cutoff_time: str | time = time(14, 30),
 ) -> dict[str, object]:
+    cutoff = _resolve_state_cutoff_time(cutoff_time)
+    cutoff_text = f"{cutoff.hour:02d}:{cutoff.minute:02d}"
     snapshot_path = _clean_snapshot_path(clean_root, score_day)
     if not snapshot_path.exists():
         raise FileNotFoundError(f"t1430 state snapshot missing: {snapshot_path}")
@@ -521,10 +544,12 @@ def build_t1430_market_state_feature_row(
     snapshot = snapshot.copy()
     snapshot["trade_time"] = pd.to_datetime(snapshot["trade_time"], errors="coerce")
     snapshot = snapshot.dropna(subset=["trade_time"])
-    cutoff_dt = datetime.combine(score_day, time(14, 30))
+    cutoff_dt = datetime.combine(score_day, cutoff)
     snapshot = snapshot[snapshot["trade_time"] <= cutoff_dt]
     if snapshot.empty:
-        raise ValueError(f"t1430 state snapshot has no rows up to 14:30: {snapshot_path}")
+        raise ValueError(
+            f"t1430 state snapshot has no rows up to {cutoff_text}: {snapshot_path}"
+        )
 
     twaps = {
         "open0930_0935": _snapshot_window_twap(
@@ -580,7 +605,7 @@ def build_t1430_market_state_feature_row(
             snapshot,
             day=score_day,
             start="14:00",
-            end="14:30",
+            end=cutoff_text,
             price_field=price_field,
         ),
     }
@@ -617,12 +642,14 @@ def update_t1430_market_state_feature_history(
     clean_root: str | Path,
     score_day: date,
     price_field: str = "last",
+    cutoff_time: str | time = time(14, 30),
 ) -> pd.DataFrame:
     target = Path(state_feature_path)
     row = build_t1430_market_state_feature_row(
         clean_root=clean_root,
         score_day=score_day,
         price_field=price_field,
+        cutoff_time=cutoff_time,
     )
     if target.exists():
         history = pd.read_csv(target)

@@ -1,0 +1,13 @@
+{
+  // Research-only factor-build profile.  It reads DataHub inputs and derives
+  // every runtime/output path below this scratch root when selected through
+  // CBOND_ON_PATHS_CONFIG.  Do not add read_only_input_roots here: that mode
+  // is for model scoring and would route factor writes to production.
+  raw_data_root: "D:/cbond_data_hub/raw_data",
+  clean_data_root: "D:/cbond_data_hub/clean_data",
+  cleaned_data_root: "D:/cbond_data_hub/clean_data",
+  // v1/v2 outputs are retained for audit only.  v3 keeps v2's strict physical
+  // score-day gate but caches its validated output index, so it must not reuse
+  // or overwrite earlier scratch factors.
+  results_root: "D:/cbond_on/research_scratch/factor_mining_20260802_strict_pit_v3/results",
+}

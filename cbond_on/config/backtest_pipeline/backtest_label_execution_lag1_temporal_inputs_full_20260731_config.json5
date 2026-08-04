@@ -1,0 +1,20 @@
+{
+  // Research-only primary arm: the same label/execution lag-one trading
+  // contract as the frozen baseline, with only temporal factor inputs changed.
+  modules: ["backtest_pipeline/backtest_label_execution_lag1_base_20260730"],
+
+  batch_id: "Research_LabelExecutionLag1_TemporalInputs_20260731",
+  output_root: {
+    windows: "D:/cbond_on/results/experiments/label_execution_lag1_temporal_inputs_20260731",
+    linux: "/home/gswzif/cbond_on_runtime/results/experiments/label_execution_lag1_temporal_inputs_20260731"
+  },
+  execution_lag_trading_days: 1,
+  freeze_signal_universe: true,
+  score_source: {
+    model_id: "research_regsim_label_execution_lag1_temporal_inputs_20260731",
+    score_root: {
+      windows: "D:/cbond_on/results/experiments/label_execution_lag1_temporal_inputs_20260731/scores/regsim_label_lag1_temporal_inputs",
+      linux: "/home/gswzif/cbond_on_runtime/results/experiments/label_execution_lag1_temporal_inputs_20260731/scores/regsim_label_lag1_temporal_inputs"
+    }
+  }
+}

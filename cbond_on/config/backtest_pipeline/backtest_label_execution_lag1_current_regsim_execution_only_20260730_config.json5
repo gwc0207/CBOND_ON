@@ -1,0 +1,15 @@
+{
+  // Isolates the execution-delay effect while keeping the existing score
+  // history.  The score-day ranking and its o_0005 universe are frozen.
+  modules: ["backtest_pipeline/backtest_label_execution_lag1_base_20260730"],
+  batch_id: "Research_LabelExecutionLag1_CurrentRegsimExecutionOnly_20260730",
+  execution_lag_trading_days: 1,
+  freeze_signal_universe: true,
+  score_source: {
+    model_id: "lgbm_screened_no_winsor_neutral_tminus1_regsim_w10_s15_d05_20260708",
+    score_root: {
+      windows: "D:/cbond_on/results/scores/live/lgbm_screened_no_winsor_neutral_tminus1_regsim_w10_s15_d05_20260708",
+      linux: "/home/gswzif/cbond_on_runtime/results/scores/live/lgbm_screened_no_winsor_neutral_tminus1_regsim_w10_s15_d05_20260708"
+    }
+  }
+}

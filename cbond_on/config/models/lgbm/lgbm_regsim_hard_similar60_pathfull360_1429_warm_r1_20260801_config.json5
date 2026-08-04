@@ -1,0 +1,101 @@
+{
+  // Research-only Hard Similar60.  Inherit the current Regsim contract
+  // (27 factors, T-1 ridge neutralization, HL20 and regime weights) unchanged.
+  modules: ["models/lgbm/lgbm_screened_no_winsor_neutral_tminus1_regsim_w10_s15_d05_20260708"],
+
+  model_name: "research_regsim_hard_similar60_pathfull360_1429_warm_r1_20260801",
+  // Forward-shadow template only.  This is the first post-registration score
+  // day, not a historical replay interval.
+  start: "2026-08-03",
+  end: "2026-08-03",
+
+  // Build the OOF score cache without opening score-day labels, while keeping
+  // the exact existing prior-day o_0005 tradable universe.
+  score_only_no_target_label_read: true,
+  score_only_apply_tradable_filter: true,
+
+  rolling: {
+    enabled: true,
+    window_days: 60
+  },
+  feature_engineering: {
+    // ``regime`` remains inherited from Regsim.  This adds only the hard
+    // similar-day selection policy on a separately rebuilt strict state file.
+    similar_day_training: {
+      enabled: true,
+      state_feature_path: {
+        windows: "D:/cbond_on/research_scratch/similar60_regsim_hard1429_20260801/state/t1430_market_state_features_pathfull_t1429.csv",
+        linux: "/home/gswzif/cbond_on_runtime/research_scratch/similar60_regsim_hard1429_20260801/state/t1430_market_state_features_pathfull_t1429.csv"
+      },
+      state_manifest_path: {
+        windows: "D:/cbond_on/research_scratch/similar60_regsim_hard1429_20260801/state/t1430_market_state_features_pathfull_t1429_manifest.json",
+        linux: "/home/gswzif/cbond_on_runtime/research_scratch/similar60_regsim_hard1429_20260801/state/t1430_market_state_features_pathfull_t1429_manifest.json"
+      },
+      feature_set: "path_full_t1429",
+      candidate_lookback_days: 360,
+      candidate_buffer_days: 40,
+      train_top_k: 60,
+      validation_top_k: 20,
+      // Strictness is intentional: all recent 360 raw expected factor days
+      // must have both state and trainable data.  No earlier-day fill is legal.
+      min_candidate_days: 360,
+      strict_recent_window: true,
+      selection_mode: "nearest",
+      // A missing strict state or trainable day aborts this candidate before
+      // it can emit an ordinary rolling score.  If a future study needs a
+      // Regsim-equivalent artifact, it must call the separate explicit
+      // composer and label that output as fallback rather than Similar60.
+      fallback: "error"
+    }
+  },
+
+  artifact_output_root: {
+    windows: "D:/cbond_on/research_scratch/similar60_regsim_hard1429_20260801/artifacts",
+    linux: "/home/gswzif/cbond_on_runtime/research_scratch/similar60_regsim_hard1429_20260801/artifacts"
+  },
+  // Keep derived neutralization data out of production panel_data_root.
+  neutralization_cache_root: {
+    windows: "D:/cbond_on/research_scratch/similar60_regsim_hard1429_20260801/neutralization_cache",
+    linux: "/home/gswzif/cbond_on_runtime/research_scratch/similar60_regsim_hard1429_20260801/neutralization_cache"
+  },
+  score_output: {
+    windows: "D:/cbond_on/research_scratch/similar60_regsim_hard1429_20260801/scores/raw_hard_similar60",
+    linux: "/home/gswzif/cbond_on_runtime/research_scratch/similar60_regsim_hard1429_20260801/scores/raw_hard_similar60"
+  },
+  score_overwrite: true,
+  score_dedupe: true,
+
+  // Preserve Regsim's warm-start semantics while isolating its state root.
+  incremental: {
+    enabled: true,
+    skip_existing_scores: false,
+    warm_start: true,
+    save_state: true,
+    state_dir: {
+      windows: "D:/cbond_on/research_scratch/similar60_regsim_hard1429_20260801/model_state",
+      linux: "/home/gswzif/cbond_on_runtime/research_scratch/similar60_regsim_hard1429_20260801/model_state"
+    }
+  },
+  wandb: {
+    enabled: false,
+    local_dir: {
+      windows: "D:/cbond_on/research_scratch/similar60_regsim_hard1429_20260801/wandb",
+      linux: "/home/gswzif/cbond_on_runtime/research_scratch/similar60_regsim_hard1429_20260801/wandb"
+    }
+  },
+  lgbm_params: { log_eval_period: 1000000 },
+  experiment: {
+    id: "hard_similar60_regsim_1429_r1_20260801",
+    trial: "strict_recent360_nearest60_warm",
+    research_only: true,
+    baseline_model: "lgbm_screened_no_winsor_neutral_tminus1_regsim_w10_s15_d05_20260708",
+    // Promotion/reporting gates only.  The strict selector itself fails
+    // closed before a score if the forward-certified 360-day calendar is
+    // incomplete, so this never authorizes a fallback score.
+    promotion_requires: {
+      strict_same_day_state_days: 360,
+      forward_completed_score_days: 120
+    },
+    description: "blocked forward-shadow template: forward-certified strict 14:29 state, frozen exact recent-360 completeness, daily warm-start refit, and no implicit fallback score"
+  }
+}

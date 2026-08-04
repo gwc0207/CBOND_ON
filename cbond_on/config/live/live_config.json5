@@ -3,6 +3,16 @@
     cutoff_time: "14:29",
     target_policy: "next_trading_day_after_cutoff"
   },
+  post_close_readiness: {
+    // A separate Windows Task Scheduler task invokes the checker at 16:30.
+    // It is read-only and only performs the deep reconciliation after an incident.
+    enabled: true,
+    check_time: "16:30",
+    report_root: {
+      windows: "D:/cbond_on/results/ops/post_close_readiness",
+      linux: "/home/gswzif/cbond_on_runtime/results/ops/post_close_readiness"
+    }
+  },
   data_hub: {
     project_root: {
       windows: "C:/Users/BaiYang/CBOND_DATA_HUB",

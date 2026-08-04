@@ -1,0 +1,61 @@
+{
+  // Research-only IC-alignment candidate.  It deliberately inherits the
+  // current Regsim factor, rolling, regime, and execution-adjacent model
+  // settings, while keeping every writable artifact under the experiment root.
+  modules: ["models/lgbm/lgbm_screened_no_winsor_neutral_tminus1_regsim_w10_s15_d05_20260708"],
+
+  model_name: "research_regsim_target_zscore_day_equal_day_mass_20260731",
+  start: "2024-05-08",
+  // Stop before the already viewed final-reporting segment begins.
+  end: "2026-05-05",
+
+  // The test cache builds scores without opening score-day labels.  Evaluation
+  // must be a separate post-score command.
+  score_only_no_target_label_read: true,
+  // Preserve the fixed T-1 o_0005 score universe without opening that label.
+  score_only_apply_tradable_filter: true,
+  label_target_transform: {
+    enabled: true,
+    mode: "zscore_day",
+    ddof: 0,
+    min_std: 1e-12,
+    // Equal aggregate MSE mass for each completed training day.  It keeps
+    // intra-day relative weights but intentionally cancels day-level regime
+    // and recency multipliers inherited from Regsim.
+    loss_day_mass: "equal"
+  },
+  early_stopping_metric: "pearson_ic",
+
+  artifact_output_root: {
+    windows: "D:/cbond_on/results/experiments/ic_uplift_oos_20260731/target_zscore_day_equal_day_mass_r1_20260731_001/artifacts",
+    linux: "/home/gswzif/cbond_on_runtime/results/experiments/ic_uplift_oos_20260731/target_zscore_day_equal_day_mass_r1_20260731_001/artifacts"
+  },
+  score_output: {
+    windows: "D:/cbond_on/results/experiments/ic_uplift_oos_20260731/target_zscore_day_equal_day_mass_r1_20260731_001/scores/research_regsim_target_zscore_day_equal_day_mass_20260731",
+    linux: "/home/gswzif/cbond_on_runtime/results/experiments/ic_uplift_oos_20260731/target_zscore_day_equal_day_mass_r1_20260731_001/scores/research_regsim_target_zscore_day_equal_day_mass_20260731"
+  },
+  score_overwrite: true,
+  score_dedupe: true,
+  incremental: {
+    enabled: true,
+    skip_existing_scores: false,
+    warm_start: true,
+    save_state: true,
+    state_dir: {
+      windows: "D:/cbond_on/results/experiments/ic_uplift_oos_20260731/target_zscore_day_equal_day_mass_r1_20260731_001/model_state",
+      linux: "/home/gswzif/cbond_on_runtime/results/experiments/ic_uplift_oos_20260731/target_zscore_day_equal_day_mass_r1_20260731_001/model_state"
+    }
+  },
+  wandb: {
+    enabled: false,
+    local_dir: {
+      windows: "D:/cbond_on/results/experiments/ic_uplift_oos_20260731/target_zscore_day_equal_day_mass_r1_20260731_001/wandb",
+      linux: "/home/gswzif/cbond_on_runtime/results/experiments/ic_uplift_oos_20260731/target_zscore_day_equal_day_mass_r1_20260731_001/wandb"
+    }
+  },
+  experiment: {
+    id: "ic_uplift_target_zscore_day_equal_day_mass_20260731",
+    trial: "r1",
+    description: "completed-day z-score labels, equal-day MSE mass, and daily Pearson-IC early stopping; no strategy or mask change"
+  }
+}

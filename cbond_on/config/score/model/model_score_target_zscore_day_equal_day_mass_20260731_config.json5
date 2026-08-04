@@ -1,0 +1,25 @@
+{
+  // Research-only score registry.  It is intentionally separate from every
+  // live model-score registry and names only the pre-registered candidate.
+  default_model_id: "research_regsim_target_zscore_day_equal_day_mass_20260731",
+  model_id: "research_regsim_target_zscore_day_equal_day_mass_20260731",
+  start: "2024-05-08",
+  end: "2026-05-05",
+  label_cutoff: null,
+  execution: {
+    // Keep the long OOS run bounded while the model config controls all
+    // artifact, score, state, and W&B isolation.
+    refit_every_n_days: 1,
+    train_processes: 1,
+    prep_workers: 1,
+    prefetch_windows: 1,
+    parallel_shards: 1,
+    wandb: { enabled: false, mode: "disabled" },
+  },
+  models: {
+    research_regsim_target_zscore_day_equal_day_mass_20260731: {
+      model_type: "lgbm",
+      model_config: "models/lgbm/lgbm_regsim_target_zscore_day_equal_day_mass_20260731",
+    },
+  },
+}
