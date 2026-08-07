@@ -30,12 +30,17 @@
     require_done_marker: true,
     ready_gate_enabled: true
   },
+  runtime: {
+    // Versioned live-50 FactorStore profile.  Existing 27-factor artifacts
+    // remain untouched under the default paths profile.
+    paths_config: "data/paths_live50_20260805"
+  },
   factor: {
-    config: "live/live_factors"
+    config: "live/live_factors_50_20260805"
   },
   model_score: {
-    config: "live/live_switch_source_regsim_w10_s15_d05_20260708",
-    model_id: "lgbm_screened_no_winsor_neutral_tminus1_regsim_w10_s15_d05_20260708",
+    config: "live/live_switch_source_regsim_50_20260805",
+    model_id: "lgbm_screened_no_winsor_neutral_tminus1_regsim_w10_s15_d05_50_20260805",
     label_cutoff: null
   },
   model_switch: {
@@ -92,81 +97,81 @@
     },
     champion: {
       name: "Regsim w10_s15_d05",
-      model_id: "lgbm_screened_no_winsor_neutral_tminus1_regsim_w10_s15_d05_20260708",
+      model_id: "lgbm_screened_no_winsor_neutral_tminus1_regsim_w10_s15_d05_50_20260805",
       return_path: {
-        windows: "D:/cbond_on/results/analysis/model_switch_scoreopt_live_20260709/return_history/Challenger_Regsim.csv",
-        linux: "/home/gswzif/cbond_on_runtime/results/analysis/model_switch_scoreopt_live_20260709/return_history/Challenger_Regsim.csv"
+        windows: "D:/cbond_on/results/analysis/model_switch_scoreopt_live_20260805_50f/return_history/Challenger_Regsim.csv",
+        linux: "/home/gswzif/cbond_on_runtime/results/analysis/model_switch_scoreopt_live_20260805_50f/return_history/Challenger_Regsim.csv"
       }
     },
     challenger: {
       name: "Ensemble rankavg + labeltop20",
-      model_id: "ensemble_rankavg_baseline_hl20_labeltop20_20260626",
+      model_id: "ensemble_rankavg_baseline_hl20_labeltop20_50_20260805",
       kind: "rankavg",
       score_output: {
-        windows: "D:/cbond_on/results/scores/live/ensemble_rankavg_baseline_hl20_labeltop20_20260626",
-        linux: "/home/gswzif/cbond_on_runtime/results/scores/live/ensemble_rankavg_baseline_hl20_labeltop20_20260626"
+        windows: "D:/cbond_on/results/scores/live/ensemble_rankavg_baseline_hl20_labeltop20_50_20260805",
+        linux: "/home/gswzif/cbond_on_runtime/results/scores/live/ensemble_rankavg_baseline_hl20_labeltop20_50_20260805"
       },
       return_path: {
-        windows: "D:/cbond_on/results/analysis/model_switch_scoreopt_live_20260709/return_history/Challenger_Ensemble.csv",
-        linux: "/home/gswzif/cbond_on_runtime/results/analysis/model_switch_scoreopt_live_20260709/return_history/Challenger_Ensemble.csv"
+        windows: "D:/cbond_on/results/analysis/model_switch_scoreopt_live_20260805_50f/return_history/Challenger_Ensemble.csv",
+        linux: "/home/gswzif/cbond_on_runtime/results/analysis/model_switch_scoreopt_live_20260805_50f/return_history/Challenger_Ensemble.csv"
       },
       sources: [
         {
           name: "baseline",
-          model_id: "lgbm_screened_no_winsor_neutral_tminus1_refit1_202401_rerun_20260623",
-          config: "live/live_switch_source_baseline"
+          model_id: "lgbm_screened_no_winsor_neutral_tminus1_refit1_202401_rerun_20260623_50_20260805",
+          config: "live/live_switch_source_baseline_50_20260805"
         },
         {
           name: "hl20",
-          model_id: "lgbm_screened_no_winsor_neutral_tminus1_weight_recent_hl20_20260625",
-          config: "live/live_models"
+          model_id: "lgbm_screened_no_winsor_neutral_tminus1_weight_recent_hl20_20260625_50_20260805",
+          config: "live/live_models_50_20260805"
         },
         {
           name: "labeltop20",
-          model_id: "lgbm_screened_no_winsor_neutral_tminus1_weight_labeltop20_20260625",
-          config: "live/live_switch_source_labeltop20"
+          model_id: "lgbm_screened_no_winsor_neutral_tminus1_weight_labeltop20_20260625_50_20260805",
+          config: "live/live_switch_source_labeltop20_50_20260805"
         }
       ]
     },
     challengers: [
       {
         name: "Ensemble rankavg + labeltop20",
-        model_id: "ensemble_rankavg_baseline_hl20_labeltop20_20260626",
+        model_id: "ensemble_rankavg_baseline_hl20_labeltop20_50_20260805",
         kind: "rankavg",
         score_output: {
-          windows: "D:/cbond_on/results/scores/live/ensemble_rankavg_baseline_hl20_labeltop20_20260626",
-          linux: "/home/gswzif/cbond_on_runtime/results/scores/live/ensemble_rankavg_baseline_hl20_labeltop20_20260626"
+          windows: "D:/cbond_on/results/scores/live/ensemble_rankavg_baseline_hl20_labeltop20_50_20260805",
+          linux: "/home/gswzif/cbond_on_runtime/results/scores/live/ensemble_rankavg_baseline_hl20_labeltop20_50_20260805"
         },
         return_path: {
-          windows: "D:/cbond_on/results/analysis/model_switch_scoreopt_live_20260709/return_history/Challenger_Ensemble.csv",
-          linux: "/home/gswzif/cbond_on_runtime/results/analysis/model_switch_scoreopt_live_20260709/return_history/Challenger_Ensemble.csv"
+          windows: "D:/cbond_on/results/analysis/model_switch_scoreopt_live_20260805_50f/return_history/Challenger_Ensemble.csv",
+          linux: "/home/gswzif/cbond_on_runtime/results/analysis/model_switch_scoreopt_live_20260805_50f/return_history/Challenger_Ensemble.csv"
         },
         sources: [
           {
             name: "baseline",
-            model_id: "lgbm_screened_no_winsor_neutral_tminus1_refit1_202401_rerun_20260623",
-            config: "live/live_switch_source_baseline"
+            model_id: "lgbm_screened_no_winsor_neutral_tminus1_refit1_202401_rerun_20260623_50_20260805",
+            config: "live/live_switch_source_baseline_50_20260805"
           },
           {
             name: "hl20",
-            model_id: "lgbm_screened_no_winsor_neutral_tminus1_weight_recent_hl20_20260625",
-            config: "live/live_models"
+            model_id: "lgbm_screened_no_winsor_neutral_tminus1_weight_recent_hl20_20260625_50_20260805",
+            config: "live/live_models_50_20260805"
           },
           {
             name: "labeltop20",
-            model_id: "lgbm_screened_no_winsor_neutral_tminus1_weight_labeltop20_20260625",
-            config: "live/live_switch_source_labeltop20"
+            model_id: "lgbm_screened_no_winsor_neutral_tminus1_weight_labeltop20_20260625_50_20260805",
+            config: "live/live_switch_source_labeltop20_50_20260805"
           }
         ]
       },
       {
         name: "HL20 live baseline",
-        model_id: "lgbm_screened_no_winsor_neutral_tminus1_weight_recent_hl20_20260625",
+        model_id: "lgbm_screened_no_winsor_neutral_tminus1_weight_recent_hl20_20260625_50_20260805",
         kind: "single",
-        config: "live/live_models",
+        config: "live/live_models_50_20260805",
         return_path: {
-          windows: "D:/cbond_on/results/analysis/model_switch_scoreopt_live_20260709/return_history/Champion_HL20.csv",
-          linux: "/home/gswzif/cbond_on_runtime/results/analysis/model_switch_scoreopt_live_20260709/return_history/Champion_HL20.csv"
+          windows: "D:/cbond_on/results/analysis/model_switch_scoreopt_live_20260805_50f/return_history/Champion_HL20.csv",
+          linux: "/home/gswzif/cbond_on_runtime/results/analysis/model_switch_scoreopt_live_20260805_50f/return_history/Champion_HL20.csv"
         }
       }
     ]

@@ -7,6 +7,7 @@
   panel_name: "T1430",
   factor_time: "14:30",
   label_time: "14:42",
+  research_only: true,
 
   // Existing scratch output is never replaced by this research job.
   refresh: false,
@@ -20,8 +21,8 @@
     mode: "clean_direct",
   },
   compute: {
-    engine: "python",
-    allow_python_engine: true,
+    engine: "rust",
+    execution_policy: "rust_first",
     backend: "cpu",
     fallback_cpu: true,
   },

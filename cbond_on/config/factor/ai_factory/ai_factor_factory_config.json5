@@ -1,6 +1,7 @@
 ﻿{
   // Research-only AI factor candidate generator.
-  // Dify only returns candidate JSON and code drafts; this project validates and stages them.
+  // Concrete candidates are Rust-only drafts. A candidate never gains a Python
+  // execution path or fallback through this factory.
   dify: {
     endpoint: "https://api.dify.ai/v1/workflows/run",
     api_key_env: "DIFY_API_KEY",
@@ -19,13 +20,9 @@
     candidate_root: "ai_factor_factory/candidates"
   },
   review: {
-    allow_try_except: false,
-    allow_fillna_zero: false,
     allow_live_status: false,
-    require_dt_code_scalar_output: true,
-    require_intraday_utils_for_panel_candidates: true,
     require_positive_value_guards: true,
-    require_slice_window_for_windowed_panel_candidates: true,
+    require_explicit_window_for_windowed_panel_candidates: true,
     dedupe: {
       enabled: true,
       reject_existing_factor_key: true,
@@ -48,30 +45,33 @@
         "volume:cumsum"
       ]
     },
-    forbidden_imports: [
-      "os",
-      "pathlib",
+    // Candidate Rust kernels receive typed in-memory inputs from the standard
+    // Rust adapter. Direct I/O, process creation, dynamic includes and unsafe
+    // code are forbidden even at draft stage.
+    forbidden_rust_tokens: [
+      "std::fs",
+      "tokio::fs",
+      "std::net",
+      "tokio::net",
+      "reqwest",
+      "ureq",
+      "TcpStream",
+      "UdpSocket",
+      "File::open",
+      "OpenOptions",
+      "read_to_string",
+      "read_to_end",
+      "write_all",
+      "std::process",
+      "Command::new",
+      "sqlx",
+      "postgres",
       "redis",
-      "psycopg2",
-      "sqlalchemy",
-      "requests",
-      "httpx",
-      "urllib",
-      "cbond_on.infra.data",
-      "cbond_on.infra.live",
-      "cbond_on.infra.io"
-    ],
-    forbidden_calls: [
-      "open",
-      "read_parquet",
-      "read_csv",
-      "read_table_range",
-      "connect",
-      "fetch_table"
-    ],
-    required_intraday_helpers: [
-      "ensure_trade_time",
-      "_group_scalar"
+      "rusqlite",
+      "mongodb",
+      "include_bytes!",
+      "include_str!",
+      "unsafe"
     ],
     panel_fields: [
       "trade_time",

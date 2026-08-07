@@ -630,25 +630,45 @@ def _month_back(base: date, offset: int) -> tuple[int, int]:
     return year, month
 
 
-def _resolve_factor_coverage_target() -> tuple[str, list[str]]:
+def _resolve_factor_coverage_target() -> tuple[str, list[str], Path, Path]:
+    """Resolve the FactorStore displayed by the Dashboard from live config.
+
+    The live-50 configuration keeps its ordered factors in ``factor_files``
+    and uses an isolated FactorStore through ``runtime.paths_config``.  The
+    Dashboard must follow that same contract rather than the generic research
+    factor configuration, otherwise its coverage calendar can report a false
+    missing state for a healthy live run.
+    """
+
     panel_cfg = load_config_file("panel")
     live_cfg = _load_live_cfg()
     factor_group = dict(live_cfg.get("factor", {}))
-    factor_cfg_key = str(factor_group.get("coverage_config", "factor")).strip()
+    runtime_group = dict(live_cfg.get("runtime", {}))
+    factor_cfg_key = str(
+        factor_group.get("coverage_config") or factor_group.get("config") or "factor"
+    ).strip()
     if not factor_cfg_key:
         factor_cfg_key = "factor"
+    paths_cfg_key = str(
+        factor_group.get("coverage_paths_config") or runtime_group.get("paths_config") or "paths"
+    ).strip()
+    if not paths_cfg_key:
+        paths_cfg_key = "paths"
     fb_cfg = load_config_file(factor_cfg_key)
+    paths_cfg = load_config_file(paths_cfg_key)
     label = resolve_factor_store_label(factor_cfg=fb_cfg, panel_cfg=panel_cfg)
     expected_cols = expected_factor_columns_from_cfg(fb_cfg)
-    return label, expected_cols
+    return (
+        label,
+        expected_cols,
+        Path(paths_cfg["raw_data_root"]),
+        Path(paths_cfg["factor_data_root"]),
+    )
 
 
 def _build_data_calendar(*, anchor_day: date, months: int = 2, selected_day: date | None = None) -> dict:
     months = max(1, min(int(months), 6))
-    paths_cfg = load_config_file("paths")
-    raw_root = Path(paths_cfg["raw_data_root"])
-    factor_root = Path(paths_cfg["factor_data_root"])
-    label, expected_factor_cols = _resolve_factor_coverage_target()
+    label, expected_factor_cols, raw_root, factor_root = _resolve_factor_coverage_target()
     factor_dir = factor_root / "factors" / label
     open_days = set(_load_open_days(raw_root))
     oldest_year, oldest_month = _month_back(anchor_day, months - 1)
@@ -2109,7 +2129,10 @@ def _factor_card_for_state(raw_status: str, live_cfg: dict) -> dict:
     try:
         factor_key = str(dict(live_cfg.get("factor", {})).get("config", "live/live_factors")).strip()
         factor_cfg = load_config_file(factor_key)
-        total = len(factor_cfg.get("factors", []) or [])
+        # A frozen live profile may refer to an ordered factor pack through
+        # ``factor_files`` instead of inlining the specs.  Resolve both forms
+        # so the card reflects the same feature contract that scoring uses.
+        total = len(expected_factor_columns_from_cfg(factor_cfg))
         reason = f"loaded factor profile {factor_key}"
     except Exception as exc:
         return _unknown_item("Unknown", f"factor_profile_error: {exc}", total=0, ready=None, missing=None)

@@ -1,0 +1,6 @@
+{
+  default_model_id: "lgbm_screened_no_winsor_neutral_tminus1_refit1_202401_rerun_20260623_50_20260805_dryrun",
+  model_id: "lgbm_screened_no_winsor_neutral_tminus1_refit1_202401_rerun_20260623_50_20260805_dryrun",
+  execution: { refit_every_n_days: 1, parallel_shards: 1 },
+  models: { lgbm_screened_no_winsor_neutral_tminus1_refit1_202401_rerun_20260623_50_20260805_dryrun: { model_type: "lgbm", model_config: "live/live_lgbm_screened_no_winsor_neutral_tminus1_refit1_202401_rerun_20260623_50_20260805_dryrun" } },
+}

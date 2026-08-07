@@ -3,10 +3,661 @@ use numpy::{PyArray1, PyArrayMethods};
 use pyo3::exceptions::{PyKeyError, PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::time::Instant;
 
+mod typed_factor_daily;
+mod typed_factor_daily_cross_asset;
+mod typed_factor_daily_information;
+mod typed_factor_daily_paths;
+mod typed_factor_daily_rank_state;
+mod typed_factor_intraday;
+mod typed_factor_kernels;
+mod typed_factor_math;
+// Typed kernels are an internal implementation detail of the one public
+// factor dispatcher; callers do not select a separate route for them.
+use typed_factor_kernels as typed_kernels;
+
 const EPS: f64 = 1e-8;
+
+// Keep capability reporting in the binary that executes the factors.  The
+// Rust-first admission gate consumes this list from the loaded extension, so a
+// source-only change or stale wheel fails before a live/research FactorStore
+// can be touched.
+const LEGACY_FACTOR_CAPABILITIES: &[&str] = &[
+    "aacb",
+    "volen",
+    "ret_window",
+    "ret_open_to_time",
+    "mom_slope",
+    "volatility",
+    "range_ratio",
+    "price_position",
+    "volume_sum",
+    "amount_sum",
+    "vwap",
+    "volume_imbalance",
+    "spread",
+    "depth_imbalance",
+    "midprice_move",
+    "turnover_rate",
+    "amihud_illiq",
+    "microprice_bias",
+    "depth_slope",
+    "return_skew",
+    "vwap_gap",
+    "order_flow_imbalance_v1",
+    "depth_weighted_imbalance_v1",
+    "intraday_momentum_v1",
+    "bid_ask_spread_v1",
+    "price_level_position_v1",
+    "volume_price_trend_v1",
+    "trade_intensity_v1",
+    "stock_bond_momentum_gap_v1",
+    "premium_momentum_proxy_v1",
+    "volatility_scaled_return_v1",
+    "alpha001_signed_power_v1",
+    "alpha002_corr_volume_return_v1",
+    "alpha003_corr_open_volume_v1",
+    "alpha004_ts_rank_low_v1",
+    "alpha005_vwap_gap_v1",
+    "alpha006_corr_open_volume_neg_v1",
+    "alpha007_volume_breakout_v1",
+    "alpha008_open_return_momentum_v1",
+    "alpha009_close_change_filter_v1",
+    "alpha010_close_change_rank_v1",
+    "alpha011_vwap_close_volume_v1",
+    "alpha012_volume_close_reversal_v1",
+    "alpha013_cov_close_volume_v1",
+    "alpha014_return_open_volume_v1",
+    "alpha015_high_volume_corr_v1",
+    "alpha016_cov_high_volume_v1",
+    "alpha017_close_rank_volume_v1",
+    "alpha018_close_open_vol_v1",
+    "alpha019_close_momentum_sign_v1",
+    "alpha020_open_delay_range_v1",
+    "alpha021_close_volatility_breakout_v1",
+    "alpha022_high_volume_corr_change_v1",
+    "alpha023_high_momentum_v1",
+    "alpha024_close_trend_filter_v1",
+    "alpha025_return_volume_vwap_range_v1",
+    "alpha026_volume_high_rank_corr_v1",
+    "alpha027_volume_vwap_corr_signal_v1",
+    "alpha028_adv_low_close_signal_v1",
+    "alpha029_complex_rank_signal_v1",
+    "alpha030_close_sign_volume_v1",
+    "alpha031_close_decay_momentum_v1",
+    "alpha032_vwap_close_mean_reversion_v1",
+    "alpha033_open_close_ratio_v1",
+    "alpha034_return_volatility_rank_v1",
+    "alpha035_volume_price_momentum_v1",
+    "alpha036_complex_correlation_signal_v1",
+    "alpha037_open_close_correlation_v1",
+    "alpha038_close_rank_ratio_v1",
+    "alpha039_volume_decay_momentum_v1",
+    "alpha040_high_volatility_corr_v1",
+    "alpha041_geometric_mean_vwap_v1",
+    "alpha042_vwap_close_rank_ratio_v1",
+    "alpha043_volume_delay_momentum_v1",
+    "alpha044_high_volume_rank_corr_v1",
+    "alpha045_close_sum_corr_v1",
+    "alpha046_close_delay_trend_v1",
+    "alpha047_inverse_close_volume_v1",
+    "alpha049_close_delay_threshold_v1",
+    "alpha050_volume_vwap_corr_max_v1",
+    "alpha051_close_delay_threshold_v2_v1",
+    "alpha052_low_momentum_volume_v1",
+    "alpha053_price_position_delta_v1",
+    "alpha054_price_power_ratio_v1",
+    "alpha055_close_range_volume_corr_v1",
+    "alpha057_close_vwap_decay_v1",
+    "alpha060_price_range_volume_scale_v1",
+    "alpha062_vwap_open_rank_compare_v1",
+    "alpha065_open_vwap_min_signal_v1",
+    "alpha066_vwap_low_decay_v1",
+    "alpha068_high_adv_rank_signal_v1",
+    "alpha072_vwap_volume_decay_ratio_v1",
+    "alpha073_vwap_open_decay_max_v1",
+    "alpha074_close_adv_rank_corr_v1",
+    "alpha075_vwap_volume_low_adv_corr_v1",
+    "alpha077_mid_price_adv_decay_min_v1",
+    "alpha078_low_vwap_adv_corr_v1",
+    "daily_sharpe_mean_v1",
+    "daily_overnight_return_mean_v1",
+];
+// Deliberately profile-neutral: live50 is one client of this generic factor
+// contract surface, alongside future Rust-first research contracts.
+const RUST_FACTOR_ABI_REVISION: &str = "rust_factor_contracts_20260806_r1";
+
+#[derive(Clone, Copy)]
+struct RustFactorContract {
+    id: &'static str,
+    output_col: &'static str,
+    factor: &'static str,
+    signal: Option<&'static str>,
+}
+
+// This is the extension's generic instance-capability registry, not a second
+// runtime dispatcher.  A Rust-first caller must name one of these contracts
+// before factor computation begins.  The live-50 profile is one admission
+// client of this registry; future research contracts extend the same table.
+const RUST_FACTOR_CONTRACTS: &[RustFactorContract] = &[
+    RustFactorContract {
+        id: "live50_r5/cb_overnight_return_mean_20d",
+        output_col: "cb_overnight_return_mean_20d",
+        factor: "daily_overnight_return_mean_v1",
+        signal: None,
+    },
+    RustFactorContract {
+        id: "live50_r5/cb_overnight_return_mean_5d",
+        output_col: "cb_overnight_return_mean_5d",
+        factor: "daily_overnight_return_mean_v1",
+        signal: None,
+    },
+    RustFactorContract {
+        id: "live50_r5/cb_overnight_return_mean_60d",
+        output_col: "cb_overnight_return_mean_60d",
+        factor: "daily_overnight_return_mean_v1",
+        signal: None,
+    },
+    RustFactorContract {
+        id: "live50_r5/range_30m",
+        output_col: "range_30m",
+        factor: "range_ratio",
+        signal: None,
+    },
+    RustFactorContract {
+        id: "live50_r5/cb_overnight_return_mean_10d",
+        output_col: "cb_overnight_return_mean_10d",
+        factor: "daily_overnight_return_mean_v1",
+        signal: None,
+    },
+    RustFactorContract {
+        id: "live50_r5/amount_30m",
+        output_col: "amount_30m",
+        factor: "amount_sum",
+        signal: None,
+    },
+    RustFactorContract {
+        id: "live50_r5/vol_30m",
+        output_col: "vol_30m",
+        factor: "volatility",
+        signal: None,
+    },
+    RustFactorContract {
+        id: "live50_r5/alpha001_signed_power_v1",
+        output_col: "alpha001_signed_power_v1",
+        factor: "alpha001_signed_power_v1",
+        signal: None,
+    },
+    RustFactorContract {
+        id: "live50_r5/alpha030_close_sign_volume_v1",
+        output_col: "alpha030_close_sign_volume_v1",
+        factor: "alpha030_close_sign_volume_v1",
+        signal: None,
+    },
+    RustFactorContract {
+        id: "live50_r5/volume_30m",
+        output_col: "volume_30m",
+        factor: "volume_sum",
+        signal: None,
+    },
+    RustFactorContract {
+        id: "live50_r5/depth_weighted_imbalance_v1",
+        output_col: "depth_weighted_imbalance_v1",
+        factor: "depth_weighted_imbalance_v1",
+        signal: None,
+    },
+    RustFactorContract {
+        id: "live50_r5/alpha024_close_trend_filter_v1",
+        output_col: "alpha024_close_trend_filter_v1",
+        factor: "alpha024_close_trend_filter_v1",
+        signal: None,
+    },
+    RustFactorContract {
+        id: "live50_r5/cb_overnight_sharpe_20_0930_0935",
+        output_col: "cb_overnight_sharpe_20_0930_0935",
+        factor: "daily_sharpe_mean_v1",
+        signal: None,
+    },
+    RustFactorContract {
+        id: "live50_r5/daily_sharpe_twap_5d_mean5",
+        output_col: "daily_sharpe_twap_5d_mean5",
+        factor: "daily_sharpe_mean_v1",
+        signal: None,
+    },
+    RustFactorContract {
+        id: "live50_r5/cb_overnight_sharpe_5_0930_0935",
+        output_col: "cb_overnight_sharpe_5_0930_0935",
+        factor: "daily_sharpe_mean_v1",
+        signal: None,
+    },
+    RustFactorContract {
+        id: "live50_r5/mid_move_30m",
+        output_col: "mid_move_30m",
+        factor: "midprice_move",
+        signal: None,
+    },
+    RustFactorContract {
+        id: "live50_r5/premium_momentum_proxy_v1",
+        output_col: "premium_momentum_proxy_v1",
+        factor: "premium_momentum_proxy_v1",
+        signal: None,
+    },
+    RustFactorContract {
+        id: "live50_r5/volen_f60_s10_l3",
+        output_col: "volen_f60_s10_l3",
+        factor: "volen",
+        signal: None,
+    },
+    RustFactorContract {
+        id: "live50_r5/daily_sharpe_twap_20d_mean5",
+        output_col: "daily_sharpe_twap_20d_mean5",
+        factor: "daily_sharpe_mean_v1",
+        signal: None,
+    },
+    RustFactorContract {
+        id: "live50_r5/cb_overnight_return_mean_40d",
+        output_col: "cb_overnight_return_mean_40d",
+        factor: "daily_overnight_return_mean_v1",
+        signal: None,
+    },
+    RustFactorContract {
+        id: "live50_r5/alpha041_geometric_mean_vwap_v1",
+        output_col: "alpha041_geometric_mean_vwap_v1",
+        factor: "alpha041_geometric_mean_vwap_v1",
+        signal: None,
+    },
+    RustFactorContract {
+        id: "live50_r5/alpha078_low_vwap_adv_corr_v1",
+        output_col: "alpha078_low_vwap_adv_corr_v1",
+        factor: "alpha078_low_vwap_adv_corr_v1",
+        signal: None,
+    },
+    RustFactorContract {
+        id: "live50_r5/mom_slope_30m",
+        output_col: "mom_slope_30m",
+        factor: "mom_slope",
+        signal: None,
+    },
+    RustFactorContract {
+        id: "live50_r5/alpha019_close_momentum_sign_v1",
+        output_col: "alpha019_close_momentum_sign_v1",
+        factor: "alpha019_close_momentum_sign_v1",
+        signal: None,
+    },
+    RustFactorContract {
+        id: "live50_r5/ret_10m",
+        output_col: "ret_10m",
+        factor: "ret_window",
+        signal: None,
+    },
+    RustFactorContract {
+        id: "live50_r5/alpha025_return_volume_vwap_range_v1",
+        output_col: "alpha025_return_volume_vwap_range_v1",
+        factor: "alpha025_return_volume_vwap_range_v1",
+        signal: None,
+    },
+    RustFactorContract {
+        id: "live50_r5/alpha050_volume_vwap_corr_max_v1",
+        output_col: "alpha050_volume_vwap_corr_max_v1",
+        factor: "alpha050_volume_vwap_corr_max_v1",
+        signal: None,
+    },
+    RustFactorContract {
+        id: "live50_r5/base_debt_premium_floor_gap",
+        output_col: "base_debt_premium_floor_gap",
+        factor: "factor_mining_daily_catalog_v1",
+        signal: Some("base_debt_premium_floor_gap"),
+    },
+    RustFactorContract {
+        id: "live50_r5/bsfst_stock_return_bond_flow_mutual_information60",
+        output_col: "bsfst_stock_return_bond_flow_mutual_information60",
+        factor: "factor_mining_daily_bond_stock_return_flow_information_v1",
+        signal: Some("bsfst_stock_return_bond_flow_mutual_information60"),
+    },
+    RustFactorContract {
+        id: "live50_r5/bssrc_bond_stock_rank_correlation60",
+        output_col: "bssrc_bond_stock_rank_correlation60",
+        factor: "factor_mining_daily_bond_stock_cross_sectional_rank_concordance_v1",
+        signal: Some("bssrc_bond_stock_rank_correlation60"),
+    },
+    RustFactorContract {
+        id: "live50_r5/bstk_tail_cocrash_residual20",
+        output_col: "bstk_tail_cocrash_residual20",
+        factor: "factor_mining_daily_contract_stock_v1",
+        signal: Some("bstk_tail_cocrash_residual20"),
+    },
+    RustFactorContract {
+        id: "live50_r5/dliq_volume_return_corr20",
+        output_col: "dliq_volume_return_corr20",
+        factor: "factor_mining_daily_expansion_v1",
+        signal: Some("dliq_volume_return_corr20"),
+    },
+    RustFactorContract {
+        id: "live50_r5/dohw_intraday_sign_range_asymmetry60",
+        output_col: "dohw_intraday_sign_range_asymmetry60",
+        factor: "factor_mining_daily_ohlc_wick_path_asymmetry_v1",
+        signal: Some("dohw_intraday_sign_range_asymmetry60"),
+    },
+    RustFactorContract {
+        id: "live50_r5/dohw_mean_wick_asymmetry60",
+        output_col: "dohw_mean_wick_asymmetry60",
+        factor: "factor_mining_daily_ohlc_wick_path_asymmetry_v1",
+        signal: Some("dohw_mean_wick_asymmetry60"),
+    },
+    RustFactorContract {
+        id: "live50_r5/dredemption_bondpremium_interaction",
+        output_col: "dredemption_bondpremium_interaction",
+        factor: "factor_mining_daily_expansion_v1",
+        signal: Some("dredemption_bondpremium_interaction"),
+    },
+    RustFactorContract {
+        id: "live50_r5/dredemption_premium_z20",
+        output_col: "dredemption_premium_z20",
+        factor: "factor_mining_daily_expansion_v1",
+        signal: Some("dredemption_premium_z20"),
+    },
+    RustFactorContract {
+        id: "live50_r5/dret_drawup_drawdown_asym",
+        output_col: "dret_drawup_drawdown_asym",
+        factor: "factor_mining_daily_catalog_v1",
+        signal: Some("dret_drawup_drawdown_asym"),
+    },
+    RustFactorContract {
+        id: "live50_r5/dret_volatility_20",
+        output_col: "dret_volatility_20",
+        factor: "factor_mining_daily_expansion_v1",
+        signal: Some("dret_volatility_20"),
+    },
+    RustFactorContract {
+        id: "live50_r5/drt_rebound_from_low20",
+        output_col: "drt_rebound_from_low20",
+        factor: "factor_mining_daily_incremental_v1",
+        signal: Some("drt_rebound_from_low20"),
+    },
+    RustFactorContract {
+        id: "live50_r5/dtwap_morning_slope20",
+        output_col: "dtwap_morning_slope20",
+        factor: "factor_mining_daily_expansion_v1",
+        signal: Some("dtwap_morning_slope20"),
+    },
+    RustFactorContract {
+        id: "live50_r5/lcc_amount_trade_size_information60",
+        output_col: "lcc_amount_trade_size_information60",
+        factor: "factor_mining_daily_liquidity_channel_composition_v1",
+        signal: Some("lcc_amount_trade_size_information60"),
+    },
+    RustFactorContract {
+        id: "live50_r5/lcc_volume_deal_information60",
+        output_col: "lcc_volume_deal_information60",
+        factor: "factor_mining_daily_liquidity_channel_composition_v1",
+        signal: Some("lcc_volume_deal_information60"),
+    },
+    RustFactorContract {
+        id: "live50_r5/lrd_cross_side_reprice_symmetry",
+        output_col: "lrd_cross_side_reprice_symmetry",
+        factor: "factor_mining_orderbook_repricing_v1",
+        signal: Some("lrd_cross_side_reprice_symmetry"),
+    },
+    RustFactorContract {
+        id: "live50_r5/prcn_return_capacity_rank_corr60",
+        output_col: "prcn_return_capacity_rank_corr60",
+        factor: "factor_mining_daily_capacity_rank_coupling_v1",
+        signal: Some("prcn_return_capacity_rank_corr60"),
+    },
+    RustFactorContract {
+        id: "live50_r5/qed_prior_quote_lag2_agreement",
+        output_col: "qed_prior_quote_lag2_agreement",
+        factor: "factor_mining_quote_execution_dynamics_v1",
+        signal: Some("qed_prior_quote_lag2_agreement"),
+    },
+    RustFactorContract {
+        id: "live50_r5/qed_prior_quote_location_dispersion",
+        output_col: "qed_prior_quote_location_dispersion",
+        factor: "factor_mining_quote_execution_dynamics_v1",
+        signal: Some("qed_prior_quote_location_dispersion"),
+    },
+    RustFactorContract {
+        id: "live50_r5/qed_prior_quote_tail_penetration",
+        output_col: "qed_prior_quote_tail_penetration",
+        factor: "factor_mining_quote_execution_dynamics_v1",
+        signal: Some("qed_prior_quote_tail_penetration"),
+    },
+    RustFactorContract {
+        id: "live50_r5/rjst_amount_joint_transition_entropy60",
+        output_col: "rjst_amount_joint_transition_entropy60",
+        factor: "factor_mining_daily_return_liquidity_topology_v1",
+        signal: Some("rjst_amount_joint_transition_entropy60"),
+    },
+    RustFactorContract {
+        id: "live50_r5/rlmi_return_deal_sign_mutual_information60",
+        output_col: "rlmi_return_deal_sign_mutual_information60",
+        factor: "factor_mining_daily_return_liquidity_topology_v1",
+        signal: Some("rlmi_return_deal_sign_mutual_information60"),
+    },
+    RustFactorContract {
+        id: "live50_r5/ydpt_yield_fall_return_beta60",
+        output_col: "ydpt_yield_fall_return_beta60",
+        factor: "factor_mining_daily_asymmetric_state_transitions_v1",
+        signal: Some("ydpt_yield_fall_return_beta60"),
+    },
+];
+
+// SHA-256 of UTF-8 canonical JSON for the exact `params` mapping:
+// `json.dumps(params, sort_keys=True, separators=(",", ":"),
+// ensure_ascii=True, allow_nan=False)`.  The Python rust-first gate computes
+// the same digest from each FactorSpec.  This makes a contract instance bound
+// to its full parameterisation (for example a window or weights vector), not
+// merely a factor key and output name.
+const RUST_FACTOR_PARAMS_SHA256: &[(&str, &str)] = &[
+    (
+        "live50_r5/cb_overnight_return_mean_20d",
+        "006fc65a8fcd5b3fb213dc22bc31e096f94285b87e69768222a650183be818c9",
+    ),
+    (
+        "live50_r5/cb_overnight_return_mean_5d",
+        "3e11319d2a160b55f17ce902f6b4c9233480cff41d0b0f0292e550cba8d19e4e",
+    ),
+    (
+        "live50_r5/cb_overnight_return_mean_60d",
+        "85ec80b7bcc6ef68d78b2fa5c14ed2649994072c936c6066c71f779c397e0499",
+    ),
+    (
+        "live50_r5/range_30m",
+        "9ee4e7fefde7039badadca6439dda99db1dc0ed2543d87ff603718d61ce74647",
+    ),
+    (
+        "live50_r5/cb_overnight_return_mean_10d",
+        "db639301628884c7b43c7343d63759d51eb1ca22a001aedde758120f528dcf7f",
+    ),
+    (
+        "live50_r5/amount_30m",
+        "e9ab4cd29071176c2583e27a34ea5f87fdb374cff0dca4b80875fa677e3511d7",
+    ),
+    (
+        "live50_r5/vol_30m",
+        "13b6b301d98fb3eb9330d8ecc91f3af6601d6f80fe863f6f3bb8498e843ea0fc",
+    ),
+    (
+        "live50_r5/alpha001_signed_power_v1",
+        "5339305d1970c0790c1b7c16d86ab59442268189113e0aff1e92cfd0abb97130",
+    ),
+    (
+        "live50_r5/alpha030_close_sign_volume_v1",
+        "d4b87a7b6d5ea6f25324e852b88ee6c7b6adabd11512323864f8e83d3dc0b0ae",
+    ),
+    (
+        "live50_r5/volume_30m",
+        "0cd9320edf4e7723bc784fa1ad79f348c170adb13adda2034ab1e5bb81e5eccc",
+    ),
+    (
+        "live50_r5/depth_weighted_imbalance_v1",
+        "3549aba70183c1f82558d79b6f676c2a3141860bed3401173452783ded7cab15",
+    ),
+    (
+        "live50_r5/alpha024_close_trend_filter_v1",
+        "5bb098680b7a11ea0dca6f9e7a685ce908932d265b33d56f073a3f52f7b16b06",
+    ),
+    (
+        "live50_r5/cb_overnight_sharpe_20_0930_0935",
+        "464c2b936b23d9ccce1dc0403bcd49753876a0e1bb42a03eff750d1bad02d374",
+    ),
+    (
+        "live50_r5/daily_sharpe_twap_5d_mean5",
+        "e3ad86c65be622d83b2e98fc15b26fda5e00fe7dfd6c75159711bbc48f62c293",
+    ),
+    (
+        "live50_r5/cb_overnight_sharpe_5_0930_0935",
+        "e1e04fbf20c35ea5543ee8a68d7927260ce97689afd954f935f597df3c1ee182",
+    ),
+    (
+        "live50_r5/mid_move_30m",
+        "86f3b779c1b48e8d1637295b7e77ae69665dd9034667ad2d5ec33a05a34e9711",
+    ),
+    (
+        "live50_r5/premium_momentum_proxy_v1",
+        "c00e33920ccc294a33b5c43d2a18b838c6434772814bac9bdc50d954d2b8c7e8",
+    ),
+    (
+        "live50_r5/volen_f60_s10_l3",
+        "f8cb98f714525bb8d680a6fdaca58bbe5996913a566074eb9549a2be8facce3b",
+    ),
+    (
+        "live50_r5/daily_sharpe_twap_20d_mean5",
+        "a0d55f978d11edfe1805ad09a4808d005eec9ef2ade9f69a980803c8687ccd77",
+    ),
+    (
+        "live50_r5/cb_overnight_return_mean_40d",
+        "2263e36088f1b9228e76ad9a695b0f22dc2f05783ba45785d333ed4c1d6913f4",
+    ),
+    (
+        "live50_r5/alpha041_geometric_mean_vwap_v1",
+        "c00e33920ccc294a33b5c43d2a18b838c6434772814bac9bdc50d954d2b8c7e8",
+    ),
+    (
+        "live50_r5/alpha078_low_vwap_adv_corr_v1",
+        "5612a7601552241366c19396f3c03ef74eaf4d8eb0683369fa5601e7fcf6f4a0",
+    ),
+    (
+        "live50_r5/mom_slope_30m",
+        "9ee4e7fefde7039badadca6439dda99db1dc0ed2543d87ff603718d61ce74647",
+    ),
+    (
+        "live50_r5/alpha019_close_momentum_sign_v1",
+        "ae136a306eae948fdb589a361761119ffb36043c1c0947d3e6aa85412a2ecbb8",
+    ),
+    (
+        "live50_r5/ret_10m",
+        "dbbc48549dc2598ed9509e4aec81ae184f32bf2f27ee8930b3612f0ca4b16253",
+    ),
+    (
+        "live50_r5/alpha025_return_volume_vwap_range_v1",
+        "8aa94d7556eadaac798b78124898f23df5a739fa0b58eee5f4580f13c8d81436",
+    ),
+    (
+        "live50_r5/alpha050_volume_vwap_corr_max_v1",
+        "48e2b55ce78574dae3bdad71f891f51dcb9ccaaeadda2f3729a2e0a7a32fa46c",
+    ),
+    (
+        "live50_r5/base_debt_premium_floor_gap",
+        "736c07e6fbfba5fe34699fcd0bf498326df24a050968de68900475852b722d96",
+    ),
+    (
+        "live50_r5/bsfst_stock_return_bond_flow_mutual_information60",
+        "510efb901553ba252fa13c73afb86caf0b224a6f6e0418e296eb218ab97c97a9",
+    ),
+    (
+        "live50_r5/bssrc_bond_stock_rank_correlation60",
+        "5b1268534292c8d21faf092a12aaa62da6ee33ca287d62f4453d93d20693e43e",
+    ),
+    (
+        "live50_r5/bstk_tail_cocrash_residual20",
+        "fd55f91352b010e74e9ec374dd2fc4a72065f241e211b01a0ed72a1411ec27fb",
+    ),
+    (
+        "live50_r5/dliq_volume_return_corr20",
+        "dd7e2d2cb213a4b46732524226897c2426bcf19c014448df3165ae91ecb14268",
+    ),
+    (
+        "live50_r5/dohw_intraday_sign_range_asymmetry60",
+        "51bd139237e6b8183db0ff95356a36c8600b4a747800ab340f323e3a422cf4b9",
+    ),
+    (
+        "live50_r5/dohw_mean_wick_asymmetry60",
+        "ccbb92cea25f37c031d0ddf74725c42870cd9651c9ea4b1918add8e075fd431e",
+    ),
+    (
+        "live50_r5/dredemption_bondpremium_interaction",
+        "c9777835ded7794796c9eecfecbe4f316f6a9afc8349db2b408fb291afdcf9a4",
+    ),
+    (
+        "live50_r5/dredemption_premium_z20",
+        "a4577f603ec26d41cac5656728c59734c79e63dd6d5336767dfd9be1316dbf56",
+    ),
+    (
+        "live50_r5/dret_drawup_drawdown_asym",
+        "f95a04654557f2b64046f406ff8445d39aca396c03af0d0f9132edd14919fe46",
+    ),
+    (
+        "live50_r5/dret_volatility_20",
+        "ccfb29f900303c6b39fa7083346eb2ea5006478425d0121c8f6cddc93f56c2c1",
+    ),
+    (
+        "live50_r5/drt_rebound_from_low20",
+        "95613dbdd35eef0751130d0ec86387d89c4c36d6638612a752871c2d5d9280e1",
+    ),
+    (
+        "live50_r5/dtwap_morning_slope20",
+        "e614b84903463359b165b2e4a9b3ed10df9f9da87cc731e8fea7f41b466a9509",
+    ),
+    (
+        "live50_r5/lcc_amount_trade_size_information60",
+        "cc6e42900efa864c68ef2b34279e8977062d1a8c791c5882fdcce8fb84bec62e",
+    ),
+    (
+        "live50_r5/lcc_volume_deal_information60",
+        "76d24405f0bd8cc8110b9a19d8f09048f4180a41921112bdb44e42df689e3b12",
+    ),
+    (
+        "live50_r5/lrd_cross_side_reprice_symmetry",
+        "20f9f38e3c1952acd62b5b0f1fe1d0e0c2fcc0d1f54f53e55a8fb93eab192bcb",
+    ),
+    (
+        "live50_r5/prcn_return_capacity_rank_corr60",
+        "b18e4da56e800d454c64dc2241e9c69c07f432f780617437b23c3fb28cf744d5",
+    ),
+    (
+        "live50_r5/qed_prior_quote_lag2_agreement",
+        "3ae03231ac4bc22ca2b6a12ec94fd09dccc3161cefc95a42c637fbdbdc589c12",
+    ),
+    (
+        "live50_r5/qed_prior_quote_location_dispersion",
+        "c7a4429d65381c22dc0f2076857a9a0ff2ab7b83720b8ebd2431ef0471bfe1e4",
+    ),
+    (
+        "live50_r5/qed_prior_quote_tail_penetration",
+        "8c147ade3bf1884ffced2a1d4da7bc6f7c1e917edb2d8c6d313464c492260df9",
+    ),
+    (
+        "live50_r5/rjst_amount_joint_transition_entropy60",
+        "41735d89b85137d253f5a67fe31cc09a224aa1d034ad4400ee02aad2aceda5dd",
+    ),
+    (
+        "live50_r5/rlmi_return_deal_sign_mutual_information60",
+        "849297227bff76f5751f0d4f6c782f8effd0b6af63a2a5df30ac2c6a4ea7310f",
+    ),
+    (
+        "live50_r5/ydpt_yield_fall_return_beta60",
+        "9ca5c129a50853d31180ea9a91584b5af739c1b063613804290fe64657d21ece",
+    ),
+];
+
+fn rust_factor_params_sha256(contract_id: &str) -> Option<&'static str> {
+    RUST_FACTOR_PARAMS_SHA256
+        .iter()
+        .find_map(|(known_id, digest)| (*known_id == contract_id).then_some(*digest))
+}
 
 #[derive(Clone, Debug)]
 struct Group {
@@ -182,7 +833,81 @@ impl FactorSpec {
 #[pymodule]
 fn cbond_on_rust(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(compute_factor_frame, m)?)?;
+    m.add_function(wrap_pyfunction!(factor_capabilities, m)?)?;
+    // Retain the explicit typed API for isolated parity fixtures.  Production
+    // always routes all supported specs through `compute_factor_frame` below.
+    m.add_function(wrap_pyfunction!(
+        typed_kernels::compute_typed_factor_frame,
+        m
+    )?)?;
     Ok(())
+}
+
+fn is_legacy_factor_supported(factor: &str) -> bool {
+    LEGACY_FACTOR_CAPABILITIES.contains(&factor)
+}
+
+/// Advertise the precise factor-instance capability surface of this loaded
+/// extension.  Python uses this as a handshake for `execution_policy=rust_first`;
+/// this prevents a stale `.pyd` from silently falling back to a Python route.
+#[pyfunction]
+fn factor_capabilities(py: Python<'_>) -> PyResult<PyObject> {
+    let out = PyDict::new_bound(py);
+    // The exact ABI value is part of the run-time admission contract.  The
+    // Python gate queries the loaded extension, rather than source or a stale
+    // manifest, before it opens a panel or a FactorStore write path.
+    out.set_item("abi_revision", RUST_FACTOR_ABI_REVISION)?;
+    out.set_item("abi_version", 3u32)?;
+    out.set_item("compute_api", "compute_factor_frame")?;
+    // Kept for the earlier capability prototype and external diagnostics.
+    out.set_item("api", "compute_factor_frame")?;
+    out.set_item("python_fallback", false)?;
+    out.set_item(
+        "factor_keys",
+        PyList::new_bound(py, LEGACY_FACTOR_CAPABILITIES),
+    )?;
+    let contract_ids = PyList::empty_bound(py);
+    let contracts = PyList::empty_bound(py);
+    if RUST_FACTOR_PARAMS_SHA256.len() != RUST_FACTOR_CONTRACTS.len() {
+        return Err(PyErr::new::<PyRuntimeError, _>(format!(
+            "Rust factor capability table length mismatch: contracts={}, params_sha256={}",
+            RUST_FACTOR_CONTRACTS.len(),
+            RUST_FACTOR_PARAMS_SHA256.len()
+        )));
+    }
+    for contract in RUST_FACTOR_CONTRACTS {
+        let entry = PyDict::new_bound(py);
+        entry.set_item("id", contract.id)?;
+        entry.set_item("output_col", contract.output_col)?;
+        entry.set_item("factor", contract.factor)?;
+        match contract.signal {
+            Some(signal) => entry.set_item("signal", signal)?,
+            None => entry.set_item("signal", py.None())?,
+        }
+        let params_sha256 = rust_factor_params_sha256(contract.id).ok_or_else(|| {
+            PyErr::new::<PyRuntimeError, _>(format!(
+                "Rust factor capability table is missing params_sha256 for {}",
+                contract.id
+            ))
+        })?;
+        entry.set_item("params_sha256", params_sha256)?;
+        contract_ids.append(contract.id)?;
+        contracts.append(entry)?;
+    }
+    out.set_item("contract_ids", contract_ids)?;
+    // This generic schema is the sole binary-side capability surface.  A
+    // profile such as live50_rust50_20260806 is validated above this boundary
+    // by the Python admission layer; it must not become a kernel category.
+    out.set_item("factor_contracts", contracts)?;
+    let factor_signals = PyList::empty_bound(py);
+    for (factor, signal) in typed_kernels::supported_typed_factor_pairs() {
+        let entry = PyDict::new_bound(py);
+        entry.set_item("factor", factor)?;
+        entry.set_item("signal", signal)?;
+        factor_signals.append(entry)?;
+    }
+    out.set_item("factor_signals", factor_signals)?;
+    Ok(out.into_py(py))
 }
 
 #[pyfunction]
@@ -198,6 +923,14 @@ fn compute_factor_frame(
 ) -> PyResult<PyObject> {
     let mut panel = parse_panel(py, panel_df)?;
     let specs = parse_specs(specs_payload)?;
+    validate_unique_output_cols(&specs)?;
+    validate_unique_group_keys(&panel.groups)?;
+    let raw_specs = specs_payload.downcast::<PyList>()?;
+    if raw_specs.len() != specs.len() {
+        return Err(PyErr::new::<PyValueError, _>(
+            "factor spec payload length changed during parse",
+        ));
+    }
     let plan_limits = parse_plan_limits(_compute_params)?;
     let plan = extract_factor_plan(&specs, &plan_limits)?;
     let window_cache = build_window_start_cache(&panel, &plan.windows);
@@ -221,15 +954,40 @@ fn compute_factor_frame(
         );
     }
 
+    // A typed kernel may precompute a subset internally, but every requested
+    // instance reaches this one ordered dispatch loop and one output map.
+    // Every requested spec flows through this one public Rust dispatcher.
+    let mut prepared_values = precompute_typed_factor_values(
+        py,
+        panel_df,
+        raw_specs,
+        &specs,
+        daily_data,
+        _compute_params,
+        &panel.groups,
+    )?;
     let mut out_cols: HashMap<String, Vec<f64>> = HashMap::new();
     let mut factor_timings: Vec<(String, f64)> = Vec::with_capacity(specs.len());
     let t_all_factors = Instant::now();
     for spec in &specs {
         let t_factor = Instant::now();
-        let values = compute_factor_values(py, &mut panel, panel_df, &aux, &window_cache, spec)?;
-        let elapsed = t_factor.elapsed().as_secs_f64();
+        let (values, precomputed_elapsed) = compute_factor_values(
+            py,
+            &mut panel,
+            panel_df,
+            &aux,
+            &window_cache,
+            &mut prepared_values,
+            spec,
+        )?;
+        let elapsed = precomputed_elapsed.unwrap_or_else(|| t_factor.elapsed().as_secs_f64());
         factor_timings.push((spec.output_col.clone(), elapsed));
         out_cols.insert(spec.output_col.clone(), values);
+    }
+    if !prepared_values.values.is_empty() || !prepared_values.factor_seconds.is_empty() {
+        return Err(PyErr::new::<PyRuntimeError, _>(
+            "typed factor precompute returned values outside the requested ordered dispatch",
+        ));
     }
     if plan_limits.log_summary && !factor_timings.is_empty() {
         let mut values: Vec<f64> = factor_timings.iter().map(|(_, v)| *v).collect();
@@ -261,6 +1019,233 @@ fn compute_factor_frame(
     }
 
     build_output_df(py, &panel.groups, &out_cols)
+}
+
+fn validate_unique_output_cols(specs: &[FactorSpec]) -> PyResult<()> {
+    let mut seen = BTreeSet::<String>::new();
+    for spec in specs {
+        if !seen.insert(spec.output_col.clone()) {
+            return Err(PyErr::new::<PyValueError, _>(format!(
+                "compute_factor_frame has duplicate output_col: {}",
+                spec.output_col
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn validate_unique_group_keys(groups: &[Group]) -> PyResult<()> {
+    let mut seen = BTreeSet::<(String, String)>::new();
+    for group in groups {
+        let key = (group.dt.clone(), group.code.clone());
+        if !seen.insert(key.clone()) {
+            return Err(PyErr::new::<PyRuntimeError, _>(format!(
+                "compute_factor_frame base panel has duplicate (dt, code) key: {key:?}"
+            )));
+        }
+    }
+    Ok(())
+}
+
+#[derive(Default)]
+struct PreparedFactorValues {
+    values: HashMap<String, Vec<f64>>,
+    // A typed kernel can efficiently produce several exact instances in one
+    // parse.  Attribute that batch cost evenly so the common per-factor timing
+    // stream stays complete without reporting a special batch pseudo-factor.
+    factor_seconds: HashMap<String, f64>,
+}
+
+/// Precompute exact typed-kernel values behind the same public factor API.
+/// The normal dispatcher consumes the returned columns in original spec order,
+/// so this helper is an optimisation boundary rather than a second route.
+fn precompute_typed_factor_values(
+    py: Python<'_>,
+    panel_df: &Bound<'_, PyAny>,
+    raw_specs: &Bound<'_, PyList>,
+    specs: &[FactorSpec],
+    daily_data: Option<&Bound<'_, PyAny>>,
+    compute_params: Option<&Bound<'_, PyAny>>,
+    groups: &[Group],
+) -> PyResult<PreparedFactorValues> {
+    let typed_indices: Vec<usize> = specs
+        .iter()
+        .enumerate()
+        .filter_map(|(index, spec)| {
+            typed_kernels::is_typed_factor_family(&spec.factor).then_some(index)
+        })
+        .collect();
+    if typed_indices.is_empty() {
+        return Ok(PreparedFactorValues::default());
+    }
+
+    let typed_payload = PyList::empty_bound(py);
+    let mut typed_specs = Vec::with_capacity(typed_indices.len());
+    for index in typed_indices {
+        typed_payload.append(raw_specs.get_item(index)?)?;
+        typed_specs.push(specs[index].clone());
+    }
+    let started = Instant::now();
+    let typed_output = typed_kernels::compute_typed_factor_frame_impl(
+        py,
+        panel_df,
+        &typed_payload,
+        None,
+        None,
+        daily_data,
+        compute_params,
+    )?;
+    let values = collect_typed_output_values(py, groups, typed_output.bind(py), &typed_specs)?;
+    let elapsed_per_factor = started.elapsed().as_secs_f64() / typed_specs.len() as f64;
+    let factor_seconds = typed_specs
+        .iter()
+        .map(|spec| (spec.output_col.clone(), elapsed_per_factor))
+        .collect();
+    Ok(PreparedFactorValues {
+        values,
+        factor_seconds,
+    })
+}
+
+/// Return one factor instance from a prepared typed kernel when available, or
+/// calculate it through the standard Rust panel kernel.  Both cases feed the
+/// same output construction and timing logic in `compute_factor_frame`.
+fn compute_factor_values(
+    py: Python<'_>,
+    panel: &mut PanelData,
+    panel_df: &Bound<'_, PyAny>,
+    aux: &AuxData,
+    window_cache: &WindowStartCache,
+    prepared: &mut PreparedFactorValues,
+    spec: &FactorSpec,
+) -> PyResult<(Vec<f64>, Option<f64>)> {
+    if let Some(values) = prepared.values.remove(&spec.output_col) {
+        let seconds = prepared
+            .factor_seconds
+            .remove(&spec.output_col)
+            .ok_or_else(|| {
+                PyErr::new::<PyRuntimeError, _>(format!(
+                    "typed factor precompute is missing timing for {}",
+                    spec.output_col
+                ))
+            })?;
+        return Ok((values, Some(seconds)));
+    }
+    Ok((
+        compute_standard_factor_values(py, panel, panel_df, aux, window_cache, spec)?,
+        None,
+    ))
+}
+
+/// Collect the values from an internal typed kernel into the generic engine's
+/// single output map.  The typed daily/intraday implementation uses stricter
+/// labelled/physical output rules than the generic panel parser, so key-set
+/// equality is mandatory; never silently reindex a live factor frame.
+fn collect_typed_output_values(
+    py: Python<'_>,
+    groups: &[Group],
+    typed_output: &Bound<'_, PyAny>,
+    typed_specs: &[FactorSpec],
+) -> PyResult<HashMap<String, Vec<f64>>> {
+    if !has_col(py, typed_output, "dt")? || !has_col(py, typed_output, "code")? {
+        return Err(PyErr::new::<PyRuntimeError, _>(
+            "typed Rust factor result is missing dt/code keys",
+        ));
+    }
+    let columns = typed_output
+        .getattr("columns")?
+        .call_method0("tolist")?
+        .extract::<Vec<String>>()?;
+    let expected_columns: BTreeSet<String> = typed_specs
+        .iter()
+        .map(|spec| spec.output_col.clone())
+        .collect();
+    let returned_columns: BTreeSet<String> = columns
+        .into_iter()
+        .filter(|column| column != "dt" && column != "code")
+        .collect();
+    if expected_columns != returned_columns {
+        let missing: Vec<String> = expected_columns
+            .difference(&returned_columns)
+            .take(5)
+            .cloned()
+            .collect();
+        let unexpected: Vec<String> = returned_columns
+            .difference(&expected_columns)
+            .take(5)
+            .cloned()
+            .collect();
+        return Err(PyErr::new::<PyRuntimeError, _>(format!(
+            "typed Rust factor result column mismatch: missing={missing:?}, unexpected={unexpected:?}"
+        )));
+    }
+
+    let mut base_positions = BTreeMap::<(String, String), usize>::new();
+    for (position, group) in groups.iter().enumerate() {
+        let key = (group.dt.clone(), group.code.clone());
+        if base_positions.insert(key.clone(), position).is_some() {
+            return Err(PyErr::new::<PyRuntimeError, _>(format!(
+                "compute_factor_frame base panel has duplicate (dt, code) key: {key:?}"
+            )));
+        }
+    }
+    let dates = col_to_str_vec(py, typed_output, "dt")?;
+    let codes = col_to_str_vec(py, typed_output, "code")?;
+    if dates.len() != codes.len() {
+        return Err(PyErr::new::<PyRuntimeError, _>(
+            "typed Rust factor result dt/code length mismatch",
+        ));
+    }
+    let mut typed_positions = BTreeMap::<(String, String), usize>::new();
+    for (position, key) in dates.into_iter().zip(codes.into_iter()).enumerate() {
+        if typed_positions.insert(key.clone(), position).is_some() {
+            return Err(PyErr::new::<PyRuntimeError, _>(format!(
+                "typed Rust factor result has duplicate (dt, code) key: {key:?}"
+            )));
+        }
+    }
+    let base_keys: BTreeSet<(String, String)> = base_positions.keys().cloned().collect();
+    let typed_keys: BTreeSet<(String, String)> = typed_positions.keys().cloned().collect();
+    if base_keys != typed_keys {
+        let base_only: Vec<(String, String)> =
+            base_keys.difference(&typed_keys).take(5).cloned().collect();
+        let typed_only: Vec<(String, String)> =
+            typed_keys.difference(&base_keys).take(5).cloned().collect();
+        return Err(PyErr::new::<PyRuntimeError, _>(format!(
+            "compute_factor_frame typed Rust key-set mismatch: base_only={base_only:?}, typed_only={typed_only:?}"
+        )));
+    }
+    let mut values_by_column = HashMap::with_capacity(typed_specs.len());
+    for spec in typed_specs {
+        let values = col_to_f64_vec(py, typed_output, &spec.output_col)?;
+        if values.len() != typed_positions.len() {
+            return Err(PyErr::new::<PyRuntimeError, _>(format!(
+                "typed Rust factor result value/key length mismatch for {}: values={}, keys={}",
+                spec.output_col,
+                values.len(),
+                typed_positions.len()
+            )));
+        }
+        let mut aligned = vec![f64::NAN; groups.len()];
+        for (key, typed_position) in &typed_positions {
+            let base_position = base_positions.get(key).ok_or_else(|| {
+                PyErr::new::<PyRuntimeError, _>(
+                    "typed Rust factor key unexpectedly absent from the base panel",
+                )
+            })?;
+            aligned[*base_position] = values[*typed_position];
+        }
+        if values_by_column
+            .insert(spec.output_col.clone(), aligned)
+            .is_some()
+        {
+            return Err(PyErr::new::<PyRuntimeError, _>(format!(
+                "typed Rust factor result has duplicate output column: {}",
+                spec.output_col
+            )));
+        }
+    }
+    Ok(values_by_column)
 }
 
 fn norm_code(code: &str) -> String {
@@ -1403,11 +2388,12 @@ fn daily_overnight_returns_asof(
         let cur = &rows[i];
         let buy_prev = prev.values.get(buy_col).copied().unwrap_or(f64::NAN);
         let sell_cur = cur.values.get(sell_col).copied().unwrap_or(f64::NAN);
-        let ret = if buy_prev.is_finite() && sell_cur.is_finite() && buy_prev > EPS && sell_cur > 0.0 {
-            sell_cur / buy_prev - 1.0
-        } else {
-            f64::NAN
-        };
+        let ret =
+            if buy_prev.is_finite() && sell_cur.is_finite() && buy_prev > EPS && sell_cur > 0.0 {
+                sell_cur / buy_prev - 1.0
+            } else {
+                f64::NAN
+            };
         out.push(ret);
     }
     out
@@ -1445,11 +2431,12 @@ fn daily_overnight_returns_before(
         let cur = &rows[i];
         let buy_prev = prev.values.get(buy_col).copied().unwrap_or(f64::NAN);
         let sell_cur = cur.values.get(sell_col).copied().unwrap_or(f64::NAN);
-        let ret = if buy_prev.is_finite() && sell_cur.is_finite() && buy_prev > EPS && sell_cur > 0.0 {
-            sell_cur / buy_prev - 1.0
-        } else {
-            f64::NAN
-        };
+        let ret =
+            if buy_prev.is_finite() && sell_cur.is_finite() && buy_prev > EPS && sell_cur > 0.0 {
+                sell_cur / buy_prev - 1.0
+            } else {
+                f64::NAN
+            };
         out.push(ret);
     }
     out
@@ -1467,7 +2454,11 @@ fn mean_last_window_min_periods(returns: &[f64], window: usize, min_periods: usi
 
     let w = full_window.min(returns.len());
     let s = returns.len() - w;
-    let vals: Vec<f64> = returns[s..].iter().copied().filter(|v| v.is_finite()).collect();
+    let vals: Vec<f64> = returns[s..]
+        .iter()
+        .copied()
+        .filter(|v| v.is_finite())
+        .collect();
     if need > w || vals.len() < need {
         return f64::NAN;
     }
@@ -1479,12 +2470,7 @@ fn mean_last_window_min_periods(returns: &[f64], window: usize, min_periods: usi
     }
 }
 
-fn sharpe_last_window(
-    returns: &[f64],
-    window: usize,
-    min_periods: usize,
-    annualize: bool,
-) -> f64 {
+fn sharpe_last_window(returns: &[f64], window: usize, min_periods: usize, annualize: bool) -> f64 {
     if returns.is_empty() {
         return f64::NAN;
     }
@@ -1518,7 +2504,7 @@ fn sharpe_last_window(
     }
 }
 
-fn compute_factor_values(
+fn compute_standard_factor_values(
     py: Python<'_>,
     panel: &mut PanelData,
     panel_df: &Bound<'_, PyAny>,

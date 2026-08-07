@@ -1,0 +1,31 @@
+{
+  // Explicit production admission for the frozen 2026-08-05 live-50 append.
+  // This profile is intentionally not referenced by the default live profile.
+  registry: "../registry.json5",
+  admission_profile: "r5_screened23_20260805",
+  factors: [
+    "base_debt_premium_floor_gap",
+    "bsfst_stock_return_bond_flow_mutual_information60",
+    "bssrc_bond_stock_rank_correlation60",
+    "bstk_tail_cocrash_residual20",
+    "dliq_volume_return_corr20",
+    "dohw_intraday_sign_range_asymmetry60",
+    "dohw_mean_wick_asymmetry60",
+    "dredemption_bondpremium_interaction",
+    "dredemption_premium_z20",
+    "dret_drawup_drawdown_asym",
+    "dret_volatility_20",
+    "drt_rebound_from_low20",
+    "dtwap_morning_slope20",
+    "lcc_amount_trade_size_information60",
+    "lcc_volume_deal_information60",
+    "lrd_cross_side_reprice_symmetry",
+    "prcn_return_capacity_rank_corr60",
+    "qed_prior_quote_lag2_agreement",
+    "qed_prior_quote_location_dispersion",
+    "qed_prior_quote_tail_penetration",
+    "rjst_amount_joint_transition_entropy60",
+    "rlmi_return_deal_sign_mutual_information60",
+    "ydpt_yield_fall_return_beta60",
+  ],
+}

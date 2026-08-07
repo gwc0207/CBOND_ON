@@ -3,8 +3,11 @@
 from datetime import date
 
 from cbond_on.core.config import load_config_file, parse_date
+from cbond_on.common.factor_execution_policy import validate_factor_execution_policy
 from cbond_on.app.usecases.factor_batch_runtime import build_signal_specs
 from cbond_on.domain.factors import defs  # noqa: F401
+from cbond_on.infra.live.factor_admission import prepare_live50_factor_admission
+from cbond_on.infra.live.factor_store_permit import issue_live50_factor_store_write_permit
 from cbond_on.infra.factors.pipeline import run_factor_pipeline
 
 
@@ -19,6 +22,18 @@ def run(
     paths_cfg = load_config_file("paths")
     factor_cfg = dict(cfg or load_config_file("factor"))
     panel_cfg = dict(load_config_file("panel"))
+    # This direct application entrypoint is used by live runtime as well as
+    # standalone factor builds.  Validate before registry/spec work so a stale
+    # Python config cannot reach either data I/O or a FactorStore.
+    validate_factor_execution_policy(factor_cfg, scope="factor_build")
+    specs = build_signal_specs(factor_cfg)
+    # This is intentionally a factor-config opt-in.  Normal batch/live factor
+    # configs never import research modules through this runtime.
+    live_admission = prepare_live50_factor_admission(factor_cfg, specs=specs)
+    live50_write_permit = issue_live50_factor_store_write_permit(
+        live_admission,
+        factor_data_root=paths_cfg["factor_data_root"],
+    )
 
     start_day = parse_date(start or factor_cfg.get("start"))
     end_day = parse_date(end or factor_cfg.get("end"))
@@ -46,7 +61,8 @@ def run(
         compute_cfg=factor_cfg.get("compute"),
         panel_source_cfg=factor_cfg.get("panel_source"),
         panel_build_cfg=panel_cfg,
-        specs=build_signal_specs(factor_cfg),
+        live50_write_permit=live50_write_permit,
+        specs=specs,
     )
     return {
         "start": start_day,

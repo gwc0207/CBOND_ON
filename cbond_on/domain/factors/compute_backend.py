@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 from typing import Any
 
@@ -73,13 +72,6 @@ def _parse_requested_engine(cfg: dict[str, Any]) -> str:
     if requested == "auto":
         return "rust"
     return requested
-
-
-def _allow_python_factor_engine(cfg: dict[str, Any]) -> bool:
-    if bool(cfg.get("allow_python_engine", False)):
-        return True
-    env_val = str(os.environ.get("CBOND_ALLOW_PYTHON_FACTOR_ENGINE", "")).strip().lower()
-    return env_val in {"1", "true", "yes", "on"}
 
 
 def _parse_requested_dataframe_backend(cfg: dict[str, Any]) -> str:
@@ -169,25 +161,19 @@ def resolve_compute_backend(cfg: dict[str, Any] | None = None) -> ComputeBackend
 def resolve_factor_engine(cfg: dict[str, Any] | None = None) -> FactorEngineState:
     runtime = dict(cfg or {})
     requested = _parse_requested_engine(runtime)
-    if requested in {"rust", "rust_shm_exp"}:
+    if requested == "rust":
         return FactorEngineState(
             requested=requested,
             active=requested,
             reason=f"forced_{requested}",
         )
-    if requested == "python":
-        if _allow_python_factor_engine(runtime):
-            return FactorEngineState(
-                requested=requested,
-                active=requested,
-                reason="explicit_python_engine",
-            )
+    if requested in {"rust_shm_exp", "rust_python_hybrid", "python"}:
         raise ValueError(
-            "unsupported factor engine: python is special-use only; set allow_python_engine=true "
-            "or env CBOND_ALLOW_PYTHON_FACTOR_ENGINE=1 to enable"
+            f"retired factor engine: {requested}; every executable factor path uses "
+            "the single public Rust compute_factor_frame API"
         )
     raise ValueError(
-        f"unsupported factor engine: {requested}; expected rust|rust_shm_exp"
+        f"unsupported factor engine: {requested}; expected the public rust engine"
     )
 
 

@@ -17,6 +17,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from cbond_on.core.config import load_config_file, parse_time
 from cbond_on.core.trading_days import next_trading_days_from_raw
 from cbond_on.app.pipelines.live_pipeline import execute as run_once
+from cbond_on.infra.live.config import configure_live_paths_profile
 from liveLaunch.attempt_journal import append_attempt_event, config_fingerprint, new_attempt_id
 
 WIN_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
@@ -138,6 +139,8 @@ def _append_attempt_event(
 
 
 def main() -> None:
+    initial_live_cfg = load_config_file("live")
+    configure_live_paths_profile(initial_live_cfg)
     paths_cfg = load_config_file("paths")
     raw_root = str(paths_cfg["raw_data_root"])
     results_root = Path(paths_cfg["results_root"])
@@ -175,6 +178,7 @@ def main() -> None:
 
     while True:
         live_cfg = load_config_file("live")
+        configure_live_paths_profile(live_cfg)
         schedule_cfg = dict(live_cfg.get("schedule", {}))
         cutoff = parse_time(str(schedule_cfg.get("cutoff_time", "14:30")))
 

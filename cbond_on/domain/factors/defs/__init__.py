@@ -96,8 +96,6 @@ from cbond_on.domain.factors.defs.alpha075_vwap_volume_low_adv_corr_v1 import Al
 from cbond_on.domain.factors.defs.alpha077_mid_price_adv_decay_min_v1 import Alpha077MidPriceAdvDecayMinV1Factor
 from cbond_on.domain.factors.defs.alpha078_low_vwap_adv_corr_v1 import Alpha078LowVwapAdvCorrV1Factor
 from cbond_on.domain.factors.defs.daily_overnight_return_mean_v1 import DailyOvernightReturnMeanV1Factor
-from cbond_on.domain.factors.defs.daily_prior_intraday_sharpe_v1 import DailyPriorIntradaySharpeV1Factor
-from cbond_on.domain.factors.defs.daily_prior_intraday_return_surprise_v1 import DailyPriorIntradayReturnSurpriseV1Factor
 from cbond_on.domain.factors.defs.daily_sharpe_mean_v1 import DailySharpeMeanV1Factor
 from cbond_on.domain.factors.defs.t1430_amount_accel_30m_v1 import T1430AmountAccel30mV1
 from cbond_on.domain.factors.defs.t1430_depth_concentration_v1 import T1430DepthConcentrationV1
@@ -195,17 +193,6 @@ from cbond_on.domain.factors.defs.t1430_spread_volatility_ratio_v1 import T1430S
 from cbond_on.domain.factors.defs.t1430_relative_strength_vwap_v1 import T1430RelativeStrengthVwapV1
 from cbond_on.domain.factors.defs.t1430_depth_pressure_return_v1 import T1430DepthPressureReturnV1
 from cbond_on.domain.factors.defs.t1430_price_range_depth_ratio_v1 import T1430PriceRangeDepthRatioV1
-from cbond_on.domain.factors.defs.ai_factory_wave80_intraday_v1 import AiFactoryWave80IntradayV1
-from cbond_on.domain.factors.defs.parity_adjusted_stock_lag_v1 import ParityAdjustedStockLagV1Factor
-from cbond_on.domain.factors.defs.parity_adjusted_stock_lag_v2 import ParityAdjustedStockLagV2Factor
-from cbond_on.domain.factors.defs.t1430_amount_accel_depth_delta_v2 import T1430AmountAccelDepthDeltaV2
-from cbond_on.domain.factors.defs.tail_path_efficiency_5m_v1 import TailPathEfficiency5mV1Factor
-from cbond_on.domain.factors.defs.research_factor_mining_catalog_v1 import (
-    FactorMiningCrossAssetCatalogV1,
-    FactorMiningDailyCatalogV1,
-    FactorMiningHybridCatalogV1,
-    FactorMiningIntradayCatalogV1,
-)
 __all__ = [
     "AacbFactor",
     "VolenFactor",
@@ -305,8 +292,6 @@ __all__ = [
     "Alpha077MidPriceAdvDecayMinV1Factor",
     "Alpha078LowVwapAdvCorrV1Factor",
     "DailyOvernightReturnMeanV1Factor",
-    "DailyPriorIntradaySharpeV1Factor",
-    "DailyPriorIntradayReturnSurpriseV1Factor",
     "DailySharpeMeanV1Factor",
     "T1430AmountAccel30mV1",
     "T1430DepthConcentrationV1",
@@ -368,14 +353,5 @@ __all__ = [
     "T1430RelativeStrengthVwapV1",
     "T1430DepthPressureReturnV1",
     "T1430PriceRangeDepthRatioV1",
-    "AiFactoryWave80IntradayV1",
-    "ParityAdjustedStockLagV1Factor",
-    "ParityAdjustedStockLagV2Factor",
-    "T1430AmountAccelDepthDeltaV2",
-    "TailPathEfficiency5mV1Factor",
-    "FactorMiningIntradayCatalogV1",
-    "FactorMiningDailyCatalogV1",
-    "FactorMiningCrossAssetCatalogV1",
-    "FactorMiningHybridCatalogV1",
 ]
 

@@ -5,6 +5,10 @@
   panel_name: "T1430",
   factor_time: "14:30",
   label_time: "14:42",
+  research_only: true,
+  research_factor_modules: [
+    "cbond_on.domain.factors.defs.t1430_amount_accel_depth_delta_v2",
+  ],
   refresh: false,
   overwrite: false,
   workers: 1,
@@ -13,8 +17,8 @@
     mode: "clean_direct",
   },
   compute: {
-    engine: "python",
-    allow_python_engine: true,
+    engine: "rust",
+    execution_policy: "rust_first",
     backend: "cpu",
     fallback_cpu: true,
   },

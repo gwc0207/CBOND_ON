@@ -189,6 +189,11 @@ def load_factor_specs_from_cfg(cfg: dict[str, Any]) -> list[FactorSpec]:
             factor=str(item["factor"]),
             params=dict(item.get("params", {}) or {}),
             output_col=item.get("output_col"),
+            rust_contract_id=(
+                str(item.get("rust_contract_id")).strip()
+                if item.get("rust_contract_id") is not None
+                else None
+            ),
         )
         col = build_factor_col(spec)
         if disabled and (name in disabled or col in disabled):

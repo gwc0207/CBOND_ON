@@ -45,5 +45,31 @@
     { name: "ret_10m", implementation: "ret_window", family: "momentum", uses_ohlc_rebuild: false, live_enabled: true, model_enabled: true },
     { name: "alpha025_return_volume_vwap_range_v1", implementation: "alpha025_return_volume_vwap_range_v1", family: "alpha", uses_ohlc_rebuild: true, live_enabled: true, model_enabled: true },
     { name: "alpha050_volume_vwap_corr_max_v1", implementation: "alpha050_volume_vwap_corr_max_v1", family: "alpha", uses_ohlc_rebuild: true, live_enabled: true, model_enabled: true },
+
+    // The following entries continue the same frozen ordered Rust-50 contract.
+    // All fifty share one admission, capability handshake, compute API and Store.
+    { name: "base_debt_premium_floor_gap", implementation: "factor_mining_daily_catalog_v1", family: "base_balance_sheet_defensive", uses_ohlc_rebuild: false, live_enabled: true, model_enabled: true },
+    { name: "bsfst_stock_return_bond_flow_mutual_information60", implementation: "factor_mining_daily_bond_stock_return_flow_information_v1", family: "prior_bond_stock_return_flow_information_dependence", uses_ohlc_rebuild: false, live_enabled: true, model_enabled: true },
+    { name: "bssrc_bond_stock_rank_correlation60", implementation: "factor_mining_daily_bond_stock_cross_sectional_rank_concordance_v1", family: "prior_bond_stock_cross_sectional_rank_concordance", uses_ohlc_rebuild: false, live_enabled: true, model_enabled: true },
+    { name: "bstk_tail_cocrash_residual20", implementation: "factor_mining_daily_contract_stock_v1", family: "daily_bond_stock_tracking_error", uses_ohlc_rebuild: false, live_enabled: true, model_enabled: true },
+    { name: "dliq_volume_return_corr20", implementation: "factor_mining_daily_expansion_v1", family: "daily_liquidity_quality_stability", uses_ohlc_rebuild: false, live_enabled: true, model_enabled: true },
+    { name: "dohw_intraday_sign_range_asymmetry60", implementation: "factor_mining_daily_ohlc_wick_path_asymmetry_v1", family: "prior_daily_ohlc_wick_path_asymmetry", uses_ohlc_rebuild: true, live_enabled: true, model_enabled: true },
+    { name: "dohw_mean_wick_asymmetry60", implementation: "factor_mining_daily_ohlc_wick_path_asymmetry_v1", family: "prior_daily_ohlc_wick_path_asymmetry", uses_ohlc_rebuild: true, live_enabled: true, model_enabled: true },
+    { name: "dredemption_bondpremium_interaction", implementation: "factor_mining_daily_expansion_v1", family: "daily_redemption_hazard_surface", uses_ohlc_rebuild: false, live_enabled: true, model_enabled: true },
+    { name: "dredemption_premium_z20", implementation: "factor_mining_daily_expansion_v1", family: "daily_redemption_hazard_surface", uses_ohlc_rebuild: false, live_enabled: true, model_enabled: true },
+    { name: "dret_drawup_drawdown_asym", implementation: "factor_mining_daily_catalog_v1", family: "daily_return_distribution", uses_ohlc_rebuild: false, live_enabled: true, model_enabled: true },
+    { name: "dret_volatility_20", implementation: "factor_mining_daily_expansion_v1", family: "daily_return_regime_transition", uses_ohlc_rebuild: false, live_enabled: true, model_enabled: true },
+    { name: "drt_rebound_from_low20", implementation: "factor_mining_daily_incremental_v1", family: "drawdown_recovery_timing", uses_ohlc_rebuild: false, live_enabled: true, model_enabled: true },
+    { name: "dtwap_morning_slope20", implementation: "factor_mining_daily_expansion_v1", family: "daily_twap_session_memory", uses_ohlc_rebuild: false, live_enabled: true, model_enabled: true },
+    { name: "lcc_amount_trade_size_information60", implementation: "factor_mining_daily_liquidity_channel_composition_v1", family: "prior_liquidity_channel_composition", uses_ohlc_rebuild: false, live_enabled: true, model_enabled: true },
+    { name: "lcc_volume_deal_information60", implementation: "factor_mining_daily_liquidity_channel_composition_v1", family: "prior_liquidity_channel_composition", uses_ohlc_rebuild: false, live_enabled: true, model_enabled: true },
+    { name: "lrd_cross_side_reprice_symmetry", implementation: "factor_mining_orderbook_repricing_v1", family: "price_ladder_reprice_direction", uses_ohlc_rebuild: false, live_enabled: true, model_enabled: true },
+    { name: "prcn_return_capacity_rank_corr60", implementation: "factor_mining_daily_capacity_rank_coupling_v1", family: "prior_capacity_normalized_return_rank_coupling", uses_ohlc_rebuild: false, live_enabled: true, model_enabled: true },
+    { name: "qed_prior_quote_lag2_agreement", implementation: "factor_mining_quote_execution_dynamics_v1", family: "quote_side_sequence_dynamics", uses_ohlc_rebuild: false, live_enabled: true, model_enabled: true },
+    { name: "qed_prior_quote_location_dispersion", implementation: "factor_mining_quote_execution_dynamics_v1", family: "quote_execution_location_shape", uses_ohlc_rebuild: false, live_enabled: true, model_enabled: true },
+    { name: "qed_prior_quote_tail_penetration", implementation: "factor_mining_quote_execution_dynamics_v1", family: "quote_execution_location_shape", uses_ohlc_rebuild: false, live_enabled: true, model_enabled: true },
+    { name: "rjst_amount_joint_transition_entropy60", implementation: "factor_mining_daily_return_liquidity_topology_v1", family: "prior_joint_return_liquidity_state_topology", uses_ohlc_rebuild: false, live_enabled: true, model_enabled: true },
+    { name: "rlmi_return_deal_sign_mutual_information60", implementation: "factor_mining_daily_return_liquidity_topology_v1", family: "prior_return_liquidity_information_dependence", uses_ohlc_rebuild: false, live_enabled: true, model_enabled: true },
+    { name: "ydpt_yield_fall_return_beta60", implementation: "factor_mining_daily_asymmetric_state_transitions_v1", family: "prior_yield_directional_price_pass_through", uses_ohlc_rebuild: false, live_enabled: true, model_enabled: true },
   ]
 }

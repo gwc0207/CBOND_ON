@@ -38,6 +38,7 @@ if str(_REPO_ROOT) not in sys.path:
 from cbond_on.bootstrap.research import load_factor_batch_inputs  # noqa: E402
 from cbond_on.core.config import parse_date  # noqa: E402
 from cbond_on.core.registry import FactorRegistry, RegistryError  # noqa: E402
+from cbond_on.infra.factors.rust_backend import validate_rust_first_contracts  # noqa: E402
 from cbond_on.domain.factors.defs.research_factor_mining_catalog_v1 import (  # noqa: E402
     CATALOG_VERSION,
     CatalogEntry,
@@ -201,10 +202,12 @@ def _assert_build_config(cfg: dict[str, Any]) -> None:
     if not isinstance(panel_source, dict) or str(panel_source.get("mode", "")).lower() != "clean_direct":
         raise ValueError("factor-mining panel_source.mode must be clean_direct")
     compute = cfg.get("compute")
-    if not isinstance(compute, dict) or str(compute.get("engine", "")).lower() != "python":
-        raise ValueError("factor-mining compute.engine must be python")
-    if not bool(compute.get("allow_python_engine", False)):
-        raise ValueError("factor-mining compute.allow_python_engine must be true")
+    if not isinstance(compute, dict) or str(compute.get("engine", "")).lower() != "rust":
+        raise ValueError("factor-mining compute.engine must be rust")
+    if str(compute.get("execution_policy", "")).strip().lower() != "rust_first":
+        raise ValueError("factor-mining compute.execution_policy must be rust_first")
+    if "allow_python_engine" in compute:
+        raise ValueError("factor-mining must not declare allow_python_engine")
     if bool(cfg.get("backtest_enabled", True)):
         raise ValueError("factor-mining batch backtest must stay disabled")
     screening = cfg.get("screening")
@@ -222,6 +225,18 @@ def _assert_build_config(cfg: dict[str, Any]) -> None:
         raise ValueError("factor-mining must use its explicit empty research disabled-factor guard")
 
 
+def _catalog_rust_contract_id(entry: CatalogEntry) -> str:
+    """Require a ported, instance-level Rust contract for every old signal."""
+
+    contract_id = str(getattr(entry, "rust_contract_id", "")).strip()
+    if not contract_id:
+        raise RuntimeError(
+            "factor-mining catalogue is a Python reference only until every signal has "
+            f"an exact Rust contract; missing rust_contract_id for {entry.signal!r}"
+        )
+    return contract_id
+
+
 def _expanded_config(cfg: dict[str, Any], entries: tuple[CatalogEntry, ...]) -> dict[str, Any]:
     expanded = dict(cfg)
     expanded["factors"] = [
@@ -233,6 +248,7 @@ def _expanded_config(cfg: dict[str, Any], entries: tuple[CatalogEntry, ...]) -> 
                 "family": entry.family,
                 "catalog_version": CATALOG_VERSION,
             },
+            "rust_contract_id": _catalog_rust_contract_id(entry),
         }
         for entry in entries
     ]
@@ -272,6 +288,7 @@ def _preflight(*, start_text: str | None, end_text: str | None) -> tuple[dict[st
         raise RuntimeError(f"expanded spec count mismatch: catalogue={len(entries)}, specs={len(specs)}")
     if {spec.name for spec in specs} != {entry.signal for entry in entries}:
         raise RuntimeError("expanded specs do not exactly match catalogue signals")
+    validate_rust_first_contracts(specs)
     start, end = _requested_range(expanded, start_text, end_text)
     expanded["start"] = start.isoformat()
     expanded["end"] = end.isoformat()

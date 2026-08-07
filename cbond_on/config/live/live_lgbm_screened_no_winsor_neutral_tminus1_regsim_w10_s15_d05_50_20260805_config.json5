@@ -1,0 +1,5 @@
+{
+  modules: ["models/lgbm/lgbm_screened_no_winsor_neutral_tminus1_regsim_w10_s15_d05_50_20260805"],
+  // Kept locally because live_runtime reads this raw wrapper for history backfill.
+  rolling: { enabled: true, window_days: 60 },
+}

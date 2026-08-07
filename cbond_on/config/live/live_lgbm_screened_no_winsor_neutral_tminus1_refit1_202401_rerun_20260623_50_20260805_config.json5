@@ -1,0 +1,4 @@
+{
+  modules: ["models/lgbm/lgbm_screened_no_winsor_neutral_tminus1_refit1_202401_rerun_20260623_50_20260805"],
+  rolling: { enabled: true, window_days: 60 },
+}

@@ -9,7 +9,7 @@
 5. 跑单日、多日 batch、bad factor report、stable_bin_alpha。
 6. 再进入模型筛选和回测对比。
 
-重要边界：Dify 只生成候选方案和 Python 草稿，不是可信执行器。可信部分必须在本地完成：字段白名单、时间可见性、静态审查、batch 检验、样本外筛选、人工准入。
+重要边界：Dify 只生成候选方案或 Rust kernel 草稿，不是可信执行器。任何可执行候选必须是 Rust-only：本地完成字段白名单、时间可见性、静态审查、精确 Rust capability 合同、batch 检验、样本外筛选和人工准入；Python 代码不能作为实现或 fallback。
 
 ## 1. 迁移后先检查
 
@@ -149,6 +149,12 @@ forbid_stock_panel_for_this_request
 python cbond_on\run\ai_factor_factory.py generate-dify --topic "Generate one T1430 liquidity candidate factor using panel fields last, amount, and volume." --constraints "Generate exactly 1 candidate. Do not use daily_data. Do not use stock_panel. status must be research_only." --batch-id "smoke_ai_factor_001"
 ```
 
+这个命令只接受已经输出 `candidates`、`rust_code` 和精确
+`rust_contract_id` 的 concrete-Rust Dify workflow。本文档
+`ai_factor_factory_dify_prompt.md` 描述的 family-only workflow 会返回
+`factor_families`；它会被本地命令明确拒绝，不能被伪装成可执行候选。先在本地把
+family 展开为 Rust candidate JSON，再使用 `stage --candidate <json>`。
+
 成功时会输出：
 
 ```json
@@ -163,9 +169,10 @@ python cbond_on\run\ai_factor_factory.py generate-dify --topic "Generate one T14
 
 ```text
 candidate.json
-<factor_key>.py.draft
+<factor_key>.rs.draft
 config_spec.json
 factor_contract_entry.json
+rust_contract_requirement.json
 static_review.json
 README.md
 ```
@@ -181,18 +188,23 @@ static_review.json
 ```json
 {
   "accepted_by_static_review": true,
+  "research_batch_permitted": false,
+  "research_batch_gate": "compiled_factor_capabilities_exact_contract_required",
   "findings": []
 }
 ```
+
+`accepted_by_static_review=true` 只表示候选可以进入 Rust 实现和 capability 审阅，
+不表示可以跑 batch。只有完成 `rust_contract_requirement.json` 指定的编译 capability
+证明后，研究 batch 才允许执行。
 
 如果 `accepted_by_static_review=false`，不要接入因子链路。先看 `findings`，常见问题包括：
 
 - 使用了非本轮允许字段。
 - 使用了 daily_data 或 stock_panel，但本轮明确禁止。
-- 使用了错误 import 路径。
-- 没有 `FactorRegistry.register`。
-- 没有使用 `Factor` / `FactorComputeContext`。
-- 代码包含直接 IO 或 forbidden calls。
+- 缺少 `rust_code`、Rust `fn` kernel draft 或精确 `rust_contract_id`。
+- 候选仍携带旧 `python_code` payload。
+- Rust draft 包含文件、网络、数据库、进程或 unsafe I/O。
 
 ## 6. 本地静态审查已有能力
 
@@ -203,17 +215,13 @@ static_review.json
 - 非白名单 panel 字段。
 - 本轮 request 限制字段外的字段。
 - 本轮 request 禁止 daily_data / stock_panel。
-- 面板因子没有按 `(dt, code)` 输出单个标量。
-- 面板因子没有使用 `ensure_trade_time` / `_group_scalar`。
-- 面板因子直接返回 `(dt, code, seq)` 级别的 snapshot 序列。
 - 除法类公式没有显式处理价格、成交量、分母 `<=0` 的情况。
+- window 类 Rust kernel 没有写清 window/slice/tail 边界。
 - 非白名单 daily source / daily field。
 - forbidden semantic inputs：`label`、`y`、`future_return`、`backtest_return`、`trade_list`、`o_0005`、`o005`。
-- forbidden imports / calls。
-- 宽泛 try/except。
-- `fillna(0)`。
-- 缺少 FactorRegistry / FactorComputeContext / pd.Series return。
-- 直接文件 IO。
+- Rust draft 的文件、网络、数据库、进程、dynamic include 或 `unsafe` I/O token。
+- 缺少 Rust `fn` kernel draft、`config_spec.name/factor/params` 或精确 `rust_contract_id`。
+- 旧 `python_code`/`legacy_python_code`；它只会被读取为迁移诊断，永远不会执行。
 
 注意：静态审查只能做安全和工程规则审查，不能证明因子有效。
 
@@ -235,38 +243,46 @@ static_review.json
 
 接入步骤：
 
-1. 复制 draft 文件：
+1. 先实现 Rust kernel 与精确实例合同。候选包的
+`<factor_key>.rs.draft` 和 `rust_contract_requirement.json` 是必需输入；将 draft
+审阅后整合进 `rust/factor_engine` 的标准 typed kernel/dispatch，而不是复制到
+`cbond_on/domain/factors/defs`。为每个实际 `config_spec` 保留唯一
+`rust_contract_id`，实现到标准 `cbond_on_rust.compute_factor_frame`，并让已构建
+二进制的 `factor_capabilities()` 声明完全相同的 contract：
 
 ```powershell
-copy <PKG>\<factor_key>.py.draft cbond_on\domain\factors\defs\<factor_key>.py
+cargo test --manifest-path rust\factor_engine\Cargo.toml
 ```
 
-2. 编辑：
+2. 重建 Rust extension 后，逐位验证 capability 中的 `id`、`factor`、`output_col`
+和 `params_sha256`；再验证 `(dt, code)`、列顺序、dtype、NaN/Inf mask、有限值
+和正负零。未通过时不得运行研究 batch。
+
+3. 新建或编辑一个独立的 factor research 根配置：
 
 ```text
-cbond_on/domain/factors/defs/__init__.py
+cbond_on/config/factor/research/<experiment>_config.json5
 ```
 
-增加 import。类名以 draft 里的 class 为准，例如：
+必须显式写入：
 
-```python
-from cbond_on.domain.factors.defs.<factor_key> import <ClassName>
+```json5
+research_only: true,
+compute: {
+  engine: "rust",
+  execution_policy: "rust_first",
+},
 ```
 
-并把 `<ClassName>` 加到 `__all__`。
+再把候选包里的 `config_spec.json` 加入该配置的 research-only `factors` 列表。
+不要修改 `defs/__init__.py`、任何 Python factor 注册、live 配置或生产模型 profile。
 
-3. 编辑 factor research 配置：
-
-```text
-cbond_on/config/factor/factor_config.json5
-```
-
-把候选包里的 `config_spec.json` 加入 research-only 的 `factors` 列表。不要加入 live 配置，不要加入生产模型 profile。
-
-4. 如果项目当前使用 factor contracts，也只加 research-only entry。候选包里已有：
+4. 因子合同是生产准入边界。research-only 候选不继承 live profile，也不能以
+research profile 引用 live 因子集合。候选包里的以下文件仅作为后续准入审阅资料：
 
 ```text
 factor_contract_entry.json
+rust_contract_requirement.json
 ```
 
 保持：
@@ -277,17 +293,14 @@ factor_contract_entry.json
 "status": "research_only"
 ```
 
-5. 检查注册：
+5. 检查 Rust 能力合同：
 
 ```powershell
-python -m py_compile cbond_on\domain\factors\defs\<factor_key>.py cbond_on\domain\factors\defs\__init__.py
+python -c "import cbond_on_rust; print(cbond_on_rust.factor_capabilities())"
 ```
 
-也可以跑一个简单导入：
-
-```powershell
-python -c "import cbond_on.domain.factors.defs; print('defs import ok')"
-```
+输出中必须同时有 ABI、`compute_factor_frame`、`python_fallback=false` 与该候选的
+精确 `rust_contract_id`；否则是未编译/未准入候选，不能跑 batch。
 
 ## 8. 数据侧 batch 验证
 
@@ -488,10 +501,12 @@ MACHINE_READABLE_REQUEST_RULES_JSON
 [ ] python py_compile passes
 [ ] dify.json exists outside repo
 [ ] render-dify-inputs shows MACHINE_READABLE_REQUEST_RULES_JSON
-[ ] generate-dify creates a candidate package
+[ ] concrete-Rust generate-dify creates a candidate package, or family-only output is expanded locally and staged as a Rust candidate
 [ ] static_review.json accepted_by_static_review=true for at least one safe candidate
-[ ] accepted candidate is manually staged into defs/__init__.py and factor_config research-only
-[ ] factor defs import succeeds
+[ ] accepted candidate has a compiled Rust kernel, an exact rust_contract_id, and binary capability proof
+[ ] Rust contract verification covers keys/order/dtype/mask/finite bits before batch
+[ ] accepted candidate is staged only in a rust_first research_only config, without a Python factor module
+[ ] no `.py.draft` or `python_code` appears in the candidate package
 [ ] factor_batch.py runs on data
 [ ] bad factor report checked
 [ ] stable_bin_alpha / IC / bin alpha checked

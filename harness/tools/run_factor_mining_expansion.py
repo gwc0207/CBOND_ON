@@ -45,6 +45,7 @@ from cbond_on.app.usecases.factor_batch_runtime import build_signal_specs  # noq
 from cbond_on.bootstrap.research import load_factor_batch_inputs  # noqa: E402
 from cbond_on.core.config import parse_date  # noqa: E402
 from cbond_on.core.registry import FactorRegistry, RegistryError  # noqa: E402
+from cbond_on.infra.factors.rust_backend import validate_rust_first_contracts  # noqa: E402
 from cbond_on.workflows.research.factor_batch import run as run_factor_batch  # noqa: E402
 
 
@@ -97,12 +98,13 @@ _PRODUCTION_ROOTS = (
 
 @dataclass(frozen=True)
 class CatalogEntry:
-    """Normalized generic research-catalogue entry."""
+    """Normalized generic research-catalogue entry with an exact Rust contract."""
 
     family: str
     signal: str
     kernel: str
     hypothesis: str
+    rust_contract_id: str
 
 
 @dataclass(frozen=True)
@@ -217,10 +219,12 @@ def _assert_frozen_build_config(cfg: Mapping[str, Any]) -> None:
     if not isinstance(panel_source, Mapping) or str(panel_source.get("mode", "")).lower() != "clean_direct":
         raise ValueError("factor-mining expansion panel_source.mode must be clean_direct")
     compute = cfg.get("compute")
-    if not isinstance(compute, Mapping) or str(compute.get("engine", "")).lower() != "python":
-        raise ValueError("factor-mining expansion compute.engine must be python")
-    if not bool(compute.get("allow_python_engine", False)):
-        raise ValueError("factor-mining expansion compute.allow_python_engine must be true")
+    if not isinstance(compute, Mapping) or str(compute.get("engine", "")).lower() != "rust":
+        raise ValueError("factor-mining expansion compute.engine must be rust")
+    if str(compute.get("execution_policy", "")).strip().lower() != "rust_first":
+        raise ValueError("factor-mining expansion compute.execution_policy must be rust_first")
+    if "allow_python_engine" in compute:
+        raise ValueError("factor-mining expansion must not declare allow_python_engine")
 
     if bool(cfg.get("backtest_enabled", True)):
         raise ValueError("factor-mining expansion batch backtest must stay disabled")
@@ -357,6 +361,7 @@ def _normalise_catalogue(module_name: str) -> tuple[Path, str | None, tuple[Cata
         signal = _catalog_entry_field(raw_entry, field="signal", position=position)
         kernel = _catalog_entry_field(raw_entry, field="kernel", position=position)
         hypothesis = _catalog_entry_field(raw_entry, field="hypothesis", position=position)
+        rust_contract_id = _catalog_entry_field(raw_entry, field="rust_contract_id", position=position)
         if signal in seen_signals:
             raise ValueError(f"research catalogue has duplicate signal: {signal}")
         seen_signals.add(signal)
@@ -369,7 +374,15 @@ def _normalise_catalogue(module_name: str) -> tuple[Path, str | None, tuple[Cata
                 f"{prior_family!r} versus {family!r}"
             )
         families.setdefault(family, []).append(signal)
-        entries.append(CatalogEntry(family=family, signal=signal, kernel=kernel, hypothesis=hypothesis))
+        entries.append(
+            CatalogEntry(
+                family=family,
+                signal=signal,
+                kernel=kernel,
+                hypothesis=hypothesis,
+                rust_contract_id=rust_contract_id,
+            )
+        )
         try:
             FactorRegistry.get(kernel)
         except RegistryError:
@@ -432,6 +445,7 @@ def _expanded_config(
                 "signal": entry.signal,
                 "family": entry.family,
             },
+            "rust_contract_id": entry.rust_contract_id,
         }
         for entry in entries
     ]
@@ -468,6 +482,10 @@ def _preflight(
     expected_signals = {entry.signal for entry in entries}
     if len(specs) != len(entries) or {spec.name for spec in specs} != expected_signals:
         raise RuntimeError("expanded factor specs do not exactly match the validated research catalogue")
+    # This is deliberately before the first panel read, scratch directory
+    # creation, or FactorStore write.  A future catalogue is executable only
+    # after every declared instance is advertised by the loaded Rust binary.
+    validate_rust_first_contracts(specs)
     return PreparedRun(
         catalog_module=catalog_module,
         catalog_path=catalog_path,
@@ -498,6 +516,7 @@ def _preflight_summary(prepared: PreparedRun, *, execute: bool) -> dict[str, Any
         "factor_time": prepared.cfg["factor_time"],
         "label_time": prepared.cfg["label_time"],
         "engine": prepared.cfg["compute"]["engine"],
+        "execution_policy": prepared.cfg["compute"]["execution_policy"],
         "panel_source": prepared.cfg["panel_source"]["mode"],
         "reports_disabled": {
             "backtest": not prepared.cfg["backtest_enabled"],
@@ -562,6 +581,7 @@ def _write_run_evidence(*, out_root: Path, prepared: PreparedRun) -> None:
                     "signal": entry.signal,
                     "kernel": entry.kernel,
                     "hypothesis": entry.hypothesis,
+                    "rust_contract_id": entry.rust_contract_id,
                 }
                 for entry in prepared.entries
             ],

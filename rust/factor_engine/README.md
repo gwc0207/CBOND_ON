@@ -47,7 +47,17 @@ Expected signature after daily context upgrade:
 ## Current behavior
 
 - Python factor pipeline can route to Rust by setting `compute.engine = "rust"`.
+- A `rust_first` run uses the ordinary public `compute_factor_frame` API for
+  every requested factor instance; it has no Python or hybrid compute branch.
 - Runtime is **fail-fast**: if Rust is selected, no Python fallback is used.
+- The runtime authority is the **loaded**
+  `cbond_on_rust.factor_capabilities()` payload, specifically its generic
+  `factor_contracts` entries. Source files, this README, and
+  `factor_manifest.json` are static documentation and cannot prove that an
+  installed `.pyd` is current.
+- The current profile-neutral capability ABI revision is
+  `rust_factor_contracts_20260806_r1`; profile names such as `live50` do not
+  belong to the core Rust capability surface.
 - Rust kernels are implemented for the `lgbm_factor_MSE` dependency set:
   - `aacb`, `volen`, `ret_window`, `ret_open_to_time`, `mom_slope`, `volatility`,
     `range_ratio`, `price_position`, `volume_sum`, `amount_sum`, `vwap`,
@@ -58,12 +68,58 @@ Expected signature after daily context upgrade:
   - `order_flow_imbalance_v1`, `depth_weighted_imbalance_v1`, `intraday_momentum_v1`,
     `bid_ask_spread_v1`, `price_level_position_v1`, `volume_price_trend_v1`,
     `trade_intensity_v1`, `volatility_scaled_return_v1`,
-    `alpha001_signed_power_v1` ~ `alpha010_close_change_rank_v1`.
-- Current implemented total: 41 factors (see `factor_manifest.json`).
-- Other factors are currently fail-fast with explicit `rust factor kernel not implemented: ...`.
+    `alpha001_signed_power_v1` ~ `alpha010_close_change_rank_v1`, plus the
+    frozen live50 alpha instances `alpha019`, `alpha024`, `alpha025`, `alpha030`,
+    `alpha041`, `alpha050`, and `alpha078`.
+- `factor_manifest.json` records 50 fully implemented catalog factor keys and
+  13 research factor families implemented only for the exact frozen contracts
+  listed there. A `rust_status` of `implemented_frozen_contracts_only` never
+  authorizes an arbitrary `params.signal` variant.
+- Other factors remain fail-fast with explicit `rust factor kernel not implemented: ...`.
 - Suggested rollout:
-  - `factor_config.compute.engine = "rust"` and `live_factors_config.compute.engine = "rust"` are both supported.
-  - factor packs beyond the covered set remain fail-fast until kernels are added.
+  - `factor_config.compute.engine = "rust"` and
+    `compute.execution_policy = "rust_first"` must be paired.
+  - A new factor instance must be rejected unless the loaded extension declares
+    an exact contract ID, output column, factor key, signal, and parameter hash.
+
+## Frozen live50 contract
+
+`live50_rust50_20260806` is one ordered, 50-instance Rust contract. The former
+27/23 split is not a runtime category: all 50 instances enter one
+`compute_factor_frame` call and one FactorStore/model feature path.
+
+Its static sources are:
+
+- pack: `cbond_on/config/factor/packs/live_screened_no_winsor_50_20260805.json5`;
+- profile: `cbond_on/factor_contracts/profiles/live50_rust50_20260806.json5`;
+- manifest: `factor_manifest.json` → `frozen_contracts`.
+
+The manifest stores the ordered 50 capability-shaped records
+`{id, output_col, factor, signal, params_sha256}` and the profile's complete
+`specs_sha256`. `tests/test_rust_factor_manifest_live50_contract.py` compares
+all of those records against the pack and profile, so an ID, order, parameter,
+or output-column change cannot silently drift. It does not load a production
+binary; deployment validation must separately call `factor_capabilities()` on
+the freshly loaded wheel.
+
+## New experimental factors: Rust-first policy
+
+Every new experiment follows the same runtime policy as live:
+
+1. Implement and parity-test the Rust kernel first.
+2. Give every runnable parameterized instance a unique `rust_contract_id`.
+3. Add the exact `{id, output_col, factor, signal, params_sha256}` record to
+   the Rust capability table in the built extension, and record its catalog or
+   frozen-contract scope in `factor_manifest.json`.
+4. Run with `compute.engine = "rust"` and
+   `compute.execution_policy = "rust_first"`; the loaded capability handshake
+   must pass before panel/FactorStore work begins.
+
+Python may remain only as a parity/reference implementation. It is not a
+normal research, batch, or live fallback. Reproducing an archived Python result
+requires the explicit root-config exception
+`execution_policy = "legacy_reference_only"`, `legacy_reference_only: true`,
+and a non-empty `legacy_reference_reason`.
 
 ## Unified planning (windows / levels / time-ranges)
 
@@ -84,4 +140,7 @@ If a run exceeds a configured limit, Rust fails fast with explicit error.
 
 Coverage tracker:
 
-- `factor_manifest.json` lists all registered factors (`total_factors=97`) and Rust implementation status.
+- `factor_manifest.json` schema v2 contains a 112-key static catalog plus the
+  immutable live50 instance contracts. Its `total_factors` counts catalog keys,
+  not parameterized instance contracts; only loaded `factor_capabilities()`
+  decides runtime executability.

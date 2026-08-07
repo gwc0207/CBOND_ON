@@ -54,9 +54,12 @@
 - 回测总控：`cbond_on/config/backtest_pipeline/backtest_config.json5`
 - 全链路总控：`cbond_on/config/backtest_pipeline/pipeline_all_config.json5`
 - 实盘总控：`cbond_on/config/live/live_config.json5`
-- 实盘因子：`cbond_on/config/live/live_factors_config.json5`
-- 实盘模型注册：`cbond_on/config/live/live_models_config.json5`
-- 实盘模型参数：由 `live_models_config.json5` 引用对应的 `live/live_lgbm_*_config.json5`
+- 实盘因子：由 `live_config.json5.factor.config` 唯一指定，当前为
+  `live/live_factors_50_20260805`；它是单一 ordered Rust-50 contract。
+- 实盘模型注册：由 `live_config.json5.model_score.config` 唯一指定，当前为
+  `live/live_switch_source_regsim_50_20260805`。
+- 实盘模型参数：由该 live model config 引用对应的版本化
+  `live/live_lgbm_*_50_20260805_config.json5`。
 
 ## 5. 各环节详细说明
 
@@ -146,7 +149,8 @@ python cbond_on/run/factor_batch.py
   - `.../screened/factor_shortlist.csv`
 
 关键行为：
-- 计算引擎支持 `rust` 和 `rust_shm_exp`。
+- 正常执行只支持 `compute.engine="rust"` 与
+  `compute.execution_policy="rust_first"`；Python 仅可用于隔离的 parity/reference。
 - 支持 `refresh/overwrite`。
 - 自动跳过黑名单因子（`factor_disabled_factors.json`）。
 
@@ -293,8 +297,8 @@ python cbond_on/run/live.py
 
 主要配置：
 - `live_config.json5`
-- `live_factors_config.json5`
-- `live_models_config.json5`
+- `live_config.json5.factor.config` 所引用的唯一 Rust-50 factor config
+- `live_config.json5.model_score.config` 所引用的版本化 50-feature model config
 
 执行步骤（`app/usecases/live_runtime.py`）：
 1. 读取并校验 live/factor/model 配置。
@@ -305,6 +309,10 @@ python cbond_on/run/live.py
 6. 与 clean 合并并执行 `filter_tradable`。
 7. 调用策略（默认 `strategy01_topk_turnover`）输出 picks。
 8. 写入 `trade_list.csv`，可选写入数据库。
+
+当前实盘的 50 个因子在同一次 `compute_factor_frame` Rust 调用、同一
+FactorStore 和同一 model feature contract 中处理；不存在按历史来源拆分的
+计算、回退或输出路径。
 
 输出：
 - `results/live/{YYYY-MM-DD}/trade_list.csv`

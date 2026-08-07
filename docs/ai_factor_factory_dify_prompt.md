@@ -2,7 +2,7 @@
 
 This Dify workflow is a research-only factor-family ideation tool for CBOND_ON.
 
-Dify must not directly generate production factor code, modify project files, update model profiles, edit Rust kernels, touch live configs, or claim that any idea is ready for trading. Its only job is to propose diverse, low-duplication factor family designs. The local agent will choose parameters, expand concrete factors, write code, run validation, run backtests, run correlation checks, and decide whether anything can enter the local candidate pool.
+Dify must not directly generate production factor code, modify project files, update model profiles, edit Rust kernels, touch live configs, or claim that any idea is ready for trading. Its only job is to propose diverse, low-duplication factor family designs. The local agent will choose parameters, expand concrete factors into Rust-only candidate drafts, implement an exact Rust kernel contract, run validation, run backtests, run correlation checks, and decide whether anything can enter the local candidate pool. Python is never an implementation or fallback path.
 
 ## Design Shift
 
@@ -20,6 +20,16 @@ Window size, depth level, threshold, smoothing, and other numerical choices are 
 The local agent expands each family into concrete factor specs.
 ```
 
+## Rust-Only Execution Boundary
+
+A Dify family is ideation metadata, not a runnable factor candidate. Before any
+research batch, the local expansion must produce a candidate JSON with
+`rust_code` and `config_spec.name`, `config_spec.factor`, `config_spec.params`,
+and an exact `config_spec.rust_contract_id`. The Rust draft must be integrated
+into the standard `cbond_on_rust.compute_factor_frame` binary and be proven by
+the binary's `factor_capabilities()` response. `python_code`, Python factor
+registration, hybrid execution, and Python fallback are prohibited.
+
 ## Start Node Inputs
 
 | Type | Name | Max Length | Required |
@@ -35,6 +45,10 @@ The local agent expands each family into concrete factor specs.
 | Paragraph | `daily_sources_json` | 4000 | Yes |
 | Paragraph | `forbidden_semantic_inputs_json` | 10000 | Yes |
 | Paragraph | `output_schema` | 40000 | Yes |
+
+`output_schema` is the local concrete Rust-candidate contract supplied for the
+subsequent expansion step; LLM1/LLM2 must still return the family-level JSON
+defined below, never a Python implementation.
 
 Recommended `max_candidates`: 20 to 30 factor families per batch.
 
@@ -148,7 +162,7 @@ Your job is not to write production-ready factor code.
 Your job is not to output many concrete window-specific factors.
 Your job is to propose 20-30 diverse, low-duplication factor family designs for the local AI factor factory.
 
-The local agent will choose concrete windows and thresholds, expand each family into specific factor specs, write Python code, run static checks, run factor build, run 20-bin screening, run backtests, run correlation checks, and decide what can be kept.
+The local agent will choose concrete windows and thresholds, expand each family into specific Rust factor specs, implement and capability-check a Rust kernel, run static checks, run factor build, run 20-bin screening, run backtests, run correlation checks, and decide what can be kept. Python is not an implementation, registration, hybrid, or fallback path.
 
 You must strictly follow these rules:
 
@@ -255,7 +269,7 @@ Check each item:
 2. Does the top-level object contain factor_families and self_review?
 3. Is every family status research_only?
 4. Does every family output a family design instead of concrete code?
-5. Does any family contain python_code or FactorRegistry.register? If yes, remove it.
+5. Does any family contain python_code, a Python registration reference, or a Python/hybrid fallback? If yes, remove it.
 6. Does any family generate separate 10m/20m/30m/45m/60m window variants instead of parameter slots? If yes, remove or collapse it.
 7. Does any pair of families differ only by window size, depth level, threshold, sign, scaling, rank/log/zscore, or name? If yes, keep only the more distinct one.
 8. Does every family include family_name, signal_category, core_hypothesis, allowed_fields, formula_template, parameter_slots, suggested_parameter_ranges, local_expansion_plan, difference_from_existing, why_not_formula_relabel, expected_duplicate_risk, expected_correlation_risk, time_visibility, and risk_notes?
@@ -341,11 +355,12 @@ After Dify returns `factor_families`, the local agent must:
 2. Select concrete windows, thresholds, depth levels, and smoothing parameters.
 3. Expand each family into 1-3 concrete factor candidates.
 4. Reject simple window-only expansions.
-5. Write local Python factor code only after local review.
-6. Run static checks.
-7. Run factor build.
-8. Run 20-bin screening.
-9. Run single-factor backtests.
-10. Run new-vs-existing and new-vs-new correlation checks.
-11. Reject or merge factors with `max(abs(Pearson), abs(Rank)) >= 0.85`.
-12. Only then decide whether a candidate can enter local research packs.
+5. Write a local Rust kernel draft and exact Rust candidate contract only after local review.
+6. Integrate it into the standard typed Rust engine, rebuild the extension, and prove the exact capability tuple.
+7. Run static checks.
+8. Run factor build.
+9. Run 20-bin screening.
+10. Run single-factor backtests.
+11. Run new-vs-existing and new-vs-new correlation checks.
+12. Reject or merge factors with `max(abs(Pearson), abs(Rank)) >= 0.85`.
+13. Only then decide whether a candidate can enter local research packs.

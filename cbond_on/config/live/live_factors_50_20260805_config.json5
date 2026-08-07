@@ -1,0 +1,45 @@
+{
+  panel_name: "T1430",
+  factor_time: "14:30",
+  label_time: "14:42",
+  refresh: false,
+  overwrite: false,
+  workers: 6,
+  panel_source: {
+    mode: "clean_direct",
+  },
+  // The frozen model feature order lives in the one factor pack below.  All
+  // 50 columns are computed by the normal Rust engine in one invocation.
+  compute: {
+    engine: "rust",
+    execution_policy: "rust_first",
+    backend: "cpu",
+    torch_device: "cuda",
+    fallback_cpu: true,
+    plan_log_summary: true,
+  },
+  live_factor_admission: {
+    enabled: true,
+    profile: "live50_rust50_20260806",
+    model_feature_contract: "models/lgbm/lgbm_live50_feature_contract_20260805",
+    modules: [
+      "cbond_on.domain.factors.defs.research_factor_mining_catalog_v1",
+      "cbond_on.domain.factors.defs.research_factor_mining_daily_bond_stock_return_flow_information_v1",
+      "cbond_on.domain.factors.defs.research_factor_mining_daily_bond_stock_cross_sectional_rank_concordance_v1",
+      "cbond_on.domain.factors.defs.research_factor_mining_daily_contract_stock_v1",
+      "cbond_on.domain.factors.defs.research_factor_mining_daily_expansion_v1",
+      "cbond_on.domain.factors.defs.research_factor_mining_daily_ohlc_wick_path_asymmetry_v1",
+      "cbond_on.domain.factors.defs.research_factor_mining_daily_incremental_v1",
+      "cbond_on.domain.factors.defs.research_factor_mining_daily_liquidity_channel_composition_v1",
+      "cbond_on.domain.factors.defs.research_factor_mining_orderbook_repricing_v1",
+      "cbond_on.domain.factors.defs.research_factor_mining_daily_capacity_rank_coupling_v1",
+      "cbond_on.domain.factors.defs.research_factor_mining_quote_execution_dynamics_v1",
+      "cbond_on.domain.factors.defs.research_factor_mining_daily_return_liquidity_topology_v1",
+      "cbond_on.domain.factors.defs.research_factor_mining_daily_asymmetric_state_transitions_v1",
+    ],
+  },
+  factor_files: [
+    "factor/packs/live_screened_no_winsor_50_20260805.json5",
+  ],
+  factors: [],
+}

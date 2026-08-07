@@ -24,9 +24,11 @@ from cbond_on.app.usecases.model_score_runtime import run as run_model_score
 from cbond_on.app.usecases.panel_runtime import run as run_panel_build
 from cbond_on.infra.live.config import (
     assert_no_date_fields_in_live_config,
+    configure_live_paths_profile,
     load_live_factor_runtime,
     load_live_model_runtime,
     load_strategy_config,
+    validate_live50_model_score_config,
 )
 from cbond_on.infra.live.db_writer import write_trades_to_db
 from cbond_on.infra.live.holdings import load_previous_holdings
@@ -234,6 +236,11 @@ def _run_switch_source_score(
         raise ValueError(f"model_switch challenger source missing config: {model_id}")
     source_name = str(source_cfg.get("name") or model_id).strip()
     score_cfg = dict(load_config_file(config_key))
+    validate_live50_model_score_config(
+        score_cfg,
+        expected_model_id=model_id,
+        source=f"model_switch source {source_name} ({config_key})",
+    )
     print(
         "live model switch source score:",
         f"name={source_name}",
@@ -969,8 +976,9 @@ def run_once(
     mode: str = "default",
 ) -> Path:
     _ = mode
-    paths_cfg = load_config_file("paths")
     live_cfg = load_config_file("live")
+    configure_live_paths_profile(live_cfg)
+    paths_cfg = load_config_file("paths")
     _assert_live_data_boundary(live_cfg)
 
     schedule_cfg = dict(live_cfg.get("schedule", {}))

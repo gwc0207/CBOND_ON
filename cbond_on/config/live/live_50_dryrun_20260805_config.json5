@@ -1,0 +1,53 @@
+{
+  // Test-only configuration selected by a mocked config loader / harness.
+  // It inherits the active selector settings but redirects all generated state,
+  // scores, histories, FactorStore, and trade-list output to scratch and disables DB.
+  modules: ["live"],
+  runtime: { paths_config: "data/paths_live50_dryrun_20260805" },
+  factor: { config: "live/live_factors_50_20260805" },
+  model_score: {
+    config: "live/live_switch_source_regsim_50_20260805_dryrun",
+    model_id: "lgbm_screened_no_winsor_neutral_tminus1_regsim_w10_s15_d05_50_20260805_dryrun",
+  },
+  model_switch: {
+    // update_t1430_market_state_feature_history mutates this CSV during a run.
+    // Seed it from the active history into this scratch location before timing.
+    state_feature_path: "D:/cbond_on/research_scratch/live50_cutover_dryrun_20260805/runtime/results/analysis/model_switch_t1430_path_full_20260721/t1430_market_state_features_path_full.csv",
+    champion: {
+      model_id: "lgbm_screened_no_winsor_neutral_tminus1_regsim_w10_s15_d05_50_20260805_dryrun",
+      return_path: "D:/cbond_on/research_scratch/live50_cutover_dryrun_20260805/runtime/results/analysis/model_switch_scoreopt_live_20260805_50f/return_history/Challenger_Regsim.csv",
+    },
+    challenger: {
+      model_id: "ensemble_rankavg_baseline_hl20_labeltop20_50_20260805_dryrun",
+      score_output: "D:/cbond_on/research_scratch/live50_cutover_dryrun_20260805/runtime/results/scores/live/ensemble_rankavg_baseline_hl20_labeltop20_50_20260805_dryrun",
+      return_path: "D:/cbond_on/research_scratch/live50_cutover_dryrun_20260805/runtime/results/analysis/model_switch_scoreopt_live_20260805_50f/return_history/Challenger_Ensemble.csv",
+      sources: [
+        { name: "baseline", model_id: "lgbm_screened_no_winsor_neutral_tminus1_refit1_202401_rerun_20260623_50_20260805_dryrun", config: "live/live_switch_source_baseline_50_20260805_dryrun" },
+        { name: "hl20", model_id: "lgbm_screened_no_winsor_neutral_tminus1_weight_recent_hl20_20260625_50_20260805_dryrun", config: "live/live_models_50_20260805_dryrun" },
+        { name: "labeltop20", model_id: "lgbm_screened_no_winsor_neutral_tminus1_weight_labeltop20_20260625_50_20260805_dryrun", config: "live/live_switch_source_labeltop20_50_20260805_dryrun" },
+      ],
+    },
+    challengers: [
+      {
+        name: "Ensemble rankavg + labeltop20",
+        model_id: "ensemble_rankavg_baseline_hl20_labeltop20_50_20260805_dryrun",
+        kind: "rankavg",
+        score_output: "D:/cbond_on/research_scratch/live50_cutover_dryrun_20260805/runtime/results/scores/live/ensemble_rankavg_baseline_hl20_labeltop20_50_20260805_dryrun",
+        return_path: "D:/cbond_on/research_scratch/live50_cutover_dryrun_20260805/runtime/results/analysis/model_switch_scoreopt_live_20260805_50f/return_history/Challenger_Ensemble.csv",
+        sources: [
+          { name: "baseline", model_id: "lgbm_screened_no_winsor_neutral_tminus1_refit1_202401_rerun_20260623_50_20260805_dryrun", config: "live/live_switch_source_baseline_50_20260805_dryrun" },
+          { name: "hl20", model_id: "lgbm_screened_no_winsor_neutral_tminus1_weight_recent_hl20_20260625_50_20260805_dryrun", config: "live/live_models_50_20260805_dryrun" },
+          { name: "labeltop20", model_id: "lgbm_screened_no_winsor_neutral_tminus1_weight_labeltop20_20260625_50_20260805_dryrun", config: "live/live_switch_source_labeltop20_50_20260805_dryrun" },
+        ],
+      },
+      {
+        name: "HL20 live baseline",
+        model_id: "lgbm_screened_no_winsor_neutral_tminus1_weight_recent_hl20_20260625_50_20260805_dryrun",
+        kind: "single",
+        config: "live/live_models_50_20260805_dryrun",
+        return_path: "D:/cbond_on/research_scratch/live50_cutover_dryrun_20260805/runtime/results/analysis/model_switch_scoreopt_live_20260805_50f/return_history/Champion_HL20.csv",
+      },
+    ],
+  },
+  output: { db_write: false },
+}

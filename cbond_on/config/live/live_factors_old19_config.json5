@@ -7,6 +7,7 @@
   workers: 6,
   compute: {
     engine: "rust",
+    execution_policy: "rust_first",
     backend: "cpu",
     torch_device: "cuda",
     fallback_cpu: true,

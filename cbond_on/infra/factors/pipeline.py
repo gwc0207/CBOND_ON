@@ -21,19 +21,20 @@ from cbond_on.infra.data.panel import (
     _read_snapshot_days,
     read_panel_data,
 )
-from cbond_on.domain.factors.builder import build_factor_frame
 from cbond_on.domain.factors.compute_backend import (
     resolve_compute_backend,
     resolve_dataframe_backend,
     resolve_factor_engine,
 )
-from cbond_on.infra.factors.rust_backend import build_factor_frame_rust
-from cbond_on.infra.factors.rust_shm_backend import build_factor_frame_rust_shm
-from cbond_on.infra.factors.tail_features import (
-    compute_tail_features,
-    tail_feature_output_columns,
-    tail_features_enabled,
+from cbond_on.infra.factors.rust_backend import (
+    build_factor_frame_rust,
+    validate_rust_first_contracts,
 )
+from cbond_on.infra.live.factor_store_permit import (
+    Live50FactorStoreWritePermit,
+    validate_factor_store_write_permit,
+)
+from cbond_on.infra.factors.tail_features import tail_features_enabled
 from cbond_on.domain.factors.spec import (
     FactorDailyContextRequirement,
     FactorSpec,
@@ -50,6 +51,14 @@ from cbond_on.infra.factors.daily_context import (
 from cbond_on.domain.factors.storage import FactorStore
 
 _LOG_LOCK = threading.Lock()
+
+_RUST_FIRST_POLICY = "rust_first"
+_RETIRED_NONUNIFIED_COMPUTE_FIELDS = (
+    "rust_columns",
+    "python_columns",
+    "preserve_existing_rust_columns",
+    "allow_python_engine",
+)
 
 
 @dataclass
@@ -94,6 +103,47 @@ class _PanelLoadOutcome:
     panel: pd.DataFrame | None
     elapsed_s: float
     message: str
+
+
+def _validate_execution_policy(
+    *,
+    compute_cfg: dict | None,
+    specs: Sequence[FactorSpec],
+    factor_engine: str,
+) -> str:
+    """Resolve the normal factor-runtime policy before any market data is read.
+
+    Every factor instance must be advertised by the loaded Rust binary before
+    panel or FactorStore I/O. Python implementations are parity references,
+    not a normal factor-runtime mode.
+    """
+
+    runtime = dict(compute_cfg or {})
+    raw_policy = runtime.get("execution_policy")
+    policy = str(raw_policy or "").strip().lower()
+    if policy != _RUST_FIRST_POLICY:
+        raise ValueError(
+            "compute.execution_policy must be 'rust_first'; Python is permitted "
+            "only in isolated parity/reference tests"
+        )
+
+    retired = [key for key in _RETIRED_NONUNIFIED_COMPUTE_FIELDS if key in runtime]
+    if retired:
+        raise ValueError(
+            "factor pipeline forbids retired hybrid fields: " + ", ".join(retired)
+        )
+
+    if factor_engine != "rust":
+        raise ValueError(
+            "compute.execution_policy='rust_first' requires compute.engine='rust' "
+            "and the public compute_factor_frame API"
+        )
+    # This imports the *loaded* extension and checks exact factor-instance
+    # contracts.  Do it here, rather than only inside the Rust adapter, so a
+    # stale wheel or an unsupported future experimental factor cannot cause
+    # panel reads or writes before failing closed.
+    validate_rust_first_contracts(specs)
+    return _RUST_FIRST_POLICY
 
 
 def _merge_factor_frames(
@@ -504,6 +554,11 @@ def _build_factor_for_day(
 ) -> _FactorDayOutcome:
     t_total = perf_counter()
     _log_day(day, "start")
+    if tail_features_enabled(tail_features_cfg):
+        raise ValueError(
+            "tail_features are Python/Pandas derived columns and are not permitted "
+            "in the Rust-only factor pipeline; express each as a Rust FactorSpec"
+        )
 
     t_existing = perf_counter()
     existing = pd.DataFrame()
@@ -512,13 +567,7 @@ def _build_factor_for_day(
     t_existing = perf_counter() - t_existing
     _log_day(day, f"existing_loaded rows={len(existing)} t_existing={t_existing:.2f}s")
 
-    base_factor_cols = [build_factor_col(s) for s in specs]
-    tail_enabled = tail_features_enabled(tail_features_cfg)
-    tail_output_cols = (
-        tail_feature_output_columns(tail_features_cfg, source_columns=base_factor_cols)
-        if tail_enabled
-        else []
-    )
+    existing_cols = set(existing.columns) if not existing.empty else set()
     if refresh:
         to_compute = specs
     elif overwrite:
@@ -526,50 +575,14 @@ def _build_factor_for_day(
     elif existing.empty:
         to_compute = specs
     else:
-        existing_cols = set(existing.columns)
         to_compute = [s for s in specs if build_factor_col(s) not in existing_cols]
 
-    if tail_enabled:
-        existing_cols = set(existing.columns) if not existing.empty else set()
-        if refresh or overwrite or existing.empty:
-            pending_tail_cols = list(tail_output_cols)
-        else:
-            pending_tail_cols = [c for c in tail_output_cols if c not in existing_cols]
-    else:
-        pending_tail_cols = []
-
-    if not to_compute and not pending_tail_cols:
+    if not to_compute:
         _log_day(
             day,
             f"skip reason=no_pending specs_total={len(specs)} t_existing={t_existing:.2f}s total={perf_counter() - t_total:.2f}s",
         )
         return _FactorDayOutcome(skipped=1)
-
-    if not to_compute and pending_tail_cols:
-        t_tail = perf_counter()
-        all_tail_frame = compute_tail_features(
-            existing,
-            tail_features_cfg,
-            source_columns=base_factor_cols,
-        )
-        tail_frame = all_tail_frame[pending_tail_cols]
-        merged = _merge_factor_frames(
-            existing,
-            tail_frame,
-            refresh=False,
-            overwrite=False,
-        )
-        store.write_day(day, merged)
-        _log_day(
-            day,
-            (
-                f"done tail_only wrote=1 existing_rows={len(existing)} "
-                f"tail_cols={len(tail_frame.columns)} total_tail_defined={len(tail_output_cols)} "
-                f"t_existing={t_existing:.2f}s "
-                f"t_tail={perf_counter() - t_tail:.2f}s total={perf_counter() - t_total:.2f}s"
-            ),
-        )
-        return _FactorDayOutcome(written=1)
 
     panel_load = _load_factor_panel(
         panel_data_root,
@@ -663,48 +676,22 @@ def _build_factor_for_day(
     )
 
     t_compute = perf_counter()
-    new_frame = pd.DataFrame()
-    if to_compute:
-        _log_day(
-            day,
-            f"compute_start factors={len(to_compute)} factor_workers={factor_workers}",
-        )
-        if factor_engine == "rust":
-            new_frame = build_factor_frame_rust(
-                panel,
-                to_compute,
-                stock_panel=stock_panel,
-                bond_stock_map=bond_stock_map,
-                daily_data=daily_data,
-                compute_backend_params=compute_backend_params,
-            )
-        elif factor_engine == "rust_shm_exp":
-            new_frame = build_factor_frame_rust_shm(
-                panel,
-                to_compute,
-                stock_panel=stock_panel,
-                bond_stock_map=bond_stock_map,
-                daily_data=daily_data,
-                compute_backend_params=compute_backend_params,
-                workers=factor_workers,
-            )
-        else:
-            new_frame = build_factor_frame(
-                panel,
-                to_compute,
-                stock_panel=stock_panel,
-                bond_stock_map=bond_stock_map,
-                daily_data=daily_data,
-                workers=factor_workers,
-                compute_backend_params=compute_backend_params,
-            )
-    else:
-        _log_day(
-            day,
-            f"compute_skip reason=tail_only pending_tail_cols={len(pending_tail_cols)}",
-        )
+    _log_day(
+        day,
+        f"compute_start factors={len(to_compute)} factor_workers={factor_workers}",
+    )
+    if factor_engine != "rust":  # pragma: no cover - resolver/policy guard this too.
+        raise RuntimeError(f"unsupported validated factor engine: {factor_engine}")
+    new_frame = build_factor_frame_rust(
+        panel,
+        to_compute,
+        stock_panel=stock_panel,
+        bond_stock_map=bond_stock_map,
+        daily_data=daily_data,
+        compute_backend_params=compute_backend_params,
+    )
     t_compute = perf_counter() - t_compute
-    if new_frame.empty and not pending_tail_cols:
+    if new_frame.empty:
         _log_day(
             day,
             f"skip reason=empty_factor_frame to_compute={len(to_compute)} t_panel={t_panel:.2f}s t_existing={t_existing:.2f}s t_context={t_context:.2f}s t_compute={t_compute:.2f}s total={perf_counter() - t_total:.2f}s",
@@ -718,31 +705,13 @@ def _build_factor_for_day(
         refresh=refresh,
         overwrite=overwrite,
     )
-    tail_frame = pd.DataFrame(index=merged_base.index)
-    if pending_tail_cols:
-        all_tail_frame = compute_tail_features(
-            merged_base,
-            tail_features_cfg,
-            source_columns=base_factor_cols,
-        )
-        tail_frame = all_tail_frame[pending_tail_cols]
-        _log_day(
-            day,
-            f"tail_features computed={len(tail_frame.columns)} total_defined={len(tail_output_cols)}",
-        )
-    merged = _merge_factor_frames(
-        merged_base,
-        tail_frame,
-        refresh=False,
-        overwrite=overwrite or refresh,
-    )
-    store.write_day(day, merged)
+    store.write_day(day, merged_base)
     t_merge_write = perf_counter() - t_merge_write
     _log_day(
         day,
         (
             f"done wrote=1 panel_rows={len(panel)} existing_rows={len(existing)} "
-            f"to_compute={len(to_compute)} out_cols={len(merged.columns)} "
+            f"to_compute={len(to_compute)} out_cols={len(merged_base.columns)} "
             f"t_panel={t_panel:.2f}s t_existing={t_existing:.2f}s t_context={t_context:.2f}s "
             f"t_compute={t_compute:.2f}s t_write={t_merge_write:.2f}s total={perf_counter() - t_total:.2f}s"
         ),
@@ -769,12 +738,25 @@ def run_factor_pipeline(
     panel_source_cfg: dict | None = None,
     panel_build_cfg: dict | None = None,
     tail_features_cfg: dict | None = None,
+    live50_write_permit: Live50FactorStoreWritePermit | None = None,
     specs: Sequence[FactorSpec],
 ) -> FactorPipelineResult:
     result = FactorPipelineResult()
     panel_data_root = Path(panel_data_root)
+    # Do this before loading a panel or opening the FactorStore.  The live50
+    # root is not a generic experiment destination, even for a Rust-first
+    # request: it must be reached through the exact live admission flow.
+    validate_factor_store_write_permit(
+        factor_data_root,
+        permit=live50_write_permit,
+    )
     raw_data_root_path = Path(raw_data_root) if raw_data_root else None
     cleaned_data_root_path = Path(cleaned_data_root) if cleaned_data_root else None
+    if tail_features_enabled(tail_features_cfg):
+        raise ValueError(
+            "tail_features are Python/Pandas derived columns and are not permitted "
+            "in the Rust-only factor pipeline; add each derived column as a Rust FactorSpec"
+        )
     panel_source = _build_panel_source_runtime(
         panel_source_cfg=panel_source_cfg,
         panel_build_cfg=panel_build_cfg,
@@ -782,12 +764,18 @@ def run_factor_pipeline(
     )
     context = _build_context_config(context_cfg, specs=specs)
     engine_state = resolve_factor_engine(compute_cfg)
+    runtime_compute_cfg = dict(compute_cfg or {})
+    execution_policy = _validate_execution_policy(
+        compute_cfg=runtime_compute_cfg,
+        specs=specs,
+        factor_engine=engine_state.active,
+    )
     backend_state = resolve_compute_backend(compute_cfg)
     dataframe_state = resolve_dataframe_backend(compute_cfg)
     compute_backend_params = engine_state.to_params()
     compute_backend_params["__compute_backend__"].update(backend_state.to_params()["__compute_backend__"])
     compute_backend_params["__compute_backend__"].update(dataframe_state.to_params()["__compute_backend__"])
-    runtime_compute_cfg = dict(compute_cfg or {})
+    compute_backend_params["__compute_backend__"]["execution_policy"] = execution_policy
     compute_backend_params["__compute_backend__"]["debug_log_each_record"] = bool(
         runtime_compute_cfg.get("debug_log_each_record", False)
     )
@@ -855,9 +843,10 @@ def run_factor_pipeline(
         f"workers={workers}",
         f"factor_workers={factor_workers}",
         f"engine={engine_state.active}",
+        f"execution_policy={execution_policy}",
         f"refresh={bool(refresh)}",
         f"overwrite={bool(overwrite)}",
-        f"tail_features={tail_features_enabled(tail_features_cfg)}",
+        "tail_features=false",
         f"panel_source={panel_source.mode}",
         f"context_mode={context.get('mode', 'auto')}",
         f"context_stock={bool(context.get('stock_enabled', False))}",

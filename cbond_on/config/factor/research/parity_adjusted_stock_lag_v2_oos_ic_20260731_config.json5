@@ -6,6 +6,10 @@
   panel_name: "T1430",
   factor_time: "14:30",
   label_time: "14:42",
+  research_only: true,
+  research_factor_modules: [
+    "cbond_on.domain.factors.defs.parity_adjusted_stock_lag_v2",
+  ],
   refresh: false,
   overwrite: false,
   // Clean-direct historical panels can peak above the workstation memory
@@ -18,8 +22,8 @@
   },
   compute: {
     // This candidate has no Rust kernel and is strictly research-only.
-    engine: "python",
-    allow_python_engine: true,
+    engine: "rust",
+    execution_policy: "rust_first",
     backend: "cpu",
     fallback_cpu: true,
   },

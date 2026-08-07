@@ -1,6 +1,76 @@
 {
-  "total_factors": 98,
+  "schema_version": 2,
+  "total_factors": 112,
   "module": "cbond_on_rust",
+  "runtime_authority": {
+    "kind": "loaded_extension_capability",
+    "function": "cbond_on_rust.factor_capabilities",
+    "capability_field": "factor_contracts",
+    "capability_abi_revision": "rust_factor_contracts_20260806_r1",
+    "static_manifest_role": "source_and_contract_documentation_only; runtime executability is decided solely by the loaded extension capability payload"
+  },
+  "frozen_contracts": [
+    {
+      "profile": "live50_rust50_20260806",
+      "execution_policy": "rust_first",
+      "pack_path": "cbond_on/config/factor/packs/live_screened_no_winsor_50_20260805.json5",
+      "profile_path": "cbond_on/factor_contracts/profiles/live50_rust50_20260806.json5",
+      "specs_sha256": "458af9bcfeb58ab4b344f4daec9d637b7a599fb572574c5bca142b30ce8d15b0",
+      "contract_count": 50,
+      "contracts": [
+        {"id": "live50_r5/cb_overnight_return_mean_20d", "output_col": "cb_overnight_return_mean_20d", "factor": "daily_overnight_return_mean_v1", "signal": null, "params_sha256": "006fc65a8fcd5b3fb213dc22bc31e096f94285b87e69768222a650183be818c9"},
+        {"id": "live50_r5/cb_overnight_return_mean_5d", "output_col": "cb_overnight_return_mean_5d", "factor": "daily_overnight_return_mean_v1", "signal": null, "params_sha256": "3e11319d2a160b55f17ce902f6b4c9233480cff41d0b0f0292e550cba8d19e4e"},
+        {"id": "live50_r5/cb_overnight_return_mean_60d", "output_col": "cb_overnight_return_mean_60d", "factor": "daily_overnight_return_mean_v1", "signal": null, "params_sha256": "85ec80b7bcc6ef68d78b2fa5c14ed2649994072c936c6066c71f779c397e0499"},
+        {"id": "live50_r5/range_30m", "output_col": "range_30m", "factor": "range_ratio", "signal": null, "params_sha256": "9ee4e7fefde7039badadca6439dda99db1dc0ed2543d87ff603718d61ce74647"},
+        {"id": "live50_r5/cb_overnight_return_mean_10d", "output_col": "cb_overnight_return_mean_10d", "factor": "daily_overnight_return_mean_v1", "signal": null, "params_sha256": "db639301628884c7b43c7343d63759d51eb1ca22a001aedde758120f528dcf7f"},
+        {"id": "live50_r5/amount_30m", "output_col": "amount_30m", "factor": "amount_sum", "signal": null, "params_sha256": "e9ab4cd29071176c2583e27a34ea5f87fdb374cff0dca4b80875fa677e3511d7"},
+        {"id": "live50_r5/vol_30m", "output_col": "vol_30m", "factor": "volatility", "signal": null, "params_sha256": "13b6b301d98fb3eb9330d8ecc91f3af6601d6f80fe863f6f3bb8498e843ea0fc"},
+        {"id": "live50_r5/alpha001_signed_power_v1", "output_col": "alpha001_signed_power_v1", "factor": "alpha001_signed_power_v1", "signal": null, "params_sha256": "5339305d1970c0790c1b7c16d86ab59442268189113e0aff1e92cfd0abb97130"},
+        {"id": "live50_r5/alpha030_close_sign_volume_v1", "output_col": "alpha030_close_sign_volume_v1", "factor": "alpha030_close_sign_volume_v1", "signal": null, "params_sha256": "d4b87a7b6d5ea6f25324e852b88ee6c7b6adabd11512323864f8e83d3dc0b0ae"},
+        {"id": "live50_r5/volume_30m", "output_col": "volume_30m", "factor": "volume_sum", "signal": null, "params_sha256": "0cd9320edf4e7723bc784fa1ad79f348c170adb13adda2034ab1e5bb81e5eccc"},
+        {"id": "live50_r5/depth_weighted_imbalance_v1", "output_col": "depth_weighted_imbalance_v1", "factor": "depth_weighted_imbalance_v1", "signal": null, "params_sha256": "3549aba70183c1f82558d79b6f676c2a3141860bed3401173452783ded7cab15"},
+        {"id": "live50_r5/alpha024_close_trend_filter_v1", "output_col": "alpha024_close_trend_filter_v1", "factor": "alpha024_close_trend_filter_v1", "signal": null, "params_sha256": "5bb098680b7a11ea0dca6f9e7a685ce908932d265b33d56f073a3f52f7b16b06"},
+        {"id": "live50_r5/cb_overnight_sharpe_20_0930_0935", "output_col": "cb_overnight_sharpe_20_0930_0935", "factor": "daily_sharpe_mean_v1", "signal": null, "params_sha256": "464c2b936b23d9ccce1dc0403bcd49753876a0e1bb42a03eff750d1bad02d374"},
+        {"id": "live50_r5/daily_sharpe_twap_5d_mean5", "output_col": "daily_sharpe_twap_5d_mean5", "factor": "daily_sharpe_mean_v1", "signal": null, "params_sha256": "e3ad86c65be622d83b2e98fc15b26fda5e00fe7dfd6c75159711bbc48f62c293"},
+        {"id": "live50_r5/cb_overnight_sharpe_5_0930_0935", "output_col": "cb_overnight_sharpe_5_0930_0935", "factor": "daily_sharpe_mean_v1", "signal": null, "params_sha256": "e1e04fbf20c35ea5543ee8a68d7927260ce97689afd954f935f597df3c1ee182"},
+        {"id": "live50_r5/mid_move_30m", "output_col": "mid_move_30m", "factor": "midprice_move", "signal": null, "params_sha256": "86f3b779c1b48e8d1637295b7e77ae69665dd9034667ad2d5ec33a05a34e9711"},
+        {"id": "live50_r5/premium_momentum_proxy_v1", "output_col": "premium_momentum_proxy_v1", "factor": "premium_momentum_proxy_v1", "signal": null, "params_sha256": "c00e33920ccc294a33b5c43d2a18b838c6434772814bac9bdc50d954d2b8c7e8"},
+        {"id": "live50_r5/volen_f60_s10_l3", "output_col": "volen_f60_s10_l3", "factor": "volen", "signal": null, "params_sha256": "f8cb98f714525bb8d680a6fdaca58bbe5996913a566074eb9549a2be8facce3b"},
+        {"id": "live50_r5/daily_sharpe_twap_20d_mean5", "output_col": "daily_sharpe_twap_20d_mean5", "factor": "daily_sharpe_mean_v1", "signal": null, "params_sha256": "a0d55f978d11edfe1805ad09a4808d005eec9ef2ade9f69a980803c8687ccd77"},
+        {"id": "live50_r5/cb_overnight_return_mean_40d", "output_col": "cb_overnight_return_mean_40d", "factor": "daily_overnight_return_mean_v1", "signal": null, "params_sha256": "2263e36088f1b9228e76ad9a695b0f22dc2f05783ba45785d333ed4c1d6913f4"},
+        {"id": "live50_r5/alpha041_geometric_mean_vwap_v1", "output_col": "alpha041_geometric_mean_vwap_v1", "factor": "alpha041_geometric_mean_vwap_v1", "signal": null, "params_sha256": "c00e33920ccc294a33b5c43d2a18b838c6434772814bac9bdc50d954d2b8c7e8"},
+        {"id": "live50_r5/alpha078_low_vwap_adv_corr_v1", "output_col": "alpha078_low_vwap_adv_corr_v1", "factor": "alpha078_low_vwap_adv_corr_v1", "signal": null, "params_sha256": "5612a7601552241366c19396f3c03ef74eaf4d8eb0683369fa5601e7fcf6f4a0"},
+        {"id": "live50_r5/mom_slope_30m", "output_col": "mom_slope_30m", "factor": "mom_slope", "signal": null, "params_sha256": "9ee4e7fefde7039badadca6439dda99db1dc0ed2543d87ff603718d61ce74647"},
+        {"id": "live50_r5/alpha019_close_momentum_sign_v1", "output_col": "alpha019_close_momentum_sign_v1", "factor": "alpha019_close_momentum_sign_v1", "signal": null, "params_sha256": "ae136a306eae948fdb589a361761119ffb36043c1c0947d3e6aa85412a2ecbb8"},
+        {"id": "live50_r5/ret_10m", "output_col": "ret_10m", "factor": "ret_window", "signal": null, "params_sha256": "dbbc48549dc2598ed9509e4aec81ae184f32bf2f27ee8930b3612f0ca4b16253"},
+        {"id": "live50_r5/alpha025_return_volume_vwap_range_v1", "output_col": "alpha025_return_volume_vwap_range_v1", "factor": "alpha025_return_volume_vwap_range_v1", "signal": null, "params_sha256": "8aa94d7556eadaac798b78124898f23df5a739fa0b58eee5f4580f13c8d81436"},
+        {"id": "live50_r5/alpha050_volume_vwap_corr_max_v1", "output_col": "alpha050_volume_vwap_corr_max_v1", "factor": "alpha050_volume_vwap_corr_max_v1", "signal": null, "params_sha256": "48e2b55ce78574dae3bdad71f891f51dcb9ccaaeadda2f3729a2e0a7a32fa46c"},
+        {"id": "live50_r5/base_debt_premium_floor_gap", "output_col": "base_debt_premium_floor_gap", "factor": "factor_mining_daily_catalog_v1", "signal": "base_debt_premium_floor_gap", "params_sha256": "736c07e6fbfba5fe34699fcd0bf498326df24a050968de68900475852b722d96"},
+        {"id": "live50_r5/bsfst_stock_return_bond_flow_mutual_information60", "output_col": "bsfst_stock_return_bond_flow_mutual_information60", "factor": "factor_mining_daily_bond_stock_return_flow_information_v1", "signal": "bsfst_stock_return_bond_flow_mutual_information60", "params_sha256": "510efb901553ba252fa13c73afb86caf0b224a6f6e0418e296eb218ab97c97a9"},
+        {"id": "live50_r5/bssrc_bond_stock_rank_correlation60", "output_col": "bssrc_bond_stock_rank_correlation60", "factor": "factor_mining_daily_bond_stock_cross_sectional_rank_concordance_v1", "signal": "bssrc_bond_stock_rank_correlation60", "params_sha256": "5b1268534292c8d21faf092a12aaa62da6ee33ca287d62f4453d93d20693e43e"},
+        {"id": "live50_r5/bstk_tail_cocrash_residual20", "output_col": "bstk_tail_cocrash_residual20", "factor": "factor_mining_daily_contract_stock_v1", "signal": "bstk_tail_cocrash_residual20", "params_sha256": "fd55f91352b010e74e9ec374dd2fc4a72065f241e211b01a0ed72a1411ec27fb"},
+        {"id": "live50_r5/dliq_volume_return_corr20", "output_col": "dliq_volume_return_corr20", "factor": "factor_mining_daily_expansion_v1", "signal": "dliq_volume_return_corr20", "params_sha256": "dd7e2d2cb213a4b46732524226897c2426bcf19c014448df3165ae91ecb14268"},
+        {"id": "live50_r5/dohw_intraday_sign_range_asymmetry60", "output_col": "dohw_intraday_sign_range_asymmetry60", "factor": "factor_mining_daily_ohlc_wick_path_asymmetry_v1", "signal": "dohw_intraday_sign_range_asymmetry60", "params_sha256": "51bd139237e6b8183db0ff95356a36c8600b4a747800ab340f323e3a422cf4b9"},
+        {"id": "live50_r5/dohw_mean_wick_asymmetry60", "output_col": "dohw_mean_wick_asymmetry60", "factor": "factor_mining_daily_ohlc_wick_path_asymmetry_v1", "signal": "dohw_mean_wick_asymmetry60", "params_sha256": "ccbb92cea25f37c031d0ddf74725c42870cd9651c9ea4b1918add8e075fd431e"},
+        {"id": "live50_r5/dredemption_bondpremium_interaction", "output_col": "dredemption_bondpremium_interaction", "factor": "factor_mining_daily_expansion_v1", "signal": "dredemption_bondpremium_interaction", "params_sha256": "c9777835ded7794796c9eecfecbe4f316f6a9afc8349db2b408fb291afdcf9a4"},
+        {"id": "live50_r5/dredemption_premium_z20", "output_col": "dredemption_premium_z20", "factor": "factor_mining_daily_expansion_v1", "signal": "dredemption_premium_z20", "params_sha256": "a4577f603ec26d41cac5656728c59734c79e63dd6d5336767dfd9be1316dbf56"},
+        {"id": "live50_r5/dret_drawup_drawdown_asym", "output_col": "dret_drawup_drawdown_asym", "factor": "factor_mining_daily_catalog_v1", "signal": "dret_drawup_drawdown_asym", "params_sha256": "f95a04654557f2b64046f406ff8445d39aca396c03af0d0f9132edd14919fe46"},
+        {"id": "live50_r5/dret_volatility_20", "output_col": "dret_volatility_20", "factor": "factor_mining_daily_expansion_v1", "signal": "dret_volatility_20", "params_sha256": "ccfb29f900303c6b39fa7083346eb2ea5006478425d0121c8f6cddc93f56c2c1"},
+        {"id": "live50_r5/drt_rebound_from_low20", "output_col": "drt_rebound_from_low20", "factor": "factor_mining_daily_incremental_v1", "signal": "drt_rebound_from_low20", "params_sha256": "95613dbdd35eef0751130d0ec86387d89c4c36d6638612a752871c2d5d9280e1"},
+        {"id": "live50_r5/dtwap_morning_slope20", "output_col": "dtwap_morning_slope20", "factor": "factor_mining_daily_expansion_v1", "signal": "dtwap_morning_slope20", "params_sha256": "e614b84903463359b165b2e4a9b3ed10df9f9da87cc731e8fea7f41b466a9509"},
+        {"id": "live50_r5/lcc_amount_trade_size_information60", "output_col": "lcc_amount_trade_size_information60", "factor": "factor_mining_daily_liquidity_channel_composition_v1", "signal": "lcc_amount_trade_size_information60", "params_sha256": "cc6e42900efa864c68ef2b34279e8977062d1a8c791c5882fdcce8fb84bec62e"},
+        {"id": "live50_r5/lcc_volume_deal_information60", "output_col": "lcc_volume_deal_information60", "factor": "factor_mining_daily_liquidity_channel_composition_v1", "signal": "lcc_volume_deal_information60", "params_sha256": "76d24405f0bd8cc8110b9a19d8f09048f4180a41921112bdb44e42df689e3b12"},
+        {"id": "live50_r5/lrd_cross_side_reprice_symmetry", "output_col": "lrd_cross_side_reprice_symmetry", "factor": "factor_mining_orderbook_repricing_v1", "signal": "lrd_cross_side_reprice_symmetry", "params_sha256": "20f9f38e3c1952acd62b5b0f1fe1d0e0c2fcc0d1f54f53e55a8fb93eab192bcb"},
+        {"id": "live50_r5/prcn_return_capacity_rank_corr60", "output_col": "prcn_return_capacity_rank_corr60", "factor": "factor_mining_daily_capacity_rank_coupling_v1", "signal": "prcn_return_capacity_rank_corr60", "params_sha256": "b18e4da56e800d454c64dc2241e9c69c07f432f780617437b23c3fb28cf744d5"},
+        {"id": "live50_r5/qed_prior_quote_lag2_agreement", "output_col": "qed_prior_quote_lag2_agreement", "factor": "factor_mining_quote_execution_dynamics_v1", "signal": "qed_prior_quote_lag2_agreement", "params_sha256": "3ae03231ac4bc22ca2b6a12ec94fd09dccc3161cefc95a42c637fbdbdc589c12"},
+        {"id": "live50_r5/qed_prior_quote_location_dispersion", "output_col": "qed_prior_quote_location_dispersion", "factor": "factor_mining_quote_execution_dynamics_v1", "signal": "qed_prior_quote_location_dispersion", "params_sha256": "c7a4429d65381c22dc0f2076857a9a0ff2ab7b83720b8ebd2431ef0471bfe1e4"},
+        {"id": "live50_r5/qed_prior_quote_tail_penetration", "output_col": "qed_prior_quote_tail_penetration", "factor": "factor_mining_quote_execution_dynamics_v1", "signal": "qed_prior_quote_tail_penetration", "params_sha256": "8c147ade3bf1884ffced2a1d4da7bc6f7c1e917edb2d8c6d313464c492260df9"},
+        {"id": "live50_r5/rjst_amount_joint_transition_entropy60", "output_col": "rjst_amount_joint_transition_entropy60", "factor": "factor_mining_daily_return_liquidity_topology_v1", "signal": "rjst_amount_joint_transition_entropy60", "params_sha256": "41735d89b85137d253f5a67fe31cc09a224aa1d034ad4400ee02aad2aceda5dd"},
+        {"id": "live50_r5/rlmi_return_deal_sign_mutual_information60", "output_col": "rlmi_return_deal_sign_mutual_information60", "factor": "factor_mining_daily_return_liquidity_topology_v1", "signal": "rlmi_return_deal_sign_mutual_information60", "params_sha256": "849297227bff76f5751f0d4f6c782f8effd0b6af63a2a5df30ac2c6a4ea7310f"},
+        {"id": "live50_r5/ydpt_yield_fall_return_beta60", "output_col": "ydpt_yield_fall_return_beta60", "factor": "factor_mining_daily_asymmetric_state_transitions_v1", "signal": "ydpt_yield_fall_return_beta60", "params_sha256": "9ca5c129a50853d31180ea9a91584b5af739c1b063613804290fe64657d21ece"}
+      ]
+    }
+  ],
   "factors": [
     {
       "factor": "aacb",
@@ -100,7 +170,7 @@
     {
       "factor": "alpha019_close_momentum_sign_v1",
       "python_file": "alpha019_close_momentum_sign_v1.py",
-      "rust_status": "pending"
+      "rust_status": "implemented"
     },
     {
       "factor": "alpha020_open_delay_range_v1",
@@ -125,12 +195,12 @@
     {
       "factor": "alpha024_close_trend_filter_v1",
       "python_file": "alpha024_close_trend_filter_v1.py",
-      "rust_status": "pending"
+      "rust_status": "implemented"
     },
     {
       "factor": "alpha025_return_volume_vwap_range_v1",
       "python_file": "alpha025_return_volume_vwap_range_v1.py",
-      "rust_status": "pending"
+      "rust_status": "implemented"
     },
     {
       "factor": "alpha026_volume_high_rank_corr_v1",
@@ -155,7 +225,7 @@
     {
       "factor": "alpha030_close_sign_volume_v1",
       "python_file": "alpha030_close_sign_volume_v1.py",
-      "rust_status": "pending"
+      "rust_status": "implemented"
     },
     {
       "factor": "alpha031_close_decay_momentum_v1",
@@ -210,7 +280,7 @@
     {
       "factor": "alpha041_geometric_mean_vwap_v1",
       "python_file": "alpha041_geometric_mean_vwap_v1.py",
-      "rust_status": "pending"
+      "rust_status": "implemented"
     },
     {
       "factor": "alpha042_vwap_close_rank_ratio_v1",
@@ -250,7 +320,7 @@
     {
       "factor": "alpha050_volume_vwap_corr_max_v1",
       "python_file": "alpha050_volume_vwap_corr_max_v1.py",
-      "rust_status": "pending"
+      "rust_status": "implemented"
     },
     {
       "factor": "alpha051_close_delay_threshold_v2_v1",
@@ -335,7 +405,7 @@
     {
       "factor": "alpha078_low_vwap_adv_corr_v1",
       "python_file": "alpha078_low_vwap_adv_corr_v1.py",
-      "rust_status": "pending"
+      "rust_status": "implemented"
     },
     {
       "factor": "amihud_illiq",
@@ -358,6 +428,11 @@
       "rust_status": "implemented"
     },
     {
+      "factor": "daily_sharpe_mean_v1",
+      "python_file": "daily_sharpe_mean_v1.py",
+      "rust_status": "implemented"
+    },
+    {
       "factor": "depth_imbalance",
       "python_file": "depth_imbalance.py",
       "rust_status": "implemented"
@@ -371,6 +446,84 @@
       "factor": "depth_weighted_imbalance_v1",
       "python_file": "depth_weighted_imbalance_v1.py",
       "rust_status": "implemented"
+    },
+    {
+      "factor": "factor_mining_daily_asymmetric_state_transitions_v1",
+      "python_file": "research_factor_mining_daily_asymmetric_state_transitions_v1.py",
+      "rust_status": "implemented_frozen_contracts_only",
+      "contract_scope": "live50_rust50_20260806"
+    },
+    {
+      "factor": "factor_mining_daily_bond_stock_cross_sectional_rank_concordance_v1",
+      "python_file": "research_factor_mining_daily_bond_stock_cross_sectional_rank_concordance_v1.py",
+      "rust_status": "implemented_frozen_contracts_only",
+      "contract_scope": "live50_rust50_20260806"
+    },
+    {
+      "factor": "factor_mining_daily_bond_stock_return_flow_information_v1",
+      "python_file": "research_factor_mining_daily_bond_stock_return_flow_information_v1.py",
+      "rust_status": "implemented_frozen_contracts_only",
+      "contract_scope": "live50_rust50_20260806"
+    },
+    {
+      "factor": "factor_mining_daily_capacity_rank_coupling_v1",
+      "python_file": "research_factor_mining_daily_capacity_rank_coupling_v1.py",
+      "rust_status": "implemented_frozen_contracts_only",
+      "contract_scope": "live50_rust50_20260806"
+    },
+    {
+      "factor": "factor_mining_daily_catalog_v1",
+      "python_file": "research_factor_mining_catalog_v1.py",
+      "rust_status": "implemented_frozen_contracts_only",
+      "contract_scope": "live50_rust50_20260806"
+    },
+    {
+      "factor": "factor_mining_daily_contract_stock_v1",
+      "python_file": "research_factor_mining_daily_contract_stock_v1.py",
+      "rust_status": "implemented_frozen_contracts_only",
+      "contract_scope": "live50_rust50_20260806"
+    },
+    {
+      "factor": "factor_mining_daily_expansion_v1",
+      "python_file": "research_factor_mining_daily_expansion_v1.py",
+      "rust_status": "implemented_frozen_contracts_only",
+      "contract_scope": "live50_rust50_20260806"
+    },
+    {
+      "factor": "factor_mining_daily_incremental_v1",
+      "python_file": "research_factor_mining_daily_incremental_v1.py",
+      "rust_status": "implemented_frozen_contracts_only",
+      "contract_scope": "live50_rust50_20260806"
+    },
+    {
+      "factor": "factor_mining_daily_liquidity_channel_composition_v1",
+      "python_file": "research_factor_mining_daily_liquidity_channel_composition_v1.py",
+      "rust_status": "implemented_frozen_contracts_only",
+      "contract_scope": "live50_rust50_20260806"
+    },
+    {
+      "factor": "factor_mining_daily_ohlc_wick_path_asymmetry_v1",
+      "python_file": "research_factor_mining_daily_ohlc_wick_path_asymmetry_v1.py",
+      "rust_status": "implemented_frozen_contracts_only",
+      "contract_scope": "live50_rust50_20260806"
+    },
+    {
+      "factor": "factor_mining_daily_return_liquidity_topology_v1",
+      "python_file": "research_factor_mining_daily_return_liquidity_topology_v1.py",
+      "rust_status": "implemented_frozen_contracts_only",
+      "contract_scope": "live50_rust50_20260806"
+    },
+    {
+      "factor": "factor_mining_orderbook_repricing_v1",
+      "python_file": "research_factor_mining_orderbook_repricing_v1.py",
+      "rust_status": "implemented_frozen_contracts_only",
+      "contract_scope": "live50_rust50_20260806"
+    },
+    {
+      "factor": "factor_mining_quote_execution_dynamics_v1",
+      "python_file": "research_factor_mining_quote_execution_dynamics_v1.py",
+      "rust_status": "implemented_frozen_contracts_only",
+      "contract_scope": "live50_rust50_20260806"
     },
     {
       "factor": "intraday_momentum_v1",

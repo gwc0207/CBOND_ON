@@ -1,0 +1,12 @@
+{
+  modules: ["models/lgbm/lgbm_screened_no_winsor_neutral_tminus1_weight_labeltop20_20260625_50_20260805"],
+  model_name: "lgbm_screened_no_winsor_neutral_tminus1_weight_labeltop20_20260625_50_20260805_dryrun",
+  score_output: {
+    windows: "D:/cbond_on/research_scratch/live50_cutover_dryrun_20260805/runtime/results/scores/live/lgbm_screened_no_winsor_neutral_tminus1_weight_labeltop20_20260625_50_20260805_dryrun",
+    linux: "/home/gswzif/cbond_on_runtime/research_scratch/live50_cutover_dryrun_20260805/runtime/results/scores/live/lgbm_screened_no_winsor_neutral_tminus1_weight_labeltop20_20260625_50_20260805_dryrun",
+  },
+  incremental: {
+    state_dir: "D:/cbond_on/research_scratch/live50_cutover_dryrun_20260805/runtime/results/model_state/lgbm_screened_no_winsor_neutral_tminus1_weight_labeltop20_20260625_50_20260805_dryrun",
+  },
+  experiment: { id: "live_50_factor_cutover_20260805", trial: "labeltop20_50_dryrun", research_only: true },
+}

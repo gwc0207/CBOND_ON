@@ -1,0 +1,19 @@
+{
+  modules: [
+    "models/lgbm/lgbm_screened_no_winsor_neutral_tminus1_regsim_w10_s15_d05_20260708",
+    "models/lgbm/lgbm_live50_feature_contract_20260805",
+  ],
+  model_name: "lgbm_screened_no_winsor_neutral_tminus1_regsim_w10_s15_d05_50_20260805",
+  score_output: {
+    windows: "D:/cbond_on/results/scores/live/lgbm_screened_no_winsor_neutral_tminus1_regsim_w10_s15_d05_50_20260805",
+    linux: "/home/gswzif/cbond_on_runtime/results/scores/live/lgbm_screened_no_winsor_neutral_tminus1_regsim_w10_s15_d05_50_20260805",
+  },
+  incremental: {
+    state_dir: "D:/cbond_on/results/model_state/lgbm_screened_no_winsor_neutral_tminus1_regsim_w10_s15_d05_50_20260805",
+  },
+  experiment: {
+    id: "live_50_factor_cutover_20260805",
+    trial: "regsim_w10_s15_d05_50",
+    description: "versioned live 50-factor Regsim source; 27-factor state is intentionally untouched",
+  },
+}

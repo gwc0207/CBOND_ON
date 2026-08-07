@@ -13,6 +13,12 @@ class FactorSpec:
     factor: str
     params: Dict[str, Any] = field(default_factory=dict)
     output_col: Optional[str] = None
+    # Immutable instance-level Rust capability contract.  A factor class can
+    # expose many parameterised signals, so the factor key alone is not a
+    # sufficient proof that the loaded binary implements this exact instance.
+    # ``rust_first`` pipelines require this value and compare it against the
+    # capability set reported by the loaded extension.
+    rust_contract_id: Optional[str] = None
 
     def build(self):
         cls = FactorRegistry.get(self.factor)

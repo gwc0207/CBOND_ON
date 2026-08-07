@@ -171,8 +171,8 @@ def test_catalogue_has_exact_family_first_coverage_and_registered_kernels() -> N
     assert {entry.kernel for entry in entries} == set(expected_kernels)
     for kernel, factor_class in expected_kernels.items():
         assert FactorRegistry.get(kernel) is factor_class
-        assert getattr(factor_defs, factor_class.__name__) is factor_class
-        assert factor_class.__name__ in factor_defs.__all__
+        assert not hasattr(factor_defs, factor_class.__name__)
+        assert factor_class.__name__ not in factor_defs.__all__
 
     requirements = catalog.FactorMiningDailyCatalogV1.daily_requirements()
     assert [item.source for item in requirements] == [

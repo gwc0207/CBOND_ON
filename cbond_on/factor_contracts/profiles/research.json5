@@ -1,5 +1,7 @@
 {
   registry: "../registry.json5",
-  factors_ref: "live",
+  // Research candidates never inherit the live admission profile.  Individual
+  // experiments declare their own research-only factor config/module instead.
+  research_only: true,
+  factors: [],
 }
-

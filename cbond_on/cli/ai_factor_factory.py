@@ -24,7 +24,7 @@ def cli_main(argv: list[str] | None = None) -> None:
     p_prompt.add_argument("--constraints", default="")
     p_prompt.add_argument("--batch-id", default="")
 
-    p_gen = sub.add_parser("generate-dify", help="Call Dify workflow and stage returned candidates")
+    p_gen = sub.add_parser("generate-dify", help="Call Dify workflow and stage returned Rust candidates")
     p_gen.add_argument("--topic", required=True)
     p_gen.add_argument("--constraints", default="")
     p_gen.add_argument("--batch-id", default="")

@@ -1,0 +1,4 @@
+{
+  modules: ["models/lgbm/lgbm_screened_no_winsor_neutral_tminus1_weight_recent_hl20_20260625_50_20260805"],
+  rolling: { enabled: true, window_days: 60 },
+}

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import ast
 import json
 import re
 from dataclasses import dataclass, field
@@ -31,7 +30,7 @@ class FactorCandidateDraft:
     factor_name: str
     formula: str
     rationale: str
-    python_code: str
+    rust_code: str
     config_spec: dict[str, Any]
     used_panel_fields: list[str] = field(default_factory=list)
     used_stock_panel_fields: list[str] = field(default_factory=list)
@@ -43,6 +42,10 @@ class FactorCandidateDraft:
     status: str = "research_only"
     risk_notes: list[str] = field(default_factory=list)
     batch_validation_command: str = "python cbond_on/run/factor_batch.py"
+    # Old candidate packages may still contain a Python draft.  We retain it
+    # only long enough to report a precise migration error; it is never a
+    # runnable implementation or a fallback in the Rust-first factory.
+    legacy_python_code: str = ""
 
     @classmethod
     def from_payload(cls, payload: dict[str, Any]) -> "FactorCandidateDraft":
@@ -60,13 +63,24 @@ class FactorCandidateDraft:
                     visibility=str(item.get("visibility", "historical_only")).strip(),
                 )
             )
+        raw_config_spec = payload.get("config_spec", {}) or {}
+        if not isinstance(raw_config_spec, dict):
+            raise TypeError("config_spec must be an object")
+        # Do not let a blank legacy marker hide a non-empty old python_code
+        # field. Any supplied Python implementation is a migration error.
+        legacy_python_values = [
+            str(payload.get(field_name) or "").strip()
+            for field_name in ("legacy_python_code", "python_code")
+            if field_name in payload
+        ]
+        legacy_python_code = "\n\n".join(value for value in legacy_python_values if value)
         return cls(
             factor_key=str(payload.get("factor_key", "")).strip(),
             factor_name=str(payload.get("factor_name", payload.get("factor_key", ""))).strip(),
             formula=str(payload.get("formula", "")).strip(),
             rationale=str(payload.get("rationale", "")).strip(),
-            python_code=str(payload.get("python_code", "")).strip(),
-            config_spec=dict(payload.get("config_spec", {}) or {}),
+            rust_code=str(payload.get("rust_code", "")).strip(),
+            config_spec=dict(raw_config_spec),
             used_panel_fields=[str(x).strip() for x in payload.get("used_panel_fields", []) if str(x).strip()],
             used_stock_panel_fields=[
                 str(x).strip() for x in payload.get("used_stock_panel_fields", []) if str(x).strip()
@@ -81,10 +95,12 @@ class FactorCandidateDraft:
             batch_validation_command=str(
                 payload.get("batch_validation_command", "python cbond_on/run/factor_batch.py")
             ).strip(),
+            legacy_python_code=str(legacy_python_code or "").strip(),
         )
 
     def to_payload(self) -> dict[str, Any]:
-        return {
+        payload = {
+            "schema_version": "rust_first_v1",
             "factor_key": self.factor_key,
             "factor_name": self.factor_name,
             "formula": self.formula,
@@ -98,10 +114,13 @@ class FactorCandidateDraft:
             "time_visibility": self.time_visibility,
             "status": self.status,
             "config_spec": self.config_spec,
-            "python_code": self.python_code,
+            "rust_code": self.rust_code,
             "risk_notes": self.risk_notes,
             "batch_validation_command": self.batch_validation_command,
         }
+        if self.legacy_python_code:
+            payload["legacy_python_code"] = self.legacy_python_code
+        return payload
 
 
 @dataclass
@@ -202,8 +221,9 @@ def candidate_output_schema() -> dict[str, Any]:
                     "name": "lower_snake_v1",
                     "factor": "lower_snake_v1",
                     "params": {"window": 20},
+                    "rust_contract_id": "research/lower_snake_v1/v1",
                 },
-                "python_code": "complete Python factor implementation draft; intraday panel candidates must use ensure_trade_time and _group_scalar to return one scalar per (dt, code)",
+                "rust_code": "pub fn compute_lower_snake_v1(/* typed factor inputs */) -> Option<f64> { /* Rust kernel draft */ }",
                 "risk_notes": ["risk 1"],
                 "batch_validation_command": "python cbond_on/run/factor_batch.py",
             }
@@ -310,6 +330,16 @@ def _extract_candidates_from_dify_response(resp: dict[str, Any]) -> list[dict[st
         return candidates
     if candidates == [] or saw_empty_candidates:
         return []
+    # The documented Dify family-design workflow intentionally returns
+    # ``factor_families``.  A family is ideation metadata, not a concrete Rust
+    # candidate; never reinterpret it as a candidate or manufacture a Python
+    # implementation to make the batch runnable.
+    if "factor_families" in json.dumps(resp, ensure_ascii=False):
+        raise ValueError(
+            "Dify returned factor_families, which are not executable candidates. "
+            "Expand a family into a rust_code candidate with an exact rust_contract_id, "
+            "then validate/stage that Rust candidate explicitly."
+        )
     raise KeyError("cannot find candidates in Dify response")
 
 
@@ -322,206 +352,110 @@ def generate_from_dify(*, topic: str, constraints: str = "", batch_id: str = "")
     return [FactorCandidateDraft.from_payload(x) for x in payloads[:limit]]
 
 
-def _import_name(node: ast.AST) -> str:
-    if isinstance(node, ast.Import):
-        return ",".join(alias.name for alias in node.names)
-    if isinstance(node, ast.ImportFrom):
-        return node.module or ""
-    return ""
-
-
-def _call_name(node: ast.Call) -> str:
-    func = node.func
-    if isinstance(func, ast.Name):
-        return func.id
-    if isinstance(func, ast.Attribute):
-        return func.attr
-    return ""
-
-
-def _literal_string(node: ast.AST) -> str | None:
-    if isinstance(node, ast.Constant) and isinstance(node.value, str):
-        return node.value
-    return None
-
-
-def _imported_symbols(tree: ast.AST) -> set[str]:
-    symbols: set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            for alias in node.names:
-                symbols.add(alias.asname or alias.name.rsplit(".", 1)[-1])
-        elif isinstance(node, ast.ImportFrom):
-            for alias in node.names:
-                symbols.add(alias.asname or alias.name)
-    return symbols
-
-
 def _is_intraday_panel_candidate(candidate: FactorCandidateDraft) -> bool:
     return bool(candidate.used_panel_fields)
 
 
-def _normalize_formula_op(name: str) -> str | None:
-    text = str(name or "").strip().lower()
-    aliases = {
-        "nanmax": "max",
-        "amax": "max",
-        "nanmin": "min",
-        "amin": "min",
-        "average": "mean",
-        "nanmean": "mean",
-        "nansum": "sum",
-        "size": "count",
-        "len": "count",
-        "nanstd": "std",
-        "stddev": "std",
-        "std_dev": "std",
-        "var": "std",
-        "nanvar": "std",
-        "kurt": "kurtosis",
-    }
-    text = aliases.get(text, text)
-    if text in {"max", "min", "mean", "sum", "count", "std", "skew", "kurtosis", "gini", "hhi", "entropy", "cumsum"}:
-        return text
-    return None
+_RUST_FN_RE = re.compile(r"\b(?:pub\s+)?(?:async\s+)?fn\s+[A-Za-z_][A-Za-z0-9_]*\s*\(")
+_RUST_DEFAULT_FORBIDDEN_TOKENS = (
+    "std::fs",
+    "tokio::fs",
+    "std::net",
+    "tokio::net",
+    "reqwest",
+    "ureq",
+    "TcpStream",
+    "UdpSocket",
+    "File::open",
+    "OpenOptions",
+    "read_to_string",
+    "read_to_end",
+    "write_all",
+    "std::process",
+    "Command::new",
+    "sqlx",
+    "postgres",
+    "redis",
+    "rusqlite",
+    "mongodb",
+    "include_bytes!",
+    "include_str!",
+    "unsafe",
+)
 
 
-def _field_from_expr(expr: ast.AST, aliases: dict[str, str], panel_fields: set[str]) -> str | None:
-    if isinstance(expr, ast.Name):
-        return aliases.get(expr.id)
-    if isinstance(expr, ast.Subscript):
-        if isinstance(expr.value, ast.Name) and expr.value.id in aliases:
-            return aliases[expr.value.id]
-        key = _literal_string(expr.slice)
-        if key in panel_fields:
-            return key
-        return _field_from_expr(expr.value, aliases, panel_fields)
-    if isinstance(expr, ast.Attribute):
-        return _field_from_expr(expr.value, aliases, panel_fields)
-    if isinstance(expr, ast.Call):
-        if isinstance(expr.func, ast.Attribute):
-            field = _field_from_expr(expr.func.value, aliases, panel_fields)
-            if field:
-                return field
-        for arg in expr.args:
-            field = _field_from_expr(arg, aliases, panel_fields)
-            if field:
-                return field
-    if isinstance(expr, ast.BinOp):
-        return _field_from_expr(expr.left, aliases, panel_fields) or _field_from_expr(expr.right, aliases, panel_fields)
-    if isinstance(expr, ast.UnaryOp):
-        return _field_from_expr(expr.operand, aliases, panel_fields)
-    if isinstance(expr, ast.Compare):
-        field = _field_from_expr(expr.left, aliases, panel_fields)
-        if field:
-            return field
-        for comparator in expr.comparators:
-            field = _field_from_expr(comparator, aliases, panel_fields)
-            if field:
-                return field
-    return None
+def _strip_rust_comments(code: str) -> str:
+    without_blocks = re.sub(r"/\*.*?\*/", "", code, flags=re.DOTALL)
+    return re.sub(r"//[^\n]*", "", without_blocks)
 
 
-def _collect_field_aliases(tree: ast.AST, panel_fields: set[str]) -> dict[str, str]:
-    aliases: dict[str, str] = {}
-    changed = True
-    while changed:
-        changed = False
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.Assign):
-                continue
-            field = _field_from_expr(node.value, aliases, panel_fields)
-            if not field:
-                continue
-            for target in node.targets:
-                if isinstance(target, ast.Name) and aliases.get(target.id) != field:
-                    aliases[target.id] = field
-                    changed = True
-    return aliases
-
-
-def _extract_formula_families(
-    *,
-    candidate: FactorCandidateDraft,
-    tree: ast.AST,
-    panel_fields: set[str],
-) -> set[str]:
-    aliases = _collect_field_aliases(tree, panel_fields)
-    families: set[str] = set()
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
-            continue
-        name = _call_name(node)
-        op = _normalize_formula_op(name)
-        if not op:
-            continue
-        field: str | None = None
-        if isinstance(node.func, ast.Attribute):
-            field = _field_from_expr(node.func.value, aliases, panel_fields)
-        if field is None:
-            for arg in node.args:
-                field = _field_from_expr(arg, aliases, panel_fields)
-                if field:
-                    break
-        if field:
-            families.add(f"{field}:{op}")
-
-    lowered = (
-        candidate.factor_key
-        + "\n"
-        + candidate.factor_name
-        + "\n"
-        + candidate.formula
-        + "\n"
-        + candidate.rationale
-        + "\n"
-        + candidate.python_code
+def _candidate_text(candidate: FactorCandidateDraft) -> str:
+    rust_code = _strip_rust_comments(candidate.rust_code)
+    return "\n".join(
+        [
+            candidate.factor_key,
+            candidate.factor_name,
+            candidate.formula,
+            candidate.rationale,
+            candidate.time_visibility,
+            rust_code,
+        ]
     ).lower()
-    uses_volume = "volume" in candidate.used_panel_fields or re.search(r"(?<![a-z0-9_])volume(?![a-z0-9_])", lowered)
-    if uses_volume:
-        semantic_ops = {
-            "gini": ("gini",),
-            "hhi": ("hhi", "herfindahl"),
-            "entropy": ("entropy",),
-            "skew": ("skew", "skewness"),
-            "kurtosis": ("kurt", "kurtosis"),
-            "std": ("std", "std_dev", "standard deviation", "volatility"),
-            "cumsum": ("cumsum", "cumulative"),
-            "count": ("count", "tick count"),
-        }
+
+
+def _extract_formula_families(*, candidate: FactorCandidateDraft, panel_fields: set[str]) -> set[str]:
+    """Infer coarse formula families from the declared Rust draft and metadata.
+
+    This is intentionally text/metadata based.  A Rust candidate draft is not
+    compiled in the AI-factory stage, so accepting a Python AST merely for
+    dedupe would recreate a shadow Python implementation path.
+    """
+
+    del panel_fields  # Declarations, rather than a language AST, are authoritative here.
+    lowered = _candidate_text(candidate)
+    fields = {
+        str(field).strip().lower()
+        for field in candidate.used_panel_fields
+        if str(field).strip() and str(field).strip().lower() != "trade_time"
+    }
+    semantic_ops = {
+        "max": ("max", "maximum", "amax", "nanmax"),
+        "min": ("min", "minimum", "amin", "nanmin"),
+        "mean": ("mean", "average", "nanmean"),
+        "sum": ("sum", "nansum"),
+        "count": ("count", "len", "tick count"),
+        "std": ("std", "stddev", "std_dev", "standard deviation", "volatility"),
+        "skew": ("skew", "skewness"),
+        "kurtosis": ("kurt", "kurtosis"),
+        "gini": ("gini",),
+        "hhi": ("hhi", "herfindahl"),
+        "entropy": ("entropy",),
+        "cumsum": ("cumsum", "cumulative"),
+    }
+    families: set[str] = set()
+    for field in fields:
+        if not re.search(rf"(?<![a-z0-9_]){re.escape(field)}(?![a-z0-9_])", lowered):
+            continue
         for op, tokens in semantic_ops.items():
-            if any(token in lowered for token in tokens):
-                families.add(f"volume:{op}")
+            if any(
+                re.search(rf"(?<![a-z0-9_]){re.escape(token)}(?![a-z0-9_])", lowered)
+                for token in tokens
+            ):
+                families.add(f"{field}:{op}")
     return families
 
 
-def _fields_referenced_in_tree(tree: ast.AST, panel_fields: set[str]) -> set[str]:
-    out: set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Subscript):
-            key = _literal_string(node.slice)
-            if key in panel_fields:
-                out.add(key)
-    return out
-
-
-def _has_cross_field_arithmetic(tree: ast.AST, panel_fields: set[str]) -> bool:
-    aliases = _collect_field_aliases(tree, panel_fields)
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.BinOp) or not isinstance(node.op, (ast.Mult, ast.Div, ast.Sub, ast.Add)):
-            continue
-        left = _field_from_expr(node.left, aliases, panel_fields)
-        right = _field_from_expr(node.right, aliases, panel_fields)
-        if left and right and left != right:
-            return True
-    return False
-
-
-def _is_cross_field_candidate(candidate: FactorCandidateDraft, tree: ast.AST, panel_fields: set[str]) -> bool:
-    fields = _fields_referenced_in_tree(tree, panel_fields).difference({"trade_time"})
+def _is_cross_field_candidate(candidate: FactorCandidateDraft) -> bool:
+    fields = sorted(
+        {
+            str(field).strip().lower()
+            for field in candidate.used_panel_fields
+            if str(field).strip() and str(field).strip().lower() != "trade_time"
+        }
+    )
     if len(fields) < 2:
         return False
-    lowered = f"{candidate.factor_key}\n{candidate.formula}\n{candidate.rationale}".lower()
+    lowered = _candidate_text(candidate)
     interaction_tokens = (
         "interaction",
         "conditional",
@@ -535,7 +469,17 @@ def _is_cross_field_candidate(candidate: FactorCandidateDraft, tree: ast.AST, pa
         "deviation",
         "combined",
     )
-    return _has_cross_field_arithmetic(tree, panel_fields) or any(token in lowered for token in interaction_tokens)
+    if any(token in lowered for token in interaction_tokens):
+        return True
+    for index, left in enumerate(fields):
+        for right in fields[index + 1 :]:
+            either_order = (
+                rf"\b{re.escape(left)}\b[^;\n]{{0,96}}[+*/-][^;\n]{{0,96}}\b{re.escape(right)}\b"
+                rf"|\b{re.escape(right)}\b[^;\n]{{0,96}}[+*/-][^;\n]{{0,96}}\b{re.escape(left)}\b"
+            )
+            if re.search(either_order, lowered):
+                return True
+    return False
 
 
 def _load_existing_factor_keys(dedupe_cfg: dict[str, Any]) -> set[str]:
@@ -557,24 +501,13 @@ def _load_existing_factor_keys(dedupe_cfg: dict[str, Any]) -> set[str]:
     return keys
 
 
-def _has_dt_code_scalar_pattern(code: str) -> bool:
-    if "_group_scalar" in code:
-        return True
-    compact = re.sub(r"\s+", "", code)
-    return bool(
-        re.search(r"groupby\([^)]*(?:level=)?(?:\[)?[\"']dt[\"'],[\"']code[\"']", compact)
-        or re.search(r"groupby\([^)]*(?:level=)?(?:\[)?0,1", compact)
-    )
-
-
 def _has_positive_value_guard(code: str) -> bool:
     lowered = code.lower()
-    if "replace(0" in lowered or ".where(" in lowered or ".mask(" in lowered:
-        return True
     guarded_name = r"(?:last|price|volume|denom|denominator|bid|ask|sum|total|depth|end|start)[a-z0-9_]*"
     return bool(
-        re.search(rf"{guarded_name}\s*(?:<=|<|==)\s*0", lowered)
-        or re.search(rf"{guarded_name}\s*>\s*0", lowered)
+        re.search(rf"{guarded_name}\s*(?:<=|<|==)\s*0(?:\.0)?", lowered)
+        or re.search(rf"{guarded_name}\s*>\s*0(?:\.0)?", lowered)
+        or ".is_finite()" in lowered
     )
 
 
@@ -612,6 +545,68 @@ def review_candidate(candidate: FactorCandidateDraft, *, review_cfg: dict[str, A
             )
     if candidate.status != "research_only" and not bool(cfg.get("allow_live_status", False)):
         findings.append(ReviewFinding("error", "status", "new AI candidates must start as research_only"))
+    if candidate.legacy_python_code:
+        findings.append(
+            ReviewFinding(
+                "error",
+                "legacy_python_code",
+                "python_code is a retired candidate format; migrate this candidate to rust_code before review or batch execution",
+            )
+        )
+    if not candidate.rust_code:
+        findings.append(ReviewFinding("error", "rust_code", "candidate must provide a Rust kernel draft"))
+    elif not _RUST_FN_RE.search(_strip_rust_comments(candidate.rust_code)):
+        findings.append(
+            ReviewFinding(
+                "error",
+                "rust_kernel_shape",
+                "rust_code must declare at least one Rust fn kernel draft",
+            )
+        )
+
+    spec_name = str(candidate.config_spec.get("name", "")).strip()
+    spec_factor = str(candidate.config_spec.get("factor", "")).strip()
+    raw_params = candidate.config_spec.get("params")
+    rust_contract_id = str(candidate.config_spec.get("rust_contract_id", "")).strip()
+    if not spec_name:
+        findings.append(ReviewFinding("error", "config_name", "config_spec.name is required"))
+    elif spec_name != candidate.factor_name:
+        findings.append(
+            ReviewFinding(
+                "error",
+                "config_name",
+                "config_spec.name must equal factor_name so the Rust output column is unambiguous",
+            )
+        )
+    if not spec_factor or not _SNAKE_RE.match(spec_factor):
+        findings.append(ReviewFinding("error", "config_factor", "config_spec.factor must be lower snake_case"))
+    if not isinstance(raw_params, dict):
+        findings.append(ReviewFinding("error", "config_params", "config_spec.params must be an object"))
+    if not rust_contract_id:
+        findings.append(
+            ReviewFinding(
+                "error",
+                "rust_contract_id",
+                "config_spec.rust_contract_id is required for every Rust-first candidate",
+            )
+        )
+    elif not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_./:-]*", rust_contract_id):
+        findings.append(
+            ReviewFinding(
+                "error",
+                "rust_contract_id",
+                "config_spec.rust_contract_id contains unsupported characters",
+            )
+        )
+    output_col = candidate.config_spec.get("output_col")
+    if output_col is not None and str(output_col).strip() and str(output_col).strip() != candidate.factor_name:
+        findings.append(
+            ReviewFinding(
+                "error",
+                "output_col",
+                "config_spec.output_col, when supplied, must equal factor_name for a single candidate package",
+            )
+        )
     if candidate.requires_stock_panel and not candidate.requires_bond_stock_map:
         findings.append(ReviewFinding("error", "stock_map", "stock_panel factors must also require bond_stock_map"))
     if candidate.used_stock_panel_fields and not candidate.requires_stock_panel:
@@ -622,8 +617,6 @@ def review_candidate(candidate: FactorCandidateDraft, *, review_cfg: dict[str, A
         findings.append(ReviewFinding("error", "request_stock_panel", "this request explicitly forbids stock_panel usage"))
     if bool(cfg.get("request_forbid_daily_data", False)) and candidate.daily_requirements:
         findings.append(ReviewFinding("error", "request_daily_data", "this request explicitly forbids daily_data usage"))
-    if candidate.daily_requirements and "daily_requirements" not in candidate.python_code:
-        findings.append(ReviewFinding("error", "daily_decl", "daily data usage must implement daily_requirements()"))
 
     panel_fields = set(str(x) for x in cfg.get("panel_fields", []))
     request_allowed_panel_fields = set(str(x) for x in cfg.get("request_allowed_panel_fields", []) if str(x))
@@ -663,42 +656,41 @@ def review_candidate(candidate: FactorCandidateDraft, *, review_cfg: dict[str, A
                     )
                 )
 
-    lowered = (candidate.formula + "\n" + candidate.rationale + "\n" + candidate.python_code).lower()
+    lowered = _candidate_text(candidate)
     for token in cfg.get("forbidden_semantic_inputs", []):
         token_text = str(token).lower()
         if re.search(rf"(?<![a-z0-9_]){re.escape(token_text)}(?![a-z0-9_])", lowered):
             findings.append(ReviewFinding("error", "forbidden_semantic_input", f"forbidden semantic input: {token}"))
 
-    try:
-        tree = ast.parse(candidate.python_code)
-    except SyntaxError as exc:
-        findings.append(ReviewFinding("error", "syntax", f"python_code syntax error: {exc}"))
-        return findings
-
-    forbidden_imports = tuple(str(x) for x in cfg.get("forbidden_imports", []))
-    forbidden_calls = set(str(x) for x in cfg.get("forbidden_calls", []))
-    allow_try_except = bool(cfg.get("allow_try_except", False))
-    allow_fillna_zero = bool(cfg.get("allow_fillna_zero", False))
-    require_dt_code_scalar_output = bool(cfg.get("require_dt_code_scalar_output", True))
-    require_intraday_utils = bool(cfg.get("require_intraday_utils_for_panel_candidates", True))
     require_positive_guards = bool(cfg.get("require_positive_value_guards", True))
-    require_slice_window = bool(cfg.get("require_slice_window_for_windowed_panel_candidates", True))
-    required_intraday_helpers = set(str(x) for x in cfg.get("required_intraday_helpers", []))
-    returned_series_hint = False
-    registry_seen = False
-    registry_decorator_seen = False
-    factor_base_seen = False
-    imported_symbols = _imported_symbols(tree)
+    require_explicit_window = bool(cfg.get("require_explicit_window_for_windowed_panel_candidates", True))
+    rust_source = _strip_rust_comments(candidate.rust_code)
+    forbidden_rust_tokens = tuple(
+        str(token).strip()
+        for token in cfg.get("forbidden_rust_tokens", _RUST_DEFAULT_FORBIDDEN_TOKENS)
+        if str(token).strip()
+    )
+    for token in forbidden_rust_tokens:
+        if re.search(
+            rf"(?<![a-z0-9_]){re.escape(token.lower())}(?![a-z0-9_])",
+            rust_source.lower(),
+        ):
+            findings.append(
+                ReviewFinding(
+                    "error",
+                    "rust_direct_io",
+                    f"Rust kernel drafts must not perform file/network/database/process I/O: {token}",
+                )
+            )
 
     if dedupe_enabled and bool(dedupe_cfg.get("reject_existing_formula_family", True)):
         forbidden_families = {str(x).strip() for x in dedupe_cfg.get("forbidden_formula_families", []) if str(x).strip()}
         formula_families = _extract_formula_families(
             candidate=candidate,
-            tree=tree,
             panel_fields=panel_fields,
         )
         duplicated = sorted(formula_families.intersection(forbidden_families))
-        if duplicated and _is_cross_field_candidate(candidate, tree, panel_fields):
+        if duplicated and _is_cross_field_candidate(candidate):
             duplicated = []
         for family in duplicated:
             findings.append(
@@ -709,95 +701,8 @@ def review_candidate(candidate: FactorCandidateDraft, *, review_cfg: dict[str, A
                 )
             )
 
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.Import, ast.ImportFrom)):
-            name = _import_name(node)
-            if any(name == x or name.startswith(f"{x}.") for x in forbidden_imports):
-                findings.append(ReviewFinding("error", "forbidden_import", f"forbidden import: {name}"))
-            if name == "cbond_on.domain.factors.base":
-                factor_base_seen = True
-        elif isinstance(node, ast.Try) and not allow_try_except:
-            findings.append(ReviewFinding("error", "try_except", "try/except is not allowed in AI factor drafts"))
-        elif isinstance(node, ast.Call):
-            name = _call_name(node)
-            if name in forbidden_calls:
-                findings.append(ReviewFinding("error", "forbidden_call", f"forbidden call: {name}"))
-            if name == "register":
-                registry_seen = True
-            if name == "slice_window":
-                if node.keywords or len(node.args) < 2:
-                    findings.append(
-                        ReviewFinding(
-                            "error",
-                            "slice_window_signature",
-                            "slice_window must be called as slice_window(frame, window_minutes) without keyword arguments",
-                        )
-                    )
-            if name == "fillna" and not allow_fillna_zero:
-                for arg in node.args:
-                    if isinstance(arg, ast.Constant) and arg.value == 0:
-                        findings.append(ReviewFinding("error", "fillna_zero", "fillna(0) is not allowed"))
-            if name in {"where", "mask"} and not allow_fillna_zero:
-                zero_args = [
-                    arg
-                    for arg in node.args[1:]
-                    if isinstance(arg, ast.Constant) and arg.value == 0
-                ]
-                zero_kwargs = [
-                    kw
-                    for kw in node.keywords
-                    if kw.arg == "other" and isinstance(kw.value, ast.Constant) and kw.value.value == 0
-                ]
-                if zero_args or zero_kwargs:
-                    findings.append(
-                        ReviewFinding(
-                            "error",
-                            "zero_imputation",
-                            "where/mask(..., 0) is not allowed to hide invalid values",
-                        )
-                    )
-        elif isinstance(node, ast.ClassDef):
-            if any(isinstance(decorator, ast.Call) and _call_name(decorator) == "register" for decorator in node.decorator_list):
-                registry_decorator_seen = True
-        elif isinstance(node, ast.Subscript):
-            key = _literal_string(node.slice)
-            if key and key not in panel_fields and key not in {"dt", "code", "seq"}:
-                # This is a heuristic. daily_data columns are checked via candidate JSON above.
-                if key not in lowered:
-                    continue
-        elif isinstance(node, ast.Return):
-            returned_series_hint = True
-
-    if "FactorRegistry.register" not in candidate.python_code and not registry_seen:
-        findings.append(ReviewFinding("error", "registry", "python_code must register via FactorRegistry.register"))
-    if not registry_decorator_seen:
-        findings.append(ReviewFinding("error", "registry_decorator", "FactorRegistry.register must be used as a class decorator"))
-    if "FactorComputeContext" not in candidate.python_code or not factor_base_seen:
-        findings.append(ReviewFinding("error", "factor_base", "python_code must import/use Factor and FactorComputeContext"))
-    if not returned_series_hint:
-        findings.append(ReviewFinding("error", "return", "compute() must return a pd.Series"))
-    if "read_parquet" in candidate.python_code or "Path(" in candidate.python_code:
-        findings.append(ReviewFinding("error", "direct_io", "factor code must not read files or use Path"))
     if _is_intraday_panel_candidate(candidate):
-        if require_dt_code_scalar_output and not _has_dt_code_scalar_pattern(candidate.python_code):
-            findings.append(
-                ReviewFinding(
-                    "error",
-                    "output_granularity",
-                    "intraday panel candidates must return exactly one scalar per (dt, code); use _group_scalar or an explicit dt/code groupby, not a seq-level panel Series",
-                )
-            )
-        if require_intraday_utils:
-            missing_helpers = sorted(required_intraday_helpers - imported_symbols)
-            if missing_helpers:
-                findings.append(
-                    ReviewFinding(
-                        "error",
-                        "intraday_helpers",
-                        f"intraday panel candidates must import/use required helpers: {missing_helpers}",
-                    )
-                )
-        if require_positive_guards and "/" in candidate.python_code and not _has_positive_value_guard(candidate.python_code):
+        if require_positive_guards and "/" in rust_source and not _has_positive_value_guard(rust_source):
             findings.append(
                 ReviewFinding(
                     "error",
@@ -805,12 +710,14 @@ def review_candidate(candidate: FactorCandidateDraft, *, review_cfg: dict[str, A
                     "division-based panel factors must explicitly guard invalid price/volume/denominator values",
                 )
             )
-        if require_slice_window and _is_windowed_panel_candidate(candidate) and "slice_window(" not in candidate.python_code:
+        if require_explicit_window and _is_windowed_panel_candidate(candidate) and not re.search(
+            r"\b(?:window|slice|tail|lookback)\b", rust_source, flags=re.IGNORECASE
+        ):
             findings.append(
                 ReviewFinding(
                     "error",
-                    "window_slice",
-                    "windowed intraday panel candidates must call slice_window inside the dt/code calculation",
+                    "window_boundary",
+                    "windowed intraday Rust kernels must state an explicit window/slice/tail boundary",
                 )
             )
 
@@ -840,14 +747,23 @@ def write_candidate_package(candidate: FactorCandidateDraft, findings: list[Revi
         json.dumps(candidate.to_payload(), ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
-    (root / f"{candidate.factor_key}.py.draft").write_text(candidate.python_code, encoding="utf-8")
+    (root / f"{candidate.factor_key}.rs.draft").write_text(candidate.rust_code, encoding="utf-8")
     (root / "config_spec.json").write_text(
         json.dumps(candidate.config_spec, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
+    rust_contract_id = str(candidate.config_spec.get("rust_contract_id", "")).strip()
+    factor_name = str(candidate.config_spec.get("factor", "")).strip()
+    output_col = str(candidate.config_spec.get("output_col") or candidate.factor_name).strip()
+    params = candidate.config_spec.get("params", {})
+    params_payload = dict(params) if isinstance(params, dict) else {}
     contract = {
-        "name": candidate.factor_key,
-        "implementation": f"cbond_on.domain.factors.defs.{candidate.factor_key}",
+        "name": candidate.factor_name,
+        "implementation": "cbond_on_rust.compute_factor_frame",
+        "factor": factor_name,
+        "output_col": output_col,
+        "rust_contract_id": rust_contract_id or None,
+        "execution_policy": "rust_first",
         "family": "ai_candidate",
         "uses_ohlc_rebuild": bool(candidate.uses_ohlc_rebuild),
         "live_enabled": False,
@@ -858,15 +774,37 @@ def write_candidate_package(candidate: FactorCandidateDraft, findings: list[Revi
         json.dumps(contract, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
+    rust_contract = {
+        "contract_id": rust_contract_id or None,
+        "factor": factor_name,
+        "output_col": output_col,
+        "params": params_payload,
+        "execution_policy": "rust_first",
+        "status": "rust_draft_uncompiled",
+        "required_before": "research_factor_batch_execution",
+        "compiled_capability_proof_required": True,
+        "required_capability": {
+            "compute_api": "compute_factor_frame",
+            "python_fallback": False,
+            "exact_contract_fields": ["id", "factor", "output_col", "params_sha256"],
+        },
+        "no_python_fallback": True,
+    }
+    (root / "rust_contract_requirement.json").write_text(
+        json.dumps(rust_contract, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
     report = {
         "accepted_by_static_review": not any(x.severity == "error" for x in findings),
+        "research_batch_permitted": False,
+        "research_batch_gate": "compiled_factor_capabilities_exact_contract_required",
         "findings": [vars(x) for x in findings],
         "next_steps": [
             "human review candidate package",
-            "copy approved Python file into cbond_on/domain/factors/defs",
-            "update defs/__init__.py, factor config and factor_contracts for research profile only",
-            "run import and FactorRegistry checks",
-            "run single-day and multi-day factor_batch on data machine",
+            "integrate the Rust kernel into cbond_on_rust and rebuild the extension",
+            "prove the exact rust_contract_id/factor/output_col/params tuple through factor_capabilities() before any batch execution",
+            "create a research_only config with compute.engine='rust', execution_policy='rust_first', and an explicit Rust contract entry; do not update defs/__init__.py",
+            "run single-day and multi-day Rust factor_batch on data machine",
         ],
     }
     (root / "static_review.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -881,7 +819,9 @@ def _candidate_readme(candidate: FactorCandidateDraft, report: dict[str, Any]) -
         f"Formula:\n\n{candidate.formula}\n\n"
         f"Time visibility:\n\n{candidate.time_visibility}\n\n"
         f"Static review accepted: `{bool(report['accepted_by_static_review'])}`\n\n"
-        "This is a staged research-only candidate package. It is not installed into live or model configs.\n"
+        "This is a staged research-only candidate package. It is not installed into live or model configs. "
+        "It cannot enter a normal research batch until the Rust draft is integrated into a rebuilt extension and its exact compiled capability contract is verified. "
+        "Python code is not an implementation or fallback path for this package.\n"
     )
 
 

@@ -1,0 +1,14 @@
+{
+  // Isolated no-DB live-chain timing profile.  It must never be used by the
+  // production scheduler; all generated paths resolve under this scratch root.
+  raw_data_root: "D:/cbond_data_hub/raw_data",
+  clean_data_root: "D:/cbond_data_hub/clean_data",
+  cleaned_data_root: "D:/cbond_data_hub/clean_data",
+  results_root: "D:/cbond_on/research_scratch/live50_cutover_dryrun_20260805/runtime/results",
+  read_only_input_roots: {
+    panel_data_root: "D:/cbond_on/panel_data",
+    // run_once refreshes labels even in no-DB mode, so this must be scratch.
+    label_data_root: "D:/cbond_on/research_scratch/live50_cutover_dryrun_20260805/runtime/label_data",
+    factor_data_root: "D:/cbond_on/research_scratch/live50_cutover_dryrun_20260805/runtime/factor_data",
+  },
+}

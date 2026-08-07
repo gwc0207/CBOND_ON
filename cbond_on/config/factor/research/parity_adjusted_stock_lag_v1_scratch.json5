@@ -1,5 +1,12 @@
 {
   // Research-only pack; do not add this factor to the live pack.
+  research_only: true,
+  // No Python execution exception: this archival pack remains blocked until
+  // its exact Rust contract and kernel are added.
+  compute: { engine: "rust", execution_policy: "rust_first", backend: "cpu", fallback_cpu: true },
+  research_factor_modules: [
+    "cbond_on.domain.factors.defs.parity_adjusted_stock_lag_v1",
+  ],
   factors: [
     {
       name: "parity_adjusted_stock_lag_v1",
