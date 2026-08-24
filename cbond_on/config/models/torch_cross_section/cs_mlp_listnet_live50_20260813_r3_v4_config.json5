@@ -1,0 +1,11 @@
+{
+  modules: ["models/torch_cross_section/cs_mlp_listnet_live50_20260812_r3"],
+  model_name: "cs_mlp_listnet_live50_20260813_r3_v4",
+  results_root: "D:/cbond_on/research_scratch/non_tree_cross_sectional_models_20260813_r3_v4/runtime/results",
+  neutralization_cache_root: "D:/cbond_on/research_scratch/non_tree_cross_sectional_models_20260813_r3_v4/runtime/results/neutralization_cache/cs_mlp_listnet_live50_20260813_r3_v4",
+  score_output: "D:/cbond_on/research_scratch/non_tree_cross_sectional_models_20260813_r3_v4/runtime/results/scores/cs_mlp_listnet_live50_20260813_r3_v4",
+  incremental: {
+    state_dir: "D:/cbond_on/research_scratch/non_tree_cross_sectional_models_20260813_r3_v4/runtime/results/model_state/cs_mlp_listnet_live50_20260813_r3_v4",
+  },
+  experiment: { id: "non_tree_cross_sectional_models_20260813_r3_v4", role: "pure_cross_section_mlp", research_only: true },
+}

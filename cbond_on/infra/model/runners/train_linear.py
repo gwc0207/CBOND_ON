@@ -23,6 +23,7 @@ from cbond_on.infra.model.impl.lgbm.trainer import (
 )
 from cbond_on.infra.model.impl.linear.linear_score import (
     _iter_existing_factor_days,
+    linear_contract_fingerprint,
     run_linear_score,
     write_linear_outputs,
 )
@@ -46,6 +47,93 @@ def _load_model_config(path: Path | None) -> dict:
     if path is None:
         return load_config_file("models/linear/linear_factor_default")
     return load_config_file(str(path))
+
+
+def _is_relative_to(path: Path, root: Path) -> bool:
+    """Compatibility helper for the strict research state-root guard."""
+
+    try:
+        path.resolve().relative_to(root.resolve())
+    except ValueError:
+        return False
+    return True
+
+
+def _resolve_research_elasticnet_incremental(
+    *,
+    cfg: dict,
+    paths_cfg: dict,
+    model_name: str,
+    factor_cols: list[str],
+    regression_kind: str,
+    regression_alpha: float,
+    elasticnet_l1_ratio: float,
+    max_iter: int,
+    lookback_days: int,
+    refit_freq: int,
+    factor_time: str,
+    label_time: str,
+    panel_name: str | None,
+    winsor_lower: float | None,
+    winsor_upper: float | None,
+    zscore: bool,
+    min_count: int,
+    neutralizer,
+) -> tuple[bool, bool, Path | None, str | None]:
+    """Resolve opt-in research-only ElasticNet continuation.
+
+    Default linear behaviour remains cold-refit.  Warm-start is deliberately
+    unavailable unless the config explicitly declares both an incremental
+    request and ``experiment.research_only=true``.  The state directory must
+    be explicit and contained by this process's configured results root.
+    """
+
+    incremental_cfg = dict(cfg.get("incremental", {}))
+    experiment_cfg = dict(cfg.get("experiment", {}))
+    enabled = bool(incremental_cfg.get("enabled", False))
+    warm_start = bool(incremental_cfg.get("warm_start", False))
+    save_state = bool(incremental_cfg.get("save_state", False))
+    research_only = bool(experiment_cfg.get("research_only", False))
+    kind = str(regression_kind).strip().lower().replace("_", "")
+    requested = enabled and warm_start
+    if not requested:
+        return False, False, None, None
+    if not research_only:
+        raise ValueError("linear ElasticNet warm_start is research-only; set experiment.research_only=true")
+    if kind not in {"elasticnet", "enet"}:
+        raise ValueError("linear warm_start is supported only for regression_kind=elasticnet")
+    state_dir_raw = incremental_cfg.get("state_dir")
+    if state_dir_raw in (None, ""):
+        raise ValueError("research ElasticNet warm_start requires explicit incremental.state_dir")
+    results_root = Path(paths_cfg["results_root"])
+    state_dir = resolve_output_path(
+        state_dir_raw,
+        default_path=results_root / "model_state" / model_name,
+        results_root=results_root,
+    )
+    if not _is_relative_to(state_dir, results_root):
+        raise ValueError("research ElasticNet state_dir must be inside paths.results_root")
+    fingerprint = linear_contract_fingerprint(
+        {
+            "format_version": 1,
+            "model_name": model_name,
+            "regression_kind": "elasticnet",
+            "factor_cols": list(factor_cols),
+            "regression_alpha": float(regression_alpha),
+            "elasticnet_l1_ratio": float(elasticnet_l1_ratio),
+            "max_iter": int(max_iter),
+            "lookback_days": int(lookback_days),
+            "refit_freq": int(refit_freq),
+            "factor_time": str(factor_time),
+            "label_time": str(label_time),
+            "panel_name": str(panel_name or ""),
+            "winsor": {"lower": winsor_lower, "upper": winsor_upper},
+            "zscore": bool(zscore),
+            "min_count": int(min_count),
+            "neutralization": neutralizer.summary() if neutralizer is not None else {"enabled": False},
+        }
+    )
+    return True, save_state, state_dir, fingerprint
 
 
 def main(
@@ -108,10 +196,22 @@ def main(
     zscore = bool(cfg.get("zscore", True))
     min_count = int(cfg.get("min_count", 30))
     bins = int(cfg.get("bins", 5))
+    # Keep legacy cache placement unless a research config explicitly gives a
+    # derived-cache root.  The latter lets the live50 panel input remain
+    # read-only throughout this experiment.
+    neutralization_cache_raw = cfg.get("neutralization_cache_root")
+    neutralization_cache_root: Path | None = None
+    if neutralization_cache_raw not in (None, ""):
+        neutralization_cache_root = resolve_output_path(
+            neutralization_cache_raw,
+            default_path=Path(paths_cfg["results_root"]) / "neutralization_cache" / str(cfg.get("model_name", "linear_factor")),
+            results_root=paths_cfg["results_root"],
+        )
     neutralizer = build_neutralizer(
         cfg.get("neutralization"),
         raw_data_root=raw_root,
         panel_data_root=panel_root,
+        neutralization_cache_root=neutralization_cache_root,
     )
 
     linear_cfg = cfg.get("linear", {})
@@ -138,6 +238,31 @@ def main(
         manual_weights.append(float(linear_cfg.get("manual_weights", {}).get(f, 0.0)))
     manual_weights = pd.Series(manual_weights, index=factor_cols, dtype=float)
     model_name = str(cfg.get("model_name", "linear_factor"))
+    (
+        incremental_warm_start,
+        incremental_save_state,
+        incremental_state_dir,
+        warm_start_fingerprint,
+    ) = _resolve_research_elasticnet_incremental(
+        cfg=cfg,
+        paths_cfg=paths_cfg,
+        model_name=model_name,
+        factor_cols=factor_cols,
+        regression_kind=regression_kind,
+        regression_alpha=regression_alpha,
+        elasticnet_l1_ratio=elasticnet_l1_ratio,
+        max_iter=max_iter,
+        lookback_days=lookback_days,
+        refit_freq=refit_freq,
+        factor_time=factor_time,
+        label_time=label_time,
+        panel_name=panel_name,
+        winsor_lower=winsor_lower,
+        winsor_upper=winsor_upper,
+        zscore=zscore,
+        min_count=min_count,
+        neutralizer=neutralizer,
+    )
     wandb_logger = init_wandb_logger(
         execution_cfg=execution_cfg,
         model_cfg=cfg,
@@ -173,6 +298,10 @@ def main(
             "normalize_weights": str(normalize_weights),
             "device": str(device),
             "neutralization_enabled": bool(neutralizer is not None and neutralizer.enabled),
+            "neutralization_cache_root": str(neutralization_cache_root) if neutralization_cache_root else "legacy_panel_default",
+            "research_elasticnet_warm_start": bool(incremental_warm_start),
+            "research_elasticnet_save_state": bool(incremental_save_state),
+            "research_elasticnet_state_dir": str(incremental_state_dir) if incremental_state_dir else None,
         },
         prefix="run",
     )
@@ -209,6 +338,11 @@ def main(
         gpu_fallback_to_cpu=gpu_fallback_to_cpu,
         neutralizer=neutralizer,
         label_cutoff=cutoff_day,
+        incremental_enabled=bool(incremental_warm_start),
+        incremental_warm_start=bool(incremental_warm_start),
+        incremental_save_state=bool(incremental_save_state),
+        state_dir=incremental_state_dir,
+        warm_start_fingerprint=warm_start_fingerprint,
     )
 
     if result.scores.empty:

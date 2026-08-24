@@ -1,0 +1,20 @@
+{
+  // Two-score-day causal smoke.  It composes the locked r1 contract and
+  // redirects every mutable artifact into an independent smoke root.
+  modules: ["models/torch_cross_section/cs_deepsets_listnet_fast27_20260815_r1"],
+
+  model_name: "atomic_cs_fast27_deepsets_listnet_20260815_r1_smoke",
+  start: "2024-07-04",
+  end: "2024-07-05",
+  results_root: "D:/cbond_on/research_scratch/atomic_cross_sectional_models_20260815_r1/smoke/runtime/results",
+  neutralization_cache_root: "D:/cbond_on/research_scratch/atomic_cross_sectional_models_20260815_r1/smoke/runtime/results/neutralization_cache/atomic_cs_fast27_deepsets_listnet_20260815_r1_smoke",
+  score_output: "D:/cbond_on/research_scratch/atomic_cross_sectional_models_20260815_r1/smoke/runtime/results/scores/atomic_cs_fast27_deepsets_listnet_20260815_r1_smoke",
+  incremental: {
+    state_dir: "D:/cbond_on/research_scratch/atomic_cross_sectional_models_20260815_r1/smoke/runtime/results/model_state/atomic_cs_fast27_deepsets_listnet_20260815_r1_smoke",
+  },
+  experiment: {
+    id: "atomic_cross_sectional_models_20260815_r1_smoke",
+    role: "fast27_deepsets_listnet",
+    research_only: true,
+  },
+}

@@ -45,7 +45,7 @@
   },
   model_switch: {
     enabled: true,
-    mode: "scoreopt_t1430_fusion_gate",
+    mode: "scoreopt_t1430_dispersion",
     feature_set: "path_full_t1430",
     state_feature_path: {
       windows: "D:/cbond_on/results/analysis/model_switch_t1430_path_full_20260721/t1430_market_state_features_path_full.csv",
@@ -54,10 +54,10 @@
     state_price_field: "last",
     metric: "trim20_lcb10",
     score_mode: "trim20_lcb10",
-    lookback_days: 60,
-    nearest_k: 40,
-    min_periods: 40,
-    margin: 0.0005,
+    lookback_days: 240,
+    nearest_k: 60,
+    min_periods: 60,
+    margin: 0.0,
     threshold: 0.0005,
     fusion: {
       policy: "base_low_confidence_only",

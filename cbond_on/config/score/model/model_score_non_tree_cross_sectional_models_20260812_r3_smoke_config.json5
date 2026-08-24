@@ -1,0 +1,20 @@
+{
+  modules: ["score/model/model_score_non_tree_cross_sectional_models_20260812_r3"],
+  start: "2024-05-08",
+  end: "2024-05-10",
+  label_cutoff: "2024-05-07",
+  models: {
+    cs_mlp_listnet_live50_20260812_r3: {
+      model_type: "torch_cross_section",
+      model_config: "models/torch_cross_section/cs_mlp_listnet_live50_20260812_r3_smoke",
+    },
+    cs_deepsets_listnet_live50_20260812_r3: {
+      model_type: "torch_cross_section",
+      model_config: "models/torch_cross_section/cs_deepsets_listnet_live50_20260812_r3_smoke",
+    },
+    cs_settransformer_listnet_live50_20260812_r3: {
+      model_type: "torch_cross_section",
+      model_config: "models/torch_cross_section/cs_settransformer_listnet_live50_20260812_r3_smoke",
+    },
+  },
+}

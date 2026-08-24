@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime
+import hashlib
 from pathlib import Path
 import json
+import random
 import sys
 from typing import Sequence
 
@@ -25,10 +27,9 @@ from cbond_on.infra.model.impl.lgbm.trainer import (
     _apply_winsor_zscore,
     _iter_existing_label_days,
     _read_label_day,
-    _split_days,
     build_tradable_code_map,
 )
-from cbond_on.infra.model.impl.torch_sequence import FactorCNN1DModel, FactorLSTMModel
+from cbond_on.infra.model.impl.torch_sequence import FactorCNN1DModel, FactorLSTMModel, FactorTCNModel
 from cbond_on.infra.model.neutralization import FactorNeutralizer, build_neutralizer
 from cbond_on.infra.model.preprocess_config import parse_winsor_bounds
 from cbond_on.infra.model.score_io import load_scores_by_date, write_scores_by_date
@@ -64,19 +65,217 @@ class _SequenceDataset(Dataset):
 def _load_model_config(path: Path | None) -> dict:
     if path is None:
         raise ValueError("torch sequence model config path is required")
-    suffix = path.suffix.lower()
-    if suffix == ".json5":
-        import json5
+    # Use the shared loader so `modules` are resolved consistently with the
+    # LGBM/linear runners.  In particular, a research sequence config may
+    # reference the frozen live50 feature contract as an input-only module.
+    return load_config_file(str(path))
 
-        with path.open("r", encoding="utf-8") as handle:
-            return json5.load(handle) or {}
-    if suffix in {".yaml", ".yml"}:
-        import yaml
 
-        with path.open("r", encoding="utf-8") as handle:
-            return yaml.safe_load(handle) or {}
-    with path.open("r", encoding="utf-8") as handle:
-        return json.load(handle) or {}
+def _set_deterministic_seed(*, seed: int, deterministic: bool) -> None:
+    """Set every local stochastic source used by this runner.
+
+    The seed is reset at each rolling refit with a deterministic day-specific
+    offset.  This makes a resumed scratch run produce the same state as a
+    single uninterrupted run without making every refit start identically.
+    """
+
+    value = int(seed)
+    random.seed(value)
+    np.random.seed(value)
+    torch.manual_seed(value)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(value)
+    if deterministic:
+        torch.use_deterministic_algorithms(True, warn_only=True)
+        if torch.backends.cudnn.is_available():
+            torch.backends.cudnn.deterministic = True
+            torch.backends.cudnn.benchmark = False
+
+
+def _config_fingerprint(
+    *,
+    architecture: str,
+    factor_cols: list[str],
+    feature_names: list[str],
+    sequence_days: int,
+    model_params: dict,
+    feature_cfg: dict,
+    neutralization: dict,
+    training_contract: dict,
+    input_contract: dict,
+) -> str:
+    payload = {
+        "architecture": str(architecture),
+        "factor_cols": list(factor_cols),
+        "feature_names": list(feature_names),
+        "sequence_days": int(sequence_days),
+        "model_params": model_params,
+        "feature_cfg": feature_cfg,
+        "neutralization": neutralization,
+        # Do not reuse a warm-start state when any weight- or input-semantic
+        # setting differs.  Output paths are intentionally excluded so a safe
+        # relocation does not itself alter the fitted-model contract.
+        "training_contract": training_contract,
+        "input_contract": input_contract,
+    }
+    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def _seed_for_score_day(*, base_seed: int, score_day: date) -> int:
+    """Stable day-keyed seed so interrupted daily-refit runs are reproducible."""
+
+    return (int(base_seed) + int(score_day.strftime("%Y%m%d"))) % (2**31 - 1)
+
+
+def _require_rolling_enabled(rolling_cfg: dict) -> None:
+    if not bool(rolling_cfg.get("enabled", True)):
+        # This runner's output contract is one causal score frame per target
+        # day.  The historical non-rolling branch trained a model but never
+        # constructed those frames, then failed later with a misleading "no
+        # scores" error.  Fail early until a separately specified holdout
+        # scoring contract exists.
+        raise ValueError("torch sequence runner currently supports rolling.enabled=true only")
+
+
+def _parse_checkpoint_day(stem: str) -> date | None:
+    try:
+        return datetime.strptime(stem, "%Y-%m-%d").date()
+    except ValueError:
+        return None
+
+
+def _parse_checkpoint_provenance_day(value: object) -> date | None:
+    """Parse the deliberately date-only fields written in a checkpoint.
+
+    Checkpoint provenance is part of the causal contract.  Be strict here:
+    accepting a timestamp, an arbitrary string, or a missing value would make
+    it too easy to mistake an incomplete/legacy checkpoint for one whose
+    training boundary has actually been audited.
+    """
+
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    try:
+        return datetime.strptime(str(value), "%Y-%m-%d").date()
+    except (TypeError, ValueError):
+        return None
+
+
+def _checkpoint_path(state_dir: Path, day: date) -> Path:
+    return state_dir / f"{day:%Y-%m-%d}.pt"
+
+
+def _find_previous_checkpoint(state_dir: Path, day: date) -> Path | None:
+    if not state_dir.exists():
+        return None
+    best_day: date | None = None
+    best_path: Path | None = None
+    for path in state_dir.glob("*.pt"):
+        checkpoint_day = _parse_checkpoint_day(path.stem)
+        if checkpoint_day is None or checkpoint_day >= day:
+            continue
+        if best_day is None or checkpoint_day > best_day:
+            best_day = checkpoint_day
+            best_path = path
+    return best_path
+
+
+def _load_warm_start_state(
+    *,
+    checkpoint_path: Path,
+    expected_fingerprint: str,
+    device: torch.device,
+    score_day: date,
+    label_cutoff: date | None,
+) -> dict[str, torch.Tensor] | None:
+    checkpoint_day = _parse_checkpoint_day(checkpoint_path.stem)
+    if checkpoint_day is None or checkpoint_day >= score_day:
+        print(
+            f"[rolling] warm-start checkpoint is not prior to target {score_day}: "
+            f"{checkpoint_path.name}"
+        )
+        return None
+    try:
+        payload = torch.load(checkpoint_path, map_location=device, weights_only=False)
+    except Exception as exc:
+        print(f"[rolling] warm-start checkpoint unreadable {checkpoint_path.name}: {type(exc).__name__}: {exc}")
+        return None
+    if not isinstance(payload, dict):
+        print(f"[rolling] warm-start checkpoint invalid payload: {checkpoint_path.name}")
+        return None
+    if payload.get("fingerprint") != expected_fingerprint:
+        print(f"[rolling] warm-start checkpoint contract mismatch: {checkpoint_path.name}")
+        return None
+    train_day = _parse_checkpoint_provenance_day(payload.get("train_day"))
+    if train_day is None or train_day != checkpoint_day:
+        print(f"[rolling] warm-start checkpoint invalid train_day provenance: {checkpoint_path.name}")
+        return None
+    metadata = payload.get("metadata")
+    if not isinstance(metadata, dict):
+        print(f"[rolling] warm-start checkpoint missing metadata provenance: {checkpoint_path.name}")
+        return None
+    metadata_score_day = _parse_checkpoint_provenance_day(metadata.get("score_day"))
+    if metadata_score_day is None or metadata_score_day != checkpoint_day:
+        print(f"[rolling] warm-start checkpoint invalid score_day provenance: {checkpoint_path.name}")
+        return None
+    label_days = {
+        "max_train_label_day": _parse_checkpoint_provenance_day(metadata.get("max_train_label_day")),
+        "max_validation_label_day": _parse_checkpoint_provenance_day(metadata.get("max_validation_label_day")),
+    }
+    if any(value is None for value in label_days.values()):
+        print(f"[rolling] warm-start checkpoint incomplete label provenance: {checkpoint_path.name}")
+        return None
+    for field, used_label_day in label_days.items():
+        assert used_label_day is not None  # narrows the type after the completeness guard above.
+        # The state must itself have been trained causally for its score day,
+        # and it must remain legal for the current score request.
+        if used_label_day >= checkpoint_day or used_label_day >= score_day:
+            print(
+                f"[rolling] warm-start checkpoint future label provenance "
+                f"{field}={used_label_day}: {checkpoint_path.name}"
+            )
+            return None
+        if label_cutoff is not None and used_label_day > label_cutoff:
+            print(
+                f"[rolling] warm-start checkpoint exceeds label_cutoff "
+                f"{field}={used_label_day} cutoff={label_cutoff}: {checkpoint_path.name}"
+            )
+            return None
+    state_dict = payload.get("model_state")
+    if not isinstance(state_dict, dict):
+        print(f"[rolling] warm-start checkpoint missing model state: {checkpoint_path.name}")
+        return None
+    return state_dict
+
+
+def _save_warm_start_state(
+    *,
+    checkpoint_path: Path,
+    model: torch.nn.Module,
+    fingerprint: str,
+    train_day: date,
+    metadata: dict | None = None,
+) -> None:
+    checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = checkpoint_path.with_name(
+        f"{checkpoint_path.stem}.{random.randrange(1 << 30):08x}.tmp"
+    )
+    torch.save(
+        {
+            "format_version": 2,
+            "train_day": str(train_day),
+            "fingerprint": fingerprint,
+            "model_state": {key: value.detach().cpu() for key, value in model.state_dict().items()},
+            "metadata": dict(metadata or {}),
+        },
+        tmp_path,
+    )
+    # Atomic replacement ensures a crash cannot leave a half-written file
+    # eligible for the next process's checkpoint scan.
+    tmp_path.replace(checkpoint_path)
 
 
 def _device_from_config(train_cfg: dict) -> torch.device:
@@ -104,6 +303,24 @@ def _empty_split(sequence_days: int, factor_count: int) -> SequenceSplitData:
         dt=np.array([], dtype=object),
         code=np.array([], dtype=object),
     )
+
+
+def _split_rolling_train_validation(days: Sequence[date], train_ratio: float) -> tuple[list[date], list[date]]:
+    """Chronologically split every realised pre-score label day into train/val.
+
+    A rolling scorer has already reserved its final window day as the target
+    score day.  Reusing the generic train/val/test splitter would incorrectly
+    discard its newest realised-label tail.  This mirrors the LGBM rolling
+    contract: the earlier portion is train and the complete remaining portion
+    is validation for early stopping.
+    """
+
+    pool = list(days)
+    if len(pool) < 2:
+        return pool, []
+    n_train = max(1, int(len(pool) * float(train_ratio)))
+    n_train = min(n_train, len(pool) - 1)
+    return pool[:n_train], pool[n_train:]
 
 
 def _feature_engineering_cfg(cfg: dict | None) -> dict:
@@ -367,6 +584,7 @@ def _build_day_sequence(
     allow_missing_values: bool,
     factor_cache: dict[date, pd.DataFrame],
     label_cache: dict[date, dict[str, float]],
+    load_label: bool,
     neutralizer: FactorNeutralizer | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     pos = day_to_pos.get(target_day)
@@ -417,17 +635,19 @@ def _build_day_sequence(
             np.array([], dtype=object),
             np.array([], dtype=np.float32),
         )
+    codes = np.asarray(sorted(common_codes), dtype=object)
+    x = np.stack(
+        [frame.loc[codes.tolist()].to_numpy(dtype=np.float32) for frame in frames],
+        axis=1,
+    )
+    if not load_label:
+        return x, codes, np.full(len(codes), np.nan, dtype=np.float32)
     y_map = _label_map_for_day(
         label_root=label_root,
         day=target_day,
         factor_time=factor_time,
         label_time=label_time,
         cache=label_cache,
-    )
-    codes = np.asarray(sorted(common_codes), dtype=object)
-    x = np.stack(
-        [frame.loc[codes.tolist()].to_numpy(dtype=np.float32) for frame in frames],
-        axis=1,
     )
     y = np.asarray([float(y_map[c]) if c in y_map else np.nan for c in codes.tolist()], dtype=np.float32)
     return x, codes, y
@@ -482,6 +702,7 @@ def _build_split_data(
             allow_missing_values=bool(feature_cfg.get("fill_missing_enabled", False)),
             factor_cache=factor_cache,
             label_cache=label_cache,
+            load_label=require_label,
             neutralizer=neutralizer,
         )
         if x_day.size == 0 or code_day.size == 0:
@@ -596,6 +817,15 @@ def _build_model(*, architecture: str, n_features: int, params: dict) -> torch.n
             kernel_size=int(params.get("kernel_size", 3)),
             dropout=float(params.get("dropout", 0.1)),
         )
+    if kind in {"tcn", "factor_tcn"}:
+        return FactorTCNModel(
+            n_features=n_features,
+            channels=int(params.get("channels", 32)),
+            num_layers=int(params.get("num_layers", 3)),
+            kernel_size=int(params.get("kernel_size", 3)),
+            dilation_base=int(params.get("dilation_base", 2)),
+            dropout=float(params.get("dropout", 0.1)),
+        )
     raise ValueError(f"unsupported torch sequence architecture: {architecture}")
 
 
@@ -619,6 +849,8 @@ def _train_one_model(
     val_data: SequenceSplitData,
     model_params: dict,
     train_cfg: dict,
+    initial_state: dict[str, torch.Tensor] | None = None,
+    seed: int | None = None,
 ) -> tuple[torch.nn.Module, list[dict]]:
     if train_data.x.size == 0:
         raise RuntimeError("torch sequence train split is empty")
@@ -634,14 +866,23 @@ def _train_one_model(
     min_delta = float(train_cfg.get("early_stopping_min_delta", 0.0))
     rank_weight = float(train_cfg.get("checkpoint_rank_weight", 1.0))
     dir_weight = float(train_cfg.get("checkpoint_dir_weight", 0.0))
+    if seed is not None:
+        _set_deterministic_seed(
+            seed=int(seed),
+            deterministic=bool(train_cfg.get("deterministic", True)),
+        )
 
     model = _build_model(
         architecture=architecture,
         n_features=int(train_data.x.shape[2]),
         params=model_params,
     ).to(device)
+    if initial_state is not None:
+        model.load_state_dict(initial_state, strict=True)
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
     loss_fn = torch.nn.MSELoss()
+    loader_generator = torch.Generator(device="cpu")
+    loader_generator.manual_seed(int(seed if seed is not None else train_cfg.get("seed", 20260812)))
     loader = DataLoader(
         _SequenceDataset(train_data.x, train_data.y),
         batch_size=batch_size,
@@ -649,6 +890,7 @@ def _train_one_model(
         drop_last=False,
         num_workers=num_workers,
         pin_memory=device.type == "cuda",
+        generator=loader_generator,
     )
     best_score = float("-inf")
     best_state: dict[str, torch.Tensor] | None = None
@@ -730,6 +972,7 @@ def _score_eval_daily(
     factor_time: str,
     label_time: str,
     label_cache: dict[date, dict[str, float]],
+    label_cutoff: date | None = None,
 ) -> pd.DataFrame:
     rows: list[dict] = []
     if scores_df.empty:
@@ -738,6 +981,8 @@ def _score_eval_daily(
     work["trade_date"] = pd.to_datetime(work["trade_date"], errors="coerce").dt.date
     work["score"] = pd.to_numeric(work["score"], errors="coerce")
     work = work.dropna(subset=["trade_date", "code", "score"])
+    if label_cutoff is not None:
+        work = work.loc[work["trade_date"] <= label_cutoff].copy()
     for day, group in work.groupby("trade_date", sort=True):
         y_map = _label_map_for_day(
             label_root=label_root,
@@ -813,25 +1058,71 @@ def main(
     winsor_lower, winsor_upper = parse_winsor_bounds(cfg.get("winsor", source_cfg.get("winsor", {})))
     zscore = bool(cfg.get("zscore", source_cfg.get("zscore", True)))
     feature_cfg = _feature_engineering_cfg(cfg.get("feature_engineering"))
-    feature_names = _feature_names(factor_cols, feature_cfg)
     if missing_policy == "fill" and not bool(feature_cfg.get("fill_missing_enabled", False)):
         feature_cfg["fill_missing_enabled"] = True
+    feature_names = _feature_names(factor_cols, feature_cfg)
 
     execution_cfg = dict(execution or {})
     rolling_cfg = dict(cfg.get("rolling", {}))
     rolling_enabled = bool(rolling_cfg.get("enabled", True))
+    _require_rolling_enabled(rolling_cfg)
     window_days = max(3, int(rolling_cfg.get("window_days", 60)))
     refit_every_n_days = max(1, int(execution_cfg.get("refit_every_n_days", cfg.get("refit_every_n_days", 20))))
+
+    train_cfg = dict(cfg.get("train", {}))
+    model_params = dict(cfg.get("model_params", cfg.get("params", {})))
+    base_seed = int(train_cfg.get("seed", cfg.get("seed", 20260812)))
+    deterministic = bool(train_cfg.get("deterministic", cfg.get("deterministic", True)))
+    train_cfg["deterministic"] = deterministic
 
     raw_root = Path(paths_cfg["raw_data_root"])
     panel_root = Path(paths_cfg["panel_data_root"])
     factor_root = Path(paths_cfg["factor_data_root"])
     label_root = Path(paths_cfg["label_data_root"])
     store = FactorStore(factor_root, panel_name=panel_name, window_minutes=int(cfg.get("window_minutes", 15)))
+    # Preserve the legacy default (cache beside panel input) unless a research
+    # config explicitly opts into an isolated derived-cache root.  This avoids
+    # changing any existing/live Torch model's behaviour merely by importing
+    # the hardened research runner.
+    neutralization_cache_raw = cfg.get("neutralization_cache_root")
+    neutralization_cache_root: Path | None = None
+    if neutralization_cache_raw not in (None, ""):
+        neutralization_cache_root = resolve_output_path(
+            neutralization_cache_raw,
+            default_path=Path(paths_cfg["results_root"]) / "neutralization_cache" / model_name,
+            results_root=paths_cfg["results_root"],
+        )
     neutralizer = build_neutralizer(
         cfg.get("neutralization", source_cfg.get("neutralization")),
         raw_data_root=raw_root,
         panel_data_root=panel_root,
+        neutralization_cache_root=neutralization_cache_root,
+    )
+    contract_fingerprint = _config_fingerprint(
+        architecture=architecture,
+        factor_cols=factor_cols,
+        feature_names=feature_names,
+        sequence_days=sequence_days,
+        model_params=model_params,
+        feature_cfg=feature_cfg,
+        neutralization=neutralizer.summary() if neutralizer is not None else {"enabled": False},
+        training_contract={
+            "window_days": int(window_days),
+            "refit_every_n_days": int(refit_every_n_days),
+            "train": train_cfg,
+            "label_transform": label_transform,
+            "winsor": {"lower": winsor_lower, "upper": winsor_upper},
+            "zscore": bool(zscore),
+            "missing_policy": missing_policy,
+        },
+        input_contract={
+            "factor_time": factor_time,
+            "label_time": label_time,
+            "panel_name": panel_name,
+            "factor_root": str(factor_root),
+            "label_root": str(label_root),
+            "neutralization_cache_root": str(neutralization_cache_root) if neutralization_cache_root else "legacy_panel_default",
+        },
     )
 
     lookback_count = int(window_days + sequence_days + 10)
@@ -901,6 +1192,15 @@ def main(
     incremental_cfg = dict(cfg.get("incremental", {}))
     incremental_enabled = bool(incremental_cfg.get("enabled", True))
     incremental_skip_existing = bool(incremental_cfg.get("skip_existing_scores", True))
+    incremental_warm_start = bool(incremental_cfg.get("warm_start", False))
+    incremental_save_state = bool(incremental_cfg.get("save_state", False))
+    state_dir = resolve_output_path(
+        incremental_cfg.get("state_dir"),
+        default_path=results_root / "model_state" / model_name,
+        results_root=results_root,
+    )
+    if incremental_enabled and (incremental_warm_start or incremental_save_state):
+        state_dir.mkdir(parents=True, exist_ok=True)
 
     target_days = list(desired_days)
     if incremental_enabled and incremental_skip_existing and not score_overwrite:
@@ -915,8 +1215,6 @@ def main(
         print(f"saved scores: {score_output}")
         return
 
-    train_cfg = dict(cfg.get("train", {}))
-    model_params = dict(cfg.get("model_params", cfg.get("params", {})))
     print(
         "torch sequence:",
         f"model={model_name}",
@@ -928,6 +1226,9 @@ def main(
         f"window_days={window_days}",
         f"refit_every_n_days={refit_every_n_days}",
         f"missing_policy={missing_policy}",
+        f"seed={base_seed}",
+        f"deterministic={deterministic}",
+        f"warm_start={incremental_warm_start}",
         f"neutralization={bool(neutralizer is not None and neutralizer.enabled)}",
     )
     if neutralizer is not None and neutralizer.enabled:
@@ -956,7 +1257,6 @@ def main(
         if not valid_positions:
             raise RuntimeError("rolling has no valid target day after history filtering")
         train_ratio = float(train_cfg.get("train_ratio", 0.7))
-        val_ratio = float(train_cfg.get("val_ratio", 0.15))
         batch_size = max(1, int(train_cfg.get("batch_size", 512)))
         for roll_pos, idx in enumerate(valid_positions):
             roll_idx = roll_pos + 1
@@ -983,7 +1283,7 @@ def main(
                         continue
                     refit_status = "reuse_insufficient_train"
                 else:
-                    train_days, val_days, _ = _split_days(train_days_pool, train_ratio, val_ratio)
+                    train_days, val_days = _split_rolling_train_validation(train_days_pool, train_ratio)
                     train_data = _build_split_data(
                         days=train_days,
                         all_days=all_days,
@@ -1040,19 +1340,59 @@ def main(
                             continue
                         refit_status = "reuse_empty_train"
                     else:
+                        initial_state: dict[str, torch.Tensor] | None = None
+                        warm_start_from: str | None = None
+                        if incremental_enabled and incremental_warm_start:
+                            previous_checkpoint = _find_previous_checkpoint(state_dir, test_day)
+                            if previous_checkpoint is not None:
+                                initial_state = _load_warm_start_state(
+                                    checkpoint_path=previous_checkpoint,
+                                    expected_fingerprint=contract_fingerprint,
+                                    device=_device_from_config(train_cfg),
+                                    score_day=test_day,
+                                    label_cutoff=cutoff_day,
+                                )
+                                if initial_state is not None:
+                                    warm_start_from = previous_checkpoint.name
+                                    print(f"[rolling] warm-start from checkpoint: {warm_start_from}")
                         model, hist = _train_one_model(
                             architecture=architecture,
                             train_data=train_data,
                             val_data=val_data,
                             model_params=model_params,
                             train_cfg=train_cfg,
+                            initial_state=initial_state,
+                            seed=_seed_for_score_day(base_seed=base_seed, score_day=test_day),
                         )
                         last_model = model
                         last_refit_pos = roll_pos
                         last_refit_day = test_day
                         refit_status = "refit"
                         for row in hist:
-                            history_rows.append({"trade_date": test_day, **row})
+                            history_rows.append(
+                                {
+                                    "trade_date": test_day,
+                                    "warm_start_from": warm_start_from,
+                                    "seed": _seed_for_score_day(base_seed=base_seed, score_day=test_day),
+                                    **row,
+                                }
+                            )
+                        if incremental_enabled and incremental_save_state:
+                            _save_warm_start_state(
+                                checkpoint_path=_checkpoint_path(state_dir, test_day),
+                                model=model,
+                                fingerprint=contract_fingerprint,
+                                train_day=test_day,
+                                metadata={
+                                    "model_name": model_name,
+                                    "score_day": str(test_day),
+                                    "max_train_label_day": str(max(train_days)) if train_days else None,
+                                    "max_validation_label_day": str(max(val_days)) if val_days else None,
+                                    "refit_every_n_days": int(refit_every_n_days),
+                                    "seed": _seed_for_score_day(base_seed=base_seed, score_day=test_day),
+                                    "state_dir": str(state_dir),
+                                },
+                            )
             if last_model is None:
                 print(f"[rolling] skip {test_day}: no trained model available")
                 continue
@@ -1106,24 +1446,30 @@ def main(
                     "trade_date": test_day,
                     "refit": bool(refit_status == "refit"),
                     "refit_status": refit_status,
-                    "model_source_day": last_refit_day or test_day,
+                        "model_source_day": last_refit_day or test_day,
+                        "warm_start_enabled": incremental_warm_start,
+                        "state_dir": str(state_dir),
+                        "contract_fingerprint": contract_fingerprint,
                     "train_days": len(train_days),
                     "val_days": len(val_days),
+                    "max_train_day": max(train_days) if train_days else None,
+                    "max_val_day": max(val_days) if val_days else None,
+                    "max_used_label_day": max(train_days + val_days) if (train_days or val_days) else None,
                     "count": int(len(pred)),
                     **metrics,
                 }
             )
             print(
                 f"rolling {test_day} refit={refit_status} train_days={len(train_days)} "
-                f"val_days={len(val_days)} count={len(pred)} rank_ic={metrics['rank_ic']:.4f}"
+                f"val_days={len(val_days)} max_used_label_day={max(train_days + val_days) if (train_days or val_days) else None} "
+                f"count={len(pred)} rank_ic={metrics['rank_ic']:.4f}"
             )
     else:
         train_days_all = [d for d in desired_days if d in label_day_set]
         if len(train_days_all) < 3:
             raise RuntimeError("not enough labeled days for non-rolling training")
         train_ratio = float(train_cfg.get("train_ratio", 0.7))
-        val_ratio = float(train_cfg.get("val_ratio", 0.15))
-        train_days, val_days, _ = _split_days(train_days_all, train_ratio, val_ratio)
+        train_days, val_days = _split_rolling_train_validation(train_days_all, train_ratio)
         train_data = _build_split_data(
             days=train_days,
             all_days=all_days,
@@ -1180,6 +1526,7 @@ def main(
             val_data=val_data,
             model_params=model_params,
             train_cfg=train_cfg,
+            seed=base_seed,
         )
         history_rows.extend({"trade_date": "", **row} for row in hist)
 
@@ -1202,6 +1549,7 @@ def main(
         factor_time=factor_time,
         label_time=label_time,
         label_cache=label_cache,
+        label_cutoff=cutoff_day,
     )
     if not eval_daily.empty:
         eval_daily.to_csv(out_dir / "score_eval_daily.csv", index=False)
@@ -1237,6 +1585,12 @@ def main(
                 "label_transform": label_transform,
                 "feature_engineering": cfg.get("feature_engineering", {}),
                 "neutralization": neutralizer.summary() if neutralizer is not None else {"enabled": False},
+                "contract_fingerprint": contract_fingerprint,
+                "seed": base_seed,
+                "deterministic": deterministic,
+                "warm_start": incremental_warm_start,
+                "state_dir": str(state_dir),
+                "neutralization_cache_root": str(neutralization_cache_root) if neutralization_cache_root else "legacy_panel_default",
             },
             ensure_ascii=False,
             indent=2,

@@ -1,0 +1,12 @@
+{
+  // Research-only profile: existing production inputs are immutable; every
+  // generated score, checkpoint, report, and log stays below this scratch root.
+  raw_data_root: "D:/cbond_data_hub/raw_data",
+  clean_data_root: "D:/cbond_data_hub/clean_data",
+  results_root: "D:/cbond_on/research_scratch/non_tree_atomic_models_20260812_r1/runtime/results",
+  read_only_input_roots: {
+    panel_data_root: "D:/cbond_on/panel_data",
+    label_data_root: "D:/cbond_on/label_data",
+    factor_data_root: "D:/cbond_on/factor_data_live50_20260805",
+  },
+}

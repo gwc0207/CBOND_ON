@@ -1,0 +1,27 @@
+{
+  // Research-only, execution-aligned backtest for the independently trained
+  // fast27 DeepSets/ListNet score stream.
+  start: "2024-07-04",
+  end: "2026-06-10",
+  batch_id: "Research_AtomicCS_Fast27DeepSets_Aligned_20260815_r1",
+  output_root: "D:/cbond_on/research_scratch/atomic_cross_sectional_models_20260815_r1/runtime/results",
+  score_source: {
+    model_id: "atomic_cs_fast27_deepsets_listnet_20260815_r1",
+    score_root: "D:/cbond_on/research_scratch/atomic_cross_sectional_models_20260815_r1/runtime/results/scores/atomic_cs_fast27_deepsets_listnet_20260815_r1",
+  },
+  strategy_id: "strategy01_topk_turnover",
+  strategy_config_path: "strategies/strategy01/strategy01",
+  buy_twap_col: "twap_1442_1457",
+  sell_twap_col: "twap_0930_0939",
+  execution_lag_trading_days: 0,
+  freeze_signal_universe: false,
+  allowlist: {
+    enabled: true,
+    table: "quant_factor_dev.researcher_xuvb.o_0005",
+    lag_trading_days: 1,
+    asset: "cbond",
+    flag_field: "factor_value",
+    fallback_field: "weight",
+    threshold: 0.0,
+  },
+}

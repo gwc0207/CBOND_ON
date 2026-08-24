@@ -1,0 +1,29 @@
+{
+  // Reconstruct 2024-07-04/05 from v4 smoke checkpoints, then train 2024-07-08.
+  default_model_id: "cs_mlp_listnet_live50_20260813_r3_v4_smoke",
+  model_id: "cs_mlp_listnet_live50_20260813_r3_v4_smoke",
+  start: "2024-07-04",
+  end: "2024-07-08",
+  label_cutoff: null,
+  execution: {
+    refit_every_n_days: 1,
+    train_processes: 1,
+    parallel_shards: 1,
+    resume_interrupted: true,
+    wandb: { enabled: false, mode: "disabled" },
+  },
+  models: {
+    cs_mlp_listnet_live50_20260813_r3_v4_smoke: {
+      model_type: "torch_cross_section",
+      model_config: "models/torch_cross_section/cs_mlp_listnet_live50_20260813_r3_v5_resume_smoke",
+    },
+    cs_deepsets_listnet_live50_20260813_r3_v4_smoke: {
+      model_type: "torch_cross_section",
+      model_config: "models/torch_cross_section/cs_deepsets_listnet_live50_20260813_r3_v5_resume_smoke",
+    },
+    cs_settransformer_listnet_live50_20260813_r3_v4_smoke: {
+      model_type: "torch_cross_section",
+      model_config: "models/torch_cross_section/cs_settransformer_listnet_live50_20260813_r3_v5_resume_smoke",
+    },
+  },
+}

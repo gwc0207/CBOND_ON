@@ -1,0 +1,12 @@
+{
+  // r2 research-only profile. Production inputs are read-only; every generated
+  // artifact must stay below this experiment's dedicated scratch runtime.
+  raw_data_root: "D:/cbond_data_hub/raw_data",
+  clean_data_root: "D:/cbond_data_hub/clean_data",
+  results_root: "D:/cbond_on/research_scratch/non_tree_atomic_models_20260812_r2/runtime/results",
+  read_only_input_roots: {
+    panel_data_root: "D:/cbond_on/panel_data",
+    label_data_root: "D:/cbond_on/label_data",
+    factor_data_root: "D:/cbond_on/factor_data_live50_20260805",
+  },
+}

@@ -1,0 +1,27 @@
+{
+  default_model_id: "cs_mlp_listnet_live50_20260813_r3_v3_smoke",
+  model_id: "cs_mlp_listnet_live50_20260813_r3_v3_smoke",
+  start: "2024-05-08",
+  end: "2024-05-10",
+  label_cutoff: "2024-05-07",
+  execution: {
+    refit_every_n_days: 1,
+    train_processes: 1,
+    parallel_shards: 1,
+    wandb: { enabled: false, mode: "disabled" },
+  },
+  models: {
+    cs_mlp_listnet_live50_20260813_r3_v3_smoke: {
+      model_type: "torch_cross_section",
+      model_config: "models/torch_cross_section/cs_mlp_listnet_live50_20260813_r3_v3_smoke",
+    },
+    cs_deepsets_listnet_live50_20260813_r3_v3_smoke: {
+      model_type: "torch_cross_section",
+      model_config: "models/torch_cross_section/cs_deepsets_listnet_live50_20260813_r3_v3_smoke",
+    },
+    cs_settransformer_listnet_live50_20260813_r3_v3_smoke: {
+      model_type: "torch_cross_section",
+      model_config: "models/torch_cross_section/cs_settransformer_listnet_live50_20260813_r3_v3_smoke",
+    },
+  },
+}

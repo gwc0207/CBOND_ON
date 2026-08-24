@@ -1,0 +1,26 @@
+{
+  modules: ["models/torch_cross_section/cs_deepsets_listnet_live50_20260813_r3_v4_smoke"],
+
+  // Keep the source smoke model_name exactly so its v4 checkpoint fingerprint is preserved.
+  model_name: "cs_deepsets_listnet_live50_20260813_r3_v4_smoke",
+  start: "2024-07-04",
+  end: "2024-07-08",
+  results_root: "D:/cbond_on/research_scratch/non_tree_cross_sectional_models_20260813_r3_v5_resume_smoke/runtime/results",
+  neutralization_cache_root: "D:/cbond_on/research_scratch/non_tree_cross_sectional_models_20260813_r3_v5_resume_smoke/runtime/results/neutralization_cache/cs_deepsets_listnet_live50_20260813_r3_v4_smoke",
+  score_output: "D:/cbond_on/research_scratch/non_tree_cross_sectional_models_20260813_r3_v5_resume_smoke/runtime/results/scores/cs_deepsets_listnet_live50_20260813_r3_v4_smoke",
+  incremental: {
+    state_dir: "D:/cbond_on/research_scratch/non_tree_cross_sectional_models_20260813_r3_v5_resume_smoke/runtime/results/model_state/cs_deepsets_listnet_live50_20260813_r3_v4_smoke",
+  },
+  resume: {
+    enabled: true,
+    target_root: "D:/cbond_on/research_scratch/non_tree_cross_sectional_models_20260813_r3_v5_resume_smoke/runtime/results",
+    source_state_dir: "D:/cbond_on/research_scratch/non_tree_cross_sectional_models_20260813_r3_v4_smoke/runtime/results/model_state/cs_deepsets_listnet_live50_20260813_r3_v4_smoke",
+    chain_start: "2024-07-04",
+    expected_source_checkpoint_manifest_sha256: "e01af17277e425b0704c41e7ff7183d638521a05c24321978eb0d3e7a49c4209",
+  },
+  experiment: {
+    id: "non_tree_cross_sectional_models_20260813_r3_v5_resume_smoke",
+    role: "pure_cross_section_deepsets_verified_resume_smoke",
+    research_only: true,
+  },
+}

@@ -1,0 +1,19 @@
+{
+  // Retry after fixing the full50-preprocess / post-preprocess-slice boundary.
+  modules: ["models/torch_cross_section/cs_deepsets_listnet_fast27_20260815_r1"],
+
+  model_name: "atomic_cs_fast27_deepsets_listnet_20260815_r1_smoke_r2",
+  start: "2024-07-04",
+  end: "2024-07-05",
+  results_root: "D:/cbond_on/research_scratch/atomic_cross_sectional_models_20260815_r1/smoke_r2/runtime/results",
+  neutralization_cache_root: "D:/cbond_on/research_scratch/atomic_cross_sectional_models_20260815_r1/smoke_r2/runtime/results/neutralization_cache/atomic_cs_fast27_deepsets_listnet_20260815_r1_smoke_r2",
+  score_output: "D:/cbond_on/research_scratch/atomic_cross_sectional_models_20260815_r1/smoke_r2/runtime/results/scores/atomic_cs_fast27_deepsets_listnet_20260815_r1_smoke_r2",
+  incremental: {
+    state_dir: "D:/cbond_on/research_scratch/atomic_cross_sectional_models_20260815_r1/smoke_r2/runtime/results/model_state/atomic_cs_fast27_deepsets_listnet_20260815_r1_smoke_r2",
+  },
+  experiment: {
+    id: "atomic_cross_sectional_models_20260815_r1_smoke_r2",
+    role: "fast27_deepsets_listnet",
+    research_only: true,
+  },
+}

@@ -1,0 +1,10 @@
+{
+  raw_data_root: "D:/cbond_data_hub/raw_data",
+  clean_data_root: "D:/cbond_data_hub/clean_data",
+  results_root: "D:/cbond_on/research_scratch/atomic_cross_sectional_models_20260815_r1/smoke_r2/runtime/results",
+  read_only_input_roots: {
+    panel_data_root: "D:/cbond_on/panel_data",
+    label_data_root: "D:/cbond_on/label_data",
+    factor_data_root: "D:/cbond_on/factor_data_live50_20260805",
+  },
+}

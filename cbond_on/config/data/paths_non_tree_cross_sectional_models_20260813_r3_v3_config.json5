@@ -1,0 +1,11 @@
+{
+  // Fresh r3_v3 full score-only output root. Inputs remain read-only live50 data.
+  raw_data_root: "D:/cbond_data_hub/raw_data",
+  clean_data_root: "D:/cbond_data_hub/clean_data",
+  results_root: "D:/cbond_on/research_scratch/non_tree_cross_sectional_models_20260813_r3_v3/runtime/results",
+  read_only_input_roots: {
+    panel_data_root: "D:/cbond_on/panel_data",
+    label_data_root: "D:/cbond_on/label_data",
+    factor_data_root: "D:/cbond_on/factor_data_live50_20260805",
+  },
+}

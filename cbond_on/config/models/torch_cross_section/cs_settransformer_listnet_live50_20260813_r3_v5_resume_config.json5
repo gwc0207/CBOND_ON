@@ -1,0 +1,27 @@
+{
+  modules: ["models/torch_cross_section/cs_settransformer_listnet_live50_20260813_r3_v4"],
+
+  // Keep the v4 model_name exactly: it is part of the immutable source identity.
+  model_name: "cs_settransformer_listnet_live50_20260813_r3_v4",
+  start: "2024-07-04",
+  end: "2026-06-10",
+  results_root: "D:/cbond_on/research_scratch/non_tree_cross_sectional_models_20260813_r3_v5_resume/runtime/results",
+  neutralization_cache_root: "D:/cbond_on/research_scratch/non_tree_cross_sectional_models_20260813_r3_v5_resume/runtime/results/neutralization_cache/cs_settransformer_listnet_live50_20260813_r3_v4",
+  score_output: "D:/cbond_on/research_scratch/non_tree_cross_sectional_models_20260813_r3_v5_resume/runtime/results/scores/cs_settransformer_listnet_live50_20260813_r3_v4",
+  incremental: {
+    state_dir: "D:/cbond_on/research_scratch/non_tree_cross_sectional_models_20260813_r3_v5_resume/runtime/results/model_state/cs_settransformer_listnet_live50_20260813_r3_v4",
+  },
+  resume: {
+    enabled: true,
+    target_root: "D:/cbond_on/research_scratch/non_tree_cross_sectional_models_20260813_r3_v5_resume/runtime/results",
+    // Immutable read-only source; runner validates inventory, bytes and parent chain before use.
+    source_state_dir: "D:/cbond_on/research_scratch/non_tree_cross_sectional_models_20260813_r3_v4/runtime/results/model_state/cs_settransformer_listnet_live50_20260813_r3_v4",
+    chain_start: "2024-07-04",
+    expected_source_checkpoint_manifest_sha256: "7f473ed82772f6a6b636d17f4c7da79aabcfa373b28535a846d07bbf7e5ca009",
+  },
+  experiment: {
+    id: "non_tree_cross_sectional_models_20260813_r3_v5_resume",
+    role: "pure_cross_section_settransformer_verified_resume",
+    research_only: true,
+  },
+}

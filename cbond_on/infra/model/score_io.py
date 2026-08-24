@@ -3,6 +3,9 @@ from __future__ import annotations
 from datetime import date
 from pathlib import Path
 import re
+import uuid
+
+import numpy as np
 
 import pandas as pd
 
@@ -183,3 +186,63 @@ def write_scores_by_date(
         _write_single_score_file(path, df, dedupe=dedupe)
         return
     _write_daily_score_files(path, df, dedupe=dedupe)
+
+
+def write_scores_for_day_atomic(
+    score_root: str | Path,
+    scores: pd.DataFrame,
+    *,
+    score_day: date,
+) -> Path:
+    """Atomically create one immutable daily score file under a directory root.
+
+    This is intentionally separate from the legacy bulk writer: research
+    resumes need a crash-safe daily durability boundary and must never merge
+    or silently overwrite an already committed score day.
+    """
+
+    root = Path(score_root)
+    if root.suffix.lower() == ".csv":
+        raise ValueError("atomic daily score writer requires a directory score root")
+    if not isinstance(scores, pd.DataFrame):
+        raise TypeError("atomic daily score writer requires a DataFrame")
+    required_columns = ["trade_date", "code", "score"]
+    if list(scores.columns) != required_columns:
+        raise ValueError(f"atomic daily score requires exact columns {required_columns}; got {list(scores.columns)}")
+    if scores.empty:
+        raise ValueError(f"atomic daily score is empty: {score_day}")
+    raw = scores.copy()
+    raw_days = pd.to_datetime(raw["trade_date"], errors="coerce").dt.date
+    if raw_days.isna().any():
+        raise ValueError(f"atomic daily score has invalid trade_date: {score_day}")
+    observed_days = set(raw_days)
+    if observed_days != {score_day}:
+        raise ValueError(
+            f"atomic daily score must contain exactly {score_day}; observed={sorted(str(day) for day in observed_days)}"
+        )
+    raw_codes = raw["code"]
+    if raw_codes.isna().any() or raw_codes.astype(str).str.strip().eq("").any():
+        raise ValueError(f"atomic daily score has blank code: {score_day}")
+    raw_scores = pd.to_numeric(raw["score"], errors="coerce")
+    if raw_scores.isna().any() or not np.isfinite(raw_scores.to_numpy(dtype=float)).all():
+        raise ValueError(f"atomic daily score contains non-finite values: {score_day}")
+    normalized = raw.copy()
+    normalized["trade_date"] = raw_days
+    normalized["code"] = raw_codes.astype(str)
+    normalized["score"] = raw_scores
+    if normalized.duplicated(subset=["trade_date", "code"]).any():
+        raise ValueError(f"atomic daily score contains duplicate codes: {score_day}")
+    target = root / f"{score_day:%Y-%m}" / f"{score_day:%Y-%m-%d}.csv"
+    if target.exists():
+        raise FileExistsError(f"atomic daily score refuses overwrite: {target}")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    temporary = target.with_name(f".{target.name}.{uuid.uuid4().hex}.tmp")
+    output = normalized.copy()
+    output["trade_date"] = pd.to_datetime(output["trade_date"]).dt.strftime("%Y-%m-%d")
+    try:
+        output.to_csv(temporary, index=False)
+        temporary.replace(target)
+    finally:
+        if temporary.exists():
+            temporary.unlink(missing_ok=True)
+    return target

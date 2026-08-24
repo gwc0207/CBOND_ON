@@ -1,0 +1,24 @@
+{
+  // Backtest only after the full r2 score chain passes coverage/provenance audit.
+  start: "2024-01-01",
+  end: "2026-07-30",
+  batch_id: "Research_NonTreeAtomic_C_Balanced28TCN_20260812_r2",
+  output_root: "D:/cbond_on/research_scratch/non_tree_atomic_models_20260812_r2/runtime/results",
+  score_source: {
+    model_id: "atomic_balanced28_tcn_20260812_r2",
+    score_root: "D:/cbond_on/research_scratch/non_tree_atomic_models_20260812_r2/runtime/results/scores/atomic_balanced28_tcn_20260812_r2",
+  },
+  strategy_id: "strategy01_topk_turnover",
+  strategy_config_path: "strategies/strategy01/strategy01",
+  buy_twap_col: "twap_1442_1457",
+  sell_twap_col: "twap_0930_0939",
+  allowlist: {
+    enabled: true,
+    table: "quant_factor_dev.researcher_xuvb.o_0005",
+    lag_trading_days: 1,
+    asset: "cbond",
+    flag_field: "factor_value",
+    fallback_field: "weight",
+    threshold: 0.0,
+  },
+}

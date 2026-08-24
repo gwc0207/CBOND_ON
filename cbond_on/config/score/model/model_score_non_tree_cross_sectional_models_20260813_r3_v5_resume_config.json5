@@ -1,0 +1,29 @@
+{
+  // All model ids remain v4 identities so the verified source fingerprints match exactly.
+  default_model_id: "cs_mlp_listnet_live50_20260813_r3_v4",
+  model_id: "cs_mlp_listnet_live50_20260813_r3_v4",
+  start: "2024-07-04",
+  end: "2026-06-10",
+  label_cutoff: null,
+  execution: {
+    refit_every_n_days: 1,
+    train_processes: 1,
+    parallel_shards: 1,
+    resume_interrupted: true,
+    wandb: { enabled: false, mode: "disabled" },
+  },
+  models: {
+    cs_mlp_listnet_live50_20260813_r3_v4: {
+      model_type: "torch_cross_section",
+      model_config: "models/torch_cross_section/cs_mlp_listnet_live50_20260813_r3_v5_resume",
+    },
+    cs_deepsets_listnet_live50_20260813_r3_v4: {
+      model_type: "torch_cross_section",
+      model_config: "models/torch_cross_section/cs_deepsets_listnet_live50_20260813_r3_v5_resume",
+    },
+    cs_settransformer_listnet_live50_20260813_r3_v4: {
+      model_type: "torch_cross_section",
+      model_config: "models/torch_cross_section/cs_settransformer_listnet_live50_20260813_r3_v5_resume",
+    },
+  },
+}

@@ -1,0 +1,24 @@
+{
+  default_model_id: "atomic_cs_fast27_deepsets_listnet_20260815_r1",
+  model_id: "atomic_cs_fast27_deepsets_listnet_20260815_r1",
+  start: "2024-07-04",
+  end: "2026-06-10",
+  label_cutoff: null,
+  execution: {
+    refit_every_n_days: 1,
+    train_processes: 1,
+    parallel_shards: 1,
+    resume_interrupted: false,
+    wandb: { enabled: false, mode: "disabled" },
+  },
+  models: {
+    atomic_cs_fast27_deepsets_listnet_20260815_r1: {
+      model_type: "torch_cross_section",
+      model_config: "models/torch_cross_section/cs_deepsets_listnet_fast27_20260815_r1",
+    },
+    atomic_cs_structural23_linear_listnet_20260815_r1: {
+      model_type: "torch_cross_section",
+      model_config: "models/torch_cross_section/cs_linear_listnet_structural23_20260815_r1",
+    },
+  },
+}

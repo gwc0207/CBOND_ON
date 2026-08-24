@@ -1,0 +1,20 @@
+{
+  // Short isolated smoke scorer. Its score/state/cache roots live in a sibling
+  // scratch tree and may not be reused by the full r2 continuous replay.
+  default_model_id: "atomic_structural23_elasticnet_20260812_r2_smoke",
+  model_id: "atomic_structural23_elasticnet_20260812_r2_smoke",
+  start: "2024-05-08",
+  end: "2024-05-10",
+  label_cutoff: "2024-05-07",
+  execution: {
+    refit_every_n_days: 1,
+    train_processes: 1,
+    parallel_shards: 1,
+    wandb: { enabled: false, mode: "disabled" },
+  },
+  models: {
+    atomic_structural23_elasticnet_20260812_r2_smoke: { model_type: "linear", model_config: "models/linear/atomic_structural23_elasticnet_20260812_r2_smoke" },
+    atomic_fast27_lstm_20260812_r2_smoke: { model_type: "factor_lstm", model_config: "models/torch_sequence/atomic_fast27_lstm_20260812_r2_smoke" },
+    atomic_balanced28_tcn_20260812_r2_smoke: { model_type: "factor_tcn", model_config: "models/torch_sequence/atomic_balanced28_tcn_20260812_r2_smoke" },
+  },
+}

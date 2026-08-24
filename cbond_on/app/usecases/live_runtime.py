@@ -1,5 +1,6 @@
 ﻿from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import replace
 import json
 from datetime import date, datetime
@@ -57,6 +58,20 @@ from cbond_on.infra.live.score import resolve_score_df_for_target
 
 O005_ALLOWLIST_TABLE = "quant_factor_dev.researcher_xuvb.o_0005"
 
+LiveStageReporter = Callable[[str], None]
+
+_LIVE_STAGE_KEYS = frozenset(
+    {
+        "ready_gate",
+        "build_panel",
+        "compute_factors",
+        "model_score",
+        "strategy_select",
+        "trade_list",
+        "db_write",
+    }
+)
+
 _LIVE_MODEL_SWITCH_FALLBACK_REASONS = frozenset(
     {
         "feature_missing",
@@ -104,6 +119,19 @@ def _label_day_path(paths_cfg: dict, day: date) -> Path:
 def _require_existing(path: Path, *, name: str) -> None:
     if not path.exists():
         raise RuntimeError(f"{name} missing after live build: {path}")
+
+
+def _report_live_stage(reporter: LiveStageReporter | None, stage: str) -> None:
+    """Emit observability-only live progress without affecting the run itself."""
+
+    if reporter is None:
+        return
+    if stage not in _LIVE_STAGE_KEYS:
+        raise ValueError(f"unsupported live stage reporter key: {stage}")
+    try:
+        reporter(stage)
+    except Exception as exc:  # pragma: no cover - reporter failures must not stop live output
+        print(f"live stage reporter failed: stage={stage} error={type(exc).__name__}: {exc}")
 
 
 def _normalize_assets(value: object) -> list[str]:
@@ -974,6 +1002,7 @@ def run_once(
     start: str | date | None = None,
     target: str | date | None = None,
     mode: str = "default",
+    stage_reporter: LiveStageReporter | None = None,
 ) -> Path:
     _ = mode
     live_cfg = load_config_file("live")
@@ -1017,6 +1046,7 @@ def run_once(
         "mode=clean_consumer_build_local",
     )
 
+    _report_live_stage(stage_reporter, "ready_gate")
     if not bool(data_hub.get("ready_gate_enabled", True)):
         raise ValueError("live_config.data_hub.ready_gate_enabled must be true in consumer-only mode")
     ensure_publish_ready(
@@ -1047,6 +1077,7 @@ def run_once(
     panel_source_mode = _factor_panel_source_mode(factor_runtime_cfg)
     use_clean_direct_panel_source = panel_source_mode == "clean_direct"
 
+    _report_live_stage(stage_reporter, "build_panel")
     window_days = _parse_live_model_window_days(live_model_score_cfg, model_id)
     if window_days > 0:
         print(
@@ -1100,6 +1131,7 @@ def run_once(
     _require_existing(_label_day_path(paths_cfg, prev_trade_day), name="label")
     print("live build labels done:", label_result)
 
+    _report_live_stage(stage_reporter, "compute_factors")
     print("live build factors:", f"day={score_day}", f"panel={panel_name}")
     factor_result = run_factor_build(
         start=score_day,
@@ -1129,6 +1161,7 @@ def run_once(
         f"model_id={model_id}",
     )
 
+    _report_live_stage(stage_reporter, "model_score")
     model_result = run_model_score(
         model_id=model_id,
         start=model_start,
@@ -1139,6 +1172,7 @@ def run_once(
     score_path = _resolve_model_result_score_path(model_result, model_id=model_id, paths_cfg=paths_cfg)
     score_df = _score_df_from_path(score_path, score_day)
 
+    _report_live_stage(stage_reporter, "strategy_select")
     out_dir = Path(paths_cfg["results_root"]) / "live" / f"{target_day:%Y-%m-%d}"
     out_dir.mkdir(parents=True, exist_ok=True)
     strategy_id = str(strategy_cfg.get("strategy_id", "strategy01_topk_turnover"))
@@ -1214,6 +1248,7 @@ def run_once(
     if picks.empty:
         raise ValueError("strategy returned empty picks")
 
+    _report_live_stage(stage_reporter, "trade_list")
     picks = picks.copy()
     picks["signal_day"] = score_day
     picks["buy_day"] = score_day
@@ -1240,6 +1275,7 @@ def run_once(
     (out_dir / "universe_filter_summary.json").write_text(summary_text, encoding="utf-8")
 
     if bool(output_cfg.get("db_write", False)):
+        _report_live_stage(stage_reporter, "db_write")
         if not output_cfg.get("db_table"):
             raise ValueError("live_config.output.db_table is required when db_write=true")
         db_trade_day = prev_trade_day
@@ -1264,6 +1300,12 @@ def run(
     start: str | date | None = None,
     target: str | date | None = None,
     mode: str = "default",
+    stage_reporter: LiveStageReporter | None = None,
 ) -> Path:
-    return run_once(start=start, target=target, mode=mode)
+    return run_once(
+        start=start,
+        target=target,
+        mode=mode,
+        stage_reporter=stage_reporter,
+    )
 

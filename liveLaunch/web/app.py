@@ -82,6 +82,7 @@ TIMELINE_STEPS: tuple[tuple[str, str], ...] = (
     ("trade_list", "Trade List"),
     ("db_write", "DB Write"),
 )
+_TIMELINE_STAGE_INDEX = {key: index for index, (key, _label) in enumerate(TIMELINE_STEPS)}
 
 
 def _normalize_twap_col(value: str | None, *, fallback: str) -> str:
@@ -2123,7 +2124,28 @@ def _live_profile_summary(live_cfg: dict) -> dict:
     }
 
 
-def _factor_card_for_state(raw_status: str, live_cfg: dict) -> dict:
+def _normalize_timeline_stage(value: object) -> str | None:
+    stage = str(value or "").strip()
+    if stage in _TIMELINE_STAGE_INDEX and stage != "trade_day":
+        return stage
+    return None
+
+
+def _running_stage_relation(current_step: str | None, stage: str) -> str | None:
+    """Return completed/running/not_started only when a real stage is known."""
+
+    current = _normalize_timeline_stage(current_step)
+    target = _normalize_timeline_stage(stage)
+    if current is None or target is None:
+        return None
+    if _TIMELINE_STAGE_INDEX[target] < _TIMELINE_STAGE_INDEX[current]:
+        return "completed"
+    if target == current:
+        return "running"
+    return "not_started"
+
+
+def _factor_card_for_state(raw_status: str, live_cfg: dict, current_step: str | None = None) -> dict:
     total = 0
     reason = "factor profile not available"
     try:
@@ -2149,12 +2171,35 @@ def _factor_card_for_state(raw_status: str, live_cfg: dict) -> dict:
             missing=None,
         )
     if raw_status == "running_live":
+        relation = _running_stage_relation(current_step, "compute_factors")
+        if relation == "completed":
+            return _status_item(
+                state="factor_compute_completed",
+                status="success",
+                health="ok",
+                label=f"{total} expected",
+                reason="completed before current live stage",
+                total=total,
+                ready=None,
+                missing=None,
+            )
+        if relation == "not_started":
+            return _status_item(
+                state="factor_compute_not_started",
+                status="not_started",
+                health="unknown",
+                label="Not Run",
+                reason="waiting for current live stage",
+                total=total,
+                ready=None,
+                missing=None,
+            )
         return _status_item(
             state="factor_compute_pending",
             status="running",
             health="ok",
             label=f"{total} expected",
-            reason="live pipeline running; no separate factor step marker yet",
+            reason="current live stage is running",
             total=total,
             ready=None,
             missing=None,
@@ -2238,7 +2283,7 @@ def _trade_list_card_for_state(raw_status: str, buy_day: str) -> dict:
     )
 
 
-def _model_card_for_state(raw_status: str, live_cfg: dict) -> dict:
+def _model_card_for_state(raw_status: str, live_cfg: dict, current_step: str | None = None) -> dict:
     model_cfg = dict(live_cfg.get("model_score", {}))
     model_ref = str(model_cfg.get("model_id") or model_cfg.get("config") or "production")
     if raw_status in {"success", "idle_after_run"}:
@@ -2251,12 +2296,31 @@ def _model_card_for_state(raw_status: str, live_cfg: dict) -> dict:
             ref=model_ref,
         )
     if raw_status == "running_live":
+        relation = _running_stage_relation(current_step, "model_score")
+        if relation == "completed":
+            return _status_item(
+                state="model_score_completed",
+                status="success",
+                health="ok",
+                label="Completed",
+                reason="completed before current live stage",
+                ref=model_ref,
+            )
+        if relation == "not_started":
+            return _status_item(
+                state="model_score_not_started",
+                status="not_started",
+                health="unknown",
+                label="Not Run",
+                reason="waiting for current live stage",
+                ref=model_ref,
+            )
         return _status_item(
             state="model_score_pending",
             status="running",
             health="ok",
             label="Running",
-            reason="live pipeline running; no separate model step marker yet",
+            reason="current live stage is running",
             ref=model_ref,
         )
     if raw_status == "failed":
@@ -2362,7 +2426,11 @@ def _scheduler_item(pid: int | None, process_alive: bool, state: dict, hb: dict)
     )
 
 
-def _build_timeline(raw_status: str, db_card: dict) -> list[dict]:
+def _build_timeline(
+    raw_status: str,
+    db_card: dict,
+    current_step: str | None = None,
+) -> list[dict]:
     items = {
         key: _status_item(
             state=f"{key}_not_started",
@@ -2390,20 +2458,28 @@ def _build_timeline(raw_status: str, db_card: dict) -> list[dict]:
             reason="cutoff time not reached",
         )
     elif raw_status == "running_live":
-        items["ready_gate"] = _status_item(
-            state="ready_gate_passed",
-            status="success",
-            health="ok",
-            label="Ready Gate",
-            reason="cutoff passed and live run started",
-        )
-        items["build_panel"] = _status_item(
-            state="live_pipeline_running",
-            status="running",
-            health="ok",
-            label="Load Clean Data",
-            reason="consumer-only live pipeline running; waiting for downstream status",
-        )
+        active_stage = _normalize_timeline_stage(current_step) or "build_panel"
+        active_index = _TIMELINE_STAGE_INDEX[active_stage]
+        for key, label in TIMELINE_STEPS:
+            if key == "trade_day":
+                continue
+            index = _TIMELINE_STAGE_INDEX[key]
+            if index < active_index:
+                items[key] = _status_item(
+                    state=f"{key}_completed",
+                    status="success",
+                    health="ok",
+                    label=label,
+                    reason="completed before current live stage",
+                )
+            elif key == active_stage:
+                items[key] = _status_item(
+                    state=f"{key}_running",
+                    status="running",
+                    health="ok",
+                    label=label,
+                    reason="current live stage is running",
+                )
     elif raw_status in {"success", "idle_after_run"}:
         for key in ("ready_gate", "build_panel", "compute_factors", "model_score", "strategy_select", "trade_list"):
             items[key] = _status_item(
@@ -2421,20 +2497,28 @@ def _build_timeline(raw_status: str, db_card: dict) -> list[dict]:
             reason=db_card.get("reason", ""),
         )
     elif raw_status == "failed":
-        items["ready_gate"] = _status_item(
-            state="ready_gate_passed",
-            status="success",
-            health="ok",
-            label="Ready Gate",
-            reason="live run started",
-        )
-        items["build_panel"] = _status_item(
-            state="live_run_failed",
-            status="failed",
-            health="error",
-            label="Load Clean Data",
-            reason="live run failed; inspect logs for exact failing step",
-        )
+        failed_stage = _normalize_timeline_stage(current_step) or "build_panel"
+        failed_index = _TIMELINE_STAGE_INDEX[failed_stage]
+        for key, label in TIMELINE_STEPS:
+            if key == "trade_day":
+                continue
+            index = _TIMELINE_STAGE_INDEX[key]
+            if index < failed_index:
+                items[key] = _status_item(
+                    state=f"{key}_completed",
+                    status="success",
+                    health="ok",
+                    label=label,
+                    reason="completed before failed live stage",
+                )
+            elif key == failed_stage:
+                items[key] = _status_item(
+                    state=f"{key}_failed",
+                    status="failed",
+                    health="error",
+                    label=label,
+                    reason="live run failed in this stage; inspect logs",
+                )
 
     if db_card.get("status") == "disabled":
         items["db_write"] = _status_item(
@@ -2490,6 +2574,7 @@ def _build_live_status_payload(state_path: Path, pid_path: Path) -> dict:
     state = _read_json(state_path)
     pid_info = _read_json(pid_path)
     raw_status = str(state.get("status", "") or "unknown")
+    state_current_step = _normalize_timeline_stage(state.get("current_step"))
     with _PROCESS_CACHE_LOCK:
         cached_processes = list(_PROCESS_CACHE.get("items", []))
         cache_age = time.monotonic() - float(_PROCESS_CACHE.get("ts", 0.0) or 0.0)
@@ -2505,8 +2590,8 @@ def _build_live_status_payload(state_path: Path, pid_path: Path) -> dict:
     hb_stale = bool(scheduler.get("state") == "heartbeat_stale")
     today = _normalize_day_tag(state.get("today")) or _today_day_tag()
     target = _normalize_day_tag(state.get("target")) or today
-    factor_card = _factor_card_for_state(raw_status, live_cfg)
-    model_card = _model_card_for_state(raw_status, live_cfg)
+    factor_card = _factor_card_for_state(raw_status, live_cfg, state_current_step)
+    model_card = _model_card_for_state(raw_status, live_cfg, state_current_step)
     trade_list_card = _trade_list_card_for_state(raw_status, today)
     db_write_card = _db_write_card_for_state(raw_status, live_cfg)
     data_ready_card = _data_ready_card_for_state(raw_status, hb_stale)
@@ -2538,7 +2623,7 @@ def _build_live_status_payload(state_path: Path, pid_path: Path) -> dict:
             reason="live pipeline is running",
             updated_at=state.get("run_started_at") or hb.get("at"),
         )
-        current_step = "build_panel"
+        current_step = state_current_step or "build_panel"
     elif raw_status in {"success", "idle_after_run"}:
         live = _status_item(
             state=raw_status,
@@ -2558,7 +2643,7 @@ def _build_live_status_payload(state_path: Path, pid_path: Path) -> dict:
             reason="live run failed; inspect logs",
             updated_at=state.get("run_finished_at") or hb.get("at"),
         )
-        current_step = "build_panel"
+        current_step = state_current_step or "build_panel"
     else:
         live = _unknown_item("Unknown", "no scheduler state")
         current_step = "trade_day"
@@ -2641,7 +2726,11 @@ def _build_live_status_payload(state_path: Path, pid_path: Path) -> dict:
             "db_write": db_write_card,
         },
         "current_step": current_step,
-        "timeline": _build_timeline(raw_status, db_write_card),
+        "timeline": _build_timeline(raw_status, db_write_card, current_step),
+        "run_progress": {
+            "current_step": state_current_step,
+            "started_at": state.get("current_step_started_at"),
+        },
         "next_action": {
             "type": "wait" if live.get("health") == "ok" else "check",
             "label": "Waiting for cutoff" if raw_status == "waiting_cutoff" else ("Check scheduler" if live.get("health") == "error" else "Monitor"),

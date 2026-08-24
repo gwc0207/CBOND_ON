@@ -331,3 +331,191 @@ def test_non_overwrite_score_output_preserves_existing_days(tmp_path) -> None:
     weights = pd.read_csv(weights_path)
     assert len(weights) == 2
     assert weights.loc[weights["trade_date"] == "2026-01-06", "weight"].iloc[0] == 0.3
+
+
+def test_research_elasticnet_warm_start_reuses_raw_checkpoint_parameters(tmp_path, monkeypatch) -> None:
+    """Only explicit incremental ElasticNet uses the scratch state chain."""
+
+    factor_root, label_root, days = _build_toy_history(tmp_path)
+    state_dir = tmp_path / "research_results" / "model_state"
+    captured: list[linear_score.LinearFitResult | None] = []
+
+    def fake_fit(train_df, factor_cols, **kwargs):
+        prior = kwargs.get("warm_start")
+        captured.append(prior)
+        # Deliberately use values which would change if score-normalised
+        # weights, rather than raw parameters, were persisted.
+        return linear_score.LinearFitResult(
+            coef=pd.Series([2.0, -1.0], index=factor_cols, dtype=float),
+            intercept=0.375,
+        )
+
+    monkeypatch.setattr(linear_score, "_fit_linear_parameters", fake_fit)
+    result = _run(
+        factor_root=factor_root,
+        label_root=label_root,
+        start=days[2],
+        end=days[4],
+        regression_kind="elasticnet",
+        incremental_enabled=True,
+        incremental_warm_start=True,
+        incremental_save_state=True,
+        state_dir=state_dir,
+        warm_start_fingerprint="research-contract-v1",
+    )
+
+    assert not result.scores.empty
+    assert len(captured) == 3
+    assert captured[0] is None
+    assert captured[1] is not None
+    assert captured[1].coef.to_dict() == {"f1": 2.0, "f2": -1.0}
+    assert captured[1].intercept == 0.375
+    assert captured[2] is not None
+
+    checkpoint = state_dir / f"{days[2]:%Y-%m-%d}.json"
+    payload = __import__("json").loads(checkpoint.read_text(encoding="utf-8"))
+    assert payload["date"] == str(days[2])
+    assert payload["train_end"] == str(days[1])
+    assert payload["fingerprint"] == "research-contract-v1"
+    assert payload["coef"] == [2.0, -1.0]
+    assert payload["intercept"] == 0.375
+    assert not list(state_dir.glob("*.tmp"))
+    assert result.weights_history["warm_start_active"].all()
+
+
+def test_elasticnet_warm_start_rejects_checkpoint_beyond_current_label_cutoff(tmp_path) -> None:
+    state_path = tmp_path / "2026-01-07.json"
+    fit = linear_score.LinearFitResult(
+        coef=pd.Series([1.0, -2.0], index=_FACTOR_COLS, dtype=float),
+        intercept=0.25,
+    )
+    linear_score._save_elasticnet_warm_start(
+        checkpoint_path=state_path,
+        fit=fit,
+        factor_cols=_FACTOR_COLS,
+        score_day=date(2026, 1, 7),
+        train_end=date(2026, 1, 6),
+        fingerprint="research-contract-v1",
+        label_cutoff=date(2026, 1, 6),
+    )
+
+    rejected = linear_score._load_elasticnet_warm_start(
+        checkpoint_path=state_path,
+        expected_fingerprint="research-contract-v1",
+        factor_cols=_FACTOR_COLS,
+        target_day=date(2026, 1, 8),
+        label_cutoff=date(2026, 1, 5),
+    )
+    assert rejected is None
+
+
+def test_elasticnet_warm_start_rejects_payload_date_mismatch_with_filename(tmp_path) -> None:
+    state_path = tmp_path / "2026-01-07.json"
+    fit = linear_score.LinearFitResult(
+        coef=pd.Series([1.0, -2.0], index=_FACTOR_COLS, dtype=float),
+        intercept=0.25,
+    )
+    linear_score._save_elasticnet_warm_start(
+        checkpoint_path=state_path,
+        fit=fit,
+        factor_cols=_FACTOR_COLS,
+        score_day=date(2026, 1, 7),
+        train_end=date(2026, 1, 6),
+        fingerprint="research-contract-v1",
+        label_cutoff=date(2026, 1, 6),
+    )
+    payload = __import__("json").loads(state_path.read_text(encoding="utf-8"))
+    payload["date"] = "2026-01-06"
+    state_path.write_text(__import__("json").dumps(payload), encoding="utf-8")
+
+    assert linear_score._load_elasticnet_warm_start(
+        checkpoint_path=state_path,
+        expected_fingerprint="research-contract-v1",
+        factor_cols=_FACTOR_COLS,
+        target_day=date(2026, 1, 8),
+        label_cutoff=date(2026, 1, 6),
+    ) is None
+
+
+def test_elasticnet_warm_start_copies_readonly_checkpoint_coefficients() -> None:
+    train_df = pd.DataFrame(
+        {
+            "f1": [-2.0, -0.5, 0.5, 2.0, 3.0],
+            "f2": [1.0, -1.0, 0.25, -0.5, 1.5],
+            "y": [-0.04, -0.01, 0.01, 0.03, 0.05],
+        }
+    )
+    readonly_coef = np.asarray([0.15, -0.05], dtype=float)
+    readonly_coef.setflags(write=False)
+    prior = linear_score.LinearFitResult(
+        coef=pd.Series(readonly_coef, index=_FACTOR_COLS, dtype=float),
+        intercept=0.01,
+    )
+    assert not prior.coef.to_numpy(copy=False).flags.writeable
+
+    fitted = linear_score._fit_linear_parameters(
+        train_df,
+        _FACTOR_COLS,
+        alpha=0.0001,
+        regression_kind="elasticnet",
+        elasticnet_l1_ratio=0.2,
+        max_iter=2000,
+        warm_start=prior,
+    )
+
+    assert fitted is not None
+    assert np.isfinite(fitted.coef.to_numpy(dtype=float)).all()
+
+
+def test_runner_requires_explicit_research_only_state_dir_for_elasticnet_warm_start(tmp_path) -> None:
+    from cbond_on.infra.model.runners import train_linear
+
+    class DummyNeutralizer:
+        def summary(self) -> dict:
+            return {"enabled": True, "name": "test"}
+
+    results_root = tmp_path / "research_results"
+    state_dir = results_root / "model_state" / "atomic_a"
+    cfg = {
+        "incremental": {
+            "enabled": True,
+            "warm_start": True,
+            "save_state": True,
+            "state_dir": str(state_dir),
+        },
+        "experiment": {"research_only": True},
+    }
+    kwargs = {
+        "cfg": cfg,
+        "paths_cfg": {"results_root": str(results_root)},
+        "model_name": "atomic_a",
+        "factor_cols": _FACTOR_COLS,
+        "regression_kind": "elasticnet",
+        "regression_alpha": 0.0001,
+        "elasticnet_l1_ratio": 0.2,
+        "max_iter": 2000,
+        "lookback_days": 60,
+        "refit_freq": 1,
+        "factor_time": "14:30",
+        "label_time": "14:42",
+        "panel_name": "T1430",
+        "winsor_lower": None,
+        "winsor_upper": None,
+        "zscore": True,
+        "min_count": 12,
+        "neutralizer": DummyNeutralizer(),
+    }
+    enabled, save_state, resolved_state_dir, fingerprint = train_linear._resolve_research_elasticnet_incremental(**kwargs)
+    assert enabled is True
+    assert save_state is True
+    assert resolved_state_dir == state_dir
+    assert isinstance(fingerprint, str) and len(fingerprint) == 64
+
+    cfg["experiment"] = {"research_only": False}
+    with __import__("pytest").raises(ValueError, match="research-only"):
+        train_linear._resolve_research_elasticnet_incremental(**kwargs)
+
+    cfg["experiment"] = {"research_only": True}
+    cfg["incremental"]["state_dir"] = str(tmp_path / "outside_results")
+    with __import__("pytest").raises(ValueError, match="inside paths.results_root"):
+        train_linear._resolve_research_elasticnet_incremental(**kwargs)

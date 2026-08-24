@@ -1,0 +1,12 @@
+{
+  // Separate smoke profile: it must never share a score, checkpoint, or cache
+  // root with the complete r2 replay.
+  raw_data_root: "D:/cbond_data_hub/raw_data",
+  clean_data_root: "D:/cbond_data_hub/clean_data",
+  results_root: "D:/cbond_on/research_scratch/non_tree_atomic_models_20260812_r2_smoke/runtime/results",
+  read_only_input_roots: {
+    panel_data_root: "D:/cbond_on/panel_data",
+    label_data_root: "D:/cbond_on/label_data",
+    factor_data_root: "D:/cbond_on/factor_data_live50_20260805",
+  },
+}

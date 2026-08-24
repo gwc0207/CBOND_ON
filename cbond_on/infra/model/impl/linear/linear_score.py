@@ -1,6 +1,9 @@
 ﻿from __future__ import annotations
 
+import hashlib
 import json
+import os
+import secrets
 from dataclasses import dataclass
 from datetime import date, datetime, time as dt_time
 from pathlib import Path
@@ -19,6 +22,154 @@ from cbond_on.infra.model.score_io import write_scores_by_date
 class ScoreResult:
     scores: pd.DataFrame
     weights_history: pd.DataFrame
+
+
+@dataclass(frozen=True)
+class LinearFitResult:
+    """Raw fitted parameters for a linear refit.
+
+    Scoring normalises the coefficient vector separately.  ElasticNet warm
+    start, however, must use sklearn's unnormalised ``coef_`` and
+    ``intercept_``.  Keeping the two representations distinct prevents a
+    score-time normalisation from becoming the next optimisation initialiser.
+    """
+
+    coef: pd.Series
+    intercept: float
+
+
+def _parse_checkpoint_day(value: str) -> date | None:
+    try:
+        return datetime.strptime(value, "%Y-%m-%d").date()
+    except (TypeError, ValueError):
+        return None
+
+
+def _checkpoint_path(state_dir: Path, day: date) -> Path:
+    return state_dir / f"{day:%Y-%m-%d}.json"
+
+
+def _find_previous_checkpoint(state_dir: Path, day: date) -> Path | None:
+    """Return the nearest completed checkpoint strictly before ``day``."""
+
+    if not state_dir.exists():
+        return None
+    best_day: date | None = None
+    best_path: Path | None = None
+    for path in state_dir.glob("*.json"):
+        checkpoint_day = _parse_checkpoint_day(path.stem)
+        if checkpoint_day is None or checkpoint_day >= day:
+            continue
+        if best_day is None or checkpoint_day > best_day:
+            best_day = checkpoint_day
+            best_path = path
+    return best_path
+
+
+def _load_elasticnet_warm_start(
+    *,
+    checkpoint_path: Path,
+    expected_fingerprint: str,
+    factor_cols: list[str],
+    target_day: date,
+    label_cutoff: date | None,
+) -> LinearFitResult | None:
+    """Load one compatible raw ElasticNet state, otherwise fail closed."""
+
+    try:
+        payload = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        print(f"[linear] warm-start checkpoint unreadable {checkpoint_path.name}: {type(exc).__name__}: {exc}")
+        return None
+    if not isinstance(payload, dict):
+        print(f"[linear] warm-start checkpoint invalid payload: {checkpoint_path.name}")
+        return None
+    if payload.get("fingerprint") != expected_fingerprint:
+        print(f"[linear] warm-start checkpoint contract mismatch: {checkpoint_path.name}")
+        return None
+    if str(payload.get("regression_kind", "")).strip().lower() != "elasticnet":
+        print(f"[linear] warm-start checkpoint is not ElasticNet: {checkpoint_path.name}")
+        return None
+    if list(payload.get("factor_cols", [])) != list(factor_cols):
+        print(f"[linear] warm-start checkpoint factor contract mismatch: {checkpoint_path.name}")
+        return None
+    filename_day = _parse_checkpoint_day(checkpoint_path.stem)
+    checkpoint_day = _parse_checkpoint_day(str(payload.get("date", "")))
+    train_end = _parse_checkpoint_day(str(payload.get("train_end", "")))
+    if filename_day is None or checkpoint_day is None or checkpoint_day != filename_day:
+        print(f"[linear] warm-start checkpoint date provenance mismatch: {checkpoint_path.name}")
+        return None
+    if checkpoint_day >= target_day:
+        print(f"[linear] warm-start checkpoint date is invalid: {checkpoint_path.name}")
+        return None
+    if train_end is None or train_end >= target_day:
+        print(f"[linear] warm-start checkpoint train_end is invalid: {checkpoint_path.name}")
+        return None
+    # The persisted cutoff is retained for audit.  ``train_end`` is the
+    # causal guard: it is the latest label that actually entered the fit.
+    if label_cutoff is not None and train_end > label_cutoff:
+        print(f"[linear] warm-start checkpoint exceeds label cutoff: {checkpoint_path.name}")
+        return None
+    try:
+        coef = np.asarray(payload["coef"], dtype=float).reshape(-1)
+        intercept = float(payload["intercept"])
+    except (KeyError, TypeError, ValueError):
+        print(f"[linear] warm-start checkpoint parameters are invalid: {checkpoint_path.name}")
+        return None
+    if coef.size != len(factor_cols) or not np.isfinite(coef).all() or not np.isfinite(intercept):
+        print(f"[linear] warm-start checkpoint parameters are non-finite: {checkpoint_path.name}")
+        return None
+    return LinearFitResult(coef=pd.Series(coef, index=factor_cols, dtype=float), intercept=intercept)
+
+
+def _save_elasticnet_warm_start(
+    *,
+    checkpoint_path: Path,
+    fit: LinearFitResult,
+    factor_cols: list[str],
+    score_day: date,
+    train_end: date,
+    fingerprint: str,
+    label_cutoff: date | None,
+) -> None:
+    """Atomically persist raw ElasticNet parameters for research continuation."""
+
+    coef = fit.coef.reindex(factor_cols).to_numpy(dtype=float)
+    if coef.size != len(factor_cols) or not np.isfinite(coef).all() or not np.isfinite(float(fit.intercept)):
+        raise ValueError("refusing to save non-finite ElasticNet warm-start state")
+    payload = {
+        "format_version": 1,
+        "date": str(score_day),
+        "train_end": str(train_end),
+        "label_cutoff": str(label_cutoff) if label_cutoff is not None else None,
+        "fingerprint": str(fingerprint),
+        "regression_kind": "elasticnet",
+        "factor_cols": list(factor_cols),
+        "coef": [float(value) for value in coef],
+        "intercept": float(fit.intercept),
+    }
+    checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = checkpoint_path.with_name(
+        f".{checkpoint_path.name}.{os.getpid()}.{secrets.token_hex(8)}.tmp"
+    )
+    try:
+        tmp_path.write_text(
+            json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")),
+            encoding="utf-8",
+        )
+        # Atomic replacement means a crash cannot leave a partial checkpoint
+        # eligible for the next run's directory scan.
+        tmp_path.replace(checkpoint_path)
+    finally:
+        if tmp_path.exists():
+            tmp_path.unlink()
+
+
+def linear_contract_fingerprint(payload: dict[str, Any]) -> str:
+    """Return a stable fingerprint for the causal linear fitting contract."""
+
+    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
 def _iter_existing_label_days(label_root: Path, start: date, end: date) -> list[date]:
@@ -172,7 +323,7 @@ def _apply_factor_preprocess(
     return work
 
 
-def _fit_weights(
+def _fit_linear_parameters(
     train_df: pd.DataFrame,
     factor_cols: list[str],
     *,
@@ -184,7 +335,8 @@ def _fit_weights(
     device: str = "cpu",
     gpu_fallback_to_cpu: bool = True,
     gpu_state: dict[str, Any] | None = None,
-) -> pd.Series | None:
+    warm_start: LinearFitResult | None = None,
+) -> LinearFitResult | None:
     if train_df.empty:
         return None
     X = train_df[factor_cols]
@@ -221,7 +373,13 @@ def _fit_weights(
                 coef_np = coef.get()
             else:
                 coef_np = np.asarray(coef)
-            return pd.Series(np.asarray(coef_np).reshape(-1), index=factor_cols, dtype=float)
+            return LinearFitResult(
+                coef=pd.Series(np.asarray(coef_np).reshape(-1), index=factor_cols, dtype=float),
+                # cuML's Ridge adapter does not expose a portable intercept
+                # contract here.  It is irrelevant to composite scoring and
+                # cannot be used for ElasticNet warm-start in any case.
+                intercept=0.0,
+            )
         except Exception as exc:
             if not gpu_fallback_to_cpu:
                 return None
@@ -250,6 +408,7 @@ def _fit_weights(
             fit_intercept=True,
             max_iter=max(1, int(max_iter)),
             selection="cyclic",
+            warm_start=warm_start is not None,
         )
     else:
         if float(huber_epsilon) <= 1.0:
@@ -259,12 +418,64 @@ def _fit_weights(
             alpha=float(alpha),
             fit_intercept=True,
             max_iter=max(1, int(max_iter)),
+    )
+    if warm_start is not None and kind == "elasticnet":
+        # A Series rebuilt from a checkpoint can expose a read-only NumPy
+        # buffer.  sklearn's coordinate-descent warm-start updates ``coef_``
+        # in place, so make an owned writable array before assigning it.
+        prior_coef = np.array(
+            warm_start.coef.reindex(factor_cols).to_numpy(dtype=float),
+            dtype=float,
+            copy=True,
         )
+        prior_intercept = float(warm_start.intercept)
+        if prior_coef.size == len(factor_cols) and np.isfinite(prior_coef).all() and np.isfinite(prior_intercept):
+            model.coef_ = prior_coef
+            model.intercept_ = prior_intercept
+        else:
+            warm_start = None
     model.fit(X, y)
     weights = pd.Series(model.coef_, index=factor_cols, dtype=float)
-    if not np.isfinite(weights.to_numpy(dtype=float)).all():
+    intercept = float(getattr(model, "intercept_", 0.0))
+    if not np.isfinite(weights.to_numpy(dtype=float)).all() or not np.isfinite(intercept):
         return None
-    return weights
+    return LinearFitResult(coef=weights, intercept=intercept)
+
+
+def _fit_weights(
+    train_df: pd.DataFrame,
+    factor_cols: list[str],
+    *,
+    alpha: float,
+    regression_kind: str = "ridge",
+    elasticnet_l1_ratio: float = 0.5,
+    huber_epsilon: float = 1.35,
+    max_iter: int = 1_000,
+    device: str = "cpu",
+    gpu_fallback_to_cpu: bool = True,
+    gpu_state: dict[str, Any] | None = None,
+) -> pd.Series | None:
+    """Legacy coefficient-only fitting API.
+
+    Existing linear callers intentionally continue to receive exactly the raw
+    coefficient Series they received before research-only ElasticNet state was
+    added.  The runner below uses ``_fit_linear_parameters`` only when it must
+    retain an intercept for an explicit warm start.
+    """
+
+    fit = _fit_linear_parameters(
+        train_df,
+        factor_cols,
+        alpha=alpha,
+        regression_kind=regression_kind,
+        elasticnet_l1_ratio=elasticnet_l1_ratio,
+        huber_epsilon=huber_epsilon,
+        max_iter=max_iter,
+        device=device,
+        gpu_fallback_to_cpu=gpu_fallback_to_cpu,
+        gpu_state=gpu_state,
+    )
+    return None if fit is None else fit.coef
 
 
 def _normalize_weights(weights: pd.Series, method: str, max_weight: float) -> pd.Series:
@@ -376,6 +587,11 @@ def run_linear_score(
     elasticnet_l1_ratio: float = 0.5,
     huber_epsilon: float = 1.35,
     max_iter: int = 1_000,
+    incremental_enabled: bool = False,
+    incremental_warm_start: bool = False,
+    incremental_save_state: bool = False,
+    state_dir: Path | None = None,
+    warm_start_fingerprint: str | None = None,
 ) -> ScoreResult:
     store = FactorStore(factor_root, panel_name=panel_name, window_minutes=window_minutes)
     target_days = _iter_existing_factor_days(
@@ -400,6 +616,13 @@ def run_linear_score(
     gpu_state: dict[str, Any] = {"warned": False}
     factor_cache: dict[date, pd.DataFrame] = {}
     label_cache: dict[date, pd.DataFrame] = {}
+    warm_start_active = bool(
+        incremental_enabled
+        and incremental_warm_start
+        and str(regression_kind).strip().lower().replace("_", "") in {"elasticnet", "enet"}
+        and state_dir is not None
+        and warm_start_fingerprint
+    )
 
     def _factor_day(day: date) -> pd.DataFrame:
         if day not in factor_cache:
@@ -444,7 +667,21 @@ def run_linear_score(
                     if not tdf.empty:
                         train_frames.append(tdf)
                 train_df = pd.concat(train_frames, ignore_index=True) if train_frames else pd.DataFrame()
-                fit = _fit_weights(
+                checkpoint_path: Path | None = None
+                prior_fit: LinearFitResult | None = None
+                if warm_start_active:
+                    checkpoint_path = _find_previous_checkpoint(state_dir, day)
+                    if checkpoint_path is not None:
+                        prior_fit = _load_elasticnet_warm_start(
+                            checkpoint_path=checkpoint_path,
+                            expected_fingerprint=str(warm_start_fingerprint),
+                            factor_cols=factor_cols,
+                            target_day=day,
+                            label_cutoff=label_cutoff,
+                        )
+                        if prior_fit is not None:
+                            print(f"[linear] warm-start from checkpoint: {checkpoint_path.name}")
+                fit = _fit_linear_parameters(
                     train_df,
                     factor_cols,
                     alpha=regression_alpha,
@@ -455,6 +692,7 @@ def run_linear_score(
                     device=device,
                     gpu_fallback_to_cpu=gpu_fallback_to_cpu,
                     gpu_state=gpu_state,
+                    warm_start=prior_fit,
                 )
                 if fit is None:
                     if fallback == "equal":
@@ -462,8 +700,24 @@ def run_linear_score(
                     else:
                         weights = manual_weights.copy()
                 else:
-                    weights = fit
+                    weights = fit.coef
                 weights = _normalize_weights(weights, normalize_weights, max_weight)
+                train_end = train_days[-1] if train_days else None
+                if (
+                    warm_start_active
+                    and incremental_save_state
+                    and fit is not None
+                    and train_end is not None
+                ):
+                    _save_elasticnet_warm_start(
+                        checkpoint_path=_checkpoint_path(state_dir, day),
+                        fit=fit,
+                        factor_cols=factor_cols,
+                        score_day=day,
+                        train_end=train_end,
+                        fingerprint=str(warm_start_fingerprint),
+                        label_cutoff=label_cutoff,
+                    )
                 for factor, weight in weights.items():
                     weight_rows.append(
                         {
@@ -475,6 +729,8 @@ def run_linear_score(
                             "train_end": train_days[-1] if train_days else None,
                             "train_days": int(len(train_days)),
                             "train_rows": int(len(train_df)),
+                            "warm_start_checkpoint": str(checkpoint_path) if prior_fit is not None and checkpoint_path is not None else None,
+                            "warm_start_active": bool(warm_start_active),
                         }
                     )
                 last_refit_idx = idx

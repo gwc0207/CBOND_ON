@@ -1,0 +1,20 @@
+{
+  // Two-score-day causal smoke.  It composes the locked r1 contract and
+  // redirects every mutable artifact into an independent smoke root.
+  modules: ["models/torch_cross_section/cs_linear_listnet_structural23_20260815_r1"],
+
+  model_name: "atomic_cs_structural23_linear_listnet_20260815_r1_smoke",
+  start: "2024-07-04",
+  end: "2024-07-05",
+  results_root: "D:/cbond_on/research_scratch/atomic_cross_sectional_models_20260815_r1/smoke/runtime/results",
+  neutralization_cache_root: "D:/cbond_on/research_scratch/atomic_cross_sectional_models_20260815_r1/smoke/runtime/results/neutralization_cache/atomic_cs_structural23_linear_listnet_20260815_r1_smoke",
+  score_output: "D:/cbond_on/research_scratch/atomic_cross_sectional_models_20260815_r1/smoke/runtime/results/scores/atomic_cs_structural23_linear_listnet_20260815_r1_smoke",
+  incremental: {
+    state_dir: "D:/cbond_on/research_scratch/atomic_cross_sectional_models_20260815_r1/smoke/runtime/results/model_state/atomic_cs_structural23_linear_listnet_20260815_r1_smoke",
+  },
+  experiment: {
+    id: "atomic_cross_sectional_models_20260815_r1_smoke",
+    role: "structural23_linear_listnet",
+    research_only: true,
+  },
+}

@@ -1,0 +1,14 @@
+{
+  modules: ["models/torch_cross_section/cs_settransformer_listnet_live50_20260813_r3_v4"],
+  start: "2024-07-04",
+  end: "2024-07-05",
+  model_name: "cs_settransformer_listnet_live50_20260813_r3_v4_smoke",
+  results_root: "D:/cbond_on/research_scratch/non_tree_cross_sectional_models_20260813_r3_v4_smoke/runtime/results",
+  neutralization_cache_root: "D:/cbond_on/research_scratch/non_tree_cross_sectional_models_20260813_r3_v4_smoke/runtime/results/neutralization_cache/cs_settransformer_listnet_live50_20260813_r3_v4_smoke",
+  score_output: "D:/cbond_on/research_scratch/non_tree_cross_sectional_models_20260813_r3_v4_smoke/runtime/results/scores/cs_settransformer_listnet_live50_20260813_r3_v4_smoke",
+  incremental: {
+    state_dir: "D:/cbond_on/research_scratch/non_tree_cross_sectional_models_20260813_r3_v4_smoke/runtime/results/model_state/cs_settransformer_listnet_live50_20260813_r3_v4_smoke",
+  },
+  train: { epochs: 3, early_stopping_patience: 2 },
+  experiment: { id: "non_tree_cross_sectional_models_20260813_r3_v4_smoke", role: "pure_cross_section_settransformer", research_only: true },
+}

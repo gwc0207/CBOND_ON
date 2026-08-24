@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 import json
 import os
 import subprocess
@@ -86,9 +87,36 @@ def _drop_run_fields(state: dict) -> dict:
         "attempt_id",
         "attempt_journal_path",
         "attempt_journal_error",
+        "current_step",
+        "current_step_started_at",
     ]:
         cleaned.pop(key, None)
     return cleaned
+
+
+def _scheduler_stage_reporter(
+    state_path: Path,
+    *,
+    attempt_id: str,
+) -> Callable[[str], None]:
+    """Build a best-effort observer for Dashboard-only stage progress."""
+
+    def report(stage: str) -> None:
+        state = _read_json(state_path)
+        if str(state.get("status", "")) != "running_live":
+            return
+        if str(state.get("attempt_id", "")) != attempt_id:
+            return
+        _write_json(
+            state_path,
+            {
+                **state,
+                "current_step": stage,
+                "current_step_started_at": datetime.now().isoformat(timespec="seconds"),
+            },
+        )
+
+    return report
 
 
 def _is_pid_alive(pid: int) -> bool:
@@ -259,6 +287,8 @@ def main() -> None:
             "heartbeat": attempt_started_at.isoformat(timespec="seconds"),
             "attempt_id": attempt_id,
             "attempt_journal_path": attempt_journal_path,
+            "current_step": "ready_gate",
+            "current_step_started_at": attempt_started_at.isoformat(timespec="seconds"),
         }
         if attempt_journal_error:
             running_state["attempt_journal_error"] = attempt_journal_error
@@ -275,7 +305,15 @@ def main() -> None:
             with redirect_stdout(fp), redirect_stderr(fp):
                 print(f"{datetime.now():%Y-%m-%d %H:%M:%S} [run] start target={target}")
                 try:
-                    out_path = run_once(start=today, target=target, mode="scheduler")
+                    out_path = run_once(
+                        start=today,
+                        target=target,
+                        mode="scheduler",
+                        stage_reporter=_scheduler_stage_reporter(
+                            state_path,
+                            attempt_id=attempt_id,
+                        ),
+                    )
                     out_dir = str(out_path)
                     print(f"{datetime.now():%Y-%m-%d %H:%M:%S} [run] success out={out_dir}")
                 except Exception as exc:
