@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from cbond_on.core.registry import FactorRegistry
-from cbond_on.domain.factors.defs import research_factor_mining_aggregate_catalog_v1 as aggregate
+from cbond_on.domain.factors.operators import research_factor_mining_aggregate_catalog_v1 as aggregate
 
 
 EXPECTED_SOURCE_MODULES = (
@@ -41,7 +41,7 @@ def _entry(*, family: str, signal: str) -> SimpleNamespace:
 def test_aggregate_has_exact_sixteen_explicit_sources_and_registers_every_kernel() -> None:
     assert tuple(module.__name__.rsplit(".", 1)[-1] for _, module in aggregate.SOURCE_MODULES) == EXPECTED_SOURCE_MODULES
     assert aggregate.SOURCE_MODULE_NAMES == tuple(
-        f"cbond_on.domain.factors.defs.{name}" for name in EXPECTED_SOURCE_MODULES
+        f"cbond_on.domain.factors.operators.{name}" for name in EXPECTED_SOURCE_MODULES
     )
     assert len(aggregate.SOURCE_MODULES) == 16
 

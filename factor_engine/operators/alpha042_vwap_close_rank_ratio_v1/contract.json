@@ -1,0 +1,40 @@
+{
+  "contract_hash": "55962f3236a35c2630755b75a9d799481df4d4b7896eab417da2c0c9ef5a3653",
+  "definition": {
+    "kind": "runtime_operator_reference",
+    "path": "operators/alpha042_vwap_close_rank_ratio_v1/definition.py",
+    "sha256": "08a9373c4bc6619684195654e30dfa531e402a0709a56da8b41d3f8b7a25453e"
+  },
+  "factor_instances": [],
+  "identity": {
+    "operator_class": "Alpha042VwapCloseRankRatioV1Factor",
+    "operator_id": "alpha042_vwap_close_rank_ratio_v1",
+    "operator_version": "legacy-unversioned"
+  },
+  "implementation": {
+    "language": "python_runtime_operator",
+    "module": "cbond_on.domain.factors.operators.alpha042_vwap_close_rank_ratio_v1",
+    "path": "cbond_on/domain/factors/operators/alpha042_vwap_close_rank_ratio_v1.py",
+    "sha256": "89dff4e9006fce2de97576b60d0376d57f313ab515b332b85b1597faad5efd21"
+  },
+  "lifecycle": {
+    "operator_catalog_status": "registered",
+    "runtime_source_status": "migrated_pending_cutover",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "migration": {
+    "behavior_parity_status": "pending_baseline_replay",
+    "legacy_path": "cbond_on/domain/factors/defs/alpha042_vwap_close_rank_ratio_v1.py",
+    "legacy_sha256": "19457d6f7ad8232eb9785037b7c2eea2fead0450124d9aec7b4ed9af5c3b054f",
+    "migration_kind": "namespace_relocation_without_formula_change"
+  },
+  "runtime_contract": {
+    "input_schema_status": "operator_declared_pending_field_audit",
+    "pit_validation_status": "operator_migration_pending_pit_audit",
+    "registration_key": "alpha042_vwap_close_rank_ratio_v1",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "schema_version": "operator_contract/v1",
+  "test_reference": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+}

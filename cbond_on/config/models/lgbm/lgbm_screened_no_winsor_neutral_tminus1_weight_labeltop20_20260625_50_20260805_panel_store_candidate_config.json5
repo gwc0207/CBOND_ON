@@ -1,0 +1,8 @@
+{
+  // Candidate-only model overlay.  It is not selected by any active live score config.
+  modules: ["models/lgbm/lgbm_screened_no_winsor_neutral_tminus1_weight_labeltop20_20260625_50_20260805"],
+  neutralization_cache_root: {
+    windows: "D:/cbond_on/results/neutralization_cache/live/lgbm_screened_no_winsor_neutral_tminus1_weight_labeltop20_20260625_50_20260805",
+    linux: "/home/gswzif/cbond_on_runtime/results/neutralization_cache/live/lgbm_screened_no_winsor_neutral_tminus1_weight_labeltop20_20260625_50_20260805",
+  },
+}

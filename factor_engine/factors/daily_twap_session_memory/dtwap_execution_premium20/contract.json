@@ -1,0 +1,83 @@
+{
+  "context_requirements": {
+    "daily": [
+      {
+        "columns": [
+          "exchange_code",
+          "twap_0930_0935",
+          "twap_0935_1000",
+          "twap_1100_1130",
+          "twap_1300_1330",
+          "twap_1400_1430",
+          "twap_1430_1442",
+          "twap_1442_1457"
+        ],
+        "lookback_days": 65,
+        "source": "market_cbond.daily_twap"
+      }
+    ],
+    "panel_field_schema_status": "operator_declared_pending_factor_minimal_audit",
+    "panel_fields": [],
+    "panel_name": "T1430",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "contract_hash": "3cb4109a2ce1797155759e48d2e589d3c7d8de295797f202608dc7344a6fdf31",
+  "definition": {
+    "kind": "parameterized_operator_definition",
+    "path": "factors/daily_twap_session_memory/dtwap_execution_premium20/definition.py",
+    "sha256": "ad0db61fd86b996b39f803525ede60cd9ed3834c0b9917b0411bae87f7b6c701"
+  },
+  "fixed_params": {
+    "family": "daily_twap_session_memory",
+    "signal": "dtwap_execution_premium20"
+  },
+  "identity": {
+    "factor_id": "dtwap_execution_premium20",
+    "factor_version": "catalog-20260826-3dc311a0b60c-969985d046e8",
+    "primary_family": "daily_twap_session_memory",
+    "tags": []
+  },
+  "lifecycle": {
+    "catalog_status": "registered",
+    "live_admission_status": "not_evaluated_by_catalog_builder",
+    "research_status": "legacy_mapping_discovered",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "operator_bindings": [
+    {
+      "implementation_module": "cbond_on.domain.factors.operators.research_factor_mining_daily_expansion_v1",
+      "implementation_path": "cbond_on/domain/factors/operators/research_factor_mining_daily_expansion_v1.py",
+      "implementation_sha256": "3dc311a0b60c44b1f9e407897e48ccde61b665af0458ed6259f41d88a29afe4f",
+      "language": "python_runtime_operator",
+      "legacy_implementation_path": "cbond_on/domain/factors/defs/research_factor_mining_daily_expansion_v1.py",
+      "legacy_implementation_sha256": "3dc311a0b60c44b1f9e407897e48ccde61b665af0458ed6259f41d88a29afe4f",
+      "operator_contract_path": "operators/factor_mining_daily_expansion_v1/contract.json",
+      "operator_id": "factor_mining_daily_expansion_v1",
+      "operator_version": "20260803_daily_expansion_v1",
+      "rust_contract_id": null
+    }
+  ],
+  "output": {
+    "column": "dtwap_execution_premium20",
+    "dtype": "float64"
+  },
+  "schema_version": "factor_contract/v2",
+  "source_lineage": {
+    "hypothesis": "Historical morning, lunch, afternoon, and execution-window TWAP shapes summarize session structure.",
+    "snapshot_id": "canonical_factor_catalog_20260826_800",
+    "source_position": 1,
+    "source_root": "D:/cbond_on/research_scratch/factor_mining_20260803_unified_v7_with_joint_merged_v1",
+    "source_set": "research773"
+  },
+  "test_reference": {
+    "behavioral_parity_status": "pending_baseline_replay",
+    "contract_test": "tests/test_factor_engine_governance.py::test_all_factor_definitions_and_contracts",
+    "operator_test": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+  },
+  "time_contract": {
+    "factor_time": "14:30",
+    "pit_validation_status": "operator_migration_pending_factor_pit_audit",
+    "research_label_time_reference": "14:42"
+  }
+}

@@ -1,0 +1,68 @@
+{
+  "context_requirements": {
+    "daily": [],
+    "panel_field_schema_status": "operator_declared_pending_factor_minimal_audit",
+    "panel_fields": [],
+    "panel_name": "T1430",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "contract_hash": "ca2b4df8053632da3cb7b7366ae21b44dabca1513ff9990a307ba43bdbccf89c",
+  "definition": {
+    "kind": "parameterized_operator_definition",
+    "path": "factors/lunch_trade_resumption_recovery/lrd_trade_reopen_notional_per_trade_ratio/definition.py",
+    "sha256": "686c1da10651b7b68cd313d6bdb43eafa16653330f05dcb100cd13cf9fc7b875"
+  },
+  "fixed_params": {
+    "family": "lunch_trade_resumption_recovery",
+    "signal": "lrd_trade_reopen_notional_per_trade_ratio"
+  },
+  "identity": {
+    "factor_id": "lrd_trade_reopen_notional_per_trade_ratio",
+    "factor_version": "catalog-20260826-7c048e774a48-6cdbb7458b7b",
+    "primary_family": "lunch_trade_resumption_recovery",
+    "tags": []
+  },
+  "lifecycle": {
+    "catalog_status": "registered",
+    "live_admission_status": "not_evaluated_by_catalog_builder",
+    "research_status": "legacy_mapping_discovered",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "operator_bindings": [
+    {
+      "implementation_module": "cbond_on.domain.factors.operators.research_factor_mining_intraday_lunch_reopen_dynamics_v1",
+      "implementation_path": "cbond_on/domain/factors/operators/research_factor_mining_intraday_lunch_reopen_dynamics_v1.py",
+      "implementation_sha256": "7c048e774a48d63a90d7c00ed5e1c45d46e078695545b5dcd1fa83fc5c1bf462",
+      "language": "python_runtime_operator",
+      "legacy_implementation_path": "cbond_on/domain/factors/defs/research_factor_mining_intraday_lunch_reopen_dynamics_v1.py",
+      "legacy_implementation_sha256": "8be8412c6da01df0babe54fe752c3900890f59a672c65fe625c622d164c1672e",
+      "operator_contract_path": "operators/factor_mining_intraday_lunch_reopen_dynamics_v1/contract.json",
+      "operator_id": "factor_mining_intraday_lunch_reopen_dynamics_v1",
+      "operator_version": "20260803_intraday_lunch_reopen_dynamics_v1",
+      "rust_contract_id": null
+    }
+  ],
+  "output": {
+    "column": "lrd_trade_reopen_notional_per_trade_ratio",
+    "dtype": "float64"
+  },
+  "schema_version": "factor_contract/v2",
+  "source_lineage": {
+    "hypothesis": "The immediate post-lunch restart can differ from the late-morning baseline in trade rate, mean traded notional, and price impact per trade rather than a full-session event clock.",
+    "snapshot_id": "canonical_factor_catalog_20260826_800",
+    "source_position": 2,
+    "source_root": "D:/cbond_on/research_scratch/factor_mining_20260803_aggregate_catalog_v5_full/factor_data",
+    "source_set": "research773"
+  },
+  "test_reference": {
+    "behavioral_parity_status": "pending_baseline_replay",
+    "contract_test": "tests/test_factor_engine_governance.py::test_all_factor_definitions_and_contracts",
+    "operator_test": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+  },
+  "time_contract": {
+    "factor_time": "14:30",
+    "pit_validation_status": "operator_migration_pending_factor_pit_audit",
+    "research_label_time_reference": "14:42"
+  }
+}

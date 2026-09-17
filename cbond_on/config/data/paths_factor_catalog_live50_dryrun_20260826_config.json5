@@ -1,0 +1,18 @@
+{
+  // Isolated factor-stage verification for the Catalog-bound live50 release.
+  // It is never selected by live_config or the normal scheduler.
+  raw_data_root: "D:/cbond_data_hub/raw_data",
+  clean_data_root: "D:/cbond_data_hub/clean_data",
+  cleaned_data_root: "D:/cbond_data_hub/clean_data",
+  results_root: "D:/cbond_on/research_scratch/factor_governance_live50_dryrun_20260826/runtime/results",
+  read_only_input_roots: {
+    panel_data_root: "D:/cbond_on/panel_data",
+    label_data_root: "D:/cbond_on/research_scratch/factor_governance_live50_dryrun_20260826/runtime/label_data",
+    factor_data_root: "D:/cbond_on/research_scratch/factor_governance_live50_dryrun_20260826/runtime/factor_data",
+  },
+  lifecycle: {
+    status: "audit_only",
+    reason: "legacy_scratch_factor_store",
+    normal_consumer: false,
+  },
+}

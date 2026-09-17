@@ -9,7 +9,7 @@ import pytest
 from cbond_on.core.registry import FactorRegistry
 from cbond_on.domain.factors.base import FactorComputeContext
 from cbond_on.domain.factors.builder import build_factor_frame
-from cbond_on.domain.factors.defs import research_factor_mining_intraday_state_gated_microstructure_v1 as gated
+from cbond_on.domain.factors.operators import research_factor_mining_intraday_state_gated_microstructure_v1 as gated
 from cbond_on.domain.factors.spec import FactorSpec, infer_factor_context_requirements
 
 

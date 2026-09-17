@@ -1,0 +1,40 @@
+{
+  "contract_hash": "ee6297cc363854053512239a51fce44e986631b03793d7d9fcd6ba0100dd441e",
+  "definition": {
+    "kind": "runtime_operator_reference",
+    "path": "operators/amihud_illiq/definition.py",
+    "sha256": "2ee5911bcc1d6b70babee19eefff694b2257c1210cff7800e137986f304454ec"
+  },
+  "factor_instances": [],
+  "identity": {
+    "operator_class": "AmihudIlliqFactor",
+    "operator_id": "amihud_illiq",
+    "operator_version": "legacy-unversioned"
+  },
+  "implementation": {
+    "language": "python_runtime_operator",
+    "module": "cbond_on.domain.factors.operators.amihud_illiq",
+    "path": "cbond_on/domain/factors/operators/amihud_illiq.py",
+    "sha256": "ae3f8e37e85a0c62973fbec8d0126ddcbbafe7825267dd05d17268b037a7c234"
+  },
+  "lifecycle": {
+    "operator_catalog_status": "registered",
+    "runtime_source_status": "migrated_pending_cutover",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "migration": {
+    "behavior_parity_status": "pending_baseline_replay",
+    "legacy_path": "cbond_on/domain/factors/defs/amihud_illiq.py",
+    "legacy_sha256": "cf14989054a510c449146eaec60a02929ce84076713c34e3181c6579825a6ba2",
+    "migration_kind": "namespace_relocation_without_formula_change"
+  },
+  "runtime_contract": {
+    "input_schema_status": "operator_declared_pending_field_audit",
+    "pit_validation_status": "operator_migration_pending_pit_audit",
+    "registration_key": "amihud_illiq",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "schema_version": "operator_contract/v1",
+  "test_reference": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+}

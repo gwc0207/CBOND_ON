@@ -1,0 +1,92 @@
+{
+  "context_requirements": {
+    "daily": [
+      {
+        "columns": [
+          "exchange_code",
+          "act_prev_close_price",
+          "open_price",
+          "high_price",
+          "low_price",
+          "close_price"
+        ],
+        "lookback_days": 75,
+        "source": "market_cbond.daily_price"
+      },
+      {
+        "columns": [
+          "exchange_code",
+          "current_yield",
+          "duration",
+          "convexity",
+          "stock_volatility"
+        ],
+        "lookback_days": 75,
+        "source": "market_cbond.daily_base"
+      }
+    ],
+    "panel_field_schema_status": "operator_declared_pending_factor_minimal_audit",
+    "panel_fields": [],
+    "panel_name": "T1430",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "contract_hash": "574fbbe4dab589084cccfac5fe6029726c6579fa16dd5471ba9453b539e5b6df",
+  "definition": {
+    "kind": "parameterized_operator_definition",
+    "path": "factors/prior_yield_directional_price_pass_through/ydpt_yield_fall_return_beta60/definition.py",
+    "sha256": "2c881798d863474ae7c4df110b1a271be91e102f4d6e1d610bdf1a1d4a634be8"
+  },
+  "fixed_params": {
+    "family": "prior_yield_directional_price_pass_through",
+    "signal": "ydpt_yield_fall_return_beta60"
+  },
+  "identity": {
+    "factor_id": "ydpt_yield_fall_return_beta60",
+    "factor_version": "catalog-20260826-757804dca127-9ca5c129a508",
+    "primary_family": "prior_yield_directional_price_pass_through",
+    "tags": []
+  },
+  "lifecycle": {
+    "catalog_status": "registered",
+    "live_admission_status": "live_released",
+    "research_status": "legacy_mapping_discovered",
+    "rust_status": "live50_rust_capability_required"
+  },
+  "operator_bindings": [
+    {
+      "implementation_module": "cbond_on.domain.factors.operators.research_factor_mining_daily_asymmetric_state_transitions_v1",
+      "implementation_path": "cbond_on/domain/factors/operators/research_factor_mining_daily_asymmetric_state_transitions_v1.py",
+      "implementation_sha256": "757804dca127393853dee981f9dc8381d57044123110d4d940b6894e0f8fbf43",
+      "language": "python_runtime_operator",
+      "legacy_implementation_path": "cbond_on/domain/factors/defs/research_factor_mining_daily_asymmetric_state_transitions_v1.py",
+      "legacy_implementation_sha256": "757804dca127393853dee981f9dc8381d57044123110d4d940b6894e0f8fbf43",
+      "operator_contract_path": "operators/factor_mining_daily_asymmetric_state_transitions_v1/contract.json",
+      "operator_id": "factor_mining_daily_asymmetric_state_transitions_v1",
+      "operator_version": "20260803_daily_asymmetric_state_transitions_v1",
+      "rust_contract_id": "live50_r5/ydpt_yield_fall_return_beta60"
+    }
+  ],
+  "output": {
+    "column": "ydpt_yield_fall_return_beta60",
+    "dtype": "float64"
+  },
+  "schema_version": "factor_contract/v2",
+  "source_lineage": {
+    "hypothesis": "Completed bond-price response can differ after a rising versus falling current-yield state transition.",
+    "snapshot_id": "canonical_factor_catalog_20260826_800",
+    "source_position": 2,
+    "source_root": "D:/cbond_on/research_scratch/factor_mining_20260803_aggregate_catalog_v5_full/factor_data",
+    "source_set": "research773"
+  },
+  "test_reference": {
+    "behavioral_parity_status": "pending_baseline_replay",
+    "contract_test": "tests/test_factor_engine_governance.py::test_all_factor_definitions_and_contracts",
+    "operator_test": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+  },
+  "time_contract": {
+    "factor_time": "14:30",
+    "pit_validation_status": "operator_migration_pending_factor_pit_audit",
+    "research_label_time_reference": "14:42"
+  }
+}

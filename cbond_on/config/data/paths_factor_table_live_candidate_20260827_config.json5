@@ -1,0 +1,20 @@
+{
+  // Candidate-only, no-DB consumer profile.  It is not referenced by the
+  // active live config or by any scheduler task.
+  raw_data_root: "D:/cbond_data_hub/raw_data",
+  clean_data_root: "D:/cbond_data_hub/clean_data",
+  cleaned_data_root: "D:/cbond_data_hub/clean_data",
+  results_root: "D:/cbond_on/research_scratch/factor_table_live_candidate_20260827/runtime/results",
+  read_only_input_roots: {
+    panel_data_root: "D:/cbond_on/panel_data",
+    label_data_root: "D:/cbond_on/research_scratch/factor_table_live_candidate_20260827/runtime/label_data",
+  },
+
+  // This is deliberately the only factor-result selector.  The loader
+  // resolves it through the canonical table manifest; it never falls back to
+  // a direct, scattered factor_data_root.
+  factor_table: {
+    table_id: "live",
+    root: "D:/cbond_on/factor_store",
+  },
+}

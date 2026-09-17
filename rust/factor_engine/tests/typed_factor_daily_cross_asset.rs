@@ -4,6 +4,7 @@ mod typed_factor_daily_cross_asset;
 use chrono::{Duration, NaiveDate};
 use typed_factor_daily_cross_asset::{
     bsfst_stock_return_bond_flow_mutual_information60, bssrc_bond_stock_rank_correlation60,
+    bssrc_lower_rank_tail_alignment60, bssrc_upper_rank_tail_alignment60,
     TypedFactorCrossAssetBaseRow, TypedFactorCrossAssetPriceRow, TypedFactorDailyCrossAssetContext,
     TypedFactorDailyCrossAssetError,
 };
@@ -98,6 +99,34 @@ fn two_cross_asset_outputs_match_python_goldens_with_average_rank_ties() {
         bssrc_bond_stock_rank_correlation60(&ctx, TARGET).unwrap(),
         -0.20237608815565833,
     );
+}
+
+#[test]
+fn bssrc_tail_alignments_share_the_correlation_family_gates() {
+    let ctx = baseline_context();
+    let correlation = bssrc_bond_stock_rank_correlation60(&ctx, TARGET).unwrap();
+    let upper = bssrc_upper_rank_tail_alignment60(&ctx, TARGET).unwrap();
+    let lower = bssrc_lower_rank_tail_alignment60(&ctx, TARGET).unwrap();
+    assert!(correlation.is_finite());
+    assert!(upper.is_finite() && (0.0..=1.0).contains(&upper));
+    assert!(lower.is_finite() && (0.0..=1.0).contains(&lower));
+
+    // A constant target rank leaves the shared Pearson denominator degenerate.
+    // Python returns all three family members missing, not tail probabilities
+    // calculated under a relaxed gate.
+    let mut degenerate = baseline_context();
+    for row in degenerate.price_rows.iter_mut() {
+        row.close_price = row.prev_close_price;
+    }
+    assert!(bssrc_bond_stock_rank_correlation60(&degenerate, TARGET)
+        .unwrap()
+        .is_nan());
+    assert!(bssrc_upper_rank_tail_alignment60(&degenerate, TARGET)
+        .unwrap()
+        .is_nan());
+    assert!(bssrc_lower_rank_tail_alignment60(&degenerate, TARGET)
+        .unwrap()
+        .is_nan());
 }
 
 #[test]

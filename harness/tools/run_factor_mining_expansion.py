@@ -53,8 +53,8 @@ _CONFIG_NAME = "factor/research/factor_mining_20260802"
 _PATHS_CONFIG_NAME = "data/paths_factor_mining_20260802"
 _CONFIG_PATH = _REPO_ROOT / "cbond_on" / "config" / "factor" / "research" / "factor_mining_20260802_config.json5"
 _PATHS_CONFIG_PATH = _REPO_ROOT / "cbond_on" / "config" / "data" / "paths_factor_mining_20260802_config.json5"
-_RESEARCH_MODULE_DIR = _REPO_ROOT / "cbond_on" / "domain" / "factors" / "defs"
-_RESEARCH_MODULE_PREFIX = "cbond_on.domain.factors.defs.research_"
+_RESEARCH_MODULE_DIR = _REPO_ROOT / "cbond_on" / "domain" / "factors" / "operators"
+_RESEARCH_MODULE_PREFIX = "cbond_on.domain.factors.operators.research_"
 _RESEARCH_SCRATCH_PARENT = Path(r"D:/cbond_on/research_scratch")
 _DATAHUB_RAW_ROOT = Path(r"D:/cbond_data_hub/raw_data")
 _DATAHUB_CLEAN_ROOT = Path(r"D:/cbond_data_hub/clean_data")
@@ -334,7 +334,7 @@ def _normalise_catalogue(module_name: str) -> tuple[Path, str | None, tuple[Cata
     module_path = _resolved(module_file_text)
     if not _is_strict_child(module_path, _RESEARCH_MODULE_DIR):
         raise ValueError(
-            "research catalogue module must resolve under the repository factor definitions directory: "
+            "research catalogue module must resolve under the repository factor operators directory: "
             f"{module_path.as_posix()}"
         )
 

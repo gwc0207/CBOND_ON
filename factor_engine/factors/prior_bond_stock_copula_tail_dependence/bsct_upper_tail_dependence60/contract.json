@@ -1,0 +1,87 @@
+{
+  "context_requirements": {
+    "daily": [
+      {
+        "columns": [
+          "exchange_code",
+          "prev_close_price",
+          "close_price"
+        ],
+        "lookback_days": 75,
+        "source": "market_cbond.daily_price"
+      },
+      {
+        "columns": [
+          "exchange_code",
+          "stk_prev_close_price",
+          "stk_close_price"
+        ],
+        "lookback_days": 75,
+        "source": "market_cbond.daily_base"
+      }
+    ],
+    "panel_field_schema_status": "operator_declared_pending_factor_minimal_audit",
+    "panel_fields": [],
+    "panel_name": "T1430",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "contract_hash": "cb912298dd4f8a1a17e4ffe7dbb9f5d2907563d2f08dff49b0ecdfd01a41a3c6",
+  "definition": {
+    "kind": "parameterized_operator_definition",
+    "path": "factors/prior_bond_stock_copula_tail_dependence/bsct_upper_tail_dependence60/definition.py",
+    "sha256": "08aa8ee7f09978bf295b162766ede844ca93ec810dd642472aef59f3140250db"
+  },
+  "fixed_params": {
+    "family": "prior_bond_stock_copula_tail_dependence",
+    "signal": "bsct_upper_tail_dependence60"
+  },
+  "identity": {
+    "factor_id": "bsct_upper_tail_dependence60",
+    "factor_version": "catalog-20260826-6c0e7d7d63f6-b05c2cc33d14",
+    "primary_family": "prior_bond_stock_copula_tail_dependence",
+    "tags": []
+  },
+  "lifecycle": {
+    "catalog_status": "registered",
+    "live_admission_status": "not_evaluated_by_catalog_builder",
+    "research_status": "legacy_mapping_discovered",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "operator_bindings": [
+    {
+      "implementation_module": "cbond_on.domain.factors.operators.research_factor_mining_daily_bond_stock_copula_tail_dependence_v1",
+      "implementation_path": "cbond_on/domain/factors/operators/research_factor_mining_daily_bond_stock_copula_tail_dependence_v1.py",
+      "implementation_sha256": "6c0e7d7d63f68a6692f32ba86a94eeca2045125cfe7d813d148851162ed41b44",
+      "language": "python_runtime_operator",
+      "legacy_implementation_path": "cbond_on/domain/factors/defs/research_factor_mining_daily_bond_stock_copula_tail_dependence_v1.py",
+      "legacy_implementation_sha256": "05b9d6ed7701eae8fcf441f6ac6cd26cdf576f2bbb01a5f7e73fd34c67ae5bda",
+      "operator_contract_path": "operators/factor_mining_daily_bond_stock_copula_tail_dependence_v1/contract.json",
+      "operator_id": "factor_mining_daily_bond_stock_copula_tail_dependence_v1",
+      "operator_version": "20260803_daily_bond_stock_copula_tail_dependence_v1",
+      "rust_contract_id": null
+    }
+  ],
+  "output": {
+    "column": "bsct_upper_tail_dependence60",
+    "dtype": "float64"
+  },
+  "schema_version": "factor_contract/v2",
+  "source_lineage": {
+    "hypothesis": "Strict-prior empirical tail co-movement of a bond and its underlying stock can distinguish upside participation, downside participation, and their asymmetry beyond an unconditional linear beta.",
+    "snapshot_id": "canonical_factor_catalog_20260826_800",
+    "source_position": 3,
+    "source_root": "D:/cbond_on/research_scratch/factor_mining_20260804_daily_orthogonal_batch_v8_full_r2/factor_data",
+    "source_set": "research773"
+  },
+  "test_reference": {
+    "behavioral_parity_status": "pending_baseline_replay",
+    "contract_test": "tests/test_factor_engine_governance.py::test_all_factor_definitions_and_contracts",
+    "operator_test": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+  },
+  "time_contract": {
+    "factor_time": "14:30",
+    "pit_validation_status": "operator_migration_pending_factor_pit_audit",
+    "research_label_time_reference": "14:42"
+  }
+}

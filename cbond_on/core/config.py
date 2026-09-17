@@ -54,6 +54,26 @@ def _normalize_key(name: str | Path) -> str:
     return text
 
 
+def _is_paths_config_request(name: str | Path, path: Path) -> bool:
+    """Return whether a load must be treated as a governed paths profile.
+
+    ``CBOND_ON_PATHS_CONFIG`` may point at an arbitrary absolute file, so
+    checking only ``path.parent == config/data`` would let that file bypass the
+    factor-table declaration and route validation.  The logical ``paths``
+    request is authoritative regardless of where its selected profile lives.
+    """
+
+    requested = Path(_normalize_key(name)).stem.lower()
+    selected = path.stem.lower()
+    return (
+        requested in {"paths", "paths_config"}
+        or requested.startswith("paths_")
+        or selected in {"paths", "paths_config"}
+        or selected.startswith("paths_")
+        or (path.parent.name == "data" and selected.startswith("paths"))
+    )
+
+
 def _with_config_suffix(name: str) -> str:
     suffix = Path(name).suffix.lower()
     if suffix in _CONFIG_EXTS:
@@ -302,7 +322,80 @@ def _resolve_paths_profile_path(default_path: Path) -> Path:
     return default_path
 
 
-def _resolve_read_only_input_roots(cfg: dict[str, Any]) -> dict[str, Path] | None:
+def _resolve_factor_table_root(cfg: dict[str, Any]) -> Path | None:
+    """Resolve a declared canonical factor-table reference for a consumer.
+
+    Every normal paths profile declares the table identity. The resolver
+    verifies its published manifest before returning the internal compatibility
+    path, so it can never fall back to a scattered legacy FactorStore root.
+    """
+
+    raw = cfg.get("factor_table")
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise TypeError("factor_table must be an object")
+
+    read_only_inputs = cfg.get("read_only_input_roots")
+    if read_only_inputs is None:
+        raise ValueError(
+            "factor_table profiles require read_only_input_roots for panel_data_root and label_data_root"
+        )
+    if not isinstance(read_only_inputs, dict):
+        raise TypeError("read_only_input_roots must be an object")
+    if isinstance(read_only_inputs, dict) and "factor_data_root" in read_only_inputs:
+        raise ValueError(
+            "factor_table profiles must not declare "
+            "read_only_input_roots.factor_data_root; resolve it from factor_table.table_id"
+        )
+
+    # Keep the core config layer free of a canonical-store import until a
+    # declared canonical profile is selected.
+    from cbond_on.infra.factors.factor_table_resolution import resolve_factor_table_reference
+
+    normalized = dict(raw)
+    normalized["table_id"] = str(_pick_platform_value(raw.get("table_id")) or "").strip()
+    normalized["root"] = _pick_platform_value(raw.get("root"))
+    resolution = resolve_factor_table_reference(normalized)
+    return resolution.factor_data_root
+
+
+def _validate_factor_route_declaration(cfg: dict[str, Any]) -> None:
+    """Require every paths profile to declare one legal factor-route role.
+
+    Normal profiles select one of the three canonical factor tables.  A
+    historical profile may retain a direct root only when it is explicitly
+    marked ``audit_only`` and therefore cannot be consumed through the normal
+    reader/writer entry points.  This validation closes the former implicit
+    ``runtime_root/factor_data`` fallback for newly added paths profiles while
+    still allowing narrowly scoped migration/audit tools to load their raw or
+    clean DataHub roots.
+    """
+
+    raw_table = cfg.get("factor_table")
+    lifecycle = cfg.get("lifecycle")
+    audit_only = (
+        isinstance(lifecycle, dict)
+        and str(lifecycle.get("status", "")).strip().lower() == "audit_only"
+        and lifecycle.get("normal_consumer") is False
+    )
+    if raw_table is None:
+        if audit_only:
+            return
+        raise ValueError(
+            "paths profile must declare a canonical factor_table or explicit "
+            "lifecycle.status='audit_only', lifecycle.normal_consumer=false; "
+            "implicit runtime/factor_data is not a legal normal factor route"
+        )
+    if audit_only:
+        raise ValueError("an audit_only paths profile must not also declare factor_table")
+
+
+def _resolve_read_only_input_roots(
+    cfg: dict[str, Any],
+    *,
+    factor_table_root: Path | None = None,
+) -> dict[str, Path] | None:
     """Resolve an opt-in research profile's immutable model input roots.
 
     Ordinary profiles intentionally derive panel/label/factor paths from one
@@ -318,7 +411,9 @@ def _resolve_read_only_input_roots(cfg: dict[str, Any]) -> dict[str, Path] | Non
         return None
     if not isinstance(raw, dict):
         raise TypeError("read_only_input_roots must be an object")
-    required = ("panel_data_root", "label_data_root", "factor_data_root")
+    required = ("panel_data_root", "label_data_root")
+    if factor_table_root is None:
+        required = (*required, "factor_data_root")
     missing = [key for key in required if key not in raw]
     if missing:
         raise ValueError(
@@ -332,6 +427,8 @@ def _resolve_read_only_input_roots(cfg: dict[str, Any]) -> dict[str, Path] | Non
         if not text:
             raise ValueError(f"read_only_input_roots.{key} must be non-empty")
         resolved[key] = Path(text).expanduser()
+    if factor_table_root is not None:
+        resolved["factor_data_root"] = factor_table_root
     return resolved
 
 
@@ -384,6 +481,7 @@ def _apply_runtime_paths_profile(cfg: dict[str, Any]) -> dict[str, Any]:
     out = dict(cfg)
 
     _reject_conflicting_research_path_overrides(out)
+    _validate_factor_route_declaration(out)
 
     env_raw = _env_text("CBOND_ON_RAW_ROOT")
     env_clean = _env_text("CBOND_ON_CLEAN_ROOT")
@@ -420,7 +518,8 @@ def _apply_runtime_paths_profile(cfg: dict[str, Any]) -> dict[str, Any]:
 
     runtime_root = _infer_runtime_root(out)
     results_root = runtime_root / "results"
-    read_only_inputs = _resolve_read_only_input_roots(out)
+    factor_table_root = _resolve_factor_table_root(out)
+    read_only_inputs = _resolve_read_only_input_roots(out, factor_table_root=factor_table_root)
 
     out["raw_data_root"] = _to_text_path(raw_root)
     out["clean_data_root"] = _to_text_path(clean_root)
@@ -434,6 +533,15 @@ def _apply_runtime_paths_profile(cfg: dict[str, Any]) -> dict[str, Any]:
     out["factor_data_root"] = _to_text_path(
         read_only_inputs["factor_data_root"] if read_only_inputs is not None else runtime_root / "factor_data"
     )
+    if factor_table_root is not None:
+        # Retain the normalized declaration as provenance for no-DB candidate
+        # plans.  The runtime still consumes the standard factor_data_root
+        # field, which now came only from the manifest-bound table identity.
+        raw_factor_table = dict(out.get("factor_table", {}))
+        raw_factor_table["table_id"] = str(_pick_platform_value(raw_factor_table.get("table_id")) or "").strip()
+        raw_factor_table["root"] = _to_text_path(_pick_platform_value(raw_factor_table.get("root")))
+        raw_factor_table["resolved_factor_data_root"] = _to_text_path(factor_table_root)
+        out["factor_table"] = raw_factor_table
     out["ads_root"] = _to_text_path(runtime_root / "ads")
     out["results_root"] = _to_text_path(results_root)
     out["model_root"] = _to_text_path(results_root / "models")
@@ -475,9 +583,24 @@ def load_config_file(name: str) -> dict[str, Any]:
     if isinstance(data, dict):
         data = _apply_config_modules(data, source=path)
 
-    if path.parent.name == "data" and path.stem.startswith("paths"):
+    if _is_paths_config_request(name, path):
         return _apply_runtime_paths_profile(data)
     return data
+
+
+def load_paths_profile(name: str | Path = "paths") -> dict[str, Any]:
+    """Load a paths profile through the factor-route contract unconditionally.
+
+    Normal CLI/bootstrap callers must use this instead of treating an arbitrary
+    JSON file passed through ``--paths-config`` as generic configuration.  It
+    intentionally re-applies the idempotent runtime normalization because a
+    direct absolute filename may not be named ``paths*.json5``.
+    """
+
+    payload = load_config_file(str(name))
+    if not isinstance(payload, dict):  # pragma: no cover - load_config_file contract.
+        raise TypeError("paths profile must resolve to an object")
+    return _apply_runtime_paths_profile(payload)
 
 
 def parse_date(value: str | date) -> date:

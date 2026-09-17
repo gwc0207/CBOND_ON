@@ -39,7 +39,7 @@ from cbond_on.bootstrap.research import load_factor_batch_inputs  # noqa: E402
 from cbond_on.core.config import parse_date  # noqa: E402
 from cbond_on.core.registry import FactorRegistry, RegistryError  # noqa: E402
 from cbond_on.infra.factors.rust_backend import validate_rust_first_contracts  # noqa: E402
-from cbond_on.domain.factors.defs.research_factor_mining_catalog_v1 import (  # noqa: E402
+from cbond_on.domain.factors.operators.research_factor_mining_catalog_v1 import (  # noqa: E402
     CATALOG_VERSION,
     CatalogEntry,
     factor_mining_catalog,
@@ -52,7 +52,7 @@ _CONFIG_NAME = "factor/research/factor_mining_20260802"
 _PATHS_CONFIG_NAME = "data/paths_factor_mining_20260802"
 _PATHS_CONFIG_PATH = _REPO_ROOT / "cbond_on" / "config" / "data" / "paths_factor_mining_20260802_config.json5"
 _CONFIG_PATH = _REPO_ROOT / "cbond_on" / "config" / "factor" / "research" / "factor_mining_20260802_config.json5"
-_CATALOGUE_PATH = _REPO_ROOT / "cbond_on" / "domain" / "factors" / "defs" / "research_factor_mining_catalog_v1.py"
+_CATALOGUE_PATH = _REPO_ROOT / "cbond_on" / "domain" / "factors" / "operators" / "research_factor_mining_catalog_v1.py"
 _SCRATCH_RUNTIME_ROOT = Path(r"D:/cbond_on/research_scratch/factor_mining_20260802_strict_pit_v3")
 _DATAHUB_RAW_ROOT = Path(r"D:/cbond_data_hub/raw_data")
 _DATAHUB_CLEAN_ROOT = Path(r"D:/cbond_data_hub/clean_data")
@@ -154,7 +154,7 @@ def _family_mapping(entries: Iterable[CatalogEntry]) -> dict[str, list[str]]:
 
 def _assert_catalogue(cfg: dict[str, Any]) -> tuple[tuple[CatalogEntry, ...], dict[str, list[str]]]:
     metadata = _catalogue_metadata(cfg)
-    expected_module = "cbond_on.domain.factors.defs.research_factor_mining_catalog_v1"
+    expected_module = "cbond_on.domain.factors.operators.research_factor_mining_catalog_v1"
     if str(metadata.get("module", "")).strip() != expected_module:
         raise ValueError("factor-mining catalogue module does not match the approved research module")
     if str(metadata.get("version", "")).strip() != CATALOG_VERSION:
@@ -366,7 +366,7 @@ def _write_run_evidence(
             "sha256": _sha256(_PATHS_CONFIG_PATH),
         },
         "catalogue": {
-            "module": "cbond_on.domain.factors.defs.research_factor_mining_catalog_v1",
+            "module": "cbond_on.domain.factors.operators.research_factor_mining_catalog_v1",
             "path": str(_CATALOGUE_PATH),
             "sha256": _sha256(_CATALOGUE_PATH),
             "version": CATALOG_VERSION,

@@ -6,7 +6,7 @@ import pytest
 
 from cbond_on.core.registry import FactorRegistry
 from cbond_on.domain.factors.builder import build_factor_frame
-from cbond_on.domain.factors.defs import (
+from cbond_on.domain.factors.operators import (
     research_factor_mining_daily_relative_rank_tail_contradiction_v1 as tail,
 )
 from cbond_on.domain.factors.spec import FactorSpec

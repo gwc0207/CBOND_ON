@@ -1,7 +1,7 @@
 {
-  // Live-50 FactorStore isolation profile.
-  // This preserves the production DataHub inputs and results/live root while
-  // redirecting only the factor store used by the 50-feature chain.
+  // Canonical live table profile. Production DataHub inputs and results/live
+  // remain unchanged; factor values are managed only through the admitted
+  // `live` canonical table below.
   raw_data_root: "D:/cbond_data_hub/raw_data",
   clean_data_root: "D:/cbond_data_hub/clean_data",
   cleaned_data_root: "D:/cbond_data_hub/clean_data",
@@ -9,6 +9,10 @@
   read_only_input_roots: {
     panel_data_root: "D:/cbond_on/panel_data",
     label_data_root: "D:/cbond_on/label_data",
-    factor_data_root: "D:/cbond_on/factor_data_live50_20260805",
+  },
+  factor_table: {
+    table_id: "live",
+    root: "D:/cbond_on/factor_store",
+    writer: "admitted_live",
   },
 }

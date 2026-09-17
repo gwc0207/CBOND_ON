@@ -8,7 +8,7 @@ import pytest
 
 from cbond_on.core.registry import FactorRegistry
 from cbond_on.domain.factors.base import FactorComputeContext
-from cbond_on.domain.factors.defs.t1430_amount_accel_depth_delta_v2 import (
+from cbond_on.domain.factors.operators.t1430_amount_accel_depth_delta_v2 import (
     T1430AmountAccelDepthDeltaV2,
 )
 

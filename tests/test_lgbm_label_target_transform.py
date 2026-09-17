@@ -284,3 +284,91 @@ def test_pearson_early_stop_disables_builtin_l2_metric() -> None:
     assert meta["early_stopping_metric"] == "pearson_ic"
     assert meta["metric"] == "None"
     assert meta["label_target_transform"]["train"]["loss_day_mass_applied"] is True
+
+
+def test_strict_warm_start_refuses_trainer_typeerror_cold_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An unsupported init_model must not be retried without the checkpoint."""
+
+    calls: list[dict[str, object]] = []
+
+    class _RejectInitModelRegressor:
+        def __init__(self, **_params) -> None:
+            pass
+
+        def fit(self, _x, _y, **kwargs):
+            calls.append(dict(kwargs))
+            if "init_model" in kwargs:
+                raise TypeError("init_model is unsupported")
+            return self
+
+    monkeypatch.setattr(
+        trainer_module,
+        "lgb",
+        SimpleNamespace(LGBMRegressor=_RejectInitModelRegressor),
+    )
+    train = SplitData(
+        x=pd.DataFrame({"f1": [1.0, 2.0, 3.0]}),
+        y=pd.Series([0.01, 0.02, 0.03]),
+        dt=pd.Series([pd.Timestamp("2026-01-05")] * 3),
+        code=pd.Series(["a", "b", "c"]),
+    )
+    val = SplitData(
+        x=pd.DataFrame({"f1": [4.0, 5.0, 6.0]}),
+        y=pd.Series([0.04, 0.05, 0.06]),
+        dt=pd.Series([pd.Timestamp("2026-01-06")] * 3),
+        code=pd.Series(["d", "e", "f"]),
+    )
+
+    with pytest.raises(RuntimeError, match="refusing to silently retry as a cold start"):
+        fit_lgbm(
+            train=train,
+            val=val,
+            lgbm_params={"objective": "regression", "verbosity": -1, "device": "cpu"},
+            init_model="prior_checkpoint.txt",
+            require_init_model=True,
+        )
+
+    assert len(calls) == 1
+    assert calls[0]["init_model"] == "prior_checkpoint.txt"
+
+
+def test_strict_warm_start_works_with_installed_lightgbm(tmp_path: Path) -> None:
+    if trainer_module.lgb is None:
+        pytest.skip("lightgbm is not installed")
+    train = SplitData(
+        x=pd.DataFrame({"f1": [1.0, 2.0, 3.0, 4.0], "f2": [4.0, 3.0, 2.0, 1.0]}),
+        y=pd.Series([0.01, 0.03, -0.02, 0.04]),
+        dt=pd.Series([pd.Timestamp("2026-01-05")] * 4),
+        code=pd.Series(["a", "b", "c", "d"]),
+    )
+    val = SplitData(
+        x=pd.DataFrame({"f1": [1.5, 2.5, 3.5, 4.5], "f2": [3.5, 2.5, 1.5, 0.5]}),
+        y=pd.Series([0.02, -0.01, 0.04, 0.01]),
+        dt=pd.Series([pd.Timestamp("2026-01-06")] * 4),
+        code=pd.Series(["e", "f", "g", "h"]),
+    )
+    params = {
+        "objective": "regression",
+        "verbosity": -1,
+        "device": "cpu",
+        "n_estimators": 2,
+        "learning_rate": 0.1,
+        "num_leaves": 2,
+        "min_data_in_leaf": 1,
+        "random_state": 42,
+    }
+    first, _ = fit_lgbm(train=train, val=val, lgbm_params=params)
+    checkpoint = tmp_path / "prior.txt"
+    first.booster_.save_model(str(checkpoint))
+
+    second, _ = fit_lgbm(
+        train=train,
+        val=val,
+        lgbm_params=params,
+        init_model=checkpoint,
+        require_init_model=True,
+    )
+
+    assert second.booster_.current_iteration() > first.booster_.current_iteration()

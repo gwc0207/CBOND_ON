@@ -1,0 +1,68 @@
+{
+  "context_requirements": {
+    "daily": [],
+    "panel_field_schema_status": "operator_declared_pending_factor_minimal_audit",
+    "panel_fields": [],
+    "panel_name": "T1430",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "contract_hash": "c60f9e0cd9a6fb28757c9a2a6ab4850e49c5345a48415cc8c7e6f782497698e0",
+  "definition": {
+    "kind": "parameterized_operator_definition",
+    "path": "factors/cs_path_risk_anomaly/csr_risk_max_move_residual/definition.py",
+    "sha256": "6f8eea9e009071990b5adfc05a1fb6218f6765cc598d73dcbdedf77dd1c89b80"
+  },
+  "fixed_params": {
+    "family": "cs_path_risk_anomaly",
+    "signal": "csr_risk_max_move_residual"
+  },
+  "identity": {
+    "factor_id": "csr_risk_max_move_residual",
+    "factor_version": "catalog-20260826-570451992274-f972edcf6d44",
+    "primary_family": "cs_path_risk_anomaly",
+    "tags": []
+  },
+  "lifecycle": {
+    "catalog_status": "registered",
+    "live_admission_status": "not_evaluated_by_catalog_builder",
+    "research_status": "legacy_mapping_discovered",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "operator_bindings": [
+    {
+      "implementation_module": "cbond_on.domain.factors.operators.research_factor_mining_intraday_cross_section_residual_v1",
+      "implementation_path": "cbond_on/domain/factors/operators/research_factor_mining_intraday_cross_section_residual_v1.py",
+      "implementation_sha256": "570451992274c833360dffdca77f7a797c40aa5104c08033ce5775814781f945",
+      "language": "python_runtime_operator",
+      "legacy_implementation_path": "cbond_on/domain/factors/defs/research_factor_mining_intraday_cross_section_residual_v1.py",
+      "legacy_implementation_sha256": "8b1aa78bd7ea7b5f1fc9e31f871d7a2bc46f296dfa0faddf88c695d0fab5dcf7",
+      "operator_contract_path": "operators/factor_mining_intraday_cross_section_residual_v1/contract.json",
+      "operator_id": "factor_mining_intraday_cross_section_residual_v1",
+      "operator_version": "20260803_intraday_cross_section_residual_v1_r1",
+      "rust_contract_id": null
+    }
+  ],
+  "output": {
+    "column": "csr_risk_max_move_residual",
+    "dtype": "float64"
+  },
+  "schema_version": "factor_contract/v2",
+  "source_lineage": {
+    "hypothesis": "Path risk measures can be abnormal relative to level, return, and visible liquidity rather than merely restating raw volatility.",
+    "snapshot_id": "canonical_factor_catalog_20260826_800",
+    "source_position": 1,
+    "source_root": "D:/cbond_on/research_scratch/factor_mining_20260803_unified_v7_with_joint_merged_v1",
+    "source_set": "research773"
+  },
+  "test_reference": {
+    "behavioral_parity_status": "pending_baseline_replay",
+    "contract_test": "tests/test_factor_engine_governance.py::test_all_factor_definitions_and_contracts",
+    "operator_test": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+  },
+  "time_contract": {
+    "factor_time": "14:30",
+    "pit_validation_status": "operator_migration_pending_factor_pit_audit",
+    "research_label_time_reference": "14:42"
+  }
+}

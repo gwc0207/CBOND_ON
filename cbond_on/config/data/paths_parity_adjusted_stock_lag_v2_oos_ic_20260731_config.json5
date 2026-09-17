@@ -1,4 +1,9 @@
 {
+  lifecycle: {
+    status: "audit_only",
+    reason: "legacy_direct_factor_store",
+    normal_consumer: false,
+  },
   // Read production inputs only.  With CBOND_ON_PATHS_CONFIG set to this file,
   // the loader derives every runtime output below the scratch runtime root.
   raw_data_root: "D:/cbond_data_hub/raw_data",

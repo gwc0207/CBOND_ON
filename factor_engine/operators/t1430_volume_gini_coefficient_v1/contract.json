@@ -1,0 +1,40 @@
+{
+  "contract_hash": "090e45dc995a22ac253810a3be291c6a37b03d8e2ca17b820931bbb56e16a32e",
+  "definition": {
+    "kind": "runtime_operator_reference",
+    "path": "operators/t1430_volume_gini_coefficient_v1/definition.py",
+    "sha256": "9dc117a6d4ef82a27e73d6e7f1e7390ccb84f3873c5baf2c4e76c93c7b6b3d16"
+  },
+  "factor_instances": [],
+  "identity": {
+    "operator_class": "T1430VolumeGiniCoefficientV1",
+    "operator_id": "t1430_volume_gini_coefficient_v1",
+    "operator_version": "legacy-unversioned"
+  },
+  "implementation": {
+    "language": "python_runtime_operator",
+    "module": "cbond_on.domain.factors.operators.t1430_volume_gini_coefficient_v1",
+    "path": "cbond_on/domain/factors/operators/t1430_volume_gini_coefficient_v1.py",
+    "sha256": "31cb11ef024ad3578f9ec5a9ca3f28f4d9ff6b104b81c60861e58c6ac0ac8e8c"
+  },
+  "lifecycle": {
+    "operator_catalog_status": "registered",
+    "runtime_source_status": "migrated_pending_cutover",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "migration": {
+    "behavior_parity_status": "pending_baseline_replay",
+    "legacy_path": "cbond_on/domain/factors/defs/t1430_volume_gini_coefficient_v1.py",
+    "legacy_sha256": "30bd0b27744a8f0317aca2307d939e7a580520681eee3f9f7b8e6894709b7bce",
+    "migration_kind": "namespace_relocation_without_formula_change"
+  },
+  "runtime_contract": {
+    "input_schema_status": "operator_declared_pending_field_audit",
+    "pit_validation_status": "operator_migration_pending_pit_audit",
+    "registration_key": "t1430_volume_gini_coefficient_v1",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "schema_version": "operator_contract/v1",
+  "test_reference": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+}

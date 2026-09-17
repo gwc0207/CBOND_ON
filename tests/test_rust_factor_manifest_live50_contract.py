@@ -26,6 +26,14 @@ _PROFILE_PATH = (
     / "live50_rust50_20260806.json5"
 )
 _PROFILE = "live50_rust50_20260806"
+_R88_PROFILE_PATH = (
+    _ROOT
+    / "cbond_on"
+    / "factor_contracts"
+    / "profiles"
+    / "research_r88_rust88_20260825.json5"
+)
+_R88_PROFILE = "research_r88_rust88_20260825"
 _CAPABILITY_ABI = "rust_factor_contracts_20260806_r1"
 
 
@@ -111,7 +119,7 @@ def test_rust_manifest_declares_loaded_capability_as_runtime_authority() -> None
         "pending",
     }
     for item in catalog:
-        source = _ROOT / "cbond_on" / "domain" / "factors" / "defs" / item["python_file"]
+        source = _ROOT / "cbond_on" / "domain" / "factors" / "operators" / item["python_file"]
         assert source.is_file(), item
 
 
@@ -155,3 +163,53 @@ def test_frozen_live50_contract_cannot_drift_from_pack_or_profile() -> None:
         }
         if entry["rust_status"] == "implemented_frozen_contracts_only":
             assert entry["contract_scope"] == _PROFILE
+
+
+def test_r88_complete_research_contract_scope_is_exact() -> None:
+    manifest = _load_manifest()
+    profile = load_json_like(_R88_PROFILE_PATH)
+    raw_specs = list(profile["factor_specs"])
+    admitted_specs = [
+        spec
+        for spec in raw_specs
+        if str(spec.get("rust_contract_id") or "").startswith("research_r88_20260825/")
+    ]
+    expected_contracts = _capability_contracts(admitted_specs)
+    scopes = [
+        item
+        for item in manifest["research_contracts"]
+        if item["profile"] == _R88_PROFILE
+    ]
+    assert len(scopes) == 1
+    scope = scopes[0]
+    assert scope["research_only"] is True
+    assert scope["execution_policy"] == "rust_first"
+    assert scope["profile_path"] == (
+        "cbond_on/factor_contracts/profiles/research_r88_rust88_20260825.json5"
+    )
+    assert scope["execution_status"] == "eligible_for_fresh_rust_backfill"
+    assert scope["model_training_ready"] is False
+    assert scope["factor_count"] == len(raw_specs) == 88
+    assert scope["inherited_live50_contract_count"] == 50
+    assert scope["research_contract_count"] == len(admitted_specs) == 38
+    assert scope["contract_id_namespace"] == "research_r88_20260825/<signal>/v1"
+    assert scope["specs_sha256"] == profile["specs_sha256"]
+    assert profile["pending_rust_contract_factors"] == []
+    assert scope["contracts"] == expected_contracts
+
+    catalog = {item["factor"]: item for item in manifest["factors"]}
+    assert "research_partial_contracts" not in manifest
+    # R88 inherits the ordinary live50 generic implementations as well as
+    # research-only exact instances.  Only the latter must carry the R88
+    # contract scope; forcing generic legacy kernels to become
+    # frozen-contract-only would falsely narrow their pre-existing capability.
+    for factor in {item["factor"] for item in raw_specs}:
+        assert catalog[factor]["rust_status"] in {
+            "implemented",
+            "implemented_frozen_contracts_only",
+        }
+    for factor in {item["factor"] for item in admitted_specs}:
+        entry = catalog[factor]
+        assert entry["rust_status"] == "implemented_frozen_contracts_only"
+        scopes = {entry["contract_scope"], *entry.get("additional_contract_scopes", [])}
+        assert _R88_PROFILE in scopes

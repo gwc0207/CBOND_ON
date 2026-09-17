@@ -1,0 +1,97 @@
+{
+  "context_requirements": {
+    "daily": [
+      {
+        "columns": [
+          "exchange_code",
+          "close_price"
+        ],
+        "lookback_days": 66,
+        "source": "market_cbond.daily_price"
+      },
+      {
+        "columns": [
+          "exchange_code",
+          "twap_0930_0935",
+          "twap_0930_0938",
+          "twap_0930_0939",
+          "twap_1430_1442",
+          "twap_1442_1457",
+          "twap_1447_1457",
+          "twap_1452_1457",
+          "twap_1000_1030",
+          "twap_1030_1100",
+          "twap_1100_1130",
+          "twap_1300_1330",
+          "twap_1330_1400",
+          "twap_1400_1430"
+        ],
+        "lookback_days": 66,
+        "source": "market_cbond.daily_twap"
+      }
+    ],
+    "panel_field_schema_status": "operator_declared_pending_factor_minimal_audit",
+    "panel_fields": [],
+    "panel_name": "T1430",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "contract_hash": "f041b605b37d87df40056c0129c23f15ed144df832310cf9b8cbf78ba8dfe28d",
+  "definition": {
+    "kind": "parameterized_operator_definition",
+    "path": "factors/prior_micro_window_state_stability/dtwm_close_total_curve_z20/definition.py",
+    "sha256": "0b8957eec5736650eedc264eff3c0bd4361eb7ede28228bd704458c01ac5feb4"
+  },
+  "fixed_params": {
+    "family": "prior_micro_window_state_stability",
+    "signal": "dtwm_close_total_curve_z20"
+  },
+  "identity": {
+    "factor_id": "dtwm_close_total_curve_z20",
+    "factor_version": "catalog-20260826-b13092be8fa5-e0f297b4e8da",
+    "primary_family": "prior_micro_window_state_stability",
+    "tags": []
+  },
+  "lifecycle": {
+    "catalog_status": "registered",
+    "live_admission_status": "not_evaluated_by_catalog_builder",
+    "research_status": "legacy_mapping_discovered",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "operator_bindings": [
+    {
+      "implementation_module": "cbond_on.domain.factors.operators.research_factor_mining_daily_twap_microstructure_v1",
+      "implementation_path": "cbond_on/domain/factors/operators/research_factor_mining_daily_twap_microstructure_v1.py",
+      "implementation_sha256": "b13092be8fa54cc323484744e7da05859b1a97eeb35a522db6ca7a0c4a30e0c2",
+      "language": "python_runtime_operator",
+      "legacy_implementation_path": "cbond_on/domain/factors/defs/research_factor_mining_daily_twap_microstructure_v1.py",
+      "legacy_implementation_sha256": "b13092be8fa54cc323484744e7da05859b1a97eeb35a522db6ca7a0c4a30e0c2",
+      "operator_contract_path": "operators/factor_mining_daily_twap_microstructure_v1/contract.json",
+      "operator_id": "factor_mining_daily_twap_microstructure_v1",
+      "operator_version": "20260803_daily_twap_microstructure_v1",
+      "rust_contract_id": null
+    }
+  ],
+  "output": {
+    "column": "dtwm_close_total_curve_z20",
+    "dtype": "float64"
+  },
+  "schema_version": "factor_contract/v2",
+  "source_lineage": {
+    "hypothesis": "The surprise and persistence of prior opening, closing, and session-turn microstates can differ from their one-day levels.",
+    "snapshot_id": "canonical_factor_catalog_20260826_800",
+    "source_position": 1,
+    "source_root": "D:/cbond_on/research_scratch/factor_mining_20260803_unified_v7_with_joint_merged_v1",
+    "source_set": "research773"
+  },
+  "test_reference": {
+    "behavioral_parity_status": "pending_baseline_replay",
+    "contract_test": "tests/test_factor_engine_governance.py::test_all_factor_definitions_and_contracts",
+    "operator_test": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+  },
+  "time_contract": {
+    "factor_time": "14:30",
+    "pit_validation_status": "operator_migration_pending_factor_pit_audit",
+    "research_label_time_reference": "14:42"
+  }
+}

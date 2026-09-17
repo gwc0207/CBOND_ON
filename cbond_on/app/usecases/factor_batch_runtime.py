@@ -15,6 +15,7 @@ from cbond_on.core.fees import load_fees_buy_sell_bps
 from cbond_on.core.trading_days import list_trading_days_from_raw, next_trading_days_from_raw
 from cbond_on.core.utils import progress
 from cbond_on.infra.factors.pipeline import run_factor_pipeline
+from cbond_on.infra.factors.factor_table_resolution import assert_factor_table_read_only, build_factor_reader
 from cbond_on.infra.factors.quality import load_factor_specs_from_cfg, resolve_disabled_factor_names
 from cbond_on.infra.benchmark.service import (
     compute_benchmark_returns_for_days,
@@ -2438,12 +2439,23 @@ def run_factor_batch(
     overwrite: bool,
     specs: Sequence[FactorSpec],
 ) -> Path:
+    # This legacy combined build-and-report API used to materialize an
+    # arbitrary FactorStore before backtesting it. Canonical factor results
+    # now have three designated writers, so this entry point is deliberately
+    # retired instead of remaining a hidden direct-write fallback. Existing
+    # source below is retained only as historical implementation context until
+    # the separately approved archival cleanup; it is unreachable.
+    raise RuntimeError(
+        "legacy factor batch is retired: normal factor results must be published by the "
+        "admitted live writer, experiment publisher, or 23:59 factor-library supplement"
+    )
     panel_name_text = str(panel_name or "").strip()
     if not panel_name_text:
         raise ValueError("factor_config.panel_name is required; window_minutes fallback is disabled")
     workers = int(cfg.get("workers", 1))
     factor_workers = int(cfg.get("factor_workers", 1))
     paths_cfg = dict(load_config_file("paths"))
+    assert_factor_table_read_only(paths_cfg, operation="factor batch")
     panel_cfg = dict(load_config_file("panel"))
     run_factor_pipeline(
         panel_data_root,
@@ -2472,7 +2484,11 @@ def run_factor_batch(
     out_root = results_root / date_label / "Single_Factor" / ts
     out_root.mkdir(parents=True, exist_ok=True)
 
-    factor_store = FactorStore(Path(factor_data_root), panel_name=panel_name_text, window_minutes=window_minutes)
+    factor_store = build_factor_reader(
+        paths_cfg,
+        panel_name=panel_name_text,
+        window_minutes=window_minutes,
+    )
     backtest_cfg = cfg.get("backtest", {})
     factor_time = str(cfg.get("factor_time", "14:30"))
     label_time = str(cfg.get("label_time", "14:42"))

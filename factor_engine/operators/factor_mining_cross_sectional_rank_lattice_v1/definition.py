@@ -1,0 +1,26 @@
+"""Generated operator identity entry; executable source stays in domain/factors/operators."""
+
+from __future__ import annotations
+
+GENERATED_OPERATOR_DEFINITION = True
+OPERATOR_ID = 'factor_mining_cross_sectional_rank_lattice_v1'
+OPERATOR_VERSION = '20260803_cross_sectional_rank_lattice_v1'
+OPERATOR_CLASS = 'FactorMiningCrossSectionalRankLatticeV1'
+IMPLEMENTATION_MODULE = 'cbond_on.domain.factors.operators.research_factor_mining_cross_sectional_rank_lattice_v1'
+IMPLEMENTATION_PATH = 'cbond_on/domain/factors/operators/research_factor_mining_cross_sectional_rank_lattice_v1.py'
+IMPLEMENTATION_SHA256 = '64ea888623312fcca65832466b6a37440e000aeff4db3ea4bbb742492e127f0c'
+CONTRACT_PATH = 'operators/factor_mining_cross_sectional_rank_lattice_v1/contract.json'
+
+
+def definition_payload() -> dict[str, object]:
+    """Return immutable identity metadata without importing the runtime implementation."""
+
+    return {
+        'operator_id': OPERATOR_ID,
+        'operator_version': OPERATOR_VERSION,
+        'operator_class': OPERATOR_CLASS,
+        'implementation_module': IMPLEMENTATION_MODULE,
+        'implementation_path': IMPLEMENTATION_PATH,
+        'implementation_sha256': IMPLEMENTATION_SHA256,
+        'contract_path': CONTRACT_PATH,
+    }

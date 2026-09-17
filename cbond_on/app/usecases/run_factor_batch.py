@@ -5,6 +5,7 @@ from pathlib import Path
 
 from cbond_on.app.usecases.factor_batch_runtime import build_signal_specs, run_factor_batch
 from cbond_on.common.factor_execution_policy import validate_factor_execution_policy
+from cbond_on.infra.factors.factor_table_resolution import assert_factor_table_read_only
 
 
 def execute(
@@ -20,6 +21,7 @@ def execute(
     # Keep the research Rust-first gate here so a direct programmatic caller
     # cannot bypass the workflow and begin factor I/O on a Python/hybrid path.
     validate_factor_execution_policy(cfg, scope="factor_batch")
+    assert_factor_table_read_only(paths_cfg, operation="factor batch")
     panel_name = str(cfg.get("panel_name", "")).strip()
     if not panel_name:
         raise ValueError("factor_config.panel_name is required; window_minutes fallback is disabled")

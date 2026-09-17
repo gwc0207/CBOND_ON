@@ -1,0 +1,68 @@
+{
+  "context_requirements": {
+    "daily": [],
+    "panel_field_schema_status": "operator_declared_pending_factor_minimal_audit",
+    "panel_fields": [],
+    "panel_name": "T1430",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "contract_hash": "229833e824ed1846ae4ff155103bc958f796a8bded87f43e1515c0a82916c604",
+  "definition": {
+    "kind": "parameterized_operator_definition",
+    "path": "factors/intraday_trade_price_impact/intra_trade_accel_15m/definition.py",
+    "sha256": "3aba0909357075e7ba448a26f6c413cb7965797f922821fe81a6d1304ba99a2e"
+  },
+  "fixed_params": {
+    "family": "intraday_trade_price_impact",
+    "signal": "intra_trade_accel_15m"
+  },
+  "identity": {
+    "factor_id": "intra_trade_accel_15m",
+    "factor_version": "catalog-20260826-a31605881ba6-56ba5357eec7",
+    "primary_family": "intraday_trade_price_impact",
+    "tags": []
+  },
+  "lifecycle": {
+    "catalog_status": "registered",
+    "live_admission_status": "not_evaluated_by_catalog_builder",
+    "research_status": "legacy_mapping_discovered",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "operator_bindings": [
+    {
+      "implementation_module": "cbond_on.domain.factors.operators.research_factor_mining_catalog_v1",
+      "implementation_path": "cbond_on/domain/factors/operators/research_factor_mining_catalog_v1.py",
+      "implementation_sha256": "a31605881ba6046a34eb51270ede258ac1db442708de4c0a783d27dc59615ce9",
+      "language": "python_runtime_operator",
+      "legacy_implementation_path": "cbond_on/domain/factors/defs/research_factor_mining_catalog_v1.py",
+      "legacy_implementation_sha256": "a31605881ba6046a34eb51270ede258ac1db442708de4c0a783d27dc59615ce9",
+      "operator_contract_path": "operators/factor_mining_intraday_catalog_v1/contract.json",
+      "operator_id": "factor_mining_intraday_catalog_v1",
+      "operator_version": "20260802_v3",
+      "rust_contract_id": null
+    }
+  ],
+  "output": {
+    "column": "intra_trade_accel_15m",
+    "dtype": "float64"
+  },
+  "schema_version": "factor_contract/v2",
+  "source_lineage": {
+    "hypothesis": "Incremental flow and price-impact mechanisms use cumulative-field differences, never levels.",
+    "snapshot_id": "canonical_factor_catalog_20260826_800",
+    "source_position": 1,
+    "source_root": "D:/cbond_on/research_scratch/factor_mining_20260803_unified_v7_with_joint_merged_v1",
+    "source_set": "research773"
+  },
+  "test_reference": {
+    "behavioral_parity_status": "pending_baseline_replay",
+    "contract_test": "tests/test_factor_engine_governance.py::test_all_factor_definitions_and_contracts",
+    "operator_test": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+  },
+  "time_contract": {
+    "factor_time": "14:30",
+    "pit_validation_status": "operator_migration_pending_factor_pit_audit",
+    "research_label_time_reference": "14:42"
+  }
+}

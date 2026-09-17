@@ -1,0 +1,90 @@
+{
+  "context_requirements": {
+    "daily": [
+      {
+        "columns": [
+          "exchange_code",
+          "prev_close_price",
+          "close_price",
+          "amount"
+        ],
+        "lookback_days": 66,
+        "source": "market_cbond.daily_price"
+      },
+      {
+        "columns": [
+          "exchange_code",
+          "stock_code",
+          "stock_close_price",
+          "stock_volatility",
+          "stk_amount"
+        ],
+        "lookback_days": 66,
+        "source": "market_cbond.daily_base"
+      }
+    ],
+    "panel_field_schema_status": "operator_declared_pending_factor_minimal_audit",
+    "panel_fields": [],
+    "panel_name": "T1430",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "contract_hash": "b1831323abc32be94649d1f487be3a942b34710d12229be02ddfbd4ad3d96f95",
+  "definition": {
+    "kind": "parameterized_operator_definition",
+    "path": "factors/underlying_state_distribution/ucd_peer_stock_return_skew1/definition.py",
+    "sha256": "38fdc94876953c0c7e4816701f29bffef7aefe69ec635a446c2c214b8f386eb3"
+  },
+  "fixed_params": {
+    "family": "underlying_state_distribution",
+    "signal": "ucd_peer_stock_return_skew1"
+  },
+  "identity": {
+    "factor_id": "ucd_peer_stock_return_skew1",
+    "factor_version": "catalog-20260826-2e626080c7d0-3da35bfd5f09",
+    "primary_family": "underlying_state_distribution",
+    "tags": []
+  },
+  "lifecycle": {
+    "catalog_status": "registered",
+    "live_admission_status": "not_evaluated_by_catalog_builder",
+    "research_status": "legacy_mapping_discovered",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "operator_bindings": [
+    {
+      "implementation_module": "cbond_on.domain.factors.operators.research_factor_mining_underlying_cohort_distribution_v1",
+      "implementation_path": "cbond_on/domain/factors/operators/research_factor_mining_underlying_cohort_distribution_v1.py",
+      "implementation_sha256": "2e626080c7d095126784d9314e22a5aa2a84dd52220f062538486da3e4c8bd8c",
+      "language": "python_runtime_operator",
+      "legacy_implementation_path": "cbond_on/domain/factors/defs/research_factor_mining_underlying_cohort_distribution_v1.py",
+      "legacy_implementation_sha256": "2e626080c7d095126784d9314e22a5aa2a84dd52220f062538486da3e4c8bd8c",
+      "operator_contract_path": "operators/factor_mining_underlying_cohort_distribution_v1/contract.json",
+      "operator_id": "factor_mining_underlying_cohort_distribution_v1",
+      "operator_version": "20260803_underlying_cohort_distribution_v1",
+      "rust_contract_id": null
+    }
+  ],
+  "output": {
+    "column": "ucd_peer_stock_return_skew1",
+    "dtype": "float64"
+  },
+  "schema_version": "factor_contract/v2",
+  "source_lineage": {
+    "hypothesis": "The T-1 mapped-stock state neighborhood is represented by peer return and liquidity-shock dispersion/shape rather than a directional peer average.",
+    "snapshot_id": "canonical_factor_catalog_20260826_800",
+    "source_position": 2,
+    "source_root": "D:/cbond_on/research_scratch/factor_mining_20260803_aggregate_catalog_v5_full/factor_data",
+    "source_set": "research773"
+  },
+  "test_reference": {
+    "behavioral_parity_status": "pending_baseline_replay",
+    "contract_test": "tests/test_factor_engine_governance.py::test_all_factor_definitions_and_contracts",
+    "operator_test": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+  },
+  "time_contract": {
+    "factor_time": "14:30",
+    "pit_validation_status": "operator_migration_pending_factor_pit_audit",
+    "research_label_time_reference": "14:42"
+  }
+}

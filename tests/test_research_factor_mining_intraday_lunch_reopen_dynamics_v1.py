@@ -9,7 +9,7 @@ import pytest
 from cbond_on.core.registry import FactorRegistry
 from cbond_on.domain.factors.base import FactorComputeContext
 from cbond_on.domain.factors.builder import build_factor_frame
-from cbond_on.domain.factors.defs import research_factor_mining_intraday_lunch_reopen_dynamics_v1 as lunch
+from cbond_on.domain.factors.operators import research_factor_mining_intraday_lunch_reopen_dynamics_v1 as lunch
 from cbond_on.domain.factors.spec import FactorSpec
 
 

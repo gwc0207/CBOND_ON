@@ -3,10 +3,10 @@ from __future__ import annotations
 from collections import Counter
 
 from cbond_on.core.registry import FactorRegistry
-from cbond_on.domain.factors.defs import (
+from cbond_on.domain.factors.operators import (
     research_factor_mining_aggregate_catalog_v3 as aggregate_v3,
 )
-from cbond_on.domain.factors.defs import (
+from cbond_on.domain.factors.operators import (
     research_factor_mining_aggregate_catalog_v4 as aggregate,
 )
 
@@ -26,10 +26,10 @@ def test_v4_locks_v3_prefix_and_excludes_insufficiently_evidenced_sources() -> N
     )
     assert "research_factor_mining_cross_asset_event_clock_healthy_v1" not in modules
     assert aggregate.SOURCE_MODULE_NAMES == tuple(
-        f"cbond_on.domain.factors.defs.{module}" for module in modules
+        f"cbond_on.domain.factors.operators.{module}" for module in modules
     )
     assert aggregate._EXCLUDED_UNTIL_FURTHER_EVIDENCE == (
-        "cbond_on.domain.factors.defs."
+        "cbond_on.domain.factors.operators."
         "research_factor_mining_cross_sectional_rank_lattice_healthy_catalog_v1",
     )
 

@@ -19,6 +19,7 @@ from cbond_on.core.config import load_config_file, parse_date, resolve_output_pa
 from cbond_on.core.naming import make_window_label
 from cbond_on.core.trading_days import list_trading_days_from_raw, prev_trading_days_from_raw
 from cbond_on.domain.factors.storage import FactorStore
+from cbond_on.infra.factors.factor_table_resolution import build_factor_reader
 from cbond_on.infra.model.wandb_utils import init_wandb_logger
 from cbond_on.infra.model.score_io import load_scores_by_date, write_scores_by_date
 from cbond_on.infra.model.preprocess_config import parse_winsor_bounds
@@ -404,7 +405,6 @@ def main(
     if desired_start > desired_end:
         raise ValueError("start date must be <= end date")
 
-    factor_root = Path(paths_cfg["factor_data_root"])
     label_root = Path(paths_cfg["label_data_root"])
 
     panel_name = cfg.get("panel_name")
@@ -413,6 +413,11 @@ def main(
     label_time = str(cfg.get("label_time", "14:42"))
     raw_root = paths_cfg["raw_data_root"]
     panel_root = paths_cfg["panel_data_root"]
+    store = build_factor_reader(
+        paths_cfg,
+        panel_name=panel_name,
+        window_minutes=window_minutes,
+    )
 
     rolling_cfg = cfg.get("rolling", {})
     rolling_enabled = bool(rolling_cfg.get("enabled", False))
@@ -439,11 +444,12 @@ def main(
             raise RuntimeError("no label days left after label_cutoff filter")
 
     def _factor_exists(day: date) -> bool:
-        label = panel_name or make_window_label(window_minutes)
-        month = f"{day.year:04d}-{day.month:02d}"
-        filename = f"{day.strftime('%Y%m%d')}.parquet"
-        path = factor_root / "factors" / label / month / filename
-        return path.exists()
+        if hasattr(store, "has_day"):
+            return bool(store.has_day(day))
+        try:
+            return not store.read_day(day).empty
+        except FileNotFoundError:
+            return False
 
     # Allow scoring for target days without labels (e.g. latest day in live).
     last_label_day = max(days) if days else None
@@ -520,7 +526,6 @@ def main(
         train_days, val_days, test_days = _split_days(days, train_ratio, val_ratio)
         print(f"train days: {len(train_days)}, val days: {len(val_days)}, test days: {len(test_days)}")
 
-    store = FactorStore(factor_root, panel_name=panel_name, window_minutes=window_minutes)
     sample = pd.DataFrame()
     sample_days = days if rolling_enabled else train_days
     for day in sample_days:

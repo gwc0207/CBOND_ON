@@ -12,7 +12,12 @@ use std::fmt;
 
 pub const TYPED_FACTOR_EPS: f64 = 1e-12;
 
-/// Strict-prior daily-base fields needed by the P1 live-23 kernels.
+/// Strict-prior daily-base fields needed by the typed daily kernels.
+///
+/// The research-only extensions deliberately share this row shape with the
+/// existing P1 kernels.  A caller may leave fields unrelated to its requested
+/// signal as `NaN`/empty, but the typed dispatcher still validates the source
+/// schema for each concrete factor before constructing these rows.
 #[derive(Clone, Debug)]
 pub struct TypedFactorDailyBaseRow {
     pub trade_date: NaiveDate,
@@ -21,6 +26,14 @@ pub struct TypedFactorDailyBaseRow {
     pub puredebt_prem_ratio: f64,
     pub bond_prem_ratio: f64,
     pub redemption_prem_ratio: f64,
+    pub duration: f64,
+    pub stock_volatility: f64,
+    pub cb_close_price: f64,
+    pub conv_value: f64,
+    pub trigger_cum_days: f64,
+    pub trigger_reach_days: f64,
+    pub trigger_cum_days_revise: f64,
+    pub rating: String,
 }
 
 impl TypedFactorDailyBaseRow {
@@ -32,6 +45,14 @@ impl TypedFactorDailyBaseRow {
             puredebt_prem_ratio: f64::NAN,
             bond_prem_ratio: f64::NAN,
             redemption_prem_ratio: f64::NAN,
+            duration: f64::NAN,
+            stock_volatility: f64::NAN,
+            cb_close_price: f64::NAN,
+            conv_value: f64::NAN,
+            trigger_cum_days: f64::NAN,
+            trigger_reach_days: f64::NAN,
+            trigger_cum_days_revise: f64::NAN,
+            rating: String::new(),
         }
     }
 }
@@ -374,6 +395,63 @@ pub fn base_debt_premium_floor_gap(
     Ok(finite_or_nan(debt - premium))
 }
 
+/// `base_duration_stockvol_interaction`: the product of the latest non-null
+/// strict-prior duration and reported stock volatility.  The catalogue's
+/// `_last_valid` semantics select those two terminal values independently.
+pub fn base_duration_stockvol_interaction(
+    ctx: &TypedFactorDailyContext,
+    code: &str,
+) -> Result<f64, TypedFactorDailyError> {
+    let rows = base_history(ctx, code)?;
+    let duration = last_not_nan(rows.iter().map(|row| row.duration));
+    let stock_volatility = last_not_nan(rows.iter().map(|row| row.stock_volatility));
+    Ok(finite_or_nan(duration * stock_volatility))
+}
+
+/// `base_trigger_progress_ratio`: the latest non-null cumulative trigger days
+/// divided by the latest non-null required trigger days.
+pub fn base_trigger_progress_ratio(
+    ctx: &TypedFactorDailyContext,
+    code: &str,
+) -> Result<f64, TypedFactorDailyError> {
+    let rows = base_history(ctx, code)?;
+    let cumulative = last_not_nan(rows.iter().map(|row| row.trigger_cum_days));
+    let required = last_not_nan(rows.iter().map(|row| row.trigger_reach_days));
+    Ok(safe_div(cumulative, required))
+}
+
+/// `base_trigger_revision_gap`: the latest non-null original cumulative
+/// trigger days less the latest non-null revised cumulative trigger days.
+pub fn base_trigger_revision_gap(
+    ctx: &TypedFactorDailyContext,
+    code: &str,
+) -> Result<f64, TypedFactorDailyError> {
+    let rows = base_history(ctx, code)?;
+    let original = last_not_nan(rows.iter().map(|row| row.trigger_cum_days));
+    let revised = last_not_nan(rows.iter().map(|row| row.trigger_cum_days_revise));
+    Ok(finite_or_nan(original - revised))
+}
+
+/// `base_stockvol_per_moneyness`: the latest reported stock volatility divided
+/// by the latest available `conv_value / cb_close_price` moneyness.  As in the
+/// Python catalogue, moneyness is formed rowwise while both terminal values
+/// are selected independently with `_last_valid` semantics.
+pub fn base_stockvol_per_moneyness(
+    ctx: &TypedFactorDailyContext,
+    code: &str,
+) -> Result<f64, TypedFactorDailyError> {
+    let rows = base_history(ctx, code)?;
+    let stock_volatility = last_not_nan(rows.iter().map(|row| row.stock_volatility));
+    let moneyness = last_not_nan(rows.iter().map(|row| {
+        if row.cb_close_price > 0.0 {
+            row.conv_value / row.cb_close_price
+        } else {
+            f64::NAN
+        }
+    }));
+    Ok(safe_div(stock_volatility, moneyness))
+}
+
 /// `dredemption_bondpremium_interaction`: terminal strict-prior bond premium
 /// times terminal strict-prior redemption premium.
 pub fn dredemption_bondpremium_interaction(
@@ -411,6 +489,79 @@ pub fn dret_volatility_20(
             .map(|row| ratio(row.close_price, row.prev_close_price)),
         20,
         12,
+    ))
+}
+
+/// `dret_momentum_5`: strict-prior five-row close-to-close change.  The
+/// expansion family uses the raw terminal observations (rather than a compact
+/// finite tail), so an incomplete latest or lag-five close remains unavailable.
+pub fn dret_momentum_5(
+    ctx: &TypedFactorDailyContext,
+    code: &str,
+) -> Result<f64, TypedFactorDailyError> {
+    let rows = price_history(ctx, code)?;
+    if rows.len() <= 5 {
+        return Ok(f64::NAN);
+    }
+    let latest = rows[rows.len() - 1].close_price;
+    let lagged = rows[rows.len() - 1 - 5].close_price;
+    // Preserve the expansion reference's literal `(latest - lagged) / lagged`
+    // operation order rather than rewriting it as `latest / lagged - 1`.
+    Ok(safe_div(latest - lagged, lagged))
+}
+
+fn rating_ordinal(value: &str) -> f64 {
+    match value.trim().to_ascii_uppercase().replace(' ', "").as_str() {
+        "AAA" => 18.0,
+        "AA+" => 17.0,
+        "AA" => 16.0,
+        "AA-" => 15.0,
+        "A+" => 14.0,
+        "A" => 13.0,
+        "A-" => 12.0,
+        "BBB+" => 11.0,
+        "BBB" => 10.0,
+        "BBB-" => 9.0,
+        "BB+" => 8.0,
+        "BB" => 7.0,
+        "BB-" => 6.0,
+        "B+" => 5.0,
+        "B" => 4.0,
+        "B-" => 3.0,
+        "CCC" => 2.0,
+        "CC" => 1.0,
+        _ => f64::NAN,
+    }
+}
+
+/// `rating_current_ordinal`: map the terminal reported rating to its explicit
+/// credit-quality ordinal only when both the bond's daily-price and its
+/// date-key joined base history reach the common strict-prior price anchor.
+/// This preserves the contract-stock family's independent-anchor guard rather
+/// than carrying a stale base rating forward.
+pub fn rating_current_ordinal(
+    ctx: &TypedFactorDailyContext,
+    code: &str,
+) -> Result<f64, TypedFactorDailyError> {
+    let Some(anchor) = global_strict_price_anchor(ctx)? else {
+        return Ok(f64::NAN);
+    };
+    let price_rows = price_history(ctx, code)?;
+    if price_rows.last().map(|row| row.trade_date) != Some(anchor) {
+        return Ok(f64::NAN);
+    }
+    let price_dates: std::collections::BTreeSet<NaiveDate> =
+        price_rows.iter().map(|row| row.trade_date).collect();
+    let base_rows = base_history(ctx, code)?;
+    let joined: Vec<_> = base_rows
+        .into_iter()
+        .filter(|row| price_dates.contains(&row.trade_date))
+        .collect();
+    if joined.last().map(|row| row.trade_date) != Some(anchor) {
+        return Ok(f64::NAN);
+    }
+    Ok(rating_ordinal(
+        &joined.last().expect("anchor checked").rating,
     ))
 }
 
@@ -538,10 +689,16 @@ pub fn compute_p1_daily_signal(
 ) -> Result<f64, TypedFactorDailyError> {
     match signal {
         "base_debt_premium_floor_gap" => base_debt_premium_floor_gap(ctx, code),
+        "base_duration_stockvol_interaction" => base_duration_stockvol_interaction(ctx, code),
+        "base_trigger_progress_ratio" => base_trigger_progress_ratio(ctx, code),
+        "base_trigger_revision_gap" => base_trigger_revision_gap(ctx, code),
+        "base_stockvol_per_moneyness" => base_stockvol_per_moneyness(ctx, code),
         "dredemption_bondpremium_interaction" => dredemption_bondpremium_interaction(ctx, code),
         "dredemption_premium_z20" => dredemption_premium_z20(ctx, code),
         "drt_rebound_from_low20" => drt_rebound_from_low20(ctx, code),
         "dret_volatility_20" => dret_volatility_20(ctx, code),
+        "dret_momentum_5" => dret_momentum_5(ctx, code),
+        "rating_current_ordinal" => rating_current_ordinal(ctx, code),
         "dliq_volume_return_corr20" => dliq_volume_return_corr20(ctx, code),
         "dtwap_morning_slope20" => dtwap_morning_slope20(ctx, code),
         other => Err(TypedFactorDailyError::UnknownP1Signal(other.to_string())),

@@ -1,0 +1,50 @@
+{
+  "contract_hash": "d9cd6436b590c81f7580d11314204ffb65e5560a39ed58925c0849c28b4de0c8",
+  "definition": {
+    "kind": "runtime_operator_reference",
+    "path": "operators/factor_mining_cross_sectional_microstructure_neighborhood_v1/definition.py",
+    "sha256": "687080f1e32570a86fdd425d70f59b46e57ef1a945c7d0a8eaa0423325292060"
+  },
+  "factor_instances": [
+    "csn_dlc_ask_coherence_neighbor_gap",
+    "csn_dlc_bid_coherence_neighbor_gap",
+    "csn_dlc_crosslag_neighbor_gap",
+    "csn_pql_churn_neighbor_gap",
+    "csn_pql_refill_neighbor_gap",
+    "csn_pql_retention_neighbor_gap",
+    "csn_taq_buy_initiation_neighbor_gap",
+    "csn_taq_imbalance_neighbor_gap",
+    "csn_taq_sell_initiation_neighbor_gap"
+  ],
+  "identity": {
+    "operator_class": "FactorMiningCrossSectionalMicrostructureNeighborhoodV1",
+    "operator_id": "factor_mining_cross_sectional_microstructure_neighborhood_v1",
+    "operator_version": "20260803_cross_sectional_microstructure_neighborhood_v1"
+  },
+  "implementation": {
+    "language": "python_runtime_operator",
+    "module": "cbond_on.domain.factors.operators.research_factor_mining_cross_sectional_microstructure_neighborhood_v1",
+    "path": "cbond_on/domain/factors/operators/research_factor_mining_cross_sectional_microstructure_neighborhood_v1.py",
+    "sha256": "613e9a3199a5539d9072d6b8fce394f6cf69ab807b64b7417cbf8e52fa3f7daf"
+  },
+  "lifecycle": {
+    "operator_catalog_status": "registered",
+    "runtime_source_status": "migrated_pending_cutover",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "migration": {
+    "behavior_parity_status": "pending_baseline_replay",
+    "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_cross_sectional_microstructure_neighborhood_v1.py",
+    "legacy_sha256": "78326d9b4ed74099815c0c7ca8c6e188f4c5033304876ba2bf5fd772c851269c",
+    "migration_kind": "namespace_relocation_without_formula_change"
+  },
+  "runtime_contract": {
+    "input_schema_status": "operator_declared_pending_field_audit",
+    "pit_validation_status": "operator_migration_pending_pit_audit",
+    "registration_key": "factor_mining_cross_sectional_microstructure_neighborhood_v1",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "schema_version": "operator_contract/v1",
+  "test_reference": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+}

@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import Counter
 
 from cbond_on.core.registry import FactorRegistry
-from cbond_on.domain.factors.defs import (
+from cbond_on.domain.factors.operators import (
     research_factor_mining_aggregate_catalog_v3 as aggregate,
 )
 
@@ -29,13 +29,13 @@ def test_v3_has_only_smoke_healthy_sources_and_registered_kernels() -> None:
         in modules
     )
     assert aggregate.SOURCE_MODULE_NAMES == tuple(
-        f"cbond_on.domain.factors.defs.{module}" for module in modules
+        f"cbond_on.domain.factors.operators.{module}" for module in modules
     )
     for _, module in aggregate.SOURCE_MODULES:
         registered = FactorRegistry.get(module.KERNEL_NAME)
         if module.__name__.endswith("_healthy_catalog_v1"):
             assert (
-                registered.__module__ == "cbond_on.domain.factors.defs."
+                registered.__module__ == "cbond_on.domain.factors.operators."
                 "research_factor_mining_intraday_state_gated_microstructure_v1"
             )
         else:

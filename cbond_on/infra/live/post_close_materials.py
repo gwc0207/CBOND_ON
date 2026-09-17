@@ -22,6 +22,7 @@ from cbond_on.core.trading_days import next_trading_days_from_raw, prev_trading_
 from cbond_on.infra.live.config import load_live_factor_runtime, load_live_model_runtime
 from cbond_on.infra.live.model_switch import T1430_DISPERSION_FEATURE_SETS
 from cbond_on.infra.live.publish_gate import data_hub_runtime_from_live, run_publish_status
+from cbond_on.infra.factors.factor_table_resolution import build_factor_reader
 from cbond_on.infra.model.score_io import load_scores_for_day
 from cbond_on.infra.universe.pool_filter import load_upstream_pool_config, resolve_pool_codes_for_trade_day
 
@@ -210,6 +211,7 @@ def resolve_next_live_context(
         "results_root": str(paths_cfg["results_root"]),
         "label_root": str(paths_cfg["label_data_root"]),
         "factor_root": str(paths_cfg["factor_data_root"]),
+        "factor_table": dict(paths_cfg.get("factor_table", {})) if isinstance(paths_cfg.get("factor_table"), dict) else None,
         "panel_name": panel_name,
         "live_model_config_key": model_config_key,
         "live_model_runtime_cfg": model_runtime_cfg,
@@ -873,14 +875,38 @@ def inspect_next_live_materials(
 
     label_path = _day_path(context["label_root"], context["previous_trade_day"])
     next_live_checks.append(_check_parquet("previous_label", label_path, label="previous-trading-day label"))
-    factor_path = (
-        Path(context["factor_root"])
-        / "factors"
-        / context["panel_name"]
-        / f"{score_day:%Y-%m}"
-        / f"{score_day:%Y%m%d}.parquet"
-    )
-    next_live_checks.append(_check_parquet("same_day_factor", factor_path, label="same-day T1430 factor"))
+    try:
+        factor_reader = build_factor_reader(paths_cfg, panel_name=str(context["panel_name"]))
+        factor_frame = factor_reader.read_day(score_day)
+        if factor_frame.empty:
+            next_live_checks.append(
+                _check("same_day_factor", "failed", "empty same-day T1430 factor", severity="operator")
+            )
+        else:
+            next_live_checks.append(
+                _check(
+                    "same_day_factor",
+                    "passed",
+                    "same-day T1430 factor commit is readable",
+                    evidence={
+                        "factor_root": str(context["factor_root"]),
+                        "factor_table": context.get("factor_table"),
+                        "rows_read": int(len(factor_frame)),
+                        "columns": int(len(factor_frame.columns)),
+                        "path": str(factor_reader.day_path(score_day)),
+                    },
+                )
+            )
+    except Exception as exc:
+        next_live_checks.append(
+            _check(
+                "same_day_factor",
+                "failed",
+                f"unreadable same-day T1430 factor: {type(exc).__name__}",
+                severity="operator",
+                evidence={"factor_root": str(context["factor_root"]), "read_error": str(exc)},
+            )
+        )
     next_live_checks.append(_inspect_allowlist(live_cfg=live_cfg, context=context))
 
     source_specs = resolve_model_source_specs(live_cfg=live_cfg, paths_cfg=paths_cfg, context=context)

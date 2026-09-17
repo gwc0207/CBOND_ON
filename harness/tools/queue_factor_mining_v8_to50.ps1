@@ -281,7 +281,7 @@ function Start-Queue {
     Write-Status -Stage "v8_preflight"
     Invoke-PythonStage -Stage "v8_preflight" -Arguments @(
         "-3.11", "-B", $Runner,
-        "--catalog-module", "cbond_on.domain.factors.defs.research_factor_mining_daily_orthogonal_batch_v8",
+        "--catalog-module", "cbond_on.domain.factors.operators.research_factor_mining_daily_orthogonal_batch_v8",
         "--scratch-root", $V8Root,
         "--start", "2025-01-01", "--end", "2026-07-30"
     )
@@ -289,7 +289,7 @@ function Start-Queue {
     Write-Status -Stage "v8_full_build"
     Invoke-PythonStage -Stage "v8_full_build" -Arguments @(
         "-3.11", "-B", $Runner,
-        "--catalog-module", "cbond_on.domain.factors.defs.research_factor_mining_daily_orthogonal_batch_v8",
+        "--catalog-module", "cbond_on.domain.factors.operators.research_factor_mining_daily_orthogonal_batch_v8",
         "--scratch-root", $V8Root,
         "--start", "2025-01-01", "--end", "2026-07-30", "--execute"
     )
@@ -300,8 +300,8 @@ function Start-Queue {
     Invoke-PythonStage -Stage "compose_global_catalogue" -Arguments @(
         "-3.11", "-B", $Composer,
         "--vetted-v3-catalog", $V7Catalog,
-        "--module", "cbond_on.domain.factors.defs.research_factor_mining_aggregate_catalog_v5",
-        "--module", "cbond_on.domain.factors.defs.research_factor_mining_daily_orthogonal_batch_v8",
+        "--module", "cbond_on.domain.factors.operators.research_factor_mining_aggregate_catalog_v5",
+        "--module", "cbond_on.domain.factors.operators.research_factor_mining_daily_orthogonal_batch_v8",
         "--output-name", (Split-Path -Leaf $CatalogRoot), "--execute"
     )
 

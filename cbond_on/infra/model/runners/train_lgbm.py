@@ -1,6 +1,7 @@
 ﻿
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import sys
@@ -25,6 +26,7 @@ from cbond_on.core.trading_days import (
     prev_trading_days_from_raw,
 )
 from cbond_on.domain.factors.storage import FactorStore
+from cbond_on.infra.factors.factor_table_resolution import build_factor_reader
 from cbond_on.infra.model.wandb_utils import init_wandb_logger
 from cbond_on.infra.model.score_io import load_scores_by_date, write_scores_by_date
 from cbond_on.infra.model.preprocess_config import parse_winsor_bounds
@@ -675,6 +677,293 @@ def _dynamic_feature_contribution_config(
     return out, rows
 
 
+def _resolve_nested_factor_selection_config(cfg: dict) -> dict:
+    """Parse strict nested factor selection for a cold-start rolling study.
+
+    The decision is intentionally made from the fitting split only.  The
+    runner rejects warm starts for this mode because a changed factor mask must
+    not leave earlier trees active in what is described as a daily selected
+    feature set.
+    """
+
+    feature_engineering = cfg.get("feature_engineering", {})
+    if feature_engineering in (None, "", []):
+        feature_engineering = {}
+    if not isinstance(feature_engineering, dict):
+        raise TypeError("feature_engineering must be an object")
+    raw = feature_engineering.get("nested_factor_selection", {})
+    if raw in (None, "", [], False):
+        return {"enabled": False}
+    if raw is True:
+        raw = {"enabled": True}
+    if not isinstance(raw, dict):
+        raise TypeError("feature_engineering.nested_factor_selection must be a bool or object")
+
+    out = dict(raw)
+    out["enabled"] = bool(out.get("enabled", False))
+    if not out["enabled"]:
+        return {"enabled": False}
+    score = str(out.get("score", "abs_icir")).strip().lower()
+    if score not in {"abs_icir", "abs_mean_ic"}:
+        raise ValueError("nested_factor_selection.score must be abs_icir or abs_mean_ic")
+    out["score"] = score
+    out["lookback_days"] = max(1, int(out.get("lookback_days", 60)))
+    out["min_days"] = max(1, int(out.get("min_days", 20)))
+    out["min_samples_per_day"] = max(3, int(out.get("min_samples_per_day", 30)))
+    out["top_k"] = max(1, int(out.get("top_k", 35)))
+    out["min_selected"] = max(1, int(out.get("min_selected", out["top_k"])))
+    if out["min_selected"] > out["top_k"]:
+        raise ValueError("nested_factor_selection.min_selected must be <= top_k")
+
+    correlation_max_abs = out.get("correlation_max_abs")
+    if correlation_max_abs in (None, "", False):
+        out["correlation_max_abs"] = None
+    else:
+        value = float(correlation_max_abs)
+        if not 0.0 < value <= 1.0:
+            raise ValueError("nested_factor_selection.correlation_max_abs must be in (0, 1]")
+        out["correlation_max_abs"] = value
+
+    max_per_family = out.get("max_per_family")
+    if max_per_family in (None, "", False):
+        out["max_per_family"] = None
+    else:
+        value = int(max_per_family)
+        if value < 1:
+            raise ValueError("nested_factor_selection.max_per_family must be >= 1")
+        out["max_per_family"] = value
+
+    candidates_raw = out.get("candidate_features", [])
+    if candidates_raw in (None, "", []):
+        out["candidate_features"] = []
+    elif not isinstance(candidates_raw, list):
+        raise TypeError("nested_factor_selection.candidate_features must be a list")
+    else:
+        candidates = [str(value).strip() for value in candidates_raw if str(value).strip()]
+        if len(candidates) != len(set(candidates)):
+            raise ValueError("nested_factor_selection.candidate_features must not contain duplicates")
+        out["candidate_features"] = candidates
+
+    family_raw = out.get("family_by_feature", {})
+    if family_raw in (None, "", []):
+        family_raw = {}
+    if not isinstance(family_raw, dict):
+        raise TypeError("nested_factor_selection.family_by_feature must be an object")
+    out["family_by_feature"] = {
+        str(name).strip(): str(family).strip()
+        for name, family in family_raw.items()
+        if str(name).strip() and str(family).strip()
+    }
+    return out
+
+
+def _nested_selection_daily_ics(
+    train: SplitData,
+    features: list[str],
+    *,
+    lookback_days: int,
+    min_samples_per_day: int,
+) -> tuple[dict[str, list[float]], list[date]]:
+    """Get rank-IC histories from fitting observations only."""
+
+    daily_ics: dict[str, list[float]] = {feature: [] for feature in features}
+    if train.x.empty or train.y.empty or train.dt.empty:
+        return daily_ics, []
+    days = pd.to_datetime(train.dt, errors="coerce").dt.date
+    available_days = sorted({day for day in days if day is not None})[-lookback_days:]
+    for day in available_days:
+        mask = days.eq(day).to_numpy()
+        if int(mask.sum()) < min_samples_per_day:
+            continue
+        y = train.y.loc[mask]
+        for feature in features:
+            if feature not in train.x.columns:
+                continue
+            ic = _daily_spearman(train.x.loc[mask, feature], y)
+            if np.isfinite(ic):
+                daily_ics[feature].append(float(ic))
+    return daily_ics, available_days
+
+
+def _nested_selection_correlations(
+    train: SplitData,
+    features: list[str],
+    *,
+    lookback_days: int,
+) -> pd.DataFrame:
+    """Pooled within-day rank correlations from the fitting observations."""
+
+    present = [feature for feature in features if feature in train.x.columns]
+    if len(present) < 2 or train.x.empty or train.dt.empty:
+        return pd.DataFrame(index=present, columns=present, dtype=float)
+    days = pd.to_datetime(train.dt, errors="coerce").dt.date
+    available_days = sorted({day for day in days if day is not None})[-lookback_days:]
+    if not available_days:
+        return pd.DataFrame(index=present, columns=present, dtype=float)
+    mask = days.isin(available_days)
+    if not bool(mask.any()):
+        return pd.DataFrame(index=present, columns=present, dtype=float)
+    ranks = train.x.loc[mask, present].apply(pd.to_numeric, errors="coerce")
+    ranks = ranks.groupby(days.loc[mask], sort=False).rank(method="average", pct=True)
+    return ranks.corr(method="pearson", min_periods=3)
+
+
+def _nested_factor_selection_contribution(
+    base_cfg: dict,
+    selector_cfg: dict,
+    train: SplitData,
+    *,
+    target_day: date,
+    feature_cols: list[str],
+) -> tuple[dict, list[dict], dict[str, object]]:
+    """Build a per-score-day hard feature mask with a fixed column schema.
+
+    The call is valid only for cold-start refits.  With ``feature_fraction``
+    and ``feature_fraction_bynode`` set to one, a zero contribution is
+    equivalent to excluding that feature from new tree splits, while keeping
+    the R88 availability/preprocessing contract intact.
+    """
+
+    if not bool(selector_cfg.get("enabled", False)):
+        return base_cfg, [], {"enabled": False}
+    candidates = list(selector_cfg.get("candidate_features") or feature_cols)
+    missing = sorted(set(candidates) - set(feature_cols))
+    if missing:
+        raise KeyError("nested_factor_selection candidates not in model schema: " + ", ".join(missing))
+    if not candidates:
+        raise RuntimeError("nested_factor_selection has no candidates")
+
+    train_days_raw = pd.to_datetime(train.dt, errors="coerce").dropna()
+    latest_train_day = train_days_raw.max().date() if not train_days_raw.empty else None
+    if latest_train_day is None or latest_train_day >= target_day:
+        raise RuntimeError(
+            "nested_factor_selection requires fitting history strictly before score day: "
+            f"latest_train_day={latest_train_day} target_day={target_day}"
+        )
+
+    daily_ics, candidate_days = _nested_selection_daily_ics(
+        train,
+        candidates,
+        lookback_days=int(selector_cfg["lookback_days"]),
+        min_samples_per_day=int(selector_cfg["min_samples_per_day"]),
+    )
+    stats: dict[str, dict[str, float | int]] = {}
+    for feature in candidates:
+        values = np.asarray(daily_ics.get(feature, []), dtype=float)
+        count = int(len(values))
+        mean_ic = float(np.nanmean(values)) if count else float("nan")
+        std_ic = float(np.nanstd(values, ddof=1)) if count > 1 else float("nan")
+        if str(selector_cfg["score"]) == "abs_mean_ic":
+            selection_score = abs(mean_ic) if np.isfinite(mean_ic) else float("-inf")
+        else:
+            selection_score = (
+                abs(mean_ic) / (std_ic + 1e-6)
+                if np.isfinite(mean_ic) and np.isfinite(std_ic)
+                else float("-inf")
+            )
+        stats[feature] = {
+            "ic_days": count,
+            "ic_mean": mean_ic,
+            "ic_std": std_ic,
+            "selection_score": float(selection_score),
+        }
+
+    ranked = sorted(candidates, key=lambda feature: (-float(stats[feature]["selection_score"]), feature))
+    correlations = _nested_selection_correlations(
+        train,
+        candidates,
+        lookback_days=int(selector_cfg["lookback_days"]),
+    )
+    selected: list[str] = []
+    selected_rank: dict[str, int] = {}
+    reasons: dict[str, str] = {}
+    max_abs_corr: dict[str, float] = {}
+    family_counts: dict[str, int] = {}
+    family_by_feature = dict(selector_cfg.get("family_by_feature") or {})
+    top_k = min(int(selector_cfg["top_k"]), len(candidates))
+    min_selected = min(int(selector_cfg["min_selected"]), top_k)
+    correlation_max_abs = selector_cfg.get("correlation_max_abs")
+    family_cap = selector_cfg.get("max_per_family")
+
+    for feature in ranked:
+        if int(stats[feature]["ic_days"]) < int(selector_cfg["min_days"]):
+            reasons[feature] = "insufficient_ic_days"
+            continue
+        family = family_by_feature.get(feature, feature)
+        if family_cap is not None and family_counts.get(family, 0) >= int(family_cap):
+            reasons[feature] = "family_cap"
+            continue
+        correlations_to_selected: list[float] = []
+        for selected_feature in selected:
+            if feature in correlations.index and selected_feature in correlations.columns:
+                value = correlations.loc[feature, selected_feature]
+                if np.isfinite(value):
+                    correlations_to_selected.append(abs(float(value)))
+        strongest_corr = float(max(correlations_to_selected)) if correlations_to_selected else float("nan")
+        max_abs_corr[feature] = strongest_corr
+        if correlation_max_abs is not None and np.isfinite(strongest_corr) and strongest_corr > float(correlation_max_abs):
+            reasons[feature] = "correlation_cap"
+            continue
+        if len(selected) >= top_k:
+            reasons[feature] = "top_k"
+            continue
+        selected.append(feature)
+        selected_rank[feature] = len(selected)
+        family_counts[family] = family_counts.get(family, 0) + 1
+        reasons[feature] = "selected"
+
+    if len(selected) < min_selected:
+        raise RuntimeError(
+            "nested_factor_selection selected fewer than min_selected: "
+            f"selected={len(selected)} min_selected={min_selected} target_day={target_day}"
+        )
+
+    base_values = _feature_contribution_values(feature_cols, base_cfg)
+    if base_values is None:
+        base_values = [1.0] * len(feature_cols)
+    contribution_values = {feature: float(value) for feature, value in zip(feature_cols, base_values, strict=True)}
+    selected_set = set(selected)
+    for feature in candidates:
+        contribution_values[feature] = float(contribution_values[feature]) if feature in selected_set else 0.0
+    selected_count = int(len(selected))
+    rows: list[dict] = []
+    for feature in ranked:
+        row = stats[feature]
+        rows.append(
+            {
+                "trade_date": target_day,
+                "feature": feature,
+                "family": family_by_feature.get(feature, feature),
+                "selected": bool(feature in selected_set),
+                "selection_rank": selected_rank.get(feature),
+                "selection_reason": reasons.get(feature, "not_selected"),
+                "selected_feature_count": selected_count,
+                "candidate_feature_count": int(len(candidates)),
+                "source_split": "fit_train_only",
+                "latest_train_day": latest_train_day,
+                "candidate_day_count": int(len(candidate_days)),
+                "lookback_days": int(selector_cfg["lookback_days"]),
+                "ic_days": int(row["ic_days"]),
+                "ic_mean": row["ic_mean"],
+                "ic_std": row["ic_std"],
+                "selection_score": row["selection_score"],
+                "max_abs_corr_with_selected": max_abs_corr.get(feature, float("nan")),
+                "correlation_max_abs": correlation_max_abs,
+                "max_per_family": family_cap,
+                "score_method": selector_cfg["score"],
+            }
+        )
+    out = {"enabled": True, "default": 1.0, "values": contribution_values}
+    summary: dict[str, object] = {
+        "enabled": True,
+        "selected_feature_count": selected_count,
+        "candidate_feature_count": int(len(candidates)),
+        "latest_train_day": latest_train_day,
+        "source_split": "fit_train_only",
+    }
+    return out, rows, summary
+
+
 def _deep_merge_dict(base: dict, override: dict) -> dict:
     out = dict(base or {})
     for key, value in (override or {}).items():
@@ -1155,6 +1444,137 @@ def _parse_checkpoint_day(stem: str) -> date | None:
 
 def _checkpoint_path(state_dir: Path, day: date) -> Path:
     return state_dir / f"{day:%Y-%m-%d}.txt"
+
+
+def _feature_schema_sha256(feature_cols: list[str]) -> str:
+    payload = json.dumps([str(column) for column in feature_cols], ensure_ascii=False, separators=(",", ":"))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _verify_warm_start_feature_schema(state_dir: Path, feature_cols: list[str]) -> None:
+    """Fail closed if a checkpoint directory belongs to another feature order."""
+
+    state_dir.mkdir(parents=True, exist_ok=True)
+    path = state_dir / "feature_schema.json"
+    expected = {
+        "schema_version": "lgbm_warm_start_feature_schema/v1",
+        "feature_count": len(feature_cols),
+        "feature_cols": list(feature_cols),
+        "feature_cols_sha256": _feature_schema_sha256(feature_cols),
+    }
+    if path.exists():
+        try:
+            observed = json.loads(path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            raise RuntimeError(f"warm-start feature schema is unreadable: {path}: {exc}") from exc
+        if not isinstance(observed, dict) or observed.get("feature_cols_sha256") != expected["feature_cols_sha256"]:
+            raise RuntimeError(
+                "warm-start feature schema mismatch; do not reuse checkpoints with another feature order: "
+                f"state_dir={state_dir}"
+            )
+        return
+    path.write_text(json.dumps(expected, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def _validate_strict_warm_start(
+    *,
+    strict_warm_start: bool,
+    research_only: bool,
+    rolling_enabled: bool,
+    refit_every_n_days: int,
+    incremental_enabled: bool,
+    incremental_warm_start: bool,
+    incremental_save_state: bool,
+    incremental_skip_existing: bool,
+    score_overwrite: bool,
+    state_dir_configured: bool,
+    parallel_shards: int,
+    pca_enabled: bool,
+    nested_factor_selection_enabled: bool,
+) -> None:
+    """Reject contracts that could turn a declared strict chain into a cold run.
+
+    This opt-in is deliberately research-only.  A strict chain has one explicit
+    cold bootstrap at the first score day, then requires the immediately prior
+    in-process checkpoint at every daily refit.  It never reuses an arbitrary
+    older checkpoint, skips state persistence, or retries a failed warm fit
+    without its ``init_model``.
+    """
+
+    if not strict_warm_start:
+        return
+    violations: list[str] = []
+    if not research_only:
+        violations.append("research_only=true")
+    if not rolling_enabled:
+        violations.append("rolling.enabled=true")
+    if int(refit_every_n_days) != 1:
+        violations.append("refit_every_n_days=1")
+    if not incremental_enabled:
+        violations.append("incremental.enabled=true")
+    if not incremental_warm_start:
+        violations.append("incremental.warm_start=true")
+    if not incremental_save_state:
+        violations.append("incremental.save_state=true")
+    if incremental_skip_existing:
+        violations.append("incremental.skip_existing_scores=false")
+    if not score_overwrite:
+        violations.append("score_overwrite=true")
+    if not state_dir_configured:
+        violations.append("incremental.state_dir=<isolated scratch directory>")
+    if int(parallel_shards) != 1:
+        violations.append("parallel_shards=1")
+    if pca_enabled:
+        violations.append("pca_features.disabled")
+    if nested_factor_selection_enabled:
+        violations.append("nested_factor_selection.disabled")
+    if violations:
+        raise ValueError(
+            "incremental.strict_warm_start requires " + ", ".join(violations)
+        )
+
+
+def _resolve_strict_warm_start_config(incremental_cfg: dict) -> dict[str, object]:
+    """Resolve the research-only no-cold-fallback checkpoint contract."""
+
+    raw = incremental_cfg.get("strict_warm_start", False)
+    if raw in (None, "", False):
+        return {
+            "enabled": False,
+            "require_initial_checkpoint": False,
+            "initial_checkpoint_day": None,
+        }
+    if raw is True:
+        raw = {"enabled": True}
+    if not isinstance(raw, dict):
+        raise TypeError("incremental.strict_warm_start must be a bool or object")
+    enabled = bool(raw.get("enabled", True))
+    require_initial_checkpoint = bool(raw.get("require_initial_checkpoint", False))
+    initial_checkpoint_day_raw = raw.get("initial_checkpoint_day")
+    initial_checkpoint_day: date | None = None
+    if initial_checkpoint_day_raw not in (None, ""):
+        try:
+            initial_checkpoint_day = datetime.strptime(
+                str(initial_checkpoint_day_raw), "%Y-%m-%d"
+            ).date()
+        except ValueError as exc:
+            raise ValueError(
+                "incremental.strict_warm_start.initial_checkpoint_day must be YYYY-MM-DD"
+            ) from exc
+        require_initial_checkpoint = True
+    if not enabled and (require_initial_checkpoint or initial_checkpoint_day is not None):
+        raise ValueError(
+            "disabled incremental.strict_warm_start cannot require an initial checkpoint"
+        )
+    if enabled and require_initial_checkpoint and initial_checkpoint_day is None:
+        raise ValueError(
+            "incremental.strict_warm_start.require_initial_checkpoint requires initial_checkpoint_day"
+        )
+    return {
+        "enabled": enabled,
+        "require_initial_checkpoint": require_initial_checkpoint,
+        "initial_checkpoint_day": initial_checkpoint_day,
+    }
 
 
 def _find_previous_checkpoint(state_dir: Path, day: date) -> Path | None:
@@ -1732,7 +2152,6 @@ def main(
     if desired_start > desired_end:
         raise ValueError("start date must be <= end date")
 
-    factor_root = Path(paths_cfg["factor_data_root"])
     label_root = Path(paths_cfg["label_data_root"])
 
     panel_name = cfg.get("panel_name")
@@ -1741,6 +2160,11 @@ def main(
     label_time = str(cfg.get("label_time", "14:42"))
     raw_root = paths_cfg["raw_data_root"]
     panel_root = paths_cfg["panel_data_root"]
+    store = build_factor_reader(
+        paths_cfg,
+        panel_name=panel_name,
+        window_minutes=window_minutes,
+    )
     label_anchor_lag_trading_days = _resolve_label_anchor_lag_trading_days(cfg)
 
     scan_start = desired_start
@@ -1782,11 +2206,12 @@ def main(
             scan_start = lookback_days[0]
 
     def _factor_exists(day: date) -> bool:
-        label = panel_name or make_window_label(window_minutes)
-        month = f"{day.year:04d}-{day.month:02d}"
-        filename = f"{day.strftime('%Y%m%d')}.parquet"
-        path = factor_root / "factors" / label / month / filename
-        return path.exists()
+        if hasattr(store, "has_day"):
+            return bool(store.has_day(day))
+        try:
+            return not store.read_day(day).empty
+        except FileNotFoundError:
+            return False
 
     label_day_by_factor_day: dict[date, date | None] | None = None
     if label_anchor_lag_trading_days > 0:
@@ -1912,7 +2337,6 @@ def main(
         train_days, val_days, test_days = _split_days(days, train_ratio, val_ratio)
         print(f"train days: {len(train_days)}, val days: {len(val_days)}, test days: {len(test_days)}")
 
-    store = FactorStore(factor_root, panel_name=panel_name, window_minutes=window_minutes)
     # pick factor columns from first available day
     sample = pd.DataFrame()
     sample_days = days if rolling_enabled else train_days
@@ -1979,6 +2403,17 @@ def main(
     model_feature_cols = _preview_regime_feature_cols(pca_model_feature_cols, regime_cfg)
     feature_contribution_cfg = _resolve_feature_contribution_config(cfg)
     dynamic_feature_contribution_cfg = _feature_contribution_dynamic_config(feature_contribution_cfg)
+    nested_factor_selection_cfg = _resolve_nested_factor_selection_config(cfg)
+    if bool(nested_factor_selection_cfg.get("enabled", False)) and not bool(cfg.get("research_only")):
+        raise ValueError(
+            "nested_factor_selection is research-only and requires an explicit research_only model config"
+        )
+    if bool(nested_factor_selection_cfg.get("enabled", False)) and bool(
+        dynamic_feature_contribution_cfg.get("enabled", False)
+    ):
+        raise ValueError(
+            "nested_factor_selection cannot be combined with feature_contribution.dynamic"
+        )
     feature_contribution_summary = _feature_contribution_summary(model_feature_cols, feature_contribution_cfg)
     sample_weight_cfg = _resolve_sample_weight_config(cfg)
     sample_weight_summary = _sample_weight_summary(sample_weight_cfg)
@@ -2029,6 +2464,13 @@ def main(
             f"{dynamic_feature_contribution_cfg.get('max_value', 1.15)}",
             f"max_adjust={dynamic_feature_contribution_cfg.get('max_adjust', 0.15)}",
         )
+    print(
+        "[nested_factor_selection]",
+        f"enabled={bool(nested_factor_selection_cfg.get('enabled', False))}",
+        f"top_k={nested_factor_selection_cfg.get('top_k', 0)}",
+        f"lookback_days={nested_factor_selection_cfg.get('lookback_days', 0)}",
+        f"score={nested_factor_selection_cfg.get('score', 'n/a')}",
+    )
     if feature_contribution_summary.get("missing_features"):
         print(
             "[feature_contribution] missing configured features:",
@@ -2068,6 +2510,14 @@ def main(
         )
 
     lgbm_params = cfg.get("lgbm_params", {})
+    if bool(nested_factor_selection_cfg.get("enabled", False)):
+        for key in ("feature_fraction", "colsample_bytree", "feature_fraction_bynode"):
+            value = float(lgbm_params.get(key, 1.0))
+            if abs(value - 1.0) > 1e-12:
+                raise ValueError(
+                    "nested_factor_selection requires fixed full-column sampling "
+                    f"({key}=1.0), got {key}={value}"
+                )
     grid_cfg = cfg.get("grid_search", {})
     early_rounds = cfg.get("early_stopping_rounds")
     loss_mode = str(cfg.get("loss_mode", "mse")).lower()
@@ -2202,6 +2652,30 @@ def main(
     incremental_skip_existing = bool(incremental_cfg.get("skip_existing_scores", True))
     incremental_warm_start = bool(incremental_cfg.get("warm_start", True))
     incremental_save_state = bool(incremental_cfg.get("save_state", True))
+    strict_warm_start_cfg = _resolve_strict_warm_start_config(incremental_cfg)
+    strict_warm_start = bool(strict_warm_start_cfg["enabled"])
+    _validate_strict_warm_start(
+        strict_warm_start=strict_warm_start,
+        research_only=bool(cfg.get("research_only")),
+        rolling_enabled=rolling_enabled,
+        refit_every_n_days=refit_every_n_days,
+        incremental_enabled=incremental_enabled,
+        incremental_warm_start=incremental_warm_start,
+        incremental_save_state=incremental_save_state,
+        incremental_skip_existing=incremental_skip_existing,
+        score_overwrite=score_overwrite,
+        state_dir_configured=incremental_cfg.get("state_dir") not in (None, ""),
+        parallel_shards=parallel_shards,
+        pca_enabled=pca_enabled,
+        nested_factor_selection_enabled=bool(nested_factor_selection_cfg.get("enabled", False)),
+    )
+    if bool(nested_factor_selection_cfg.get("enabled", False)):
+        # A changed daily factor mask combined with an inherited booster would
+        # leave old trees active. That is not a strict selected-feature model.
+        if incremental_warm_start or incremental_save_state:
+            print("[nested_factor_selection] cold daily refits; do not retain model state")
+        incremental_warm_start = False
+        incremental_save_state = False
     if pca_enabled and incremental_warm_start:
         print("[pca_features] disable warm_start because PCA basis is refit per train window")
         incremental_warm_start = False
@@ -2216,6 +2690,40 @@ def main(
     )
     if incremental_enabled and (incremental_warm_start or incremental_save_state):
         state_dir.mkdir(parents=True, exist_ok=True)
+    if strict_warm_start and bool(strict_warm_start_cfg["require_initial_checkpoint"]):
+        initial_checkpoint_day = strict_warm_start_cfg["initial_checkpoint_day"]
+        if not isinstance(initial_checkpoint_day, date):  # guarded by the config resolver above.
+            raise RuntimeError("strict warm-start initial checkpoint day is unavailable")
+        initial_checkpoint = _checkpoint_path(state_dir, initial_checkpoint_day)
+        if not initial_checkpoint.is_file():
+            raise RuntimeError(
+                "strict warm-start initial checkpoint is missing: "
+                f"expected={initial_checkpoint}"
+            )
+        if not (state_dir / "feature_schema.json").is_file():
+            raise RuntimeError(
+                "strict warm-start initial checkpoint requires the copied feature_schema.json: "
+                f"state_dir={state_dir}"
+            )
+        observed_checkpoints = sorted(path.name for path in state_dir.glob("*.txt"))
+        if observed_checkpoints != [initial_checkpoint.name]:
+            raise RuntimeError(
+                "strict warm-start seeded state must contain exactly its declared initial checkpoint: "
+                f"expected={initial_checkpoint.name} observed={observed_checkpoints}"
+            )
+    if incremental_enabled and incremental_warm_start:
+        _verify_warm_start_feature_schema(state_dir, model_feature_cols)
+    print(
+        "[strict_warm_start]",
+        f"enabled={strict_warm_start}",
+        (
+            f"bootstrap=checkpoint:{strict_warm_start_cfg['initial_checkpoint_day']}"
+            if bool(strict_warm_start_cfg["require_initial_checkpoint"])
+            else "bootstrap=first_refit_only"
+        )
+        if strict_warm_start
+        else "bootstrap=legacy",
+    )
 
     def _metric_name_for_mode(mode: str, configured_metric: str) -> str:
         text = str(mode or "mse").lower()
@@ -2408,10 +2916,12 @@ def main(
         active_pca_transformer: _PcaFeatureTransformer | None = None
         last_refit_pos: int | None = None
         last_refit_day: date | None = None
+        strict_warm_start_bootstrapped = False
         all_equal_days: list[date] = []
         insufficient_bin_days: list[date] = []
         pca_summary_rows: list[dict] = []
         dynamic_fc_rows: list[dict] = []
+        nested_factor_selection_rows: list[dict] = []
         label_target_transform_rows: list[dict] = []
         similar_day_rows: list[dict] = []
         with ThreadPoolExecutor(max_workers=prep_workers, thread_name_prefix="roll_prep") as prep_pool:
@@ -2450,6 +2960,11 @@ def main(
                 _enqueue()
                 payload = fut.result()
                 if payload is None:
+                    if strict_warm_start:
+                        raise RuntimeError(
+                            "strict warm-start cannot skip a rolling payload: "
+                            f"target_day={days[idx]}"
+                        )
                     continue
                 test_day = payload["test_day"]
                 train_days = payload["train_days"]
@@ -2503,8 +3018,19 @@ def main(
                     f"regime={current_regime_state or 'n/a'}"
                 )
                 refit_status = "reuse"
+                warm_start_required = False
+                warm_start_active = False
+                warm_start_checkpoint = ""
+                warm_start_source_day: date | None = None
+                warm_start_bootstrap = False
+                nested_factor_selection_summary: dict[str, object] = {"enabled": False}
                 if should_refit:
                     if train_data.x.empty:
+                        if strict_warm_start:
+                            raise RuntimeError(
+                                "strict warm-start cannot reuse a model after an empty train split: "
+                                f"target_day={test_day}"
+                            )
                         if active_model is None:
                             print(f"[rolling] skip {test_day}: empty train split and no reusable model")
                             continue
@@ -2558,11 +3084,86 @@ def main(
                             )
                         )
                         dynamic_fc_rows.extend(current_dynamic_fc_rows)
+                        (
+                            current_feature_contribution_cfg,
+                            current_nested_factor_selection_rows,
+                            nested_factor_selection_summary,
+                        ) = _nested_factor_selection_contribution(
+                            current_feature_contribution_cfg,
+                            nested_factor_selection_cfg,
+                            train_data,
+                            target_day=test_day,
+                            feature_cols=list(train_data.x.columns),
+                        )
+                        nested_factor_selection_rows.extend(current_nested_factor_selection_rows)
                         if incremental_enabled and incremental_warm_start:
-                            prev_ckpt = _find_previous_checkpoint(state_dir, test_day)
-                            if prev_ckpt is not None:
-                                init_model = str(prev_ckpt)
-                                print(f"[rolling] warm-start from checkpoint: {prev_ckpt.name}")
+                            if strict_warm_start:
+                                if strict_warm_start_bootstrapped:
+                                    if last_refit_day is None:
+                                        raise RuntimeError(
+                                            "strict warm-start lost its previous refit day: "
+                                            f"target_day={test_day}"
+                                        )
+                                    prev_ckpt = _checkpoint_path(state_dir, last_refit_day)
+                                    if not prev_ckpt.is_file():
+                                        raise RuntimeError(
+                                            "strict warm-start requires the immediate prior checkpoint: "
+                                            f"target_day={test_day} expected={prev_ckpt}"
+                                        )
+                                    init_model = str(prev_ckpt)
+                                    warm_start_required = True
+                                    warm_start_active = True
+                                    warm_start_checkpoint = prev_ckpt.name
+                                    warm_start_source_day = last_refit_day
+                                    print(f"[rolling] strict warm-start from checkpoint: {prev_ckpt.name}")
+                                else:
+                                    initial_checkpoint = _find_previous_checkpoint(state_dir, test_day)
+                                    expected_initial_day = strict_warm_start_cfg[
+                                        "initial_checkpoint_day"
+                                    ]
+                                    if initial_checkpoint is not None:
+                                        if not bool(strict_warm_start_cfg["require_initial_checkpoint"]):
+                                            raise RuntimeError(
+                                                "strict warm-start requires an empty state chain before its cold "
+                                                "bootstrap: "
+                                                f"target_day={test_day} unexpected={initial_checkpoint}"
+                                            )
+                                        initial_day = _parse_checkpoint_day(initial_checkpoint.stem)
+                                        if (
+                                            expected_initial_day is not None
+                                            and initial_day != expected_initial_day
+                                        ):
+                                            raise RuntimeError(
+                                                "strict warm-start initial checkpoint day differs from the frozen "
+                                                "report seed: "
+                                                f"target_day={test_day} expected={expected_initial_day} "
+                                                f"observed={initial_day}"
+                                            )
+                                        init_model = str(initial_checkpoint)
+                                        warm_start_required = True
+                                        warm_start_active = True
+                                        warm_start_checkpoint = initial_checkpoint.name
+                                        warm_start_source_day = initial_day
+                                        print(
+                                            "[rolling] strict warm-start from initial checkpoint: "
+                                            f"{initial_checkpoint.name}"
+                                        )
+                                    elif bool(strict_warm_start_cfg["require_initial_checkpoint"]):
+                                        raise RuntimeError(
+                                            "strict warm-start required initial checkpoint is unavailable: "
+                                            f"target_day={test_day} expected_day={expected_initial_day}"
+                                        )
+                                    else:
+                                        warm_start_bootstrap = True
+                                        print(f"[rolling] strict warm-start cold bootstrap: {test_day}")
+                            else:
+                                prev_ckpt = _find_previous_checkpoint(state_dir, test_day)
+                                if prev_ckpt is not None:
+                                    init_model = str(prev_ckpt)
+                                    warm_start_active = True
+                                    warm_start_checkpoint = prev_ckpt.name
+                                    warm_start_source_day = _parse_checkpoint_day(prev_ckpt.stem)
+                                    print(f"[rolling] warm-start from checkpoint: {prev_ckpt.name}")
                         try:
                             model, params = train_lgbm(
                                 train=train_data,
@@ -2575,10 +3176,16 @@ def main(
                                 early_stopping_rounds=int(early_rounds) if early_rounds else None,
                                 loss_mode=loss_mode,
                                 init_model=init_model,
+                                require_init_model=warm_start_required,
                                 label_target_transform=label_target_transform_spec,
                                 early_stopping_metric=early_stopping_metric,
                             )
                         except Exception as exc:
+                            if strict_warm_start:
+                                raise RuntimeError(
+                                    "strict warm-start fit failed; refusing a cold-start fallback: "
+                                    f"target_day={test_day} checkpoint={warm_start_checkpoint or 'bootstrap'}"
+                                ) from exc
                             if init_model is None:
                                 raise
                             print(f"[rolling] warm-start failed, fallback cold-start: {type(exc).__name__}: {exc}")
@@ -2630,12 +3237,24 @@ def main(
                         last_refit_pos = roll_idx
                         last_refit_day = test_day
                         refit_status = "refit"
+                        if strict_warm_start:
+                            strict_warm_start_bootstrapped = True
                         if incremental_enabled and incremental_save_state:
                             ckpt_path = _checkpoint_path(state_dir, test_day)
                             try:
                                 model.booster_.save_model(str(ckpt_path))
                             except Exception as exc:
+                                if strict_warm_start:
+                                    raise RuntimeError(
+                                        "strict warm-start checkpoint save failed: "
+                                        f"target_day={test_day} checkpoint={ckpt_path}"
+                                    ) from exc
                                 print(f"[rolling] failed to save checkpoint {ckpt_path}: {exc}")
+                            if strict_warm_start and not ckpt_path.is_file():
+                                raise RuntimeError(
+                                    "strict warm-start checkpoint was not created: "
+                                    f"target_day={test_day} checkpoint={ckpt_path}"
+                                )
                 if active_model is None:
                     print(f"[rolling] skip {test_day}: no trained model available")
                     continue
@@ -2734,6 +3353,12 @@ def main(
                         "refit_status": refit_status,
                         "model_source_day": model_source_day,
                         "refit_every_n_days": refit_every_n_days,
+                        "strict_warm_start": strict_warm_start,
+                        "warm_start_active": warm_start_active,
+                        "warm_start_required": warm_start_required,
+                        "warm_start_bootstrap": warm_start_bootstrap,
+                        "warm_start_checkpoint": warm_start_checkpoint,
+                        "warm_start_source_day": warm_start_source_day,
                         "regime_state": current_regime_state,
                         "regime_benchmark_sum": current_regime_sum,
                         "rank_ic": test_metrics["rank_ic_mean"],
@@ -2759,6 +3384,18 @@ def main(
                         "score_bin_count": int(bin_guard_stats.get("score_bin_count", 0)),
                         "score_bin_insufficient": bool(
                             bin_guard_stats.get("score_bin_insufficient", False)
+                        ),
+                        "nested_factor_selection_enabled": bool(
+                            nested_factor_selection_summary.get("enabled", False)
+                        ),
+                        "nested_factor_selection_selected_feature_count": int(
+                            nested_factor_selection_summary.get("selected_feature_count", 0)
+                        ),
+                        "nested_factor_selection_candidate_feature_count": int(
+                            nested_factor_selection_summary.get("candidate_feature_count", 0)
+                        ),
+                        "nested_factor_selection_latest_train_day": nested_factor_selection_summary.get(
+                            "latest_train_day", ""
                         ),
                         **label_alignment_summary,
                         **temporal_input_summary,
@@ -2870,6 +3507,11 @@ def main(
         if dynamic_fc_rows:
             pd.DataFrame(dynamic_fc_rows).to_csv(
                 out_dir / "rolling_dynamic_feature_contribution.csv",
+                index=False,
+            )
+        if nested_factor_selection_rows:
+            pd.DataFrame(nested_factor_selection_rows).to_csv(
+                out_dir / "rolling_nested_factor_selection.csv",
                 index=False,
             )
         if label_target_transform_rows:

@@ -1,0 +1,50 @@
+{
+  "contract_hash": "7e10928f419bc3cb688c48a2a364ea33201a78d9fdaa616c65218839c275ad61",
+  "definition": {
+    "kind": "runtime_operator_reference",
+    "path": "operators/factor_mining_daily_price_base_relations_v1/definition.py",
+    "sha256": "2d7d330c05d36e155b6b394a605e2f0c3b0c318416a6bff59aee4a78257e4f2a"
+  },
+  "factor_instances": [
+    "pca_notional_capacity_trend20",
+    "pca_notional_capacity_z20",
+    "pca_volume_capacity_z20",
+    "piat_anchor_gap_return_beta20",
+    "piat_conversion_floor_gap_z20",
+    "piat_market_anchor_wedge_z20",
+    "pvfe_conv_value_velocity_beta20",
+    "pvfe_premium_velocity_beta20",
+    "pvfe_yield_velocity_beta20"
+  ],
+  "identity": {
+    "operator_class": "FactorMiningDailyPriceBaseRelationsV1",
+    "operator_id": "factor_mining_daily_price_base_relations_v1",
+    "operator_version": "20260803_daily_price_base_relations_v1"
+  },
+  "implementation": {
+    "language": "python_runtime_operator",
+    "module": "cbond_on.domain.factors.operators.research_factor_mining_daily_price_base_relations_v1",
+    "path": "cbond_on/domain/factors/operators/research_factor_mining_daily_price_base_relations_v1.py",
+    "sha256": "522d4bf5407036636fe0d4069e029c07591e88fa9a7d782b6abcbc3b89421e2c"
+  },
+  "lifecycle": {
+    "operator_catalog_status": "registered",
+    "runtime_source_status": "migrated_pending_cutover",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "migration": {
+    "behavior_parity_status": "pending_baseline_replay",
+    "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_daily_price_base_relations_v1.py",
+    "legacy_sha256": "522d4bf5407036636fe0d4069e029c07591e88fa9a7d782b6abcbc3b89421e2c",
+    "migration_kind": "namespace_relocation_without_formula_change"
+  },
+  "runtime_contract": {
+    "input_schema_status": "operator_declared_pending_field_audit",
+    "pit_validation_status": "operator_migration_pending_pit_audit",
+    "registration_key": "factor_mining_daily_price_base_relations_v1",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "schema_version": "operator_contract/v1",
+  "test_reference": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+}

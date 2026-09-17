@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import Counter
 
-from cbond_on.domain.factors.defs import research_factor_mining_intraday_combined_v1 as combined
+from cbond_on.domain.factors.operators import research_factor_mining_intraday_combined_v1 as combined
 
 
 def test_combined_intraday_catalogue_preserves_all_families_and_unique_signals() -> None:

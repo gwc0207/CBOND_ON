@@ -1,0 +1,68 @@
+{
+  "context_requirements": {
+    "daily": [],
+    "panel_field_schema_status": "operator_declared_pending_factor_minimal_audit",
+    "panel_fields": [],
+    "panel_name": "T1430",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "contract_hash": "f111f2dfebcd541d04cd306a65c6c8af453d6bbb504e0648ce70e4fd51c7b547",
+  "definition": {
+    "kind": "parameterized_operator_definition",
+    "path": "factors/price_ladder_reprice_direction/lrd_ask_reprice_direction_persistence/definition.py",
+    "sha256": "25d2668ddd4c4554ec534b1fc9f1a7b0f641cbd86b38c57a1e9adfb558321b2f"
+  },
+  "fixed_params": {
+    "family": "price_ladder_reprice_direction",
+    "signal": "lrd_ask_reprice_direction_persistence"
+  },
+  "identity": {
+    "factor_id": "lrd_ask_reprice_direction_persistence",
+    "factor_version": "catalog-20260826-d24776118a31-85d4ad87c69e",
+    "primary_family": "price_ladder_reprice_direction",
+    "tags": []
+  },
+  "lifecycle": {
+    "catalog_status": "registered",
+    "live_admission_status": "not_evaluated_by_catalog_builder",
+    "research_status": "legacy_mapping_discovered",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "operator_bindings": [
+    {
+      "implementation_module": "cbond_on.domain.factors.operators.research_factor_mining_orderbook_repricing_v1",
+      "implementation_path": "cbond_on/domain/factors/operators/research_factor_mining_orderbook_repricing_v1.py",
+      "implementation_sha256": "d24776118a31287d0330007b23505d473f8985a202a09b338973356e05593621",
+      "language": "python_runtime_operator",
+      "legacy_implementation_path": "cbond_on/domain/factors/defs/research_factor_mining_orderbook_repricing_v1.py",
+      "legacy_implementation_sha256": "32a0ebd535be3b1e4121ede9c569572b6678b8daa2dd4bbaa85f64773653817e",
+      "operator_contract_path": "operators/factor_mining_orderbook_repricing_v1/contract.json",
+      "operator_id": "factor_mining_orderbook_repricing_v1",
+      "operator_version": "20260803_orderbook_repricing_v1",
+      "rust_contract_id": null
+    }
+  ],
+  "output": {
+    "column": "lrd_ask_reprice_direction_persistence",
+    "dtype": "float64"
+  },
+  "schema_version": "factor_contract/v2",
+  "source_lineage": {
+    "hypothesis": "Persistent versus reversing L1--L5 bid/ask ladder migration and same-interval cross-side symmetry are distinct from a static spread or quote level.",
+    "snapshot_id": "canonical_factor_catalog_20260826_800",
+    "source_position": 1,
+    "source_root": "D:/cbond_on/research_scratch/factor_mining_20260803_unified_v7_with_joint_merged_v1",
+    "source_set": "research773"
+  },
+  "test_reference": {
+    "behavioral_parity_status": "pending_baseline_replay",
+    "contract_test": "tests/test_factor_engine_governance.py::test_all_factor_definitions_and_contracts",
+    "operator_test": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+  },
+  "time_contract": {
+    "factor_time": "14:30",
+    "pit_validation_status": "operator_migration_pending_factor_pit_audit",
+    "research_label_time_reference": "14:42"
+  }
+}

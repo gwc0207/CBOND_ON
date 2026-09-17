@@ -6,6 +6,7 @@ import pytest
 
 from cbond_on.core.config import load_config_file
 from cbond_on.infra.live.factor_admission import (
+    LIVE50_RELEASE_ID,
     LIVE50_RUST50_PROFILE,
     Live50FactorAdmission,
 )
@@ -22,6 +23,7 @@ def _live50_root() -> str:
 def _admission() -> Live50FactorAdmission:
     return Live50FactorAdmission(
         profile=LIVE50_RUST50_PROFILE,
+        release_id=LIVE50_RELEASE_ID,
         modules=(),
         factor_columns=(),
         feature_contract="models/lgbm/lgbm_live50_feature_contract_20260805",
@@ -44,4 +46,3 @@ def test_live50_factor_store_accepts_only_issued_exact_admission_permit() -> Non
 
 def test_nonlive_factor_store_does_not_require_a_live50_permit(tmp_path: Path) -> None:
     validate_factor_store_write_permit(tmp_path / "research_factor_data", permit=None)
-

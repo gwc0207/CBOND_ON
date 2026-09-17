@@ -1,0 +1,42 @@
+{
+  "contract_hash": "c502da2611d088a8e54099756ea5ea5cb7ac24d6610a5eb16482ca945a6ae1ac",
+  "definition": {
+    "kind": "runtime_operator_reference",
+    "path": "operators/volatility/definition.py",
+    "sha256": "d019030c145ff8b0e0c67c6eab289a3033c9a96e0f4eb6399c0191c191dfeb3e"
+  },
+  "factor_instances": [
+    "vol_30m"
+  ],
+  "identity": {
+    "operator_class": "VolatilityFactor",
+    "operator_id": "volatility",
+    "operator_version": "legacy-unversioned"
+  },
+  "implementation": {
+    "language": "python_runtime_operator",
+    "module": "cbond_on.domain.factors.operators.volatility",
+    "path": "cbond_on/domain/factors/operators/volatility.py",
+    "sha256": "a9b534652b072e4e745420cde8f2c16c4038c145455f280d93a8df656ec089e6"
+  },
+  "lifecycle": {
+    "operator_catalog_status": "registered",
+    "runtime_source_status": "migrated_pending_cutover",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "migration": {
+    "behavior_parity_status": "pending_baseline_replay",
+    "legacy_path": "cbond_on/domain/factors/defs/volatility.py",
+    "legacy_sha256": "3cd22f611b90fc1de2d98cf2b691257213ab8c66119c758cb3729dab6ba6b6c1",
+    "migration_kind": "namespace_relocation_without_formula_change"
+  },
+  "runtime_contract": {
+    "input_schema_status": "operator_declared_pending_field_audit",
+    "pit_validation_status": "operator_migration_pending_pit_audit",
+    "registration_key": "volatility",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "schema_version": "operator_contract/v1",
+  "test_reference": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+}

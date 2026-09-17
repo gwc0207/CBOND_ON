@@ -1,0 +1,68 @@
+{
+  "context_requirements": {
+    "daily": [],
+    "panel_field_schema_status": "operator_declared_pending_factor_minimal_audit",
+    "panel_fields": [],
+    "panel_name": "T1430",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "contract_hash": "d52492ee3c40ac72c6c05f4014a43061575880f71c501dc20ee45f56e1060fac",
+  "definition": {
+    "kind": "parameterized_operator_definition",
+    "path": "factors/price_quote_mass_transport/icg_pq_transport_skewness_gap/definition.py",
+    "sha256": "f4a2be4c127385b252ed240a4fc15f3a0cea0ca9fa01c49bcbd5f202267ff920"
+  },
+  "fixed_params": {
+    "family": "price_quote_mass_transport",
+    "signal": "icg_pq_transport_skewness_gap"
+  },
+  "identity": {
+    "factor_id": "icg_pq_transport_skewness_gap",
+    "factor_version": "catalog-20260826-c3de662d1c32-09edacf9cae9",
+    "primary_family": "price_quote_mass_transport",
+    "tags": []
+  },
+  "lifecycle": {
+    "catalog_status": "registered",
+    "live_admission_status": "not_evaluated_by_catalog_builder",
+    "research_status": "legacy_mapping_discovered",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "operator_bindings": [
+    {
+      "implementation_module": "cbond_on.domain.factors.operators.research_factor_mining_intraday_information_clock_geometry_v1",
+      "implementation_path": "cbond_on/domain/factors/operators/research_factor_mining_intraday_information_clock_geometry_v1.py",
+      "implementation_sha256": "c3de662d1c32f0089b24785d0e3315852bed75866893a729eb82529dc49f1916",
+      "language": "python_runtime_operator",
+      "legacy_implementation_path": "cbond_on/domain/factors/defs/research_factor_mining_intraday_information_clock_geometry_v1.py",
+      "legacy_implementation_sha256": "a096d12d620634f58ccf96f8c438fb63e344a76023821d8f709231f3a8ab755c",
+      "operator_contract_path": "operators/factor_mining_intraday_information_clock_geometry_v1/contract.json",
+      "operator_id": "factor_mining_intraday_information_clock_geometry_v1",
+      "operator_version": "20260803_intraday_information_clock_geometry_v1",
+      "rust_contract_id": null
+    }
+  ],
+  "output": {
+    "column": "icg_pq_transport_skewness_gap",
+    "dtype": "float64"
+  },
+  "schema_version": "factor_contract/v2",
+  "source_lineage": {
+    "hypothesis": "The transport between the time distributions of last-price discovery and valid quote repricing measures temporal displacement, spread of discovery, and asymmetry without a lead-lag regression or cosine profile rewrite.",
+    "snapshot_id": "canonical_factor_catalog_20260826_800",
+    "source_position": 2,
+    "source_root": "D:/cbond_on/research_scratch/factor_mining_20260803_aggregate_catalog_v5_full/factor_data",
+    "source_set": "research773"
+  },
+  "test_reference": {
+    "behavioral_parity_status": "pending_baseline_replay",
+    "contract_test": "tests/test_factor_engine_governance.py::test_all_factor_definitions_and_contracts",
+    "operator_test": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+  },
+  "time_contract": {
+    "factor_time": "14:30",
+    "pit_validation_status": "operator_migration_pending_factor_pit_audit",
+    "research_label_time_reference": "14:42"
+  }
+}

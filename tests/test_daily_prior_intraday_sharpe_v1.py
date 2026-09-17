@@ -6,7 +6,7 @@ import pytest
 
 from cbond_on.core.registry import FactorRegistry
 from cbond_on.domain.factors.base import FactorComputeContext
-from cbond_on.domain.factors.defs.daily_prior_intraday_sharpe_v1 import (
+from cbond_on.domain.factors.operators.daily_prior_intraday_sharpe_v1 import (
     DailyPriorIntradaySharpeV1Factor,
 )
 

@@ -221,6 +221,68 @@ fn lcc_volume_deal_input(window: &PriceWindow) -> (Vec<f64>, Vec<f64>) {
     (adjacent_change(&log_volume), adjacent_change(&log_deal))
 }
 
+fn lcc_size_frequency_input(window: &PriceWindow) -> (Vec<f64>, Vec<f64>) {
+    let log_amount: Vec<f64> = window.amount.iter().copied().map(log_positive).collect();
+    let log_deal: Vec<f64> = window.deal.iter().copied().map(log_positive).collect();
+    let log_trade_size: Vec<f64> = log_amount
+        .iter()
+        .zip(log_deal.iter())
+        .map(|(amount, deal)| {
+            if amount.is_finite() && deal.is_finite() {
+                *amount - *deal
+            } else {
+                f64::NAN
+            }
+        })
+        .collect();
+    (adjacent_change(&log_trade_size), adjacent_change(&log_deal))
+}
+
+/// Literal counterpart of the LCC family's `_correlation`: terminal state must
+/// be complete, then calculate Pearson correlation over all finite pairs in
+/// the latest strict-prior 60-session window.
+fn lcc_centered_correlation(left: &[f64], right: &[f64]) -> f64 {
+    if left.len() != right.len() || left.is_empty() {
+        return f64::NAN;
+    }
+    if !left.last().copied().unwrap_or(f64::NAN).is_finite()
+        || !right.last().copied().unwrap_or(f64::NAN).is_finite()
+    {
+        return f64::NAN;
+    }
+    let pairs: Vec<(f64, f64)> = left
+        .iter()
+        .copied()
+        .zip(right.iter().copied())
+        .filter(|(a, b)| a.is_finite() && b.is_finite())
+        .collect();
+    if pairs.len() < TYPED_FACTOR_DAILY_INFORMATION_MIN_OBSERVATIONS {
+        return f64::NAN;
+    }
+    let left_mean = pairs.iter().map(|(value, _)| *value).sum::<f64>() / pairs.len() as f64;
+    let right_mean = pairs.iter().map(|(_, value)| *value).sum::<f64>() / pairs.len() as f64;
+    let mut left_square = 0.0;
+    let mut right_square = 0.0;
+    let mut product = 0.0;
+    for (left, right) in pairs {
+        let centered_left = left - left_mean;
+        let centered_right = right - right_mean;
+        left_square += centered_left * centered_left;
+        right_square += centered_right * centered_right;
+        product += centered_left * centered_right;
+    }
+    let denominator = (left_square * right_square).sqrt();
+    if !denominator.is_finite() || denominator <= TYPED_FACTOR_DAILY_INFORMATION_EPS {
+        return f64::NAN;
+    }
+    let value = product / denominator;
+    if value.is_finite() {
+        value
+    } else {
+        f64::NAN
+    }
+}
+
 /// `lcc_amount_trade_size_information60`: normalized 3x3 Jeffreys mutual
 /// information between `sign(delta log(amount))` and
 /// `sign(delta log(amount/deal))` on the last up-to-60 strict-prior global
@@ -261,6 +323,21 @@ pub fn lcc_volume_deal_information60(
         TYPED_FACTOR_DAILY_INFORMATION_MIN_OBSERVATIONS,
         JEFFREYS_PSEUDOCOUNT,
     ))
+}
+
+/// `lcc_size_frequency_coupling60`: Pearson correlation of the strict-prior
+/// changes in `log(amount / deal)` and `log(deal)` over the latest up-to-60
+/// source sessions.  Missing sessions remain missing and never become a
+/// synthetic cross-gap difference.
+pub fn lcc_size_frequency_coupling60(
+    ctx: &TypedFactorDailyContext,
+    code: &str,
+) -> Result<f64, TypedFactorDailyInformationError> {
+    let Some(window) = anchored_price_window(ctx, code)? else {
+        return Ok(f64::NAN);
+    };
+    let (size_change, deal_change) = lcc_size_frequency_input(&window);
+    Ok(lcc_centered_correlation(&size_change, &deal_change))
 }
 
 /// Return/log-liquidity arrays for the return-topology family.
@@ -337,6 +414,42 @@ pub fn rlmi_return_deal_sign_mutual_information60(
     Ok(normalized_mutual_information_3state(
         &returns,
         &deal_change,
+        0.0,
+        TYPED_FACTOR_DAILY_INFORMATION_MIN_ADJACENT_PAIRS,
+        JEFFREYS_PSEUDOCOUNT,
+    ))
+}
+
+/// `rlmi_return_trade_size_sign_mutual_information60`: normalized 3x3
+/// Jeffreys mutual information between completed daily return sign and the
+/// sign of the consecutive-session change in `log(amount / deal)`.
+pub fn rlmi_return_trade_size_sign_mutual_information60(
+    ctx: &TypedFactorDailyContext,
+    code: &str,
+) -> Result<f64, TypedFactorDailyInformationError> {
+    let Some(window) = anchored_price_window(ctx, code)? else {
+        return Ok(f64::NAN);
+    };
+    if !topology_available(&window) {
+        return Ok(f64::NAN);
+    }
+    let log_amount: Vec<f64> = window.amount.iter().copied().map(log_positive).collect();
+    let log_deal: Vec<f64> = window.deal.iter().copied().map(log_positive).collect();
+    let log_trade_size: Vec<f64> = log_amount
+        .iter()
+        .zip(log_deal.iter())
+        .map(|(amount, deal)| {
+            if amount.is_finite() && deal.is_finite() {
+                *amount - *deal
+            } else {
+                f64::NAN
+            }
+        })
+        .collect();
+    let (returns, trade_size_change) = topology_state_arrays(&window, &log_trade_size);
+    Ok(normalized_mutual_information_3state(
+        &returns,
+        &trade_size_change,
         0.0,
         TYPED_FACTOR_DAILY_INFORMATION_MIN_ADJACENT_PAIRS,
         JEFFREYS_PSEUDOCOUNT,
@@ -438,11 +551,15 @@ pub fn compute_daily_information_signal(
     match signal {
         "lcc_amount_trade_size_information60" => lcc_amount_trade_size_information60(ctx, code),
         "lcc_volume_deal_information60" => lcc_volume_deal_information60(ctx, code),
+        "lcc_size_frequency_coupling60" => lcc_size_frequency_coupling60(ctx, code),
         "rjst_amount_joint_transition_entropy60" => {
             rjst_amount_joint_transition_entropy60(ctx, code)
         }
         "rlmi_return_deal_sign_mutual_information60" => {
             rlmi_return_deal_sign_mutual_information60(ctx, code)
+        }
+        "rlmi_return_trade_size_sign_mutual_information60" => {
+            rlmi_return_trade_size_sign_mutual_information60(ctx, code)
         }
         other => Err(TypedFactorDailyInformationError::UnknownSignal(
             other.to_string(),

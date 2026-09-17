@@ -7,10 +7,10 @@ import pandas as pd
 import pytest
 
 from cbond_on.core.registry import FactorRegistry
-from cbond_on.domain.factors import defs as factor_defs
+from cbond_on.domain.factors import operators as factor_operators
 from cbond_on.domain.factors.base import FactorComputeContext
 from cbond_on.domain.factors.builder import build_factor_frame
-from cbond_on.domain.factors.defs import research_factor_mining_daily_contract_stock_v1 as contract_stock
+from cbond_on.domain.factors.operators import research_factor_mining_daily_contract_stock_v1 as contract_stock
 from cbond_on.domain.factors.spec import FactorSpec
 
 
@@ -166,7 +166,7 @@ def test_catalogue_has_seven_import_only_families_and_46_signals() -> None:
     }
     assert {entry.kernel for entry in entries} == {contract_stock.KERNEL_NAME}
     assert FactorRegistry.get(contract_stock.KERNEL_NAME) is contract_stock.FactorMiningDailyContractStockV1
-    assert contract_stock.FactorMiningDailyContractStockV1.__name__ not in factor_defs.__all__
+    assert contract_stock.FactorMiningDailyContractStockV1.__name__ not in factor_operators.__all__
     assert contract_stock.FactorMiningDailyContractStockV1.requires_stock_panel is False
     assert contract_stock.FactorMiningDailyContractStockV1.requires_bond_stock_map is False
 

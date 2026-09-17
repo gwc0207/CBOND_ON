@@ -1,4 +1,9 @@
 {
+  lifecycle: {
+    status: "audit_only",
+    reason: "legacy_datahub_source_profile",
+    normal_consumer: false,
+  },
   // Research-only factor-build profile.  It reads DataHub inputs and derives
   // every runtime/output path below this scratch root when selected through
   // CBOND_ON_PATHS_CONFIG.  Do not add read_only_input_roots here: that mode

@@ -9,6 +9,7 @@
     "cbond_on/config/benchmark/",
     "cbond_on/run/",
     "liveLaunch/",
+    "D:/cbond_on/factor_store/",
     "D:/cbond_on/results/model_state/",
     "D:/cbond_on/results/live/",
     "D:/cbond_on/results/backtest/",
@@ -32,6 +33,9 @@
     "run_directory_is_compatibility_wrappers_only",
     "live_neutralization_is_all_or_none",
     "partial_neutralization_is_deprecated",
+    "canonical_factor_tables_are_immutable",
+    "normal_factor_consumers_require_factor_table",
+    "legacy_factorstore_requires_allowlist",
     "baseline_defaults_to_current_live_chain_when_discussing_live",
     "drift_prone_facts_must_be_verified_from_current_artifacts"
   ],
@@ -66,9 +70,10 @@
     },
     "factor-backtest": {
       "workflow": "harness/workflows/factor_backtest_protocol.md",
-      "skill": "harness/skills/cbond-factor-backtest-protocol/SKILL.md",
+      "skill": "harness/skills/cbond-factor-governance/SKILL.md",
       "required_evidence": [
         "factor config",
+        "factor/operator catalog contract",
         "field whitelist",
         "time visibility",
         "NaN/inf/constant diagnostics",

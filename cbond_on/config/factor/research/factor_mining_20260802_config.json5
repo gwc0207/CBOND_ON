@@ -58,7 +58,7 @@
   // evaluate the complete declared catalogue, then record its own exclusions.
   disabled_factors_file: "factor/guards/factor_disabled_factors_empty.json",
   factor_mining_catalog: {
-    module: "cbond_on.domain.factors.defs.research_factor_mining_catalog_v1",
+    module: "cbond_on.domain.factors.operators.research_factor_mining_catalog_v1",
     version: "20260802_v3",
     expected_signal_count: 238,
     expected_family_count: 27,

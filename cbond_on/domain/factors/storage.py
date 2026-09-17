@@ -28,6 +28,11 @@ class FactorStore:
             return pd.DataFrame()
         return pd.read_parquet(path)
 
+    def has_day(self, day: date) -> bool:
+        """Legacy/audit availability helper; normal consumers use canonical readers."""
+
+        return self.day_path(day).is_file()
+
     def write_day(self, day: date, df: pd.DataFrame) -> None:
         path = self.day_path(day)
         path.parent.mkdir(parents=True, exist_ok=True)

@@ -8,7 +8,7 @@ import pytest
 
 from cbond_on.core.registry import FactorRegistry
 from cbond_on.domain.factors.base import FactorComputeContext
-from cbond_on.domain.factors.defs.tail_path_efficiency_5m_v1 import TailPathEfficiency5mV1Factor
+from cbond_on.domain.factors.operators.tail_path_efficiency_5m_v1 import TailPathEfficiency5mV1Factor
 
 
 DT = pd.Timestamp("2026-07-30 14:30:00")

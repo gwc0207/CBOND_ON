@@ -10,13 +10,13 @@ import pandas as pd
 import pytest
 
 from cbond_on.domain.factors.base import FactorComputeContext
-from cbond_on.domain.factors.defs.research_factor_mining_catalog_v1 import (
+from cbond_on.domain.factors.operators.research_factor_mining_catalog_v1 import (
     FactorMiningDailyCatalogV1,
 )
-from cbond_on.domain.factors.defs.research_factor_mining_daily_expansion_v1 import (
+from cbond_on.domain.factors.operators.research_factor_mining_daily_expansion_v1 import (
     FactorMiningDailyExpansionV1,
 )
-from cbond_on.domain.factors.defs.research_factor_mining_daily_incremental_v1 import (
+from cbond_on.domain.factors.operators.research_factor_mining_daily_incremental_v1 import (
     FactorMiningDailyIncrementalV1,
 )
 from cbond_on.domain.factors.spec import FactorSpec

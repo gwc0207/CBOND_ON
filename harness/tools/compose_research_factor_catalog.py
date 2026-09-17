@@ -35,8 +35,8 @@ if str(_REPO_ROOT) not in sys.path:
 
 
 DEFAULT_SCRATCH_ROOT = Path(r"D:/cbond_on/research_scratch")
-ALLOWED_MODULE_PREFIX = "cbond_on.domain.factors.defs.research_"
-_RESEARCH_DEFS_ROOT = (_REPO_ROOT / "cbond_on" / "domain" / "factors" / "defs").resolve()
+ALLOWED_MODULE_PREFIX = "cbond_on.domain.factors.operators.research_"
+_RESEARCH_OPERATORS_ROOT = (_REPO_ROOT / "cbond_on" / "domain" / "factors" / "operators").resolve()
 _CHILD_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,119}$")
 _SCHEMA_VERSION = "research_factor_catalog_composer_v1"
 
@@ -170,9 +170,9 @@ def _validate_module_path(module_name: str) -> Path:
         raise ValueError(f"research module cannot be resolved: {module_name!r}")
     path = Path(spec.origin).resolve(strict=True)
     try:
-        path.relative_to(_RESEARCH_DEFS_ROOT)
+        path.relative_to(_RESEARCH_OPERATORS_ROOT)
     except ValueError as exc:
-        raise ValueError(f"research module escaped defs root: {module_name!r} -> {path}") from exc
+        raise ValueError(f"research module escaped operators root: {module_name!r} -> {path}") from exc
     if path.suffix != ".py" or not path.name.startswith("research_"):
         raise ValueError(f"research module must resolve to a research_ .py file: {path}")
     return path

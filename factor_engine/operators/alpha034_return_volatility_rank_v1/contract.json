@@ -1,0 +1,40 @@
+{
+  "contract_hash": "e39931e1ea71757361f42af4e7099d436ce6b5f4fc805c6dbc4110dc3524d091",
+  "definition": {
+    "kind": "runtime_operator_reference",
+    "path": "operators/alpha034_return_volatility_rank_v1/definition.py",
+    "sha256": "46df4c1a541b045542432eeb3e03d0e452c5137a3d38b6de925dedc5122bb30d"
+  },
+  "factor_instances": [],
+  "identity": {
+    "operator_class": "Alpha034ReturnVolatilityRankV1Factor",
+    "operator_id": "alpha034_return_volatility_rank_v1",
+    "operator_version": "legacy-unversioned"
+  },
+  "implementation": {
+    "language": "python_runtime_operator",
+    "module": "cbond_on.domain.factors.operators.alpha034_return_volatility_rank_v1",
+    "path": "cbond_on/domain/factors/operators/alpha034_return_volatility_rank_v1.py",
+    "sha256": "798dfe1b511dd9c3a8cc419279cefe56f7f68c37b53fdf32fcaecca84c4bc717"
+  },
+  "lifecycle": {
+    "operator_catalog_status": "registered",
+    "runtime_source_status": "migrated_pending_cutover",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "migration": {
+    "behavior_parity_status": "pending_baseline_replay",
+    "legacy_path": "cbond_on/domain/factors/defs/alpha034_return_volatility_rank_v1.py",
+    "legacy_sha256": "c8f589e7d9c4dd53717c7f35c85bb5d2c7952ae8496c444c38aa9fca9f0bcc09",
+    "migration_kind": "namespace_relocation_without_formula_change"
+  },
+  "runtime_contract": {
+    "input_schema_status": "operator_declared_pending_field_audit",
+    "pit_validation_status": "operator_migration_pending_pit_audit",
+    "registration_key": "alpha034_return_volatility_rank_v1",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "schema_version": "operator_contract/v1",
+  "test_reference": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+}

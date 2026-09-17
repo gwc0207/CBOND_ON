@@ -1,0 +1,49 @@
+{
+  "contract_hash": "eb1d274531fc0fd1d3c5936969cd6ea9d094bf0f6e5a9614783c74e628b169f1",
+  "definition": {
+    "kind": "runtime_operator_reference",
+    "path": "operators/factor_mining_conditional_response_residual_v1/definition.py",
+    "sha256": "303b84f85059cd8582f16ae579b25944bddcf13f7053502e86e06cddb6e818f8"
+  },
+  "factor_instances": [
+    "ccr_duration_flow_interaction_residual",
+    "ccr_flow_acceleration_prior_liquidity_residual",
+    "ccr_imbalance_shift_prior_state_residual",
+    "ccr_late_impact_prior_liquidity_residual",
+    "ccr_late_reversal_prior_state_residual",
+    "ccr_path_efficiency_prior_state_residual",
+    "ccr_premium_tail_interaction_residual",
+    "ccr_spread_shift_prior_state_residual"
+  ],
+  "identity": {
+    "operator_class": "FactorMiningConditionalResponseResidualV1",
+    "operator_id": "factor_mining_conditional_response_residual_v1",
+    "operator_version": "20260803_conditional_response_residual_v1"
+  },
+  "implementation": {
+    "language": "python_runtime_operator",
+    "module": "cbond_on.domain.factors.operators.research_factor_mining_conditional_response_residual_v1",
+    "path": "cbond_on/domain/factors/operators/research_factor_mining_conditional_response_residual_v1.py",
+    "sha256": "e34f22ad6e59c94c78d152d6f9965f804e52dc6045fee1c85a587f8a5fc70a0a"
+  },
+  "lifecycle": {
+    "operator_catalog_status": "registered",
+    "runtime_source_status": "migrated_pending_cutover",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "migration": {
+    "behavior_parity_status": "pending_baseline_replay",
+    "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_conditional_response_residual_v1.py",
+    "legacy_sha256": "f5c1ae04c56e1bf408d6df0441f9f8cf1c539b8956c9e8e715489eae5f2bd70e",
+    "migration_kind": "namespace_relocation_without_formula_change"
+  },
+  "runtime_contract": {
+    "input_schema_status": "operator_declared_pending_field_audit",
+    "pit_validation_status": "operator_migration_pending_pit_audit",
+    "registration_key": "factor_mining_conditional_response_residual_v1",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "schema_version": "operator_contract/v1",
+  "test_reference": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+}

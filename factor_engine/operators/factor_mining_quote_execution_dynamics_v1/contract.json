@@ -1,0 +1,47 @@
+{
+  "contract_hash": "d6d1ebf3d504085bcbb2d9f2477c97880d8075467332a9115ef361cc83b0566d",
+  "definition": {
+    "kind": "runtime_operator_reference",
+    "path": "operators/factor_mining_quote_execution_dynamics_v1/definition.py",
+    "sha256": "283463591532bd0d4ddc9e62bc6465e0d7ad4f2922e8c07e372487c9a6feecfa"
+  },
+  "factor_instances": [
+    "qed_prior_quote_direction_switch_rate",
+    "qed_prior_quote_inside_spread_share",
+    "qed_prior_quote_lag2_agreement",
+    "qed_prior_quote_location_dispersion",
+    "qed_prior_quote_longest_run_share",
+    "qed_prior_quote_tail_penetration"
+  ],
+  "identity": {
+    "operator_class": "FactorMiningQuoteExecutionDynamicsV1",
+    "operator_id": "factor_mining_quote_execution_dynamics_v1",
+    "operator_version": "20260803_quote_execution_dynamics_v1"
+  },
+  "implementation": {
+    "language": "python_runtime_operator",
+    "module": "cbond_on.domain.factors.operators.research_factor_mining_quote_execution_dynamics_v1",
+    "path": "cbond_on/domain/factors/operators/research_factor_mining_quote_execution_dynamics_v1.py",
+    "sha256": "75adf422d18f2d10451aaec809200ca103d57497426ae667bd5d10e302fb07a6"
+  },
+  "lifecycle": {
+    "operator_catalog_status": "registered",
+    "runtime_source_status": "migrated_pending_cutover",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "migration": {
+    "behavior_parity_status": "pending_baseline_replay",
+    "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_quote_execution_dynamics_v1.py",
+    "legacy_sha256": "6e5bb2f0454295badae6814e07cd5bb329c4ceb260faf9171dfc7e69b84afb07",
+    "migration_kind": "namespace_relocation_without_formula_change"
+  },
+  "runtime_contract": {
+    "input_schema_status": "operator_declared_pending_field_audit",
+    "pit_validation_status": "operator_migration_pending_pit_audit",
+    "registration_key": "factor_mining_quote_execution_dynamics_v1",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "schema_version": "operator_contract/v1",
+  "test_reference": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+}

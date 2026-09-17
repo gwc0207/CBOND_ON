@@ -11,9 +11,9 @@ from cbond_on.app.usecases.factor_batch_runtime import (
     build_signal_specs,
     run_intraday_factor_backtest,
 )
-from cbond_on.domain.factors import defs  # noqa: F401
+from cbond_on.domain.factors.operator_default_loader import load_default_operators
 from cbond_on.domain.factors.spec import build_factor_col
-from cbond_on.domain.factors.storage import FactorStore
+from cbond_on.infra.factors.factor_table_resolution import build_factor_reader
 from cbond_on.infra.report.factor_report import save_single_factor_report
 
 
@@ -28,6 +28,7 @@ def run(
     paths_cfg = load_config_file("paths")
     factor_cfg = load_config_file("factor")
     backtest_cfg = dict(cfg or factor_cfg)
+    load_default_operators()
 
     start_day = parse_date(start or backtest_cfg.get("start") or factor_cfg.get("start"))
     end_day = parse_date(end or backtest_cfg.get("end") or factor_cfg.get("end"))
@@ -40,8 +41,8 @@ def run(
     panel_name = str(factor_cfg.get("panel_name", "")).strip()
     if not panel_name:
         raise ValueError("factor_config.panel_name is required; window_minutes fallback is disabled")
-    factor_store = FactorStore(
-        Path(paths_cfg["factor_data_root"]),
+    factor_store = build_factor_reader(
+        paths_cfg,
         panel_name=panel_name,
         window_minutes=15,
     )

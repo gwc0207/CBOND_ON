@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 
 from cbond_on.bootstrap.research import load_factor_batch_inputs
-from cbond_on.domain.factors import defs  # noqa: F401
+from cbond_on.domain.factors.operator_default_loader import load_default_operators
 from cbond_on.workflows.research.factor_batch import run
 
 
@@ -23,6 +23,7 @@ def main(
         cfg["factors"] = []
     if results_root:
         paths_cfg["results_root"] = results_root
+    load_default_operators()
     out_root = run(cfg, paths_cfg=paths_cfg)
     print({"out_root": str(out_root)})
 

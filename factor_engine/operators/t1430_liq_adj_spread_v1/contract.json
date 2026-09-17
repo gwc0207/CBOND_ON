@@ -1,0 +1,40 @@
+{
+  "contract_hash": "9f76648e7a7eaa240522468a60f458c719c44127aadccaccc00b7cad8e79142b",
+  "definition": {
+    "kind": "runtime_operator_reference",
+    "path": "operators/t1430_liq_adj_spread_v1/definition.py",
+    "sha256": "3f10df2043ace5b1c07da2c61ae1175b6bddbec42ede7a815eb87592e89834d2"
+  },
+  "factor_instances": [],
+  "identity": {
+    "operator_class": "T1430LiqAdjSpreadV1",
+    "operator_id": "t1430_liq_adj_spread_v1",
+    "operator_version": "legacy-unversioned"
+  },
+  "implementation": {
+    "language": "python_runtime_operator",
+    "module": "cbond_on.domain.factors.operators.t1430_liq_adj_spread_v1",
+    "path": "cbond_on/domain/factors/operators/t1430_liq_adj_spread_v1.py",
+    "sha256": "dac60c119bddf061e5ec221536ecb0a577ac5574f475d0878f29b08af1bf270b"
+  },
+  "lifecycle": {
+    "operator_catalog_status": "registered",
+    "runtime_source_status": "migrated_pending_cutover",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "migration": {
+    "behavior_parity_status": "pending_baseline_replay",
+    "legacy_path": "cbond_on/domain/factors/defs/t1430_liq_adj_spread_v1.py",
+    "legacy_sha256": "4bc976a5eb8f6043ccf4483aaa79b12cef3510c90134e7c48c5d0b1115a44d8d",
+    "migration_kind": "namespace_relocation_without_formula_change"
+  },
+  "runtime_contract": {
+    "input_schema_status": "operator_declared_pending_field_audit",
+    "pit_validation_status": "operator_migration_pending_pit_audit",
+    "registration_key": "t1430_liq_adj_spread_v1",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "schema_version": "operator_contract/v1",
+  "test_reference": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+}

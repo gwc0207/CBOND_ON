@@ -1,0 +1,88 @@
+{
+  "context_requirements": {
+    "daily": [
+      {
+        "columns": [
+          "exchange_code",
+          "close_price",
+          "prev_close_price",
+          "act_prev_close_price"
+        ],
+        "lookback_days": 66,
+        "source": "market_cbond.daily_price"
+      },
+      {
+        "columns": [
+          "exchange_code",
+          "twap_0930_0935",
+          "twap_1442_1457"
+        ],
+        "lookback_days": 66,
+        "source": "market_cbond.daily_twap"
+      }
+    ],
+    "panel_field_schema_status": "operator_declared_pending_factor_minimal_audit",
+    "panel_fields": [],
+    "panel_name": "T1430",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "contract_hash": "2e613bf4ce8cecdc1686a010672f74f53a6cda85f55d76d832012afd6733abce",
+  "definition": {
+    "kind": "parameterized_operator_definition",
+    "path": "factors/interday_finalization_transmission/ift_transmission_beta40/definition.py",
+    "sha256": "770df719ce7c7c7477133eb9304dccd407ac1ad1f2253e8f18b3bc891eda51be"
+  },
+  "fixed_params": {
+    "family": "interday_finalization_transmission",
+    "signal": "ift_transmission_beta40"
+  },
+  "identity": {
+    "factor_id": "ift_transmission_beta40",
+    "factor_version": "catalog-20260826-cfbf2768f28b-68ab2512bd2e",
+    "primary_family": "interday_finalization_transmission",
+    "tags": []
+  },
+  "lifecycle": {
+    "catalog_status": "registered",
+    "live_admission_status": "not_evaluated_by_catalog_builder",
+    "research_status": "legacy_mapping_discovered",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "operator_bindings": [
+    {
+      "implementation_module": "cbond_on.domain.factors.operators.research_factor_mining_daily_interday_topology_v1",
+      "implementation_path": "cbond_on/domain/factors/operators/research_factor_mining_daily_interday_topology_v1.py",
+      "implementation_sha256": "cfbf2768f28bca7d71536d066ee8b3dc3ddb023e401bff7ccc06acf6f23726ae",
+      "language": "python_runtime_operator",
+      "legacy_implementation_path": "cbond_on/domain/factors/defs/research_factor_mining_daily_interday_topology_v1.py",
+      "legacy_implementation_sha256": "cfbf2768f28bca7d71536d066ee8b3dc3ddb023e401bff7ccc06acf6f23726ae",
+      "operator_contract_path": "operators/factor_mining_daily_interday_topology_v1/contract.json",
+      "operator_id": "factor_mining_daily_interday_topology_v1",
+      "operator_version": "20260803_daily_interday_topology_v1",
+      "rust_contract_id": null
+    }
+  ],
+  "output": {
+    "column": "ift_transmission_beta40",
+    "dtype": "float64"
+  },
+  "schema_version": "factor_contract/v2",
+  "source_lineage": {
+    "hypothesis": "A completed official-final-mark versus execution-TWAP basis can transmit into the following session's opening execution return, separately from an intraday curve shape.",
+    "snapshot_id": "canonical_factor_catalog_20260826_800",
+    "source_position": 2,
+    "source_root": "D:/cbond_on/research_scratch/factor_mining_20260803_aggregate_catalog_v5_full/factor_data",
+    "source_set": "research773"
+  },
+  "test_reference": {
+    "behavioral_parity_status": "pending_baseline_replay",
+    "contract_test": "tests/test_factor_engine_governance.py::test_all_factor_definitions_and_contracts",
+    "operator_test": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+  },
+  "time_contract": {
+    "factor_time": "14:30",
+    "pit_validation_status": "operator_migration_pending_factor_pit_audit",
+    "research_label_time_reference": "14:42"
+  }
+}

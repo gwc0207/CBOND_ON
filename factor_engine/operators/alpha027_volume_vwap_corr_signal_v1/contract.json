@@ -1,0 +1,40 @@
+{
+  "contract_hash": "4be370dae0e4f9123055ae00574b8a56dd8d71c8f9b1f0b4bdd71034814b338b",
+  "definition": {
+    "kind": "runtime_operator_reference",
+    "path": "operators/alpha027_volume_vwap_corr_signal_v1/definition.py",
+    "sha256": "970d5617b58ca6d8dd87f5cee242d929f0b128d718d8d37d621e36793cb36c52"
+  },
+  "factor_instances": [],
+  "identity": {
+    "operator_class": "Alpha027VolumeVwapCorrSignalV1Factor",
+    "operator_id": "alpha027_volume_vwap_corr_signal_v1",
+    "operator_version": "legacy-unversioned"
+  },
+  "implementation": {
+    "language": "python_runtime_operator",
+    "module": "cbond_on.domain.factors.operators.alpha027_volume_vwap_corr_signal_v1",
+    "path": "cbond_on/domain/factors/operators/alpha027_volume_vwap_corr_signal_v1.py",
+    "sha256": "a9073dfbf47b68a07a2ca140775e107b6e13ea7746cb4a55f74a99927fe30c0a"
+  },
+  "lifecycle": {
+    "operator_catalog_status": "registered",
+    "runtime_source_status": "migrated_pending_cutover",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "migration": {
+    "behavior_parity_status": "pending_baseline_replay",
+    "legacy_path": "cbond_on/domain/factors/defs/alpha027_volume_vwap_corr_signal_v1.py",
+    "legacy_sha256": "9ace78d0c545afa4297940c301982d3a7dfc95a2b26f483e8e2059f77e48f074",
+    "migration_kind": "namespace_relocation_without_formula_change"
+  },
+  "runtime_contract": {
+    "input_schema_status": "operator_declared_pending_field_audit",
+    "pit_validation_status": "operator_migration_pending_pit_audit",
+    "registration_key": "alpha027_volume_vwap_corr_signal_v1",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "schema_version": "operator_contract/v1",
+  "test_reference": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+}

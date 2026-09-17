@@ -1,0 +1,88 @@
+{
+  "context_requirements": {
+    "daily": [
+      {
+        "columns": [
+          "exchange_code",
+          "close_price"
+        ],
+        "lookback_days": 66,
+        "source": "market_cbond.daily_price"
+      },
+      {
+        "columns": [
+          "exchange_code",
+          "cb_prev_close_price",
+          "cb_close_price",
+          "stk_prev_close_price",
+          "stk_close_price"
+        ],
+        "lookback_days": 66,
+        "source": "market_cbond.daily_base"
+      }
+    ],
+    "panel_field_schema_status": "operator_declared_pending_factor_minimal_audit",
+    "panel_fields": [],
+    "panel_name": "T1430",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "contract_hash": "eee766e53a4b219e2bddab93de304afd0c6fe36d6a29e5e79b3804dc1a16fb39",
+  "definition": {
+    "kind": "parameterized_operator_definition",
+    "path": "factors/daily_bond_stock_tracking_error/bstk_tail_cocrash_residual20/definition.py",
+    "sha256": "2a18afdccdbe434ce26e73768766719fa8b195639436d8636ec613a3d2143a26"
+  },
+  "fixed_params": {
+    "family": "daily_bond_stock_tracking_error",
+    "signal": "bstk_tail_cocrash_residual20"
+  },
+  "identity": {
+    "factor_id": "bstk_tail_cocrash_residual20",
+    "factor_version": "catalog-20260826-217d94708ac7-fd55f91352b0",
+    "primary_family": "daily_bond_stock_tracking_error",
+    "tags": []
+  },
+  "lifecycle": {
+    "catalog_status": "registered",
+    "live_admission_status": "live_released",
+    "research_status": "legacy_mapping_discovered",
+    "rust_status": "live50_rust_capability_required"
+  },
+  "operator_bindings": [
+    {
+      "implementation_module": "cbond_on.domain.factors.operators.research_factor_mining_daily_contract_stock_v1",
+      "implementation_path": "cbond_on/domain/factors/operators/research_factor_mining_daily_contract_stock_v1.py",
+      "implementation_sha256": "217d94708ac76ccbfb88f8b9725b1dcfbaf165039d42a9a1ccbc5cd53b75c015",
+      "language": "python_runtime_operator",
+      "legacy_implementation_path": "cbond_on/domain/factors/defs/research_factor_mining_daily_contract_stock_v1.py",
+      "legacy_implementation_sha256": "217d94708ac76ccbfb88f8b9725b1dcfbaf165039d42a9a1ccbc5cd53b75c015",
+      "operator_contract_path": "operators/factor_mining_daily_contract_stock_v1/contract.json",
+      "operator_id": "factor_mining_daily_contract_stock_v1",
+      "operator_version": "20260803_daily_contract_stock_v1",
+      "rust_contract_id": "live50_r5/bstk_tail_cocrash_residual20"
+    }
+  ],
+  "output": {
+    "column": "bstk_tail_cocrash_residual20",
+    "dtype": "float64"
+  },
+  "schema_version": "factor_contract/v2",
+  "source_lineage": {
+    "hypothesis": "Completed daily bond-versus-stock residual behaviour captures tracking-error regime rather than intraday beta.",
+    "snapshot_id": "canonical_factor_catalog_20260826_800",
+    "source_position": 1,
+    "source_root": "D:/cbond_on/research_scratch/factor_mining_20260803_unified_v7_with_joint_merged_v1",
+    "source_set": "research773"
+  },
+  "test_reference": {
+    "behavioral_parity_status": "pending_baseline_replay",
+    "contract_test": "tests/test_factor_engine_governance.py::test_all_factor_definitions_and_contracts",
+    "operator_test": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+  },
+  "time_contract": {
+    "factor_time": "14:30",
+    "pit_validation_status": "operator_migration_pending_factor_pit_audit",
+    "research_label_time_reference": "14:42"
+  }
+}

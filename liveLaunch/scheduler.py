@@ -168,7 +168,7 @@ def _append_attempt_event(
 
 def main() -> None:
     initial_live_cfg = load_config_file("live")
-    configure_live_paths_profile(initial_live_cfg)
+    initial_paths_profile = configure_live_paths_profile(initial_live_cfg)
     paths_cfg = load_config_file("paths")
     raw_root = str(paths_cfg["raw_data_root"])
     results_root = Path(paths_cfg["results_root"])
@@ -206,7 +206,22 @@ def main() -> None:
 
     while True:
         live_cfg = load_config_file("live")
-        configure_live_paths_profile(live_cfg)
+        current_paths_profile = configure_live_paths_profile(live_cfg)
+        if current_paths_profile != initial_paths_profile:
+            now = datetime.now()
+            _write_json(
+                state_path,
+                {
+                    **_drop_run_fields(_read_json(state_path)),
+                    "status": "failed_paths_profile_drift",
+                    "started_paths_profile": str(initial_paths_profile) if initial_paths_profile else None,
+                    "current_paths_profile": str(current_paths_profile) if current_paths_profile else None,
+                    "now": now.isoformat(timespec="seconds"),
+                    "heartbeat": now.isoformat(timespec="seconds"),
+                    "reason": "scheduler roots are frozen for one process; restart only after explicit live-path approval",
+                },
+            )
+            return
         schedule_cfg = dict(live_cfg.get("schedule", {}))
         cutoff = parse_time(str(schedule_cfg.get("cutoff_time", "14:30")))
 

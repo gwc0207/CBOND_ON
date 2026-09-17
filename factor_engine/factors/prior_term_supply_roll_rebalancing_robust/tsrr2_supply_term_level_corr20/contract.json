@@ -1,0 +1,94 @@
+{
+  "context_requirements": {
+    "daily": [
+      {
+        "columns": [
+          "exchange_code",
+          "close_price",
+          "volume",
+          "amount"
+        ],
+        "lookback_days": 66,
+        "source": "market_cbond.daily_price"
+      },
+      {
+        "columns": [
+          "exchange_code",
+          "current_yield",
+          "duration",
+          "convexity",
+          "year_to_mat",
+          "remain_size",
+          "bond_prem_ratio",
+          "conv_value",
+          "pure_redemption_value"
+        ],
+        "lookback_days": 66,
+        "source": "market_cbond.daily_base"
+      }
+    ],
+    "panel_field_schema_status": "operator_declared_pending_factor_minimal_audit",
+    "panel_fields": [],
+    "panel_name": "T1430",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "contract_hash": "59466ed50fe6f0e2f5294479419ef5b289d1270742b599c9f4d3ca20c0089742",
+  "definition": {
+    "kind": "parameterized_operator_definition",
+    "path": "factors/prior_term_supply_roll_rebalancing_robust/tsrr2_supply_term_level_corr20/definition.py",
+    "sha256": "05c7336e0697b87332ee67bde44a78cff069da69f74de8f5be06f82723709d48"
+  },
+  "fixed_params": {
+    "family": "prior_term_supply_roll_rebalancing_robust",
+    "signal": "tsrr2_supply_term_level_corr20"
+  },
+  "identity": {
+    "factor_id": "tsrr2_supply_term_level_corr20",
+    "factor_version": "catalog-20260826-eae5d9d87dce-eed05993f156",
+    "primary_family": "prior_term_supply_roll_rebalancing_robust",
+    "tags": []
+  },
+  "lifecycle": {
+    "catalog_status": "registered",
+    "live_admission_status": "not_evaluated_by_catalog_builder",
+    "research_status": "legacy_mapping_discovered",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "operator_bindings": [
+    {
+      "implementation_module": "cbond_on.domain.factors.operators.research_factor_mining_daily_credit_duration_term_supply_dynamics_v2",
+      "implementation_path": "cbond_on/domain/factors/operators/research_factor_mining_daily_credit_duration_term_supply_dynamics_v2.py",
+      "implementation_sha256": "eae5d9d87dce17c1f7377fa5e659017c06743371db29fe943a57a8a31ffcaa76",
+      "language": "python_runtime_operator",
+      "legacy_implementation_path": "cbond_on/domain/factors/defs/research_factor_mining_daily_credit_duration_term_supply_dynamics_v2.py",
+      "legacy_implementation_sha256": "eae5d9d87dce17c1f7377fa5e659017c06743371db29fe943a57a8a31ffcaa76",
+      "operator_contract_path": "operators/factor_mining_daily_credit_duration_term_supply_dynamics_v2/contract.json",
+      "operator_id": "factor_mining_daily_credit_duration_term_supply_dynamics_v2",
+      "operator_version": "20260803_daily_credit_duration_term_supply_dynamics_v2",
+      "rust_contract_id": null
+    }
+  ],
+  "output": {
+    "column": "tsrr2_supply_term_level_corr20",
+    "dtype": "float64"
+  },
+  "schema_version": "factor_contract/v2",
+  "source_lineage": {
+    "hypothesis": "Term, duration-to-term shape, and changing remaining supply describe prior roll-down rebalancing only where the completed supply history has effective variation.",
+    "snapshot_id": "canonical_factor_catalog_20260826_800",
+    "source_position": 2,
+    "source_root": "D:/cbond_on/research_scratch/factor_mining_20260803_aggregate_catalog_v5_full/factor_data",
+    "source_set": "research773"
+  },
+  "test_reference": {
+    "behavioral_parity_status": "pending_baseline_replay",
+    "contract_test": "tests/test_factor_engine_governance.py::test_all_factor_definitions_and_contracts",
+    "operator_test": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+  },
+  "time_contract": {
+    "factor_time": "14:30",
+    "pit_validation_status": "operator_migration_pending_factor_pit_audit",
+    "research_label_time_reference": "14:42"
+  }
+}

@@ -1,0 +1,40 @@
+{
+  "contract_hash": "c282848205c7b8d987a6fcc44743363693a62ed9f783027001efe0e81fada596",
+  "definition": {
+    "kind": "runtime_operator_reference",
+    "path": "operators/spread/definition.py",
+    "sha256": "6af855ab1cfaabcab050f0fe1ff1baf2970cff488552548e5d0e5965339f0bdc"
+  },
+  "factor_instances": [],
+  "identity": {
+    "operator_class": "SpreadFactor",
+    "operator_id": "spread",
+    "operator_version": "legacy-unversioned"
+  },
+  "implementation": {
+    "language": "python_runtime_operator",
+    "module": "cbond_on.domain.factors.operators.spread",
+    "path": "cbond_on/domain/factors/operators/spread.py",
+    "sha256": "79130d541b49d72ba7669d93f6dccbc56d745d99a652e3e10e8a2698ea2bbbb8"
+  },
+  "lifecycle": {
+    "operator_catalog_status": "registered",
+    "runtime_source_status": "migrated_pending_cutover",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "migration": {
+    "behavior_parity_status": "pending_baseline_replay",
+    "legacy_path": "cbond_on/domain/factors/defs/spread.py",
+    "legacy_sha256": "5b2dd328cb547661f8e5b8a086296d86ef9a6d8993cde228e74eb51741928045",
+    "migration_kind": "namespace_relocation_without_formula_change"
+  },
+  "runtime_contract": {
+    "input_schema_status": "operator_declared_pending_field_audit",
+    "pit_validation_status": "operator_migration_pending_pit_audit",
+    "registration_key": "spread",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "schema_version": "operator_contract/v1",
+  "test_reference": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+}

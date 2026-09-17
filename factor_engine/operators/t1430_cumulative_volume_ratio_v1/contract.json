@@ -1,0 +1,40 @@
+{
+  "contract_hash": "9e5745177e7443c6ecba7890fe929a29b8eeb0085dec2c8bc5813b7382724b2b",
+  "definition": {
+    "kind": "runtime_operator_reference",
+    "path": "operators/t1430_cumulative_volume_ratio_v1/definition.py",
+    "sha256": "c3ee04f35b7f7c84949ceb1a5fed5cced7e9576f39f2625a48aad6766e53e831"
+  },
+  "factor_instances": [],
+  "identity": {
+    "operator_class": "T1430CumulativeVolumeRatioV1",
+    "operator_id": "t1430_cumulative_volume_ratio_v1",
+    "operator_version": "legacy-unversioned"
+  },
+  "implementation": {
+    "language": "python_runtime_operator",
+    "module": "cbond_on.domain.factors.operators.t1430_cumulative_volume_ratio_v1",
+    "path": "cbond_on/domain/factors/operators/t1430_cumulative_volume_ratio_v1.py",
+    "sha256": "0f7fba518db1fd9659f2851c00f08d6575ec9d27a25eae0f8030a8c1e775274d"
+  },
+  "lifecycle": {
+    "operator_catalog_status": "registered",
+    "runtime_source_status": "migrated_pending_cutover",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "migration": {
+    "behavior_parity_status": "pending_baseline_replay",
+    "legacy_path": "cbond_on/domain/factors/defs/t1430_cumulative_volume_ratio_v1.py",
+    "legacy_sha256": "4f11fe2a713ad8a45fffd3df2d87122053eedab370f8e69176de0782c8f29301",
+    "migration_kind": "namespace_relocation_without_formula_change"
+  },
+  "runtime_contract": {
+    "input_schema_status": "operator_declared_pending_field_audit",
+    "pit_validation_status": "operator_migration_pending_pit_audit",
+    "registration_key": "t1430_cumulative_volume_ratio_v1",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "schema_version": "operator_contract/v1",
+  "test_reference": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+}

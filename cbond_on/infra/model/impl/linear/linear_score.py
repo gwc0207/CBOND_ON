@@ -7,13 +7,14 @@ import secrets
 from dataclasses import dataclass
 from datetime import date, datetime, time as dt_time
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 import numpy as np
 import pandas as pd
 
 from cbond_on.core.naming import make_window_label
 from cbond_on.domain.factors.storage import FactorStore
+from cbond_on.infra.factors.factor_table_resolution import CanonicalFactorTableReader
 from cbond_on.infra.model.neutralization import FactorNeutralizer
 from cbond_on.infra.model.score_io import write_scores_by_date
 
@@ -592,16 +593,42 @@ def run_linear_score(
     incremental_save_state: bool = False,
     state_dir: Path | None = None,
     warm_start_fingerprint: str | None = None,
+    factor_store: FactorStore | CanonicalFactorTableReader | None = None,
+    target_days: Sequence[date] | None = None,
+    audit_only: bool = False,
 ) -> ScoreResult:
-    store = FactorStore(factor_root, panel_name=panel_name, window_minutes=window_minutes)
-    target_days = _iter_existing_factor_days(
-        factor_root,
-        panel_name=panel_name,
-        window_minutes=window_minutes,
-        start=start,
-        end=end,
-    )
-    if not target_days:
+    if factor_store is None:
+        raise RuntimeError(
+            "linear scoring requires an explicit manifest-bound canonical factor reader; "
+            "direct factor-root construction is audit-only"
+        )
+    if isinstance(factor_store, CanonicalFactorTableReader):
+        if target_days is None:
+            raise RuntimeError(
+                "canonical linear scoring requires caller-validated target_days; "
+                "do not discover factor days by scanning parquet paths"
+            )
+        store = factor_store
+        resolved_target_days = sorted(set(target_days))
+    else:
+        if not audit_only:
+            raise RuntimeError(
+                "direct FactorStore linear scoring is audit-only; normal callers must use "
+                "CanonicalFactorTableReader with explicit target_days"
+            )
+        store = factor_store
+        resolved_target_days = (
+            sorted(set(target_days))
+            if target_days is not None
+            else _iter_existing_factor_days(
+                factor_root,
+                panel_name=panel_name,
+                window_minutes=window_minutes,
+                start=start,
+                end=end,
+            )
+        )
+    if not resolved_target_days:
         return ScoreResult(scores=pd.DataFrame(), weights_history=pd.DataFrame())
 
     # The label lookup includes pre-start history so a one-day live call still
@@ -651,7 +678,7 @@ def run_linear_score(
             )
         return label_cache[day]
 
-    for idx, day in enumerate(target_days):
+    for idx, day in enumerate(resolved_target_days):
         day_df = _factor_day(day)
         if day_df.empty:
             continue

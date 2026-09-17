@@ -1444,6 +1444,7 @@ def train_lgbm(
     early_stopping_rounds: int | None = None,
     loss_mode: str = "mse",
     init_model: object | str | Path | None = None,
+    require_init_model: bool = False,
     label_target_transform: LabelTargetTransformSpec | None = None,
     early_stopping_metric: str = "rank_ic",
 ) -> tuple[object, dict]:
@@ -1452,6 +1453,8 @@ def train_lgbm(
         if _LIGHTGBM_IMPORT_ERROR is not None:
             detail = f" ({type(_LIGHTGBM_IMPORT_ERROR).__name__}: {_LIGHTGBM_IMPORT_ERROR})"
         raise RuntimeError(f"lightgbm is not installed{detail}")
+    if require_init_model and init_model is None:
+        raise ValueError("require_init_model=True requires a non-empty init_model")
     params = dict(lgbm_params)
     mode = str(loss_mode or "mse").lower()
     target_spec = label_target_transform or LabelTargetTransformSpec()
@@ -1638,7 +1641,12 @@ def train_lgbm(
                 callbacks.append(lambda env: _record_callback(env))
                 try:
                     estimator.fit(train_fit.x, train_y, **fit_kwargs, callbacks=callbacks)
-                except TypeError:
+                except TypeError as exc:
+                    if require_init_model and init_model is not None:
+                        raise RuntimeError(
+                            "strict warm-start requires LightGBM init_model support; "
+                            "refusing to silently retry as a cold start"
+                        ) from exc
                     # Older sklearn wrappers may not accept init_model.
                     fit_kwargs.pop("init_model", None)
                     estimator.fit(train_fit.x, train_y, **fit_kwargs, callbacks=callbacks)
@@ -1646,7 +1654,12 @@ def train_lgbm(
         # no early stopping
         try:
             estimator.fit(train_fit.x, train_y, **base_fit_kwargs)
-        except TypeError:
+        except TypeError as exc:
+            if require_init_model and init_model is not None:
+                raise RuntimeError(
+                    "strict warm-start requires LightGBM init_model support; "
+                    "refusing to silently retry as a cold start"
+                ) from exc
             base_fit_kwargs.pop("init_model", None)
             estimator.fit(train_fit.x, train_y)
 

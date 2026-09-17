@@ -7,10 +7,10 @@ import pandas as pd
 import pytest
 
 from cbond_on.core.registry import FactorRegistry
-from cbond_on.domain.factors import defs as factor_defs
+from cbond_on.domain.factors import operators as factor_operators
 from cbond_on.domain.factors.base import FactorComputeContext
 from cbond_on.domain.factors.builder import build_factor_frame
-from cbond_on.domain.factors.defs import research_factor_mining_daily_twap_microsegments_v1 as microsegments
+from cbond_on.domain.factors.operators import research_factor_mining_daily_twap_microsegments_v1 as microsegments
 from cbond_on.domain.factors.spec import FactorSpec
 
 
@@ -134,7 +134,7 @@ def test_catalogue_has_four_three_signal_families_and_import_only_registration()
     }
     assert set(microsegments.FORMULAS) == {entry.signal for entry in entries}
     assert FactorRegistry.get(microsegments.KERNEL_NAME) is microsegments.FactorMiningDailyTwapMicrosegmentsV1
-    assert microsegments.FactorMiningDailyTwapMicrosegmentsV1.__name__ not in factor_defs.__all__
+    assert microsegments.FactorMiningDailyTwapMicrosegmentsV1.__name__ not in factor_operators.__all__
     assert microsegments.FactorMiningDailyTwapMicrosegmentsV1.requires_stock_panel is False
     assert microsegments.FactorMiningDailyTwapMicrosegmentsV1.requires_bond_stock_map is False
 

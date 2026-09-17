@@ -1,0 +1,80 @@
+{
+  "context_requirements": {
+    "daily": [
+      {
+        "columns": [
+          "exchange_code",
+          "prev_close_price",
+          "close_price",
+          "amount",
+          "deal"
+        ],
+        "lookback_days": 75,
+        "source": "market_cbond.daily_price"
+      }
+    ],
+    "panel_field_schema_status": "operator_declared_pending_factor_minimal_audit",
+    "panel_fields": [],
+    "panel_name": "T1430",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "contract_hash": "18026ed2e84ca0043e9b574a4f51b9b2e6ff25068c8b20e54c364474c113fa16",
+  "definition": {
+    "kind": "parameterized_operator_definition",
+    "path": "factors/prior_joint_return_liquidity_state_topology/rjst_amount_joint_transition_entropy60/definition.py",
+    "sha256": "83ed836665a3816c5e57f347ffb5ebc3d9b807a4d3d425b6ae9e471b755f228b"
+  },
+  "fixed_params": {
+    "family": "prior_joint_return_liquidity_state_topology",
+    "signal": "rjst_amount_joint_transition_entropy60"
+  },
+  "identity": {
+    "factor_id": "rjst_amount_joint_transition_entropy60",
+    "factor_version": "catalog-20260826-089d8a9cd07f-41735d89b851",
+    "primary_family": "prior_joint_return_liquidity_state_topology",
+    "tags": []
+  },
+  "lifecycle": {
+    "catalog_status": "registered",
+    "live_admission_status": "live_released",
+    "research_status": "legacy_mapping_discovered",
+    "rust_status": "live50_rust_capability_required"
+  },
+  "operator_bindings": [
+    {
+      "implementation_module": "cbond_on.domain.factors.operators.research_factor_mining_daily_return_liquidity_topology_v1",
+      "implementation_path": "cbond_on/domain/factors/operators/research_factor_mining_daily_return_liquidity_topology_v1.py",
+      "implementation_sha256": "089d8a9cd07fc15271dac2e10256e0e4810db08964e79d29e385a34f02f86072",
+      "language": "python_runtime_operator",
+      "legacy_implementation_path": "cbond_on/domain/factors/defs/research_factor_mining_daily_return_liquidity_topology_v1.py",
+      "legacy_implementation_sha256": "089d8a9cd07fc15271dac2e10256e0e4810db08964e79d29e385a34f02f86072",
+      "operator_contract_path": "operators/factor_mining_daily_return_liquidity_topology_v1/contract.json",
+      "operator_id": "factor_mining_daily_return_liquidity_topology_v1",
+      "operator_version": "20260803_daily_return_liquidity_topology_v1",
+      "rust_contract_id": "live50_r5/rjst_amount_joint_transition_entropy60"
+    }
+  ],
+  "output": {
+    "column": "rjst_amount_joint_transition_entropy60",
+    "dtype": "float64"
+  },
+  "schema_version": "factor_contract/v2",
+  "source_lineage": {
+    "hypothesis": "The entropy of completed transitions across joint return-sign and amount-change-sign states measures state-path topology rather than a marginal return, amount, or volatility level.",
+    "snapshot_id": "canonical_factor_catalog_20260826_800",
+    "source_position": 3,
+    "source_root": "D:/cbond_on/research_scratch/factor_mining_20260804_daily_orthogonal_batch_v8_full_r2/factor_data",
+    "source_set": "research773"
+  },
+  "test_reference": {
+    "behavioral_parity_status": "pending_baseline_replay",
+    "contract_test": "tests/test_factor_engine_governance.py::test_all_factor_definitions_and_contracts",
+    "operator_test": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+  },
+  "time_contract": {
+    "factor_time": "14:30",
+    "pit_validation_status": "operator_migration_pending_factor_pit_audit",
+    "research_label_time_reference": "14:42"
+  }
+}

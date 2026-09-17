@@ -549,14 +549,17 @@ fn stock_ranks_by_bond(
     Ok(output)
 }
 
-fn rank_correlation(path: &[(NaiveDate, f64, f64)]) -> f64 {
+/// Compute the complete three-column BSSRC metric record in one pass.  Python
+/// calculates every family member together, so the common denominator and both
+/// tail-observation gates apply even when a caller requests only one tail.
+fn rank_metrics(path: &[(NaiveDate, f64, f64)]) -> (f64, f64, f64) {
     let first = path.len().saturating_sub(TYPED_FACTOR_CROSS_ASSET_WINDOW);
     let recent = &path[first..];
     let Some((_, terminal_bond, terminal_stock)) = recent.last() else {
-        return f64::NAN;
+        return (f64::NAN, f64::NAN, f64::NAN);
     };
     if !terminal_bond.is_finite() || !terminal_stock.is_finite() {
-        return f64::NAN;
+        return (f64::NAN, f64::NAN, f64::NAN);
     }
     let pairs: Vec<(f64, f64)> = recent
         .iter()
@@ -565,7 +568,7 @@ fn rank_correlation(path: &[(NaiveDate, f64, f64)]) -> f64 {
         })
         .collect();
     if pairs.len() < TYPED_FACTOR_CROSS_ASSET_MIN_OBSERVATIONS {
-        return f64::NAN;
+        return (f64::NAN, f64::NAN, f64::NAN);
     }
     let mean_bond = pairs.iter().map(|(bond, _)| bond).sum::<f64>() / pairs.len() as f64;
     let mean_stock = pairs.iter().map(|(_, stock)| stock).sum::<f64>() / pairs.len() as f64;
@@ -574,16 +577,16 @@ fn rank_correlation(path: &[(NaiveDate, f64, f64)]) -> f64 {
     let mut product = 0.0;
     let mut upper_stock = 0usize;
     let mut lower_stock = 0usize;
-    for (bond, stock) in pairs {
-        let centered_bond = bond - mean_bond;
-        let centered_stock = stock - mean_stock;
+    for (bond, stock) in &pairs {
+        let centered_bond = *bond - mean_bond;
+        let centered_stock = *stock - mean_stock;
         bond_square += centered_bond * centered_bond;
         stock_square += centered_stock * centered_stock;
         product += centered_bond * centered_stock;
-        if stock >= UPPER_TAIL {
+        if *stock >= UPPER_TAIL {
             upper_stock += 1;
         }
-        if stock <= LOWER_TAIL {
+        if *stock <= LOWER_TAIL {
             lower_stock += 1;
         }
     }
@@ -593,28 +596,38 @@ fn rank_correlation(path: &[(NaiveDate, f64, f64)]) -> f64 {
         || upper_stock < TYPED_FACTOR_CROSS_ASSET_MIN_TAIL_OBSERVATIONS
         || lower_stock < TYPED_FACTOR_CROSS_ASSET_MIN_TAIL_OBSERVATIONS
     {
-        return f64::NAN;
+        return (f64::NAN, f64::NAN, f64::NAN);
     }
-    let result = product / denominator;
-    if result.is_finite() {
-        result
+    let correlation = product / denominator;
+    let upper_alignment = pairs
+        .iter()
+        .filter(|(_, stock)| *stock >= UPPER_TAIL)
+        .filter(|(bond, _)| *bond >= UPPER_TAIL)
+        .count() as f64
+        / upper_stock as f64;
+    let lower_alignment = pairs
+        .iter()
+        .filter(|(_, stock)| *stock <= LOWER_TAIL)
+        .filter(|(bond, _)| *bond <= LOWER_TAIL)
+        .count() as f64
+        / lower_stock as f64;
+    if correlation.is_finite() && upper_alignment.is_finite() && lower_alignment.is_finite() {
+        (correlation, upper_alignment, lower_alignment)
     } else {
-        f64::NAN
+        (f64::NAN, f64::NAN, f64::NAN)
     }
 }
 
-/// `bssrc_bond_stock_rank_correlation60`.
-///
-/// The pre-selected correlation retains the Python family gate: the latest
-/// 60-row path must also contain at least eight finite stock ranks in *both*
-/// the lower and upper tails, even though the two tail-alignment outputs are
-/// not returned here.
-pub fn bssrc_bond_stock_rank_correlation60(
+fn rank_correlation(path: &[(NaiveDate, f64, f64)]) -> f64 {
+    rank_metrics(path).0
+}
+
+fn bssrc_path(
     ctx: &TypedFactorDailyCrossAssetContext,
     raw_panel_code: &str,
-) -> Result<f64, TypedFactorDailyCrossAssetError> {
+) -> Result<Option<Vec<(NaiveDate, f64, f64)>>, TypedFactorDailyCrossAssetError> {
     let Some(sources) = prepared_sources(ctx)? else {
-        return Ok(f64::NAN);
+        return Ok(None);
     };
     // Build global stock ranks before inspecting the requested panel code: the
     // Python reference raises inconsistent shared-underlying input globally.
@@ -622,7 +635,7 @@ pub fn bssrc_bond_stock_rank_correlation60(
     let stock_rank = stock_ranks_by_bond(&sources.base)?;
     let code = canonical_market_code(raw_panel_code, "");
     if code.is_empty() {
-        return Ok(f64::NAN);
+        return Ok(None);
     }
 
     let mut path = Vec::new();
@@ -640,7 +653,41 @@ pub fn bssrc_bond_stock_rank_correlation60(
     }
     path.sort_by_key(|(trade_date, _, _)| *trade_date);
     if path.last().map(|(trade_date, _, _)| *trade_date) != Some(sources.anchor) {
-        return Ok(f64::NAN);
+        return Ok(None);
     }
-    Ok(rank_correlation(&path))
+    Ok(Some(path))
+}
+
+/// `bssrc_bond_stock_rank_correlation60`.
+///
+/// The pre-selected correlation retains the Python family gate: the latest
+/// 60-row path must also contain at least eight finite stock ranks in *both*
+/// the lower and upper tails, even though the two tail-alignment outputs are
+/// not returned here.
+pub fn bssrc_bond_stock_rank_correlation60(
+    ctx: &TypedFactorDailyCrossAssetContext,
+    raw_panel_code: &str,
+) -> Result<f64, TypedFactorDailyCrossAssetError> {
+    Ok(bssrc_path(ctx, raw_panel_code)
+        .map(|path| path.map_or(f64::NAN, |path| rank_correlation(&path)))?)
+}
+
+/// `bssrc_upper_rank_tail_alignment60`: conditional probability that a bond
+/// reaches its upper cross-sectional return tail when its mapped stock does.
+pub fn bssrc_upper_rank_tail_alignment60(
+    ctx: &TypedFactorDailyCrossAssetContext,
+    raw_panel_code: &str,
+) -> Result<f64, TypedFactorDailyCrossAssetError> {
+    Ok(bssrc_path(ctx, raw_panel_code)
+        .map(|path| path.map_or(f64::NAN, |path| rank_metrics(&path).1))?)
+}
+
+/// `bssrc_lower_rank_tail_alignment60`: conditional probability that a bond
+/// reaches its lower cross-sectional return tail when its mapped stock does.
+pub fn bssrc_lower_rank_tail_alignment60(
+    ctx: &TypedFactorDailyCrossAssetContext,
+    raw_panel_code: &str,
+) -> Result<f64, TypedFactorDailyCrossAssetError> {
+    Ok(bssrc_path(ctx, raw_panel_code)
+        .map(|path| path.map_or(f64::NAN, |path| rank_metrics(&path).2))?)
 }

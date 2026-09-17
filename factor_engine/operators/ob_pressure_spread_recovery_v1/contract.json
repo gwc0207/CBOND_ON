@@ -1,0 +1,40 @@
+{
+  "contract_hash": "885896f2251587d966ba009b2566e7597dab31698eb818a43844a5cb31a91dac",
+  "definition": {
+    "kind": "runtime_operator_reference",
+    "path": "operators/ob_pressure_spread_recovery_v1/definition.py",
+    "sha256": "3b77746e3b3267f5eed662905e3c4042e74434436d2566b2538923a879dd4c1d"
+  },
+  "factor_instances": [],
+  "identity": {
+    "operator_class": "ObPressureSpreadRecoveryV1",
+    "operator_id": "ob_pressure_spread_recovery_v1",
+    "operator_version": "legacy-unversioned"
+  },
+  "implementation": {
+    "language": "python_runtime_operator",
+    "module": "cbond_on.domain.factors.operators.ob_pressure_spread_recovery_v1",
+    "path": "cbond_on/domain/factors/operators/ob_pressure_spread_recovery_v1.py",
+    "sha256": "f7d057e80cb623e819e789ccace49c9b1b79dbd508cbeaeff6ab4e9cdf852ecf"
+  },
+  "lifecycle": {
+    "operator_catalog_status": "registered",
+    "runtime_source_status": "migrated_pending_cutover",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "migration": {
+    "behavior_parity_status": "pending_baseline_replay",
+    "legacy_path": "cbond_on/domain/factors/defs/ob_pressure_spread_recovery_v1.py",
+    "legacy_sha256": "d08296533dd86fb9ce1315e6546e55f33d90e3abd02542093d362cf24f1dd5c0",
+    "migration_kind": "namespace_relocation_without_formula_change"
+  },
+  "runtime_contract": {
+    "input_schema_status": "operator_declared_pending_field_audit",
+    "pit_validation_status": "operator_migration_pending_pit_audit",
+    "registration_key": "ob_pressure_spread_recovery_v1",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "schema_version": "operator_contract/v1",
+  "test_reference": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+}

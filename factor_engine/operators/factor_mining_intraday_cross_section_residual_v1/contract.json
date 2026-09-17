@@ -1,0 +1,77 @@
+{
+  "contract_hash": "98c9d54f2a9b1b1622c15646244dfef587894539a47811bd01c515fc69e7742c",
+  "definition": {
+    "kind": "runtime_operator_reference",
+    "path": "operators/factor_mining_intraday_cross_section_residual_v1/definition.py",
+    "sha256": "b73f65ffbe4354e5d40e6f16117d037fdb4b7f96a3f90c285d972ea73b50d182"
+  },
+  "factor_instances": [
+    "csr_book_depth_residual",
+    "csr_book_depth_rotation_residual",
+    "csr_book_imbalance_residual",
+    "csr_book_imbalance_shift_residual",
+    "csr_book_spread_residual",
+    "csr_book_touch_share_residual",
+    "csr_flow_amount_residual",
+    "csr_flow_concentration_residual",
+    "csr_flow_phase_acceleration_residual",
+    "csr_flow_tail_share_residual",
+    "csr_flow_trade_count_residual",
+    "csr_flow_trade_notional_residual",
+    "csr_impact_amount_return_correlation_residual",
+    "csr_impact_depth_return_residual",
+    "csr_impact_price_per_amount_residual",
+    "csr_impact_terminal_mid_residual",
+    "csr_impact_trade_size_return_residual",
+    "csr_impact_volume_return_correlation_residual",
+    "csr_phase_early_late_turn_residual",
+    "csr_phase_extreme_timing_residual",
+    "csr_phase_late_efficiency_residual",
+    "csr_phase_lunch_reopen_residual",
+    "csr_phase_terminal_location_residual",
+    "csr_phase_volatility_ratio_residual",
+    "csr_price_late_return_residual",
+    "csr_price_open_gap_residual",
+    "csr_price_path_efficiency_residual",
+    "csr_price_range_residual",
+    "csr_price_terminal_location_residual",
+    "csr_price_terminal_return_residual",
+    "csr_risk_downside_volatility_residual",
+    "csr_risk_jump_share_residual",
+    "csr_risk_max_drawdown_residual",
+    "csr_risk_max_move_residual",
+    "csr_risk_realized_volatility_residual",
+    "csr_risk_variance_ratio_residual"
+  ],
+  "identity": {
+    "operator_class": "FactorMiningIntradayCrossSectionResidualV1",
+    "operator_id": "factor_mining_intraday_cross_section_residual_v1",
+    "operator_version": "20260803_intraday_cross_section_residual_v1_r1"
+  },
+  "implementation": {
+    "language": "python_runtime_operator",
+    "module": "cbond_on.domain.factors.operators.research_factor_mining_intraday_cross_section_residual_v1",
+    "path": "cbond_on/domain/factors/operators/research_factor_mining_intraday_cross_section_residual_v1.py",
+    "sha256": "570451992274c833360dffdca77f7a797c40aa5104c08033ce5775814781f945"
+  },
+  "lifecycle": {
+    "operator_catalog_status": "registered",
+    "runtime_source_status": "migrated_pending_cutover",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "migration": {
+    "behavior_parity_status": "pending_baseline_replay",
+    "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_intraday_cross_section_residual_v1.py",
+    "legacy_sha256": "8b1aa78bd7ea7b5f1fc9e31f871d7a2bc46f296dfa0faddf88c695d0fab5dcf7",
+    "migration_kind": "namespace_relocation_without_formula_change"
+  },
+  "runtime_contract": {
+    "input_schema_status": "operator_declared_pending_field_audit",
+    "pit_validation_status": "operator_migration_pending_pit_audit",
+    "registration_key": "factor_mining_intraday_cross_section_residual_v1",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "schema_version": "operator_contract/v1",
+  "test_reference": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+}

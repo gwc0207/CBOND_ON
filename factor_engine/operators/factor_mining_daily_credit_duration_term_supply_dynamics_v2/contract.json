@@ -1,0 +1,50 @@
+{
+  "contract_hash": "852ee86057598575503ef2e03a578f2ee406d89fcec68ce4d89d1b65d7f67043",
+  "definition": {
+    "kind": "runtime_operator_reference",
+    "path": "operators/factor_mining_daily_credit_duration_term_supply_dynamics_v2/definition.py",
+    "sha256": "d6843b1793aa6005aef55cef6c1d123a97dd89e57fff0b6bb61435c0aff58ff1"
+  },
+  "factor_instances": [
+    "catr_convexity_anchor_delta_corr20",
+    "catr_convexity_duration_delta_corr20",
+    "cdmr_duration_convexity_delta_corr20",
+    "cdmr_yield_convexity_delta_corr20",
+    "cdmr_yield_duration_delta_corr20",
+    "cfar_yield_amount_capacity_delta_corr20",
+    "cfar_yield_volume_capacity_delta_corr20",
+    "tsrr2_duration_term_ratio_delta5",
+    "tsrr2_supply_term_level_corr20"
+  ],
+  "identity": {
+    "operator_class": "FactorMiningDailyCreditDurationTermSupplyDynamicsV2",
+    "operator_id": "factor_mining_daily_credit_duration_term_supply_dynamics_v2",
+    "operator_version": "20260803_daily_credit_duration_term_supply_dynamics_v2"
+  },
+  "implementation": {
+    "language": "python_runtime_operator",
+    "module": "cbond_on.domain.factors.operators.research_factor_mining_daily_credit_duration_term_supply_dynamics_v2",
+    "path": "cbond_on/domain/factors/operators/research_factor_mining_daily_credit_duration_term_supply_dynamics_v2.py",
+    "sha256": "eae5d9d87dce17c1f7377fa5e659017c06743371db29fe943a57a8a31ffcaa76"
+  },
+  "lifecycle": {
+    "operator_catalog_status": "registered",
+    "runtime_source_status": "migrated_pending_cutover",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "migration": {
+    "behavior_parity_status": "pending_baseline_replay",
+    "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_daily_credit_duration_term_supply_dynamics_v2.py",
+    "legacy_sha256": "eae5d9d87dce17c1f7377fa5e659017c06743371db29fe943a57a8a31ffcaa76",
+    "migration_kind": "namespace_relocation_without_formula_change"
+  },
+  "runtime_contract": {
+    "input_schema_status": "operator_declared_pending_field_audit",
+    "pit_validation_status": "operator_migration_pending_pit_audit",
+    "registration_key": "factor_mining_daily_credit_duration_term_supply_dynamics_v2",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "schema_version": "operator_contract/v1",
+  "test_reference": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+}

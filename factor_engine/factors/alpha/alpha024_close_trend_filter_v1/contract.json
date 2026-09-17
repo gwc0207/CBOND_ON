@@ -1,0 +1,71 @@
+{
+  "context_requirements": {
+    "daily": [],
+    "panel_field_schema_status": "operator_declared_pending_factor_minimal_audit",
+    "panel_fields": [],
+    "panel_name": "T1430",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "contract_hash": "a1f2ba0e8f86567c1bc83f23046475fe59244d4c247156ec0ec3ae0082eeef07",
+  "definition": {
+    "kind": "parameterized_operator_definition",
+    "path": "factors/alpha/alpha024_close_trend_filter_v1/definition.py",
+    "sha256": "62222cb6c0be1f8bc194bf50eb17187a5c0c4a083eee920cba8bfb58c595fd38"
+  },
+  "fixed_params": {
+    "delta_window": 20,
+    "short_delta_window": 3,
+    "sum_window": 20,
+    "trend_threshold": 0.05,
+    "ts_min_window": 20
+  },
+  "identity": {
+    "factor_id": "alpha024_close_trend_filter_v1",
+    "factor_version": "catalog-20260826-fcd144646b20-5bb098680b7a",
+    "primary_family": "alpha",
+    "tags": []
+  },
+  "lifecycle": {
+    "catalog_status": "registered",
+    "live_admission_status": "live_released",
+    "research_status": "not_evaluated",
+    "rust_status": "live50_rust_capability_required"
+  },
+  "operator_bindings": [
+    {
+      "implementation_module": "cbond_on.domain.factors.operators.alpha024_close_trend_filter_v1",
+      "implementation_path": "cbond_on/domain/factors/operators/alpha024_close_trend_filter_v1.py",
+      "implementation_sha256": "fcd144646b20270cb3da1d470bf7a3081838db7b59d4c076b9c0ea647cdc99b9",
+      "language": "python_runtime_operator",
+      "legacy_implementation_path": "cbond_on/domain/factors/defs/alpha024_close_trend_filter_v1.py",
+      "legacy_implementation_sha256": "2971a9a487c72ab64d66a087cdbcf57b0c6df7a3501165631f7ec760385a154f",
+      "operator_contract_path": "operators/alpha024_close_trend_filter_v1/contract.json",
+      "operator_id": "alpha024_close_trend_filter_v1",
+      "operator_version": "legacy-unversioned",
+      "rust_contract_id": "live50_r5/alpha024_close_trend_filter_v1"
+    }
+  ],
+  "output": {
+    "column": "alpha024_close_trend_filter_v1",
+    "dtype": "float64"
+  },
+  "schema_version": "factor_contract/v2",
+  "source_lineage": {
+    "hypothesis": "Frozen legacy live27 instance; identity is independent of live admission.",
+    "snapshot_id": "canonical_factor_catalog_20260826_800",
+    "source_position": null,
+    "source_root": "cbond_on/config/factor/packs/live_screened_no_winsor_27.json5",
+    "source_set": "legacy_live27"
+  },
+  "test_reference": {
+    "behavioral_parity_status": "pending_baseline_replay",
+    "contract_test": "tests/test_factor_engine_governance.py::test_all_factor_definitions_and_contracts",
+    "operator_test": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+  },
+  "time_contract": {
+    "factor_time": "14:30",
+    "pit_validation_status": "operator_migration_pending_factor_pit_audit",
+    "research_label_time_reference": "14:42"
+  }
+}

@@ -1,0 +1,40 @@
+{
+  "contract_hash": "43902fc77e8a0994afe21a8dd0c9f818a289c8f2d438d512498ac86c48360c45",
+  "definition": {
+    "kind": "runtime_operator_reference",
+    "path": "operators/ai_factory_wave80_intraday_v1/definition.py",
+    "sha256": "a56b233d0b0a1ca600395a3dd093d1172c9b7109f0058e53bdd73fb82267eddd"
+  },
+  "factor_instances": [],
+  "identity": {
+    "operator_class": "AiFactoryWave80IntradayV1",
+    "operator_id": "ai_factory_wave80_intraday_v1",
+    "operator_version": "legacy-unversioned"
+  },
+  "implementation": {
+    "language": "python_runtime_operator",
+    "module": "cbond_on.domain.factors.operators.ai_factory_wave80_intraday_v1",
+    "path": "cbond_on/domain/factors/operators/ai_factory_wave80_intraday_v1.py",
+    "sha256": "cd6819391e6f1ddf3cd85ca4e7b25048bb2428295c6e819303ec38eeba35bf2a"
+  },
+  "lifecycle": {
+    "operator_catalog_status": "registered",
+    "runtime_source_status": "migrated_pending_cutover",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "migration": {
+    "behavior_parity_status": "pending_baseline_replay",
+    "legacy_path": "cbond_on/domain/factors/defs/ai_factory_wave80_intraday_v1.py",
+    "legacy_sha256": "c8e7f1783005cf01e87ea74336947ff747be0311d7779357ba923ef8572f5a6e",
+    "migration_kind": "namespace_relocation_without_formula_change"
+  },
+  "runtime_contract": {
+    "input_schema_status": "operator_declared_pending_field_audit",
+    "pit_validation_status": "operator_migration_pending_pit_audit",
+    "registration_key": "ai_factory_wave80_intraday_v1",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "schema_version": "operator_contract/v1",
+  "test_reference": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+}

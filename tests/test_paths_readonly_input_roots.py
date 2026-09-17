@@ -21,12 +21,21 @@ def _reset_path_env(monkeypatch) -> None:
     monkeypatch.setenv("CBOND_ON_PATHS_CONFIG", "research_profile.json5")
 
 
+def _audit_lifecycle() -> dict[str, object]:
+    return {
+        "status": "audit_only",
+        "reason": "test_legacy_paths_profile",
+        "normal_consumer": False,
+    }
+
+
 def test_read_only_input_roots_keep_model_inputs_outside_scratch(monkeypatch, tmp_path: Path) -> None:
     _reset_path_env(monkeypatch)
     scratch_runtime = tmp_path / "scratch_runtime"
     input_runtime = tmp_path / "production_inputs"
     resolved = config._apply_runtime_paths_profile(
         {
+            "lifecycle": _audit_lifecycle(),
             "raw_data_root": str(tmp_path / "raw"),
             "clean_data_root": str(tmp_path / "clean"),
             "results_root": str(scratch_runtime / "results"),
@@ -47,20 +56,17 @@ def test_read_only_input_roots_keep_model_inputs_outside_scratch(monkeypatch, tm
     assert resolved["logs_root"] == (scratch_runtime / "logs").as_posix()
 
 
-def test_legacy_profile_keeps_runtime_derived_input_roots(monkeypatch, tmp_path: Path) -> None:
+def test_normal_profile_rejects_legacy_runtime_derived_factor_root(monkeypatch, tmp_path: Path) -> None:
     _reset_path_env(monkeypatch)
     scratch_runtime = tmp_path / "scratch_runtime"
-    resolved = config._apply_runtime_paths_profile(
-        {
-            "raw_data_root": str(tmp_path / "raw"),
-            "clean_data_root": str(tmp_path / "clean"),
-            "results_root": str(scratch_runtime / "results"),
-        }
-    )
-
-    assert resolved["panel_data_root"] == (scratch_runtime / "panel_data").as_posix()
-    assert resolved["label_data_root"] == (scratch_runtime / "label_data").as_posix()
-    assert resolved["factor_data_root"] == (scratch_runtime / "factor_data").as_posix()
+    with pytest.raises(ValueError, match="canonical factor_table|audit_only"):
+        config._apply_runtime_paths_profile(
+            {
+                "raw_data_root": str(tmp_path / "raw"),
+                "clean_data_root": str(tmp_path / "clean"),
+                "results_root": str(scratch_runtime / "results"),
+            }
+        )
 
 
 def test_read_only_input_roots_reject_partial_profile(monkeypatch, tmp_path: Path) -> None:
@@ -68,6 +74,7 @@ def test_read_only_input_roots_reject_partial_profile(monkeypatch, tmp_path: Pat
     with pytest.raises(ValueError, match="must declare"):
         config._apply_runtime_paths_profile(
             {
+                "lifecycle": _audit_lifecycle(),
                 "raw_data_root": str(tmp_path / "raw"),
                 "clean_data_root": str(tmp_path / "clean"),
                 "results_root": str(tmp_path / "scratch" / "results"),
@@ -119,6 +126,7 @@ def test_read_only_input_roots_allow_matching_path_overrides(monkeypatch, tmp_pa
 
     resolved = config._apply_runtime_paths_profile(
         {
+            "lifecycle": _audit_lifecycle(),
             "raw_data_root": str(raw_root),
             "clean_data_root": str(clean_root),
             "results_root": str(scratch_runtime / "results"),

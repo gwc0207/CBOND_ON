@@ -1,0 +1,40 @@
+{
+  "contract_hash": "1ac2ad48ce2301085a31399fd3d79a850a79c86f39a1f378627bd295e73fba99",
+  "definition": {
+    "kind": "runtime_operator_reference",
+    "path": "operators/alpha009_close_change_filter_v1/definition.py",
+    "sha256": "68f523635d7fcb73a570fbc51c44b91d665a2594950c7115abd2503555901015"
+  },
+  "factor_instances": [],
+  "identity": {
+    "operator_class": "Alpha009CloseChangeFilterV1Factor",
+    "operator_id": "alpha009_close_change_filter_v1",
+    "operator_version": "legacy-unversioned"
+  },
+  "implementation": {
+    "language": "python_runtime_operator",
+    "module": "cbond_on.domain.factors.operators.alpha009_close_change_filter_v1",
+    "path": "cbond_on/domain/factors/operators/alpha009_close_change_filter_v1.py",
+    "sha256": "ed0a01bda53cac85ef9182c61670f042e1df727413dcb10553e61f3494cf237f"
+  },
+  "lifecycle": {
+    "operator_catalog_status": "registered",
+    "runtime_source_status": "migrated_pending_cutover",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "migration": {
+    "behavior_parity_status": "pending_baseline_replay",
+    "legacy_path": "cbond_on/domain/factors/defs/alpha009_close_change_filter_v1.py",
+    "legacy_sha256": "2b9960219b41bea2802625f3e05ac8913c219126ef97e5b765439a5a00406d09",
+    "migration_kind": "namespace_relocation_without_formula_change"
+  },
+  "runtime_contract": {
+    "input_schema_status": "operator_declared_pending_field_audit",
+    "pit_validation_status": "operator_migration_pending_pit_audit",
+    "registration_key": "alpha009_close_change_filter_v1",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "schema_version": "operator_contract/v1",
+  "test_reference": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+}

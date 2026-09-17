@@ -1,0 +1,91 @@
+{
+  "context_requirements": {
+    "daily": [
+      {
+        "columns": [
+          "exchange_code",
+          "close_price"
+        ],
+        "lookback_days": 66,
+        "source": "market_cbond.daily_price"
+      },
+      {
+        "columns": [
+          "exchange_code",
+          "cb_close_price",
+          "pure_redemption_value",
+          "cb_put_price",
+          "cb_call_price",
+          "stock_close_price",
+          "year_to_mat",
+          "stock_volatility"
+        ],
+        "lookback_days": 66,
+        "source": "market_cbond.daily_base"
+      }
+    ],
+    "panel_field_schema_status": "operator_declared_pending_factor_minimal_audit",
+    "panel_fields": [],
+    "panel_name": "T1430",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "contract_hash": "400b94a73490a46e5df17597ce1a3ceee3a23b14554fdbadd9f35f4e8bd60ec6",
+  "definition": {
+    "kind": "parameterized_operator_definition",
+    "path": "factors/contract_floor_payoff_topology/cft_side_topology_residual_z20/definition.py",
+    "sha256": "718a5ab3c194fd169b742ce34c4b0bd6515dfd27f8280da62ba66e994e335b68"
+  },
+  "fixed_params": {
+    "family": "contract_floor_payoff_topology",
+    "signal": "cft_side_topology_residual_z20"
+  },
+  "identity": {
+    "factor_id": "cft_side_topology_residual_z20",
+    "factor_version": "catalog-20260826-cfbf2768f28b-cf1b4835f82a",
+    "primary_family": "contract_floor_payoff_topology",
+    "tags": []
+  },
+  "lifecycle": {
+    "catalog_status": "registered",
+    "live_admission_status": "not_evaluated_by_catalog_builder",
+    "research_status": "legacy_mapping_discovered",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "operator_bindings": [
+    {
+      "implementation_module": "cbond_on.domain.factors.operators.research_factor_mining_daily_interday_topology_v1",
+      "implementation_path": "cbond_on/domain/factors/operators/research_factor_mining_daily_interday_topology_v1.py",
+      "implementation_sha256": "cfbf2768f28bca7d71536d066ee8b3dc3ddb023e401bff7ccc06acf6f23726ae",
+      "language": "python_runtime_operator",
+      "legacy_implementation_path": "cbond_on/domain/factors/defs/research_factor_mining_daily_interday_topology_v1.py",
+      "legacy_implementation_sha256": "cfbf2768f28bca7d71536d066ee8b3dc3ddb023e401bff7ccc06acf6f23726ae",
+      "operator_contract_path": "operators/factor_mining_daily_interday_topology_v1/contract.json",
+      "operator_id": "factor_mining_daily_interday_topology_v1",
+      "operator_version": "20260803_daily_interday_topology_v1",
+      "rust_contract_id": null
+    }
+  ],
+  "output": {
+    "column": "cft_side_topology_residual_z20",
+    "dtype": "float64"
+  },
+  "schema_version": "factor_contract/v2",
+  "source_lineage": {
+    "hypothesis": "Nonlinear payoff topology around call and put barriers can depart from a prior-only linear floor, moneyness, maturity, and volatility relation rather than restating a static floor level.",
+    "snapshot_id": "canonical_factor_catalog_20260826_800",
+    "source_position": 2,
+    "source_root": "D:/cbond_on/research_scratch/factor_mining_20260803_aggregate_catalog_v5_full/factor_data",
+    "source_set": "research773"
+  },
+  "test_reference": {
+    "behavioral_parity_status": "pending_baseline_replay",
+    "contract_test": "tests/test_factor_engine_governance.py::test_all_factor_definitions_and_contracts",
+    "operator_test": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+  },
+  "time_contract": {
+    "factor_time": "14:30",
+    "pit_validation_status": "operator_migration_pending_factor_pit_audit",
+    "research_label_time_reference": "14:42"
+  }
+}

@@ -1,0 +1,50 @@
+{
+  "contract_hash": "960a8a8a4ae92b1bfd784384d5bf98f2216afc8c02f3d7df0db50be333dfbad6",
+  "definition": {
+    "kind": "runtime_operator_reference",
+    "path": "operators/factor_mining_daily_mark_barrier_dynamics_v1/definition.py",
+    "sha256": "7c32c69335dede8e56b71c549153f864a0c62bab6e7d568c936f3d6792a2eae1"
+  },
+  "factor_instances": [
+    "boh_edge_state_flip_rate20",
+    "boh_location_innovation20",
+    "boh_outer_band_dwell20",
+    "fmed_mark_execution_basis_z20",
+    "fmed_mark_execution_log_basis",
+    "fmed_mark_execution_sign_persistence20",
+    "pcf_final_mark_oos_residual40",
+    "pcf_final_mark_residual_autocorr20",
+    "pcf_final_mark_residual_z20"
+  ],
+  "identity": {
+    "operator_class": "FactorMiningDailyMarkBarrierDynamicsV1",
+    "operator_id": "factor_mining_daily_mark_barrier_dynamics_v1",
+    "operator_version": "20260803_daily_mark_barrier_dynamics_v1"
+  },
+  "implementation": {
+    "language": "python_runtime_operator",
+    "module": "cbond_on.domain.factors.operators.research_factor_mining_daily_mark_barrier_dynamics_v1",
+    "path": "cbond_on/domain/factors/operators/research_factor_mining_daily_mark_barrier_dynamics_v1.py",
+    "sha256": "a9c3ac5a82583aa6bb368a66dfc56d02e0de9b458695f40507677f1709d72123"
+  },
+  "lifecycle": {
+    "operator_catalog_status": "registered",
+    "runtime_source_status": "migrated_pending_cutover",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "migration": {
+    "behavior_parity_status": "pending_baseline_replay",
+    "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_daily_mark_barrier_dynamics_v1.py",
+    "legacy_sha256": "a9c3ac5a82583aa6bb368a66dfc56d02e0de9b458695f40507677f1709d72123",
+    "migration_kind": "namespace_relocation_without_formula_change"
+  },
+  "runtime_contract": {
+    "input_schema_status": "operator_declared_pending_field_audit",
+    "pit_validation_status": "operator_migration_pending_pit_audit",
+    "registration_key": "factor_mining_daily_mark_barrier_dynamics_v1",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "schema_version": "operator_contract/v1",
+  "test_reference": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+}

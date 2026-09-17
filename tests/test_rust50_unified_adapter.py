@@ -190,6 +190,12 @@ def test_isolated_wheel_runs_mixed_specs_through_common_compute_api(
     assert capabilities["compute_api"] == "compute_factor_frame"
     assert capabilities["python_fallback"] is False
     contracts = capabilities["factor_contracts"]
-    assert len(contracts) == 50
-    assert len({item["id"] for item in contracts}) == 50
+    live50_contracts = [item for item in contracts if item["id"].startswith("live50_r5/")]
+    research_r88_contracts = [
+        item for item in contracts if item["id"].startswith("research_r88_20260825/")
+    ]
+    assert len(live50_contracts) == 50
+    assert len(research_r88_contracts) == 38
+    assert len(contracts) == 88
+    assert len({item["id"] for item in contracts}) == 88
     assert all(len(item["params_sha256"]) == 64 for item in contracts)

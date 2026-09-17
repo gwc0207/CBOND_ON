@@ -1,0 +1,40 @@
+{
+  "contract_hash": "318966cf35729bd7f6bc45cdde13c4de058e0157cf35fe19d00166452955a008",
+  "definition": {
+    "kind": "runtime_operator_reference",
+    "path": "operators/factor_mining_cross_asset_event_clock_v1/definition.py",
+    "sha256": "ef6b7e22d6b99e8211429f668b18961b73716615c9fcffdf1bc618eb38c3e160"
+  },
+  "factor_instances": [],
+  "identity": {
+    "operator_class": "FactorMiningCrossAssetEventClockV1",
+    "operator_id": "factor_mining_cross_asset_event_clock_v1",
+    "operator_version": "20260803_cross_asset_event_clock_v1"
+  },
+  "implementation": {
+    "language": "python_runtime_operator",
+    "module": "cbond_on.domain.factors.operators.research_factor_mining_cross_asset_event_clock_v1",
+    "path": "cbond_on/domain/factors/operators/research_factor_mining_cross_asset_event_clock_v1.py",
+    "sha256": "6c57d79e69598e7950dd5e9d63a7e0bf98531b7a2ee459b1e37041df77cb0146"
+  },
+  "lifecycle": {
+    "operator_catalog_status": "registered",
+    "runtime_source_status": "migrated_pending_cutover",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "migration": {
+    "behavior_parity_status": "pending_baseline_replay",
+    "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_cross_asset_event_clock_v1.py",
+    "legacy_sha256": "1de45e3d552ae261d046657675780118465ec26a358f82eecf247b2312457d10",
+    "migration_kind": "namespace_relocation_without_formula_change"
+  },
+  "runtime_contract": {
+    "input_schema_status": "operator_declared_pending_field_audit",
+    "pit_validation_status": "operator_migration_pending_pit_audit",
+    "registration_key": "factor_mining_cross_asset_event_clock_v1",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": true
+  },
+  "schema_version": "operator_contract/v1",
+  "test_reference": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+}

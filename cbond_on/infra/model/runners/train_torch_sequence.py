@@ -23,6 +23,7 @@ from cbond_on.core.naming import make_window_label
 from cbond_on.core.trading_days import list_trading_days_from_raw, prev_trading_days_from_raw
 from cbond_on.common.config_utils import resolve_config_path
 from cbond_on.domain.factors.storage import FactorStore
+from cbond_on.infra.factors.factor_table_resolution import CanonicalFactorTableReader, build_factor_reader
 from cbond_on.infra.model.impl.lgbm.trainer import (
     _apply_winsor_zscore,
     _iter_existing_label_days,
@@ -446,7 +447,7 @@ def _transform_sequence_features(x: np.ndarray, feature_cfg: dict) -> np.ndarray
 
 def _read_factor_day(
     *,
-    store: FactorStore,
+    store: FactorStore | CanonicalFactorTableReader,
     day: date,
     factor_cols: list[str],
     winsor_lower: float | None,
@@ -572,7 +573,7 @@ def _build_day_sequence(
     all_days: list[date],
     day_to_pos: dict[date, int],
     sequence_days: int,
-    store: FactorStore,
+    store: FactorStore | CanonicalFactorTableReader,
     label_root: Path,
     factor_cols: list[str],
     winsor_lower: float | None,
@@ -659,7 +660,7 @@ def _build_split_data(
     all_days: list[date],
     day_to_pos: dict[date, int],
     sequence_days: int,
-    store: FactorStore,
+    store: FactorStore | CanonicalFactorTableReader,
     label_root: Path,
     factor_cols: list[str],
     winsor_lower: float | None,
@@ -1079,7 +1080,11 @@ def main(
     panel_root = Path(paths_cfg["panel_data_root"])
     factor_root = Path(paths_cfg["factor_data_root"])
     label_root = Path(paths_cfg["label_data_root"])
-    store = FactorStore(factor_root, panel_name=panel_name, window_minutes=int(cfg.get("window_minutes", 15)))
+    store = build_factor_reader(
+        paths_cfg,
+        panel_name=panel_name,
+        window_minutes=int(cfg.get("window_minutes", 15)),
+    )
     # Preserve the legacy default (cache beside panel input) unless a research
     # config explicitly opts into an isolated derived-cache root.  This avoids
     # changing any existing/live Torch model's behaviour merely by importing

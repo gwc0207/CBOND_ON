@@ -1,0 +1,85 @@
+{
+  "context_requirements": {
+    "daily": [
+      {
+        "columns": [
+          "exchange_code",
+          "close_price"
+        ],
+        "lookback_days": 10,
+        "source": "market_cbond.daily_price"
+      },
+      {
+        "columns": [
+          "exchange_code",
+          "stock_code"
+        ],
+        "lookback_days": 10,
+        "source": "market_cbond.daily_base"
+      }
+    ],
+    "panel_field_schema_status": "operator_declared_pending_factor_minimal_audit",
+    "panel_fields": [],
+    "panel_name": "T1430",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": true
+  },
+  "contract_hash": "3e152574f28da3abe42f8eb878cfa6672a2c58acb3ed228c5bc7cb648d10fd23",
+  "definition": {
+    "kind": "parameterized_operator_definition",
+    "path": "factors/joint_stock_shock_bond_book_gate/joint_stock_early_x_bond_imbalance/definition.py",
+    "sha256": "f60cdf668e36d91a5688db28c057c3a0a36676d5551c78cc6190bdb329ce50f5"
+  },
+  "fixed_params": {
+    "family": "joint_stock_shock_bond_book_gate",
+    "signal": "joint_stock_early_x_bond_imbalance"
+  },
+  "identity": {
+    "factor_id": "joint_stock_early_x_bond_imbalance",
+    "factor_version": "catalog-20260826-18725542a577-11edfb7ba77d",
+    "primary_family": "joint_stock_shock_bond_book_gate",
+    "tags": []
+  },
+  "lifecycle": {
+    "catalog_status": "registered",
+    "live_admission_status": "not_evaluated_by_catalog_builder",
+    "research_status": "legacy_mapping_discovered",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "operator_bindings": [
+    {
+      "implementation_module": "cbond_on.domain.factors.operators.research_factor_mining_intraday_joint_state_v1",
+      "implementation_path": "cbond_on/domain/factors/operators/research_factor_mining_intraday_joint_state_v1.py",
+      "implementation_sha256": "18725542a57740f1e4697af9909291e861a38f4a4781d672995dbade8259252a",
+      "language": "python_runtime_operator",
+      "legacy_implementation_path": "cbond_on/domain/factors/defs/research_factor_mining_intraday_joint_state_v1.py",
+      "legacy_implementation_sha256": "b4cff5e02f17d6554f8ef7158cc90d5f757716d60951fbf6e67750aaff23e724",
+      "operator_contract_path": "operators/factor_mining_intraday_joint_state_v1/contract.json",
+      "operator_id": "factor_mining_intraday_joint_state_v1",
+      "operator_version": "20260803_intraday_joint_state_v1",
+      "rust_contract_id": null
+    }
+  ],
+  "output": {
+    "column": "joint_stock_early_x_bond_imbalance",
+    "dtype": "float64"
+  },
+  "schema_version": "factor_contract/v2",
+  "source_lineage": {
+    "hypothesis": "A stock shock has different bond-price-discovery implications under the bond's own displayed liquidity and pressure state.",
+    "snapshot_id": "canonical_factor_catalog_20260826_800",
+    "source_position": 1,
+    "source_root": "D:/cbond_on/research_scratch/factor_mining_20260803_unified_v7_with_joint_merged_v1",
+    "source_set": "research773"
+  },
+  "test_reference": {
+    "behavioral_parity_status": "pending_baseline_replay",
+    "contract_test": "tests/test_factor_engine_governance.py::test_all_factor_definitions_and_contracts",
+    "operator_test": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+  },
+  "time_contract": {
+    "factor_time": "14:30",
+    "pit_validation_status": "operator_migration_pending_factor_pit_audit",
+    "research_label_time_reference": "14:42"
+  }
+}

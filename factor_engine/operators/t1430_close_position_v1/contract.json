@@ -1,0 +1,40 @@
+{
+  "contract_hash": "6ba09ba0a0115080376343ac65c47a5ef65907a509c1cb14b398ae31f53dce90",
+  "definition": {
+    "kind": "runtime_operator_reference",
+    "path": "operators/t1430_close_position_v1/definition.py",
+    "sha256": "84230181322b8af39f5a163b0c4fd308d00030da7ed3a03a64f7e840759a0126"
+  },
+  "factor_instances": [],
+  "identity": {
+    "operator_class": "T1430ClosePositionV1",
+    "operator_id": "t1430_close_position_v1",
+    "operator_version": "legacy-unversioned"
+  },
+  "implementation": {
+    "language": "python_runtime_operator",
+    "module": "cbond_on.domain.factors.operators.t1430_close_position_v1",
+    "path": "cbond_on/domain/factors/operators/t1430_close_position_v1.py",
+    "sha256": "c907655df017597a7476c6b15b011452e2197dba59a758103aec04c54e319d46"
+  },
+  "lifecycle": {
+    "operator_catalog_status": "registered",
+    "runtime_source_status": "migrated_pending_cutover",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "migration": {
+    "behavior_parity_status": "pending_baseline_replay",
+    "legacy_path": "cbond_on/domain/factors/defs/t1430_close_position_v1.py",
+    "legacy_sha256": "bac710a314785bfbcb853c14cbaa12549d3d4d4e82fb99de7fe96e6a6fada76e",
+    "migration_kind": "namespace_relocation_without_formula_change"
+  },
+  "runtime_contract": {
+    "input_schema_status": "operator_declared_pending_field_audit",
+    "pit_validation_status": "operator_migration_pending_pit_audit",
+    "registration_key": "t1430_close_position_v1",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "schema_version": "operator_contract/v1",
+  "test_reference": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+}

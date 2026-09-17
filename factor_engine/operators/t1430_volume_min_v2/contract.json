@@ -1,0 +1,40 @@
+{
+  "contract_hash": "3809f00d0760e59d5e22a67733745c93566109d4e6764b3f57c3470df06ead10",
+  "definition": {
+    "kind": "runtime_operator_reference",
+    "path": "operators/t1430_volume_min_v2/definition.py",
+    "sha256": "102182ffd70000e9c38fa3f586d0c1af77c4da2aa9e72d390fa11e63d492e379"
+  },
+  "factor_instances": [],
+  "identity": {
+    "operator_class": "T1430VolumeMinV2",
+    "operator_id": "t1430_volume_min_v2",
+    "operator_version": "legacy-unversioned"
+  },
+  "implementation": {
+    "language": "python_runtime_operator",
+    "module": "cbond_on.domain.factors.operators.t1430_volume_min_v2",
+    "path": "cbond_on/domain/factors/operators/t1430_volume_min_v2.py",
+    "sha256": "458994a6fa24c837f8910bb8955646251f9e5106dd01e153fcdfb9b66e08417a"
+  },
+  "lifecycle": {
+    "operator_catalog_status": "registered",
+    "runtime_source_status": "migrated_pending_cutover",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "migration": {
+    "behavior_parity_status": "pending_baseline_replay",
+    "legacy_path": "cbond_on/domain/factors/defs/t1430_volume_min_v2.py",
+    "legacy_sha256": "fe0ab852b36cb7005149bbb38fb8c911b588fde52492c5c484ba829c07ad1714",
+    "migration_kind": "namespace_relocation_without_formula_change"
+  },
+  "runtime_contract": {
+    "input_schema_status": "operator_declared_pending_field_audit",
+    "pit_validation_status": "operator_migration_pending_pit_audit",
+    "registration_key": "t1430_volume_min_v2",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "schema_version": "operator_contract/v1",
+  "test_reference": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+}

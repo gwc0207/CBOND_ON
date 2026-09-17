@@ -1,4 +1,9 @@
 {
+  lifecycle: {
+    status: "audit_only",
+    reason: "legacy_direct_factor_store",
+    normal_consumer: false,
+  },
   // Production inputs are read-only; factor output resolves only below this
   // scratch root when used with the research factor-batch config.
   raw_data_root: "D:/cbond_data_hub/raw_data",

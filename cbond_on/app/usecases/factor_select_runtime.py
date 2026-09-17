@@ -19,6 +19,7 @@ from cbond_on.app.usecases.model_score_runtime import run as run_model_score
 from cbond_on.core.fees import load_fees_buy_sell_bps
 from cbond_on.infra.benchmark.service import compute_benchmark_returns_for_days
 from cbond_on.infra.factors.quality import expected_factor_columns_from_cfg
+from cbond_on.infra.factors.factor_table_resolution import CanonicalFactorTableReader, build_factor_reader
 from cbond_on.infra.model.eval.evaluator import (
     EvaluationResult,
     evaluate_merged_scores,
@@ -1095,16 +1096,6 @@ def _select_factors_by_importance(
     return selected_out, selected_factors, payload
 
 
-def _factor_day_path(factor_data_root: Path, panel_name: str, trade_day: date) -> Path:
-    return (
-        factor_data_root
-        / "factors"
-        / str(panel_name)
-        / f"{trade_day:%Y-%m}"
-        / f"{trade_day:%Y%m%d}.parquet"
-    )
-
-
 def _plot_corr_heatmap(
     *,
     corr: pd.DataFrame,
@@ -1312,7 +1303,7 @@ def _write_factor_correlation_report(
     *,
     factors: list[str],
     out_dir: Path,
-    factor_data_root: Path,
+    factor_reader: CanonicalFactorTableReader,
     panel_name: str,
     start_day: date,
     end_day: date,
@@ -1340,22 +1331,10 @@ def _write_factor_correlation_report(
 
     for ts in pd.date_range(start_day, end_day, freq="D"):
         trade_day = ts.date()
-        path = _factor_day_path(factor_data_root, panel_name, trade_day)
-        if not path.exists():
-            missing_files += 1
-            continue
         try:
-            raw = pd.read_parquet(path)
-        except Exception as exc:
-            daily_rows.append(
-                {
-                    "trade_date": str(trade_day),
-                    "status": "read_failed",
-                    "factor_count": 0,
-                    "sample_count": 0,
-                    "error": f"{type(exc).__name__}: {exc}",
-                }
-            )
+            raw = factor_reader.read_day(trade_day)
+        except FileNotFoundError:
+            missing_files += 1
             continue
         have = [factor for factor in factors if factor in raw.columns]
         if len(have) < min_day_factors:
@@ -1600,8 +1579,13 @@ def run(
         raise ValueError("start must be <= end")
 
     label_root = Path(paths_cfg["label_data_root"])
-    factor_data_root = Path(paths_cfg["factor_data_root"])
     panel_name = str(base_model_cfg.get("panel_name") or factor_cfg.get("panel_name") or "T1430")
+    window_minutes = int(base_model_cfg.get("window_minutes", factor_cfg.get("window_minutes", 15)))
+    factor_reader = build_factor_reader(
+        paths_cfg,
+        panel_name=panel_name,
+        window_minutes=window_minutes,
+    )
     factor_time = str(base_model_cfg.get("factor_time", "14:30"))
     label_time = str(base_model_cfg.get("label_time", "14:42"))
     bins = int(selector_cfg.get("bins", base_model_cfg.get("bins", 5)))
@@ -1703,7 +1687,7 @@ def run(
         full_corr_summary = _write_factor_correlation_report(
             factors=pool_factors,
             out_dir=full_dir / "factor_correlation",
-            factor_data_root=factor_data_root,
+            factor_reader=factor_reader,
             panel_name=panel_name,
             start_day=start_day,
             end_day=end_day,
@@ -1761,7 +1745,7 @@ def run(
         topn_corr_summary = _write_factor_correlation_report(
             factors=selected_factors,
             out_dir=topn_dir / "factor_correlation",
-            factor_data_root=factor_data_root,
+            factor_reader=factor_reader,
             panel_name=panel_name,
             start_day=start_day,
             end_day=end_day,

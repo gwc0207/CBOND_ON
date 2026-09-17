@@ -1,0 +1,79 @@
+{
+  "context_requirements": {
+    "daily": [
+      {
+        "columns": [
+          "exchange_code",
+          "volume",
+          "amount",
+          "deal"
+        ],
+        "lookback_days": 75,
+        "source": "market_cbond.daily_price"
+      }
+    ],
+    "panel_field_schema_status": "operator_declared_pending_factor_minimal_audit",
+    "panel_fields": [],
+    "panel_name": "T1430",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "contract_hash": "038ab99d2e0c6a5518e6835ffd03d22d24db6f175045cf4478b7722af9b66fb4",
+  "definition": {
+    "kind": "parameterized_operator_definition",
+    "path": "factors/prior_liquidity_channel_composition/lcc_volume_deal_information60/definition.py",
+    "sha256": "c89da6420e9513de488465fff1763bc632d1d54e4d9209a40acc8782b7c7d613"
+  },
+  "fixed_params": {
+    "family": "prior_liquidity_channel_composition",
+    "signal": "lcc_volume_deal_information60"
+  },
+  "identity": {
+    "factor_id": "lcc_volume_deal_information60",
+    "factor_version": "catalog-20260826-34ffc06d6542-76d24405f0bd",
+    "primary_family": "prior_liquidity_channel_composition",
+    "tags": []
+  },
+  "lifecycle": {
+    "catalog_status": "registered",
+    "live_admission_status": "live_released",
+    "research_status": "legacy_mapping_discovered",
+    "rust_status": "live50_rust_capability_required"
+  },
+  "operator_bindings": [
+    {
+      "implementation_module": "cbond_on.domain.factors.operators.research_factor_mining_daily_liquidity_channel_composition_v1",
+      "implementation_path": "cbond_on/domain/factors/operators/research_factor_mining_daily_liquidity_channel_composition_v1.py",
+      "implementation_sha256": "34ffc06d65421fc908147983287e170b7c45423338254b68efc5f3ebdbe851c2",
+      "language": "python_runtime_operator",
+      "legacy_implementation_path": "cbond_on/domain/factors/defs/research_factor_mining_daily_liquidity_channel_composition_v1.py",
+      "legacy_implementation_sha256": "97fb8a44fbecb4a244ae2547d3fd86df31f7d20bd5eaf422f254383ac490e9b7",
+      "operator_contract_path": "operators/factor_mining_daily_liquidity_channel_composition_v1/contract.json",
+      "operator_id": "factor_mining_daily_liquidity_channel_composition_v1",
+      "operator_version": "20260803_daily_liquidity_channel_composition_v1",
+      "rust_contract_id": "live50_r5/lcc_volume_deal_information60"
+    }
+  ],
+  "output": {
+    "column": "lcc_volume_deal_information60",
+    "dtype": "float64"
+  },
+  "schema_version": "factor_contract/v2",
+  "source_lineage": {
+    "hypothesis": "Strict-prior co-organisation of volume, notional, trade count, and average trade size represents an information/market-participation composition state, rather than a level of liquidity or a price-path transform.",
+    "snapshot_id": "canonical_factor_catalog_20260826_800",
+    "source_position": 3,
+    "source_root": "D:/cbond_on/research_scratch/factor_mining_20260804_daily_orthogonal_batch_v8_full_r2/factor_data",
+    "source_set": "research773"
+  },
+  "test_reference": {
+    "behavioral_parity_status": "pending_baseline_replay",
+    "contract_test": "tests/test_factor_engine_governance.py::test_all_factor_definitions_and_contracts",
+    "operator_test": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+  },
+  "time_contract": {
+    "factor_time": "14:30",
+    "pit_validation_status": "operator_migration_pending_factor_pit_audit",
+    "research_label_time_reference": "14:42"
+  }
+}

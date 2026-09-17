@@ -92,21 +92,18 @@ Use this to enforce repository cleanliness (runtime/dependency artifacts not tra
 python -m cbond_on.common.repo_hygiene_guard
 ```
 
-Use this to run factor quality checks (read-only, no auto-clean):
+Use this to run factor quality checks (read-only):
 
 ```bash
 python -m cbond_on.common.factor_quality_guard --config factor
 ```
 
-Apply actions:
+Canonical factor tables are immutable. Quality checks may report issues but
+cannot delete parquet columns, modify a table, or change a live/experiment
+profile. Use the governed factor lifecycle to publish a new contract instead.
+
+Use the route guard after factor-path changes:
 
 ```bash
-# disable bad factors (writes config/factor/guards/factor_disabled_factors.json)
-python -m cbond_on.common.factor_quality_guard --config factor --apply-disable-bad
-
-# remove deprecated factor columns from factor store
-python -m cbond_on.common.factor_quality_guard --config factor --apply-remove-deprecated
-
-# do both in one run
-python -m cbond_on.common.factor_quality_guard --config factor --apply-disable-bad --apply-remove-deprecated
+python -m cbond_on.common.factor_route_governance_guard
 ```

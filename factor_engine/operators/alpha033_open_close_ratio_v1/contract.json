@@ -1,0 +1,40 @@
+{
+  "contract_hash": "76cc820b5c9a272d198f8345684e12ef284385e1be23b4a3910c8dcde0be241e",
+  "definition": {
+    "kind": "runtime_operator_reference",
+    "path": "operators/alpha033_open_close_ratio_v1/definition.py",
+    "sha256": "8d9947f1b39c7c831145434b63cbd9faf05ea41541dcfebd387a89a6ca72770a"
+  },
+  "factor_instances": [],
+  "identity": {
+    "operator_class": "Alpha033OpenCloseRatioV1Factor",
+    "operator_id": "alpha033_open_close_ratio_v1",
+    "operator_version": "legacy-unversioned"
+  },
+  "implementation": {
+    "language": "python_runtime_operator",
+    "module": "cbond_on.domain.factors.operators.alpha033_open_close_ratio_v1",
+    "path": "cbond_on/domain/factors/operators/alpha033_open_close_ratio_v1.py",
+    "sha256": "d71e94aa89cd7549c1b4038bb0868d5cd6ed3a875850d812ede28551ee8b5c03"
+  },
+  "lifecycle": {
+    "operator_catalog_status": "registered",
+    "runtime_source_status": "migrated_pending_cutover",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "migration": {
+    "behavior_parity_status": "pending_baseline_replay",
+    "legacy_path": "cbond_on/domain/factors/defs/alpha033_open_close_ratio_v1.py",
+    "legacy_sha256": "c6772785ebd7ca73438a5e3984f314cb0c7e00399e9cffc7763eba1e17f88bb6",
+    "migration_kind": "namespace_relocation_without_formula_change"
+  },
+  "runtime_contract": {
+    "input_schema_status": "operator_declared_pending_field_audit",
+    "pit_validation_status": "operator_migration_pending_pit_audit",
+    "registration_key": "alpha033_open_close_ratio_v1",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "schema_version": "operator_contract/v1",
+  "test_reference": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+}

@@ -1,0 +1,90 @@
+{
+  "context_requirements": {
+    "daily": [
+      {
+        "columns": [
+          "exchange_code",
+          "prev_close_price",
+          "close_price",
+          "amount"
+        ],
+        "lookback_days": 66,
+        "source": "market_cbond.daily_price"
+      },
+      {
+        "columns": [
+          "exchange_code",
+          "rating",
+          "year_to_mat",
+          "bond_prem_ratio",
+          "ytm"
+        ],
+        "lookback_days": 66,
+        "source": "market_cbond.daily_base"
+      }
+    ],
+    "panel_field_schema_status": "operator_declared_pending_factor_minimal_audit",
+    "panel_fields": [],
+    "panel_name": "T1430",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "contract_hash": "5b923f80295b4cc14e67e37ad1367a1a8c8557f2a06d333ade39c3fe7c52ba39",
+  "definition": {
+    "kind": "parameterized_operator_definition",
+    "path": "factors/rating_term_cohort_deviation/rtc_yield_change5_gap_median/definition.py",
+    "sha256": "6bb716ed1c14fc6ad8612429085e13f82a886fccc92cc1650be4c7f88d6cd992"
+  },
+  "fixed_params": {
+    "family": "rating_term_cohort_deviation",
+    "signal": "rtc_yield_change5_gap_median"
+  },
+  "identity": {
+    "factor_id": "rtc_yield_change5_gap_median",
+    "factor_version": "catalog-20260826-be4ae6e3bd5f-447ad184a534",
+    "primary_family": "rating_term_cohort_deviation",
+    "tags": []
+  },
+  "lifecycle": {
+    "catalog_status": "registered",
+    "live_admission_status": "not_evaluated_by_catalog_builder",
+    "research_status": "legacy_mapping_discovered",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "operator_bindings": [
+    {
+      "implementation_module": "cbond_on.domain.factors.operators.research_factor_mining_structural_neighborhood_v1",
+      "implementation_path": "cbond_on/domain/factors/operators/research_factor_mining_structural_neighborhood_v1.py",
+      "implementation_sha256": "be4ae6e3bd5f652fecb9934ac9de64a711fd76d833c77d92178b45964e9b7656",
+      "language": "python_runtime_operator",
+      "legacy_implementation_path": "cbond_on/domain/factors/defs/research_factor_mining_structural_neighborhood_v1.py",
+      "legacy_implementation_sha256": "be4ae6e3bd5f652fecb9934ac9de64a711fd76d833c77d92178b45964e9b7656",
+      "operator_contract_path": "operators/factor_mining_structural_neighborhood_v1/contract.json",
+      "operator_id": "factor_mining_structural_neighborhood_v1",
+      "operator_version": "20260803_structural_neighborhood_v1",
+      "rust_contract_id": null
+    }
+  ],
+  "output": {
+    "column": "rtc_yield_change5_gap_median",
+    "dtype": "float64"
+  },
+  "schema_version": "factor_contract/v2",
+  "source_lineage": {
+    "hypothesis": "A bond's T-1 premium, yield transition, and liquidity surprise can be evaluated against peers in the same reported rating and remaining-term cohort.",
+    "snapshot_id": "canonical_factor_catalog_20260826_800",
+    "source_position": 2,
+    "source_root": "D:/cbond_on/research_scratch/factor_mining_20260803_aggregate_catalog_v5_full/factor_data",
+    "source_set": "research773"
+  },
+  "test_reference": {
+    "behavioral_parity_status": "pending_baseline_replay",
+    "contract_test": "tests/test_factor_engine_governance.py::test_all_factor_definitions_and_contracts",
+    "operator_test": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+  },
+  "time_contract": {
+    "factor_time": "14:30",
+    "pit_validation_status": "operator_migration_pending_factor_pit_audit",
+    "research_label_time_reference": "14:42"
+  }
+}

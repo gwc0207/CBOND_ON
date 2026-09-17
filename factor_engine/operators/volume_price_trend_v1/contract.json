@@ -1,0 +1,40 @@
+{
+  "contract_hash": "78717e0cefe707da651e820b7255b7ebe71782e98c1198a6c07e3c613df30781",
+  "definition": {
+    "kind": "runtime_operator_reference",
+    "path": "operators/volume_price_trend_v1/definition.py",
+    "sha256": "19a63127ba584c9c3c85ad8c0e1197b1095fa3c655bdfa49b711ce5878a82ed7"
+  },
+  "factor_instances": [],
+  "identity": {
+    "operator_class": "VolumePriceTrendV1Factor",
+    "operator_id": "volume_price_trend_v1",
+    "operator_version": "legacy-unversioned"
+  },
+  "implementation": {
+    "language": "python_runtime_operator",
+    "module": "cbond_on.domain.factors.operators.volume_price_trend_v1",
+    "path": "cbond_on/domain/factors/operators/volume_price_trend_v1.py",
+    "sha256": "1220f5ecaad2774309327bde783606b83c9f5f4ecd45317b464059ac01de95b4"
+  },
+  "lifecycle": {
+    "operator_catalog_status": "registered",
+    "runtime_source_status": "migrated_pending_cutover",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "migration": {
+    "behavior_parity_status": "pending_baseline_replay",
+    "legacy_path": "cbond_on/domain/factors/defs/volume_price_trend_v1.py",
+    "legacy_sha256": "59640bd5dae7885d029b569dd60efdb70b5abbdac121454fee446cf380047510",
+    "migration_kind": "namespace_relocation_without_formula_change"
+  },
+  "runtime_contract": {
+    "input_schema_status": "operator_declared_pending_field_audit",
+    "pit_validation_status": "operator_migration_pending_pit_audit",
+    "registration_key": "volume_price_trend_v1",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "schema_version": "operator_contract/v1",
+  "test_reference": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+}

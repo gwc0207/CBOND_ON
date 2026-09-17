@@ -7,10 +7,10 @@ import pandas as pd
 import pytest
 
 from cbond_on.core.registry import FactorRegistry
-from cbond_on.domain.factors import defs as factor_defs
+from cbond_on.domain.factors import operators as factor_operators
 from cbond_on.domain.factors.base import FactorComputeContext
 from cbond_on.domain.factors.builder import build_factor_frame
-from cbond_on.domain.factors.defs import (
+from cbond_on.domain.factors.operators import (
     research_factor_mining_historical_execution_to_open_transition_state_v1 as transition,
 )
 from cbond_on.domain.factors.spec import FactorSpec, infer_factor_context_requirements
@@ -139,7 +139,7 @@ def test_catalogue_has_three_families_and_exact_daily_context_contract() -> None
     )
     assert (
         transition.FactorMiningHistoricalExecutionToOpenTransitionStateV1.__name__
-        not in factor_defs.__all__
+        not in factor_operators.__all__
     )
 
     assert [item.source for item in requirements] == [

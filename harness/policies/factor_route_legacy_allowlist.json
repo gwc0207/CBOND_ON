@@ -1,0 +1,131 @@
+{
+  "schema_version": "cbond_on_factor_route_legacy_allowlist/v1",
+  "default_policy": "deny",
+  "canonical_store_root": "D:/cbond_on/factor_store",
+  "factorstore_constructor_entries": [
+    {
+      "path": "cbond_on/infra/factors/pipeline.py",
+      "kind": "controlled_ephemeral_staging",
+      "normal_consumer": false,
+      "reason": "Only permit-bound research catalog output or explicit no-DB staging may construct the legacy store."
+    },
+    {
+      "path": "cbond_on/infra/factors/factor_table_resolution.py",
+      "kind": "no_db_reader",
+      "normal_consumer": false,
+      "reason": "The isolated no-DB verifier reader is environment-gated and restricted to research scratch."
+    },
+    {
+      "path": "cbond_on/workflows/research/factor_supplement.py",
+      "kind": "ephemeral_staging",
+      "normal_consumer": false,
+      "reason": "23:59 supplement staging is temporary and is published into factor_library before cleanup."
+    },
+    {
+      "path": "harness/tools/r88_factor_backfill.py",
+      "kind": "migration_audit",
+      "normal_consumer": false,
+      "reason": "Frozen R50/R38 provenance and migration compatibility only."
+    },
+    {
+      "path": "harness/tools/run_catalog_live50_fullchain_dryrun.py",
+      "kind": "no_db_dryrun",
+      "normal_consumer": false,
+      "reason": "Fresh research-scratch full-chain verifier with DB disabled."
+    },
+    {
+      "path": "harness/tools/verify_catalog_live50_factor_stage.py",
+      "kind": "no_db_stage_verification",
+      "normal_consumer": false,
+      "reason": "Fresh research-scratch catalog stage parity verifier."
+    }
+  ],
+  "canonical_writer_constructor_entries": [
+    {
+      "path": "cbond_on/app/usecases/factor_build_runtime.py",
+      "kind": "admitted_live",
+      "reason": "Active-profile and live writer authority are required."
+    },
+    {
+      "path": "harness/tools/r88_factor_backfill.py",
+      "kind": "experiment_publisher",
+      "reason": "Explicit R88 research publisher authority is required."
+    }
+  ],
+  "canonical_store_constructor_entries": [
+    {
+      "path": "cbond_on/infra/factors/canonical_writer.py",
+      "reason": "Designated authority-bound canonical writer transport."
+    },
+    {
+      "path": "cbond_on/infra/factors/factor_table_resolution.py",
+      "reason": "Manifest-bound read-only canonical table resolver."
+    },
+    {
+      "path": "cbond_on/infra/factors/r88_experiment_table.py",
+      "reason": "R88 experiment-table admission/readiness validation."
+    },
+    {
+      "path": "cbond_on/workflows/research/factor_supplement.py",
+      "reason": "Designated 23:59 factor-library publisher."
+    },
+    {
+      "path": "harness/tools/migrate_factor_tables.py",
+      "reason": "Explicit one-time migration service."
+    },
+    {
+      "path": "harness/tools/r88_factor_backfill.py",
+      "reason": "Explicit experiment publisher and provenance audit."
+    }
+  ],
+  "legacy_root_literal_entries": [
+    {
+      "path": "harness/tools/plan_factor_table_migration.py",
+      "reason": "Read-only migration source inventory."
+    },
+    {
+      "path": "harness/tools/migrate_factor_tables.py",
+      "reason": "One-time governed migration implementation."
+    },
+    {
+      "path": "harness/tools/verify_live50_unified_rust_parity.py",
+      "reason": "Historical parity audit input."
+    },
+    {
+      "path": "harness/tools/verify_rust_live23_p1_shadow.py",
+      "reason": "Historical Rust shadow parity audit input."
+    },
+    {
+      "path": "harness/tools/factor_mining_screen.py",
+      "reason": "Retained historical screening audit."
+    },
+    {
+      "path": "harness/tools/merge_factor_mining_stores.py",
+      "reason": "Retained historical migration/audit merge."
+    },
+    {
+      "path": "harness/tools/run_factor_mining_20260802.py",
+      "reason": "Retired historical research launcher."
+    },
+    {
+      "path": "harness/tools/run_factor_mining_expansion.py",
+      "reason": "Retired historical research launcher."
+    },
+    {
+      "path": "harness/tools/ic_uplift_oos_residual_ridge.py",
+      "reason": "Historical audit replay only."
+    },
+    {
+      "path": "harness/tools/optimize_factor_mining_selection.py",
+      "reason": "Historical audit optimizer only."
+    },
+    {
+      "path": "harness/tools/r88_factor_backfill.py",
+      "reason": "Explicit legacy provenance/migration branch."
+    },
+    {
+      "path": "harness/tools/queue_factor_mining_v8_to50.ps1",
+      "reason": "Retired historical queue launcher."
+    }
+  ]
+}

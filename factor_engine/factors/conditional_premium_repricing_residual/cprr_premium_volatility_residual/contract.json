@@ -1,0 +1,81 @@
+{
+  "context_requirements": {
+    "daily": [
+      {
+        "columns": [
+          "exchange_code",
+          "bond_prem_ratio",
+          "ytm",
+          "duration",
+          "year_to_mat",
+          "remain_size"
+        ],
+        "lookback_days": 75,
+        "source": "market_cbond.daily_base"
+      }
+    ],
+    "panel_field_schema_status": "operator_declared_pending_factor_minimal_audit",
+    "panel_fields": [],
+    "panel_name": "T1430",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "contract_hash": "8333e2ca256bf6204426aca75248babcd05816c0a1fa1f5c5b0714ffb1fb5e9d",
+  "definition": {
+    "kind": "parameterized_operator_definition",
+    "path": "factors/conditional_premium_repricing_residual/cprr_premium_volatility_residual/definition.py",
+    "sha256": "c194bec64a2e2177be7fc26b89b9c4fb8543f2fd3516d67a67166d5a617c35eb"
+  },
+  "fixed_params": {
+    "family": "conditional_premium_repricing_residual",
+    "signal": "cprr_premium_volatility_residual"
+  },
+  "identity": {
+    "factor_id": "cprr_premium_volatility_residual",
+    "factor_version": "catalog-20260826-8675e38d85e0-06141b48e9f1",
+    "primary_family": "conditional_premium_repricing_residual",
+    "tags": []
+  },
+  "lifecycle": {
+    "catalog_status": "registered",
+    "live_admission_status": "not_evaluated_by_catalog_builder",
+    "research_status": "legacy_mapping_discovered",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "operator_bindings": [
+    {
+      "implementation_module": "cbond_on.domain.factors.operators.research_factor_mining_daily_incremental_v1",
+      "implementation_path": "cbond_on/domain/factors/operators/research_factor_mining_daily_incremental_v1.py",
+      "implementation_sha256": "8675e38d85e0b4eed73409ff99e847e5f0c329006047a0ce2c990efee741455c",
+      "language": "python_runtime_operator",
+      "legacy_implementation_path": "cbond_on/domain/factors/defs/research_factor_mining_daily_incremental_v1.py",
+      "legacy_implementation_sha256": "8675e38d85e0b4eed73409ff99e847e5f0c329006047a0ce2c990efee741455c",
+      "operator_contract_path": "operators/factor_mining_daily_incremental_v1/contract.json",
+      "operator_id": "factor_mining_daily_incremental_v1",
+      "operator_version": "20260803_daily_incremental_v1",
+      "rust_contract_id": null
+    }
+  ],
+  "output": {
+    "column": "cprr_premium_volatility_residual",
+    "dtype": "float64"
+  },
+  "schema_version": "factor_contract/v2",
+  "source_lineage": {
+    "hypothesis": "Cross-sectional premium level and repricing residuals are conditioned on structural state through robust rank ridge.",
+    "snapshot_id": "canonical_factor_catalog_20260826_800",
+    "source_position": 1,
+    "source_root": "D:/cbond_on/research_scratch/factor_mining_20260803_unified_v7_with_joint_merged_v1",
+    "source_set": "research773"
+  },
+  "test_reference": {
+    "behavioral_parity_status": "pending_baseline_replay",
+    "contract_test": "tests/test_factor_engine_governance.py::test_all_factor_definitions_and_contracts",
+    "operator_test": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+  },
+  "time_contract": {
+    "factor_time": "14:30",
+    "pit_validation_status": "operator_migration_pending_factor_pit_audit",
+    "research_label_time_reference": "14:42"
+  }
+}

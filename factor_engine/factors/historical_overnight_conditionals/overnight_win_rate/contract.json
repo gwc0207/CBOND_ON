@@ -1,0 +1,144 @@
+{
+  "context_requirements": {
+    "daily": [
+      {
+        "columns": [
+          "exchange_code",
+          "twap_0930_0935",
+          "twap_0935_1000",
+          "twap_1000_1030",
+          "twap_1100_1130",
+          "twap_1300_1330",
+          "twap_1330_1400",
+          "twap_1400_1430",
+          "twap_1430_1442",
+          "twap_1430_1500",
+          "twap_1442_1457"
+        ],
+        "lookback_days": 65,
+        "source": "market_cbond.daily_twap"
+      },
+      {
+        "columns": [
+          "exchange_code",
+          "prev_close_price",
+          "act_prev_close_price",
+          "close_price",
+          "open_price",
+          "high_price",
+          "low_price",
+          "volume",
+          "amount",
+          "deal"
+        ],
+        "lookback_days": 65,
+        "source": "market_cbond.daily_price"
+      },
+      {
+        "columns": [
+          "exchange_code",
+          "year_to_mat",
+          "remain_size",
+          "current_yield",
+          "cb_conv_price",
+          "turnover_rate",
+          "stock_code",
+          "stock_close_price",
+          "bond_prem_ratio",
+          "debt_puredebt_ratio",
+          "puredebt_prem_ratio",
+          "conv_value",
+          "ytm",
+          "duration",
+          "modify_duration",
+          "convexity",
+          "base_rate",
+          "stock_volatility",
+          "pure_redemption_value",
+          "redemption_prem_ratio",
+          "cb_prev_close_price",
+          "cb_close_price",
+          "cb_volume",
+          "cb_amount",
+          "cb_deal",
+          "stk_volume",
+          "stk_amount",
+          "stk_deal",
+          "cb_call_price",
+          "trigger_is_price",
+          "trigger_cum_days",
+          "trigger_reach_days",
+          "in_trigger_process",
+          "trigger_price_revise",
+          "trigger_cum_days_revise",
+          "trigger_reach_days_revise"
+        ],
+        "lookback_days": 65,
+        "source": "market_cbond.daily_base"
+      }
+    ],
+    "panel_field_schema_status": "operator_declared_pending_factor_minimal_audit",
+    "panel_fields": [],
+    "panel_name": "T1430",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "contract_hash": "66a25a7c999a5409b9a9b03a5af791899a659bee2d766b77e3a828d90d3c424c",
+  "definition": {
+    "kind": "parameterized_operator_definition",
+    "path": "factors/historical_overnight_conditionals/overnight_win_rate/definition.py",
+    "sha256": "871818e48803fbe9bcceb4709336b757318b0a37768856bbb1cd91bf26232f0e"
+  },
+  "fixed_params": {
+    "family": "historical_overnight_conditionals",
+    "signal": "overnight_win_rate"
+  },
+  "identity": {
+    "factor_id": "overnight_win_rate",
+    "factor_version": "catalog-20260826-a31605881ba6-9f726e9c6776",
+    "primary_family": "historical_overnight_conditionals",
+    "tags": []
+  },
+  "lifecycle": {
+    "catalog_status": "registered",
+    "live_admission_status": "not_evaluated_by_catalog_builder",
+    "research_status": "legacy_mapping_discovered",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "operator_bindings": [
+    {
+      "implementation_module": "cbond_on.domain.factors.operators.research_factor_mining_catalog_v1",
+      "implementation_path": "cbond_on/domain/factors/operators/research_factor_mining_catalog_v1.py",
+      "implementation_sha256": "a31605881ba6046a34eb51270ede258ac1db442708de4c0a783d27dc59615ce9",
+      "language": "python_runtime_operator",
+      "legacy_implementation_path": "cbond_on/domain/factors/defs/research_factor_mining_catalog_v1.py",
+      "legacy_implementation_sha256": "a31605881ba6046a34eb51270ede258ac1db442708de4c0a783d27dc59615ce9",
+      "operator_contract_path": "operators/factor_mining_daily_catalog_v1/contract.json",
+      "operator_id": "factor_mining_daily_catalog_v1",
+      "operator_version": "20260802_v3",
+      "rust_contract_id": null
+    }
+  ],
+  "output": {
+    "column": "overnight_win_rate",
+    "dtype": "float64"
+  },
+  "schema_version": "factor_contract/v2",
+  "source_lineage": {
+    "hypothesis": "Overnight conditionals use only completed D+1 mornings strictly before T.",
+    "snapshot_id": "canonical_factor_catalog_20260826_800",
+    "source_position": 1,
+    "source_root": "D:/cbond_on/research_scratch/factor_mining_20260803_unified_v7_with_joint_merged_v1",
+    "source_set": "research773"
+  },
+  "test_reference": {
+    "behavioral_parity_status": "pending_baseline_replay",
+    "contract_test": "tests/test_factor_engine_governance.py::test_all_factor_definitions_and_contracts",
+    "operator_test": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+  },
+  "time_contract": {
+    "factor_time": "14:30",
+    "pit_validation_status": "operator_migration_pending_factor_pit_audit",
+    "research_label_time_reference": "14:42"
+  }
+}

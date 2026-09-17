@@ -7,10 +7,10 @@ import pandas as pd
 import pytest
 
 from cbond_on.core.registry import FactorRegistry
-from cbond_on.domain.factors import defs as factor_defs
+from cbond_on.domain.factors import operators as factor_operators
 from cbond_on.domain.factors.base import FactorComputeContext
 from cbond_on.domain.factors.builder import build_factor_frame
-from cbond_on.domain.factors.defs import research_factor_mining_daily_interday_topology_v1 as topology
+from cbond_on.domain.factors.operators import research_factor_mining_daily_interday_topology_v1 as topology
 from cbond_on.domain.factors.spec import FactorSpec, infer_factor_context_requirements
 
 
@@ -171,7 +171,7 @@ def test_catalogue_has_three_families_and_exact_context_contracts() -> None:
     }
     assert set(topology.FORMULAS) == {entry.signal for entry in entries}
     assert FactorRegistry.get(topology.KERNEL_NAME) is topology.FactorMiningDailyInterdayTopologyV1
-    assert topology.FactorMiningDailyInterdayTopologyV1.__name__ not in factor_defs.__all__
+    assert topology.FactorMiningDailyInterdayTopologyV1.__name__ not in factor_operators.__all__
 
     assert [item.source for item in interday_requirements] == [
         "market_cbond.daily_price",

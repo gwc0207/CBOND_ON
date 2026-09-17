@@ -8,7 +8,7 @@ import pytest
 
 from cbond_on.core.registry import FactorRegistry
 from cbond_on.domain.factors.builder import build_factor_frame
-from cbond_on.domain.factors.defs import (
+from cbond_on.domain.factors.operators import (
     research_factor_mining_daily_asymmetric_equity_beta_v1 as asymmetric_beta,
 )
 from cbond_on.domain.factors.spec import FactorSpec

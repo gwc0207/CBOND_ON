@@ -1,0 +1,40 @@
+{
+  "contract_hash": "26a45a3553d4179bc6cb261d3d1fe32f858b1174e22425a4d14391b039416e18",
+  "definition": {
+    "kind": "runtime_operator_reference",
+    "path": "operators/ob_pressure_spread_v1/definition.py",
+    "sha256": "74828ef8e8e816a0630d9455eaf709e90553d890bb421d55087ceba0cedd143d"
+  },
+  "factor_instances": [],
+  "identity": {
+    "operator_class": "ObPressureSpreadV1",
+    "operator_id": "ob_pressure_spread_v1",
+    "operator_version": "legacy-unversioned"
+  },
+  "implementation": {
+    "language": "python_runtime_operator",
+    "module": "cbond_on.domain.factors.operators.ob_pressure_spread_v1",
+    "path": "cbond_on/domain/factors/operators/ob_pressure_spread_v1.py",
+    "sha256": "dfd6825b64c1282e6a5fb2a46e0e2a145b8c1f7f025430dac7ec71dc41717a08"
+  },
+  "lifecycle": {
+    "operator_catalog_status": "registered",
+    "runtime_source_status": "migrated_pending_cutover",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "migration": {
+    "behavior_parity_status": "pending_baseline_replay",
+    "legacy_path": "cbond_on/domain/factors/defs/ob_pressure_spread_v1.py",
+    "legacy_sha256": "c142ac6f9eab0255ccc10aea13bddd4fe0159d7897b2af260171aeba9c07fd1a",
+    "migration_kind": "namespace_relocation_without_formula_change"
+  },
+  "runtime_contract": {
+    "input_schema_status": "operator_declared_pending_field_audit",
+    "pit_validation_status": "operator_migration_pending_pit_audit",
+    "registration_key": "ob_pressure_spread_v1",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "schema_version": "operator_contract/v1",
+  "test_reference": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+}

@@ -1,0 +1,40 @@
+{
+  "contract_hash": "b6fce92b2b65cb8c3aba52fa64c0bfca077633dfdb56561fc8ad25c670685116",
+  "definition": {
+    "kind": "runtime_operator_reference",
+    "path": "operators/alpha023_high_momentum_v1/definition.py",
+    "sha256": "3a6d40df113655ef1e1217d6397f62068295238c4b23ebb1706067f486d1cf74"
+  },
+  "factor_instances": [],
+  "identity": {
+    "operator_class": "Alpha023HighMomentumV1Factor",
+    "operator_id": "alpha023_high_momentum_v1",
+    "operator_version": "legacy-unversioned"
+  },
+  "implementation": {
+    "language": "python_runtime_operator",
+    "module": "cbond_on.domain.factors.operators.alpha023_high_momentum_v1",
+    "path": "cbond_on/domain/factors/operators/alpha023_high_momentum_v1.py",
+    "sha256": "9059ea452f76aa017b85c33639c955cf42ada8e804ef0ed7885cbc89ec6084ac"
+  },
+  "lifecycle": {
+    "operator_catalog_status": "registered",
+    "runtime_source_status": "migrated_pending_cutover",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "migration": {
+    "behavior_parity_status": "pending_baseline_replay",
+    "legacy_path": "cbond_on/domain/factors/defs/alpha023_high_momentum_v1.py",
+    "legacy_sha256": "43130b696ac2f7d723582b21b6f6674a53effe8ccadf38d22902e0f290aefadc",
+    "migration_kind": "namespace_relocation_without_formula_change"
+  },
+  "runtime_contract": {
+    "input_schema_status": "operator_declared_pending_field_audit",
+    "pit_validation_status": "operator_migration_pending_pit_audit",
+    "registration_key": "alpha023_high_momentum_v1",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "schema_version": "operator_contract/v1",
+  "test_reference": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+}

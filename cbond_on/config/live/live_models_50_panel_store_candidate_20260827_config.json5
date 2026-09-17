@@ -1,0 +1,9 @@
+{
+  // Candidate-only score source.  It is not selected by live_config.
+  modules: ["live/live_models_50_20260805"],
+  models: {
+    lgbm_screened_no_winsor_neutral_tminus1_weight_recent_hl20_20260625_50_20260805: {
+      model_config: "models/lgbm/lgbm_screened_no_winsor_neutral_tminus1_weight_recent_hl20_20260625_50_20260805_panel_store_candidate",
+    },
+  },
+}

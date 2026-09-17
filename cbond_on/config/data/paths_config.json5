@@ -4,7 +4,17 @@
   cleaned_data_root: "D:/cbond_data_hub/clean_data",
   panel_data_root: "D:/cbond_on/panel_data",
   label_data_root: "D:/cbond_on/label_data",
-  factor_data_root: "D:/cbond_on/factor_data",
+  // There is no direct default FactorStore any more. Ordinary readers use
+  // the canonical live table; experiment and factor-library workflows must
+  // select their explicit table profile instead of falling back to a path.
+  read_only_input_roots: {
+    panel_data_root: "D:/cbond_on/panel_data",
+    label_data_root: "D:/cbond_on/label_data",
+  },
+  factor_table: {
+    table_id: "live",
+    root: "D:/cbond_on/factor_store",
+  },
   ads_root: "D:/cbond_on/ads",
   results_root: "D:/cbond_on/results",
   model_root: "D:/cbond_on/results/models",

@@ -1,0 +1,69 @@
+{
+  "context_requirements": {
+    "daily": [],
+    "panel_field_schema_status": "operator_declared_pending_factor_minimal_audit",
+    "panel_fields": [],
+    "panel_name": "T1430",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "contract_hash": "a89f5008c6f2e88c96d44c6031075e7d14c34c216b6e52c660bc289bf719f969",
+  "definition": {
+    "kind": "parameterized_operator_definition",
+    "path": "factors/order_book/volen_f60_s10_l3/definition.py",
+    "sha256": "374e20a0417a7af939272cbe71b0486da7cf513d01a48483f5177ac9b69df153"
+  },
+  "fixed_params": {
+    "fast": 60,
+    "levels": 3,
+    "slow": 10
+  },
+  "identity": {
+    "factor_id": "volen_f60_s10_l3",
+    "factor_version": "catalog-20260826-e40e799d1756-f8cb98f71452",
+    "primary_family": "order_book",
+    "tags": []
+  },
+  "lifecycle": {
+    "catalog_status": "registered",
+    "live_admission_status": "live_released",
+    "research_status": "not_evaluated",
+    "rust_status": "live50_rust_capability_required"
+  },
+  "operator_bindings": [
+    {
+      "implementation_module": "cbond_on.domain.factors.operators.volen",
+      "implementation_path": "cbond_on/domain/factors/operators/volen.py",
+      "implementation_sha256": "e40e799d1756068a6fea5358a058cbfe27347d9e3761b39c8188b47956ee3545",
+      "language": "python_runtime_operator",
+      "legacy_implementation_path": "cbond_on/domain/factors/defs/volen.py",
+      "legacy_implementation_sha256": "4227b35ac68e9b9f0371f04b39000fcf4e2f719fb4829f51eda8cf31b6a85dd6",
+      "operator_contract_path": "operators/volen/contract.json",
+      "operator_id": "volen",
+      "operator_version": "legacy-unversioned",
+      "rust_contract_id": "live50_r5/volen_f60_s10_l3"
+    }
+  ],
+  "output": {
+    "column": "volen_f60_s10_l3",
+    "dtype": "float64"
+  },
+  "schema_version": "factor_contract/v2",
+  "source_lineage": {
+    "hypothesis": "Frozen legacy live27 instance; identity is independent of live admission.",
+    "snapshot_id": "canonical_factor_catalog_20260826_800",
+    "source_position": null,
+    "source_root": "cbond_on/config/factor/packs/live_screened_no_winsor_27.json5",
+    "source_set": "legacy_live27"
+  },
+  "test_reference": {
+    "behavioral_parity_status": "pending_baseline_replay",
+    "contract_test": "tests/test_factor_engine_governance.py::test_all_factor_definitions_and_contracts",
+    "operator_test": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+  },
+  "time_contract": {
+    "factor_time": "14:30",
+    "pit_validation_status": "operator_migration_pending_factor_pit_audit",
+    "research_label_time_reference": "14:42"
+  }
+}

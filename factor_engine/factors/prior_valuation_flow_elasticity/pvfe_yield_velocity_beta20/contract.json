@@ -1,0 +1,91 @@
+{
+  "context_requirements": {
+    "daily": [
+      {
+        "columns": [
+          "exchange_code",
+          "close_price",
+          "volume",
+          "amount"
+        ],
+        "lookback_days": 45,
+        "source": "market_cbond.daily_price"
+      },
+      {
+        "columns": [
+          "exchange_code",
+          "remain_size",
+          "bond_prem_ratio",
+          "current_yield",
+          "conv_value",
+          "pure_redemption_value"
+        ],
+        "lookback_days": 45,
+        "source": "market_cbond.daily_base"
+      }
+    ],
+    "panel_field_schema_status": "operator_declared_pending_factor_minimal_audit",
+    "panel_fields": [],
+    "panel_name": "T1430",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "contract_hash": "e5d7d5e9e60bdb6f71e1f12beee0342eefc642d409a3a1ef72b4c216d338596f",
+  "definition": {
+    "kind": "parameterized_operator_definition",
+    "path": "factors/prior_valuation_flow_elasticity/pvfe_yield_velocity_beta20/definition.py",
+    "sha256": "f613f84c4d30cc8f1ea046b7175b1a1ff9b7c9fdb1b6ee6b575ce37f3de4e718"
+  },
+  "fixed_params": {
+    "family": "prior_valuation_flow_elasticity",
+    "signal": "pvfe_yield_velocity_beta20"
+  },
+  "identity": {
+    "factor_id": "pvfe_yield_velocity_beta20",
+    "factor_version": "catalog-20260826-522d4bf54070-a994c9ab402a",
+    "primary_family": "prior_valuation_flow_elasticity",
+    "tags": []
+  },
+  "lifecycle": {
+    "catalog_status": "registered",
+    "live_admission_status": "not_evaluated_by_catalog_builder",
+    "research_status": "legacy_mapping_discovered",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "operator_bindings": [
+    {
+      "implementation_module": "cbond_on.domain.factors.operators.research_factor_mining_daily_price_base_relations_v1",
+      "implementation_path": "cbond_on/domain/factors/operators/research_factor_mining_daily_price_base_relations_v1.py",
+      "implementation_sha256": "522d4bf5407036636fe0d4069e029c07591e88fa9a7d782b6abcbc3b89421e2c",
+      "language": "python_runtime_operator",
+      "legacy_implementation_path": "cbond_on/domain/factors/defs/research_factor_mining_daily_price_base_relations_v1.py",
+      "legacy_implementation_sha256": "522d4bf5407036636fe0d4069e029c07591e88fa9a7d782b6abcbc3b89421e2c",
+      "operator_contract_path": "operators/factor_mining_daily_price_base_relations_v1/contract.json",
+      "operator_id": "factor_mining_daily_price_base_relations_v1",
+      "operator_version": "20260803_daily_price_base_relations_v1",
+      "rust_contract_id": null
+    }
+  ],
+  "output": {
+    "column": "pvfe_yield_velocity_beta20",
+    "dtype": "float64"
+  },
+  "schema_version": "factor_contract/v2",
+  "source_lineage": {
+    "hypothesis": "Historical normalized-flow response to premium, conversion-value, and yield changes describes valuation-sensitive participation.",
+    "snapshot_id": "canonical_factor_catalog_20260826_800",
+    "source_position": 2,
+    "source_root": "D:/cbond_on/research_scratch/factor_mining_20260803_aggregate_catalog_v5_full/factor_data",
+    "source_set": "research773"
+  },
+  "test_reference": {
+    "behavioral_parity_status": "pending_baseline_replay",
+    "contract_test": "tests/test_factor_engine_governance.py::test_all_factor_definitions_and_contracts",
+    "operator_test": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+  },
+  "time_contract": {
+    "factor_time": "14:30",
+    "pit_validation_status": "operator_migration_pending_factor_pit_audit",
+    "research_label_time_reference": "14:42"
+  }
+}

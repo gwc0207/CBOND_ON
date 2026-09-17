@@ -1,0 +1,42 @@
+{
+  "contract_hash": "0f9b6dc112c771ef45f2e373b290e3a08241cd83fad9b689e06f7b5279d2d36e",
+  "definition": {
+    "kind": "runtime_operator_reference",
+    "path": "operators/alpha078_low_vwap_adv_corr_v1/definition.py",
+    "sha256": "6cdd898a98dfbbcbba1f5d81b482af4f66ea19402c37a24c323a5a1fd30b02cb"
+  },
+  "factor_instances": [
+    "alpha078_low_vwap_adv_corr_v1"
+  ],
+  "identity": {
+    "operator_class": "Alpha078LowVwapAdvCorrV1Factor",
+    "operator_id": "alpha078_low_vwap_adv_corr_v1",
+    "operator_version": "legacy-unversioned"
+  },
+  "implementation": {
+    "language": "python_runtime_operator",
+    "module": "cbond_on.domain.factors.operators.alpha078_low_vwap_adv_corr_v1",
+    "path": "cbond_on/domain/factors/operators/alpha078_low_vwap_adv_corr_v1.py",
+    "sha256": "ffd42e0422a86064640c8feaba9d111c5812d4100d389655936a3ced1a94d8c6"
+  },
+  "lifecycle": {
+    "operator_catalog_status": "registered",
+    "runtime_source_status": "migrated_pending_cutover",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "migration": {
+    "behavior_parity_status": "pending_baseline_replay",
+    "legacy_path": "cbond_on/domain/factors/defs/alpha078_low_vwap_adv_corr_v1.py",
+    "legacy_sha256": "3496f02993298f0d3a71c9096f7af70eac8087c5d7f4a5c313619fbe78581450",
+    "migration_kind": "namespace_relocation_without_formula_change"
+  },
+  "runtime_contract": {
+    "input_schema_status": "operator_declared_pending_field_audit",
+    "pit_validation_status": "operator_migration_pending_pit_audit",
+    "registration_key": "alpha078_low_vwap_adv_corr_v1",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "schema_version": "operator_contract/v1",
+  "test_reference": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+}

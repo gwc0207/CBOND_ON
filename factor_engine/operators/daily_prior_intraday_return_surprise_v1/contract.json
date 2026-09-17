@@ -1,0 +1,40 @@
+{
+  "contract_hash": "b6bdda5e7e28da72664f8509d2a01ec2885e4ba124a3f161176269215a2aa7df",
+  "definition": {
+    "kind": "runtime_operator_reference",
+    "path": "operators/daily_prior_intraday_return_surprise_v1/definition.py",
+    "sha256": "6b085110e7c90b9d108dd8df0b1fe1459792cd936c0a86c3d857b2be14e4a78c"
+  },
+  "factor_instances": [],
+  "identity": {
+    "operator_class": "DailyPriorIntradayReturnSurpriseV1Factor",
+    "operator_id": "daily_prior_intraday_return_surprise_v1",
+    "operator_version": "legacy-unversioned"
+  },
+  "implementation": {
+    "language": "python_runtime_operator",
+    "module": "cbond_on.domain.factors.operators.daily_prior_intraday_return_surprise_v1",
+    "path": "cbond_on/domain/factors/operators/daily_prior_intraday_return_surprise_v1.py",
+    "sha256": "ff9f2cbed050170ae1e1837f53250ae7de5fecffb8eb21d8a9f7d302f973bfa3"
+  },
+  "lifecycle": {
+    "operator_catalog_status": "registered",
+    "runtime_source_status": "migrated_pending_cutover",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "migration": {
+    "behavior_parity_status": "pending_baseline_replay",
+    "legacy_path": "cbond_on/domain/factors/defs/daily_prior_intraday_return_surprise_v1.py",
+    "legacy_sha256": "ff9f2cbed050170ae1e1837f53250ae7de5fecffb8eb21d8a9f7d302f973bfa3",
+    "migration_kind": "namespace_relocation_without_formula_change"
+  },
+  "runtime_contract": {
+    "input_schema_status": "operator_declared_pending_field_audit",
+    "pit_validation_status": "operator_migration_pending_pit_audit",
+    "registration_key": "daily_prior_intraday_return_surprise_v1",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "schema_version": "operator_contract/v1",
+  "test_reference": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+}

@@ -1,0 +1,68 @@
+{
+  "context_requirements": {
+    "daily": [],
+    "panel_field_schema_status": "operator_declared_pending_factor_minimal_audit",
+    "panel_fields": [],
+    "panel_name": "T1430",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "contract_hash": "9d9db1beb9e27ce96cb6f6113861eb1eb7eaf84e488f6d1cc427370150bca40c",
+  "definition": {
+    "kind": "parameterized_operator_definition",
+    "path": "factors/csn_passive_queue_local_dislocation/csn_pql_churn_neighbor_gap/definition.py",
+    "sha256": "04ae26df33cebe6059bdc63a440d5cae0f5ac4b98dd8292d1fe6114316be935c"
+  },
+  "fixed_params": {
+    "family": "csn_passive_queue_local_dislocation",
+    "signal": "csn_pql_churn_neighbor_gap"
+  },
+  "identity": {
+    "factor_id": "csn_pql_churn_neighbor_gap",
+    "factor_version": "catalog-20260826-613e9a3199a5-bbd5a226e886",
+    "primary_family": "csn_passive_queue_local_dislocation",
+    "tags": []
+  },
+  "lifecycle": {
+    "catalog_status": "registered",
+    "live_admission_status": "not_evaluated_by_catalog_builder",
+    "research_status": "legacy_mapping_discovered",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "operator_bindings": [
+    {
+      "implementation_module": "cbond_on.domain.factors.operators.research_factor_mining_cross_sectional_microstructure_neighborhood_v1",
+      "implementation_path": "cbond_on/domain/factors/operators/research_factor_mining_cross_sectional_microstructure_neighborhood_v1.py",
+      "implementation_sha256": "613e9a3199a5539d9072d6b8fce394f6cf69ab807b64b7417cbf8e52fa3f7daf",
+      "language": "python_runtime_operator",
+      "legacy_implementation_path": "cbond_on/domain/factors/defs/research_factor_mining_cross_sectional_microstructure_neighborhood_v1.py",
+      "legacy_implementation_sha256": "78326d9b4ed74099815c0c7ca8c6e188f4c5033304876ba2bf5fd772c851269c",
+      "operator_contract_path": "operators/factor_mining_cross_sectional_microstructure_neighborhood_v1/contract.json",
+      "operator_id": "factor_mining_cross_sectional_microstructure_neighborhood_v1",
+      "operator_version": "20260803_cross_sectional_microstructure_neighborhood_v1",
+      "rust_contract_id": null
+    }
+  ],
+  "output": {
+    "column": "csn_pql_churn_neighbor_gap",
+    "dtype": "float64"
+  },
+  "schema_version": "factor_contract/v2",
+  "source_lineage": {
+    "hypothesis": "Trade-conditioned passive queue retention, refill, and churn can be locally unusual relative to peers with similar event and touch-depth update activity.",
+    "snapshot_id": "canonical_factor_catalog_20260826_800",
+    "source_position": 2,
+    "source_root": "D:/cbond_on/research_scratch/factor_mining_20260803_aggregate_catalog_v5_full/factor_data",
+    "source_set": "research773"
+  },
+  "test_reference": {
+    "behavioral_parity_status": "pending_baseline_replay",
+    "contract_test": "tests/test_factor_engine_governance.py::test_all_factor_definitions_and_contracts",
+    "operator_test": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+  },
+  "time_contract": {
+    "factor_time": "14:30",
+    "pit_validation_status": "operator_migration_pending_factor_pit_audit",
+    "research_label_time_reference": "14:42"
+  }
+}

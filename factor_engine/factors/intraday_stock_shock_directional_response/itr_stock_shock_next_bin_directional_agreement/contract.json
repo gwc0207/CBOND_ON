@@ -1,0 +1,68 @@
+{
+  "context_requirements": {
+    "daily": [],
+    "panel_field_schema_status": "operator_declared_pending_factor_minimal_audit",
+    "panel_fields": [],
+    "panel_name": "T1430",
+    "requires_bond_stock_map": true,
+    "requires_stock_panel": true
+  },
+  "contract_hash": "b05da84ab3425390c21c055f96e453fe46a544f3b8396e0afcf12d1ae35e5b05",
+  "definition": {
+    "kind": "parameterized_operator_definition",
+    "path": "factors/intraday_stock_shock_directional_response/itr_stock_shock_next_bin_directional_agreement/definition.py",
+    "sha256": "dd128aaa4b1b0e643d1343d88b867489f0a19d0b8922c775c474b69b0f9f7b88"
+  },
+  "fixed_params": {
+    "family": "intraday_stock_shock_directional_response",
+    "signal": "itr_stock_shock_next_bin_directional_agreement"
+  },
+  "identity": {
+    "factor_id": "itr_stock_shock_next_bin_directional_agreement",
+    "factor_version": "catalog-20260826-d879adb62455-490a2582d023",
+    "primary_family": "intraday_stock_shock_directional_response",
+    "tags": []
+  },
+  "lifecycle": {
+    "catalog_status": "registered",
+    "live_admission_status": "not_evaluated_by_catalog_builder",
+    "research_status": "legacy_mapping_discovered",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "operator_bindings": [
+    {
+      "implementation_module": "cbond_on.domain.factors.operators.research_factor_mining_intraday_transmission_response_v1",
+      "implementation_path": "cbond_on/domain/factors/operators/research_factor_mining_intraday_transmission_response_v1.py",
+      "implementation_sha256": "d879adb62455133748c51e59508bcfdfefdcbdc99237fd2777ff868ff45cbcb2",
+      "language": "python_runtime_operator",
+      "legacy_implementation_path": "cbond_on/domain/factors/defs/research_factor_mining_intraday_transmission_response_v1.py",
+      "legacy_implementation_sha256": "d879adb62455133748c51e59508bcfdfefdcbdc99237fd2777ff868ff45cbcb2",
+      "operator_contract_path": "operators/factor_mining_intraday_transmission_response_v1/contract.json",
+      "operator_id": "factor_mining_intraday_transmission_response_v1",
+      "operator_version": "20260803_intraday_transmission_response_v1",
+      "rust_contract_id": null
+    }
+  ],
+  "output": {
+    "column": "itr_stock_shock_next_bin_directional_agreement",
+    "dtype": "float64"
+  },
+  "schema_version": "factor_contract/v2",
+  "source_lineage": {
+    "hypothesis": "Large mapped-stock five-minute shocks condition a nonparametric same-bin versus next-bin bond direction response, rather than estimating an all-interval beta or a full-day return gap.",
+    "snapshot_id": "canonical_factor_catalog_20260826_800",
+    "source_position": 2,
+    "source_root": "D:/cbond_on/research_scratch/factor_mining_20260803_aggregate_catalog_v5_full/factor_data",
+    "source_set": "research773"
+  },
+  "test_reference": {
+    "behavioral_parity_status": "pending_baseline_replay",
+    "contract_test": "tests/test_factor_engine_governance.py::test_all_factor_definitions_and_contracts",
+    "operator_test": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+  },
+  "time_contract": {
+    "factor_time": "14:30",
+    "pit_validation_status": "operator_migration_pending_factor_pit_audit",
+    "research_label_time_reference": "14:42"
+  }
+}

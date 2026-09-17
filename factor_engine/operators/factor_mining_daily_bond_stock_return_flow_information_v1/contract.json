@@ -1,0 +1,42 @@
+{
+  "contract_hash": "dae1944840a6c1809f6396472842ee9acf59326bc1b0882464947a8d9b8e70c0",
+  "definition": {
+    "kind": "runtime_operator_reference",
+    "path": "operators/factor_mining_daily_bond_stock_return_flow_information_v1/definition.py",
+    "sha256": "8584cce91b15bb8d9ab8c69a4c7be971603c5b4baa45fe7346fe41f98e56c7dc"
+  },
+  "factor_instances": [
+    "bsfst_stock_return_bond_flow_mutual_information60"
+  ],
+  "identity": {
+    "operator_class": "FactorMiningDailyBondStockReturnFlowInformationV1",
+    "operator_id": "factor_mining_daily_bond_stock_return_flow_information_v1",
+    "operator_version": "20260803_daily_bond_stock_return_flow_information_v1"
+  },
+  "implementation": {
+    "language": "python_runtime_operator",
+    "module": "cbond_on.domain.factors.operators.research_factor_mining_daily_bond_stock_return_flow_information_v1",
+    "path": "cbond_on/domain/factors/operators/research_factor_mining_daily_bond_stock_return_flow_information_v1.py",
+    "sha256": "e201421217b807d6775ca768975786747502c7006b0d91d101034e1fba5b56cf"
+  },
+  "lifecycle": {
+    "operator_catalog_status": "registered",
+    "runtime_source_status": "migrated_pending_cutover",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "migration": {
+    "behavior_parity_status": "pending_baseline_replay",
+    "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_daily_bond_stock_return_flow_information_v1.py",
+    "legacy_sha256": "9e3b4f7b2a5a8fb528a483173133b428ed41bd5676a6559fa829edf9c6ccf5b5",
+    "migration_kind": "namespace_relocation_without_formula_change"
+  },
+  "runtime_contract": {
+    "input_schema_status": "operator_declared_pending_field_audit",
+    "pit_validation_status": "operator_migration_pending_pit_audit",
+    "registration_key": "factor_mining_daily_bond_stock_return_flow_information_v1",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "schema_version": "operator_contract/v1",
+  "test_reference": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+}

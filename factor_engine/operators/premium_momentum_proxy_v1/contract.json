@@ -1,0 +1,42 @@
+{
+  "contract_hash": "d3a3e9aaa6f0c1df25bd8df964aedc9161a438c1bbcbe43a5a99395c943fe1ac",
+  "definition": {
+    "kind": "runtime_operator_reference",
+    "path": "operators/premium_momentum_proxy_v1/definition.py",
+    "sha256": "6302d60671256fa3a6edb71760814c669438ad25d2d9bcaf533815cbc7472e84"
+  },
+  "factor_instances": [
+    "premium_momentum_proxy_v1"
+  ],
+  "identity": {
+    "operator_class": "PremiumMomentumProxyV1Factor",
+    "operator_id": "premium_momentum_proxy_v1",
+    "operator_version": "legacy-unversioned"
+  },
+  "implementation": {
+    "language": "python_runtime_operator",
+    "module": "cbond_on.domain.factors.operators.premium_momentum_proxy_v1",
+    "path": "cbond_on/domain/factors/operators/premium_momentum_proxy_v1.py",
+    "sha256": "86d6d02160051ddff0095f34ef5b2391c89d19ae927d73ba21ff97661f709b2c"
+  },
+  "lifecycle": {
+    "operator_catalog_status": "registered",
+    "runtime_source_status": "migrated_pending_cutover",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "migration": {
+    "behavior_parity_status": "pending_baseline_replay",
+    "legacy_path": "cbond_on/domain/factors/defs/premium_momentum_proxy_v1.py",
+    "legacy_sha256": "2cf070dbd6b35f9ba03dcd2fd389e4e948ff9d1ab4d74d6425015983c3e3e948",
+    "migration_kind": "namespace_relocation_without_formula_change"
+  },
+  "runtime_contract": {
+    "input_schema_status": "operator_declared_pending_field_audit",
+    "pit_validation_status": "operator_migration_pending_pit_audit",
+    "registration_key": "premium_momentum_proxy_v1",
+    "requires_bond_stock_map": true,
+    "requires_stock_panel": true
+  },
+  "schema_version": "operator_contract/v1",
+  "test_reference": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+}

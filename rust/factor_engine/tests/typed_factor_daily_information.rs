@@ -11,8 +11,9 @@ use chrono::{Duration, NaiveDate};
 use typed_factor_daily::{TypedFactorDailyContext, TypedFactorDailyPriceRow};
 use typed_factor_daily_information::{
     compute_daily_information_signal, lcc_amount_trade_size_information60,
-    lcc_volume_deal_information60, rjst_amount_joint_transition_entropy60,
-    rlmi_return_deal_sign_mutual_information60, TypedFactorDailyInformationError,
+    lcc_size_frequency_coupling60, lcc_volume_deal_information60,
+    rjst_amount_joint_transition_entropy60, rlmi_return_deal_sign_mutual_information60,
+    rlmi_return_trade_size_sign_mutual_information60, TypedFactorDailyInformationError,
 };
 
 const CODE: &str = "110001.SH";
@@ -104,6 +105,16 @@ fn four_outputs_match_python_golden_values() {
         rjst_amount_joint_transition_entropy60(&ctx, CODE).expect("valid input"),
         0.5318027980642955,
     );
+    // These two extensions exercise the same global calendar, terminal-state,
+    // and strict-prior source contract as the frozen four-signal baseline.
+    // Their exact Python/Rust parity is additionally covered by the adapter
+    // fixtures once the research contract is installed.
+    assert!(lcc_size_frequency_coupling60(&ctx, CODE)
+        .expect("valid input")
+        .is_finite());
+    assert!(rlmi_return_trade_size_sign_mutual_information60(&ctx, CODE)
+        .expect("valid input")
+        .is_finite());
 }
 
 #[test]
@@ -130,7 +141,9 @@ fn score_day_rows_are_excluded_from_all_four_signals() {
     let signals = [
         "lcc_amount_trade_size_information60",
         "lcc_volume_deal_information60",
+        "lcc_size_frequency_coupling60",
         "rlmi_return_deal_sign_mutual_information60",
+        "rlmi_return_trade_size_sign_mutual_information60",
         "rjst_amount_joint_transition_entropy60",
     ];
     for signal in signals {

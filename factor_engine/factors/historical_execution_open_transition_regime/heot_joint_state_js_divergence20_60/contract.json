@@ -1,0 +1,86 @@
+{
+  "context_requirements": {
+    "daily": [
+      {
+        "columns": [
+          "exchange_code"
+        ],
+        "lookback_days": 64,
+        "source": "market_cbond.daily_price"
+      },
+      {
+        "columns": [
+          "exchange_code",
+          "twap_1430_1442",
+          "twap_1442_1457",
+          "twap_0930_1000"
+        ],
+        "lookback_days": 64,
+        "source": "market_cbond.daily_twap"
+      }
+    ],
+    "panel_field_schema_status": "operator_declared_pending_factor_minimal_audit",
+    "panel_fields": [],
+    "panel_name": "T1430",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "contract_hash": "e06c8a1130edef4fcd7f9d92f85272fd7e8008b534143fc52d158407cae685ed",
+  "definition": {
+    "kind": "parameterized_operator_definition",
+    "path": "factors/historical_execution_open_transition_regime/heot_joint_state_js_divergence20_60/definition.py",
+    "sha256": "8a187bb8ffab614f33ef4f06619ab5bff32d28f4635d5df1dbebf2d29f014517"
+  },
+  "fixed_params": {
+    "family": "historical_execution_open_transition_regime",
+    "signal": "heot_joint_state_js_divergence20_60"
+  },
+  "identity": {
+    "factor_id": "heot_joint_state_js_divergence20_60",
+    "factor_version": "catalog-20260826-9754df8eec77-ccf698efe02f",
+    "primary_family": "historical_execution_open_transition_regime",
+    "tags": []
+  },
+  "lifecycle": {
+    "catalog_status": "registered",
+    "live_admission_status": "not_evaluated_by_catalog_builder",
+    "research_status": "legacy_mapping_discovered",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "operator_bindings": [
+    {
+      "implementation_module": "cbond_on.domain.factors.operators.research_factor_mining_historical_execution_to_open_transition_state_v1",
+      "implementation_path": "cbond_on/domain/factors/operators/research_factor_mining_historical_execution_to_open_transition_state_v1.py",
+      "implementation_sha256": "9754df8eec77bd8db712ddc2b85c568817458261e06d6d7808dd0150f108947f",
+      "language": "python_runtime_operator",
+      "legacy_implementation_path": "cbond_on/domain/factors/defs/research_factor_mining_historical_execution_to_open_transition_state_v1.py",
+      "legacy_implementation_sha256": "9754df8eec77bd8db712ddc2b85c568817458261e06d6d7808dd0150f108947f",
+      "operator_contract_path": "operators/factor_mining_historical_execution_to_open_transition_state_v1/contract.json",
+      "operator_id": "factor_mining_historical_execution_to_open_transition_state_v1",
+      "operator_version": "20260803_historical_execution_to_open_transition_state_v1",
+      "rust_contract_id": null
+    }
+  ],
+  "output": {
+    "column": "heot_joint_state_js_divergence20_60",
+    "dtype": "float64"
+  },
+  "schema_version": "factor_contract/v2",
+  "source_lineage": {
+    "hypothesis": "The recent mix of completed close-to-next-morning states can change relative to its earlier history, independently of a raw return slope or session average.",
+    "snapshot_id": "canonical_factor_catalog_20260826_800",
+    "source_position": 2,
+    "source_root": "D:/cbond_on/research_scratch/factor_mining_20260803_aggregate_catalog_v5_full/factor_data",
+    "source_set": "research773"
+  },
+  "test_reference": {
+    "behavioral_parity_status": "pending_baseline_replay",
+    "contract_test": "tests/test_factor_engine_governance.py::test_all_factor_definitions_and_contracts",
+    "operator_test": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+  },
+  "time_contract": {
+    "factor_time": "14:30",
+    "pit_validation_status": "operator_migration_pending_factor_pit_audit",
+    "research_label_time_reference": "14:42"
+  }
+}

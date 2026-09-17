@@ -1,0 +1,50 @@
+{
+  "contract_hash": "b0f6bafc64613ba94a4b2df9239164212afd383cef224d50301c02e5a2c1ea71",
+  "definition": {
+    "kind": "runtime_operator_reference",
+    "path": "operators/factor_mining_intraday_transmission_response_v1/definition.py",
+    "sha256": "e7c1d7a6eb91e1bbdf00fbab240cacc0db5028a58a80ba6882fe6b2fc8a049af"
+  },
+  "factor_instances": [
+    "itr_stock_shock_bond_response_deferment_share",
+    "itr_stock_shock_bond_response_followthrough",
+    "itr_stock_shock_bond_vs_stock_followthrough_gap",
+    "itr_stock_shock_directional_latency_gap",
+    "itr_stock_shock_next_bin_directional_agreement",
+    "itr_stock_shock_relative_amplitude_dispersion",
+    "itr_stock_shock_relative_amplitude_mean",
+    "itr_stock_shock_same_bin_directional_agreement",
+    "itr_stock_shock_up_down_amplitude_asymmetry"
+  ],
+  "identity": {
+    "operator_class": "FactorMiningIntradayTransmissionResponseV1",
+    "operator_id": "factor_mining_intraday_transmission_response_v1",
+    "operator_version": "20260803_intraday_transmission_response_v1"
+  },
+  "implementation": {
+    "language": "python_runtime_operator",
+    "module": "cbond_on.domain.factors.operators.research_factor_mining_intraday_transmission_response_v1",
+    "path": "cbond_on/domain/factors/operators/research_factor_mining_intraday_transmission_response_v1.py",
+    "sha256": "d879adb62455133748c51e59508bcfdfefdcbdc99237fd2777ff868ff45cbcb2"
+  },
+  "lifecycle": {
+    "operator_catalog_status": "registered",
+    "runtime_source_status": "migrated_pending_cutover",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "migration": {
+    "behavior_parity_status": "pending_baseline_replay",
+    "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_intraday_transmission_response_v1.py",
+    "legacy_sha256": "d879adb62455133748c51e59508bcfdfefdcbdc99237fd2777ff868ff45cbcb2",
+    "migration_kind": "namespace_relocation_without_formula_change"
+  },
+  "runtime_contract": {
+    "input_schema_status": "operator_declared_pending_field_audit",
+    "pit_validation_status": "operator_migration_pending_pit_audit",
+    "registration_key": "factor_mining_intraday_transmission_response_v1",
+    "requires_bond_stock_map": true,
+    "requires_stock_panel": true
+  },
+  "schema_version": "operator_contract/v1",
+  "test_reference": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+}

@@ -1,0 +1,50 @@
+{
+  "contract_hash": "621f78918844651ba8c56ba4bb6e76e90c742fff3f40bb6207a08ff5ff518591",
+  "definition": {
+    "kind": "runtime_operator_reference",
+    "path": "operators/factor_mining_intraday_lunch_reopen_dynamics_v1/definition.py",
+    "sha256": "3e869b9425d82b4d0e38452fda7358446d4cd1d6ddf10c903df5d0ca0f9f856a"
+  },
+  "factor_instances": [
+    "lrd_depth_reopen_imbalance_switch",
+    "lrd_depth_reopen_level_gap",
+    "lrd_depth_reopen_rebuild_speed",
+    "lrd_price_gap_absorption_efficiency",
+    "lrd_price_gap_absorption_frontload",
+    "lrd_price_gap_absorption_signed",
+    "lrd_trade_reopen_impact_per_trade_ratio",
+    "lrd_trade_reopen_intensity_ratio",
+    "lrd_trade_reopen_notional_per_trade_ratio"
+  ],
+  "identity": {
+    "operator_class": "FactorMiningIntradayLunchReopenDynamicsV1",
+    "operator_id": "factor_mining_intraday_lunch_reopen_dynamics_v1",
+    "operator_version": "20260803_intraday_lunch_reopen_dynamics_v1"
+  },
+  "implementation": {
+    "language": "python_runtime_operator",
+    "module": "cbond_on.domain.factors.operators.research_factor_mining_intraday_lunch_reopen_dynamics_v1",
+    "path": "cbond_on/domain/factors/operators/research_factor_mining_intraday_lunch_reopen_dynamics_v1.py",
+    "sha256": "7c048e774a48d63a90d7c00ed5e1c45d46e078695545b5dcd1fa83fc5c1bf462"
+  },
+  "lifecycle": {
+    "operator_catalog_status": "registered",
+    "runtime_source_status": "migrated_pending_cutover",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "migration": {
+    "behavior_parity_status": "pending_baseline_replay",
+    "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_intraday_lunch_reopen_dynamics_v1.py",
+    "legacy_sha256": "8be8412c6da01df0babe54fe752c3900890f59a672c65fe625c622d164c1672e",
+    "migration_kind": "namespace_relocation_without_formula_change"
+  },
+  "runtime_contract": {
+    "input_schema_status": "operator_declared_pending_field_audit",
+    "pit_validation_status": "operator_migration_pending_pit_audit",
+    "registration_key": "factor_mining_intraday_lunch_reopen_dynamics_v1",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "schema_version": "operator_contract/v1",
+  "test_reference": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+}

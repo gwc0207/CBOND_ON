@@ -1,0 +1,40 @@
+{
+  "contract_hash": "b3af9db9db555222cbe063d763e0756bb9b3a567f8a8481b41d4b4b07da5929e",
+  "definition": {
+    "kind": "runtime_operator_reference",
+    "path": "operators/t1430_volume_hhi_v2/definition.py",
+    "sha256": "167c0daff1226127c61dc01b73f576cb52c87c6addbfa78f231aeec77d66e71a"
+  },
+  "factor_instances": [],
+  "identity": {
+    "operator_class": "T1430VolumeHhiV2",
+    "operator_id": "t1430_volume_hhi_v2",
+    "operator_version": "legacy-unversioned"
+  },
+  "implementation": {
+    "language": "python_runtime_operator",
+    "module": "cbond_on.domain.factors.operators.t1430_volume_hhi_v2",
+    "path": "cbond_on/domain/factors/operators/t1430_volume_hhi_v2.py",
+    "sha256": "da3fd7c9d56bf7299198a3d7266b51981774a43a4a873cfd1ebf863947c3e6d2"
+  },
+  "lifecycle": {
+    "operator_catalog_status": "registered",
+    "runtime_source_status": "migrated_pending_cutover",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "migration": {
+    "behavior_parity_status": "pending_baseline_replay",
+    "legacy_path": "cbond_on/domain/factors/defs/t1430_volume_hhi_v2.py",
+    "legacy_sha256": "a74ef61b869f18770c2b13b1072d6d64e57535af200f54fa98ec948ea4817e32",
+    "migration_kind": "namespace_relocation_without_formula_change"
+  },
+  "runtime_contract": {
+    "input_schema_status": "operator_declared_pending_field_audit",
+    "pit_validation_status": "operator_migration_pending_pit_audit",
+    "registration_key": "t1430_volume_hhi_v2",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "schema_version": "operator_contract/v1",
+  "test_reference": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+}

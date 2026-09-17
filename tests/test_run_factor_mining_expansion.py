@@ -10,7 +10,7 @@ import harness.tools.run_factor_mining_expansion as expansion_runner
 from cbond_on.domain.factors.spec import FactorSpec
 
 
-EXPANSION_MODULE = "cbond_on.domain.factors.defs.research_factor_mining_expansion_intraday_v1"
+EXPANSION_MODULE = "cbond_on.domain.factors.operators.research_factor_mining_expansion_intraday_v1"
 
 
 def _arguments(scratch_root: Path, *extra: str) -> list[str]:

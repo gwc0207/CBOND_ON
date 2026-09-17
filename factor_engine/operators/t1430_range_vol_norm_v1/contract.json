@@ -1,0 +1,40 @@
+{
+  "contract_hash": "9b1679041710cd291ff56266fb4bba1aab4c04660354fa57ac0afcd6b031dec5",
+  "definition": {
+    "kind": "runtime_operator_reference",
+    "path": "operators/t1430_range_vol_norm_v1/definition.py",
+    "sha256": "c92d5607ce26f5638eeed050521a8b31cf16a154e00bc2a0c707ad2526526582"
+  },
+  "factor_instances": [],
+  "identity": {
+    "operator_class": "T1430RangeVolNormV1",
+    "operator_id": "t1430_range_vol_norm_v1",
+    "operator_version": "legacy-unversioned"
+  },
+  "implementation": {
+    "language": "python_runtime_operator",
+    "module": "cbond_on.domain.factors.operators.t1430_range_vol_norm_v1",
+    "path": "cbond_on/domain/factors/operators/t1430_range_vol_norm_v1.py",
+    "sha256": "d48ee92dd3228c2083dc0e022adf907c91bb2ce44dd253919b7bf32a2f78126c"
+  },
+  "lifecycle": {
+    "operator_catalog_status": "registered",
+    "runtime_source_status": "migrated_pending_cutover",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "migration": {
+    "behavior_parity_status": "pending_baseline_replay",
+    "legacy_path": "cbond_on/domain/factors/defs/t1430_range_vol_norm_v1.py",
+    "legacy_sha256": "da45142da06cb1f8a609d7488e3d141757f4868ff44c59bbf18ff4eab0a800ab",
+    "migration_kind": "namespace_relocation_without_formula_change"
+  },
+  "runtime_contract": {
+    "input_schema_status": "operator_declared_pending_field_audit",
+    "pit_validation_status": "operator_migration_pending_pit_audit",
+    "registration_key": "t1430_range_vol_norm_v1",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "schema_version": "operator_contract/v1",
+  "test_reference": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+}

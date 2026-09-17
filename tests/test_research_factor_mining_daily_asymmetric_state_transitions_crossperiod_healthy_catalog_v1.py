@@ -6,13 +6,13 @@ from dataclasses import replace
 import pytest
 
 from cbond_on.core.registry import FactorRegistry
-from cbond_on.domain.factors.defs import (
+from cbond_on.domain.factors.operators import (
     research_factor_mining_daily_asymmetric_state_transitions_crossperiod_healthy_catalog_v1 as crossperiod,
 )
-from cbond_on.domain.factors.defs import (
+from cbond_on.domain.factors.operators import (
     research_factor_mining_daily_asymmetric_state_transitions_healthy_catalog_v1 as upstream,
 )
-from cbond_on.domain.factors.defs import (
+from cbond_on.domain.factors.operators import (
     research_factor_mining_daily_asymmetric_state_transitions_v1 as source,
 )
 

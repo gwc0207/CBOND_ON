@@ -1,0 +1,16 @@
+{
+  // Candidate-only read profile. It is not selected by active live_config or
+  // a scheduler task and deliberately has no live-table write authority.
+  raw_data_root: "D:/cbond_data_hub/raw_data",
+  clean_data_root: "D:/cbond_data_hub/clean_data",
+  cleaned_data_root: "D:/cbond_data_hub/clean_data",
+  results_root: "D:/cbond_on/research_scratch/live50_canonical_writer_candidate_20260828/runtime/results",
+  read_only_input_roots: {
+    panel_data_root: "D:/cbond_on/panel_data",
+    label_data_root: "D:/cbond_on/label_data",
+  },
+  factor_table: {
+    table_id: "live",
+    root: "D:/cbond_on/factor_store",
+  },
+}

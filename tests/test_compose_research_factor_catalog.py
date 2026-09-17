@@ -10,8 +10,8 @@ import pytest
 import harness.tools.compose_research_factor_catalog as composer
 
 
-EXPANSION_MODULE = "cbond_on.domain.factors.defs.research_factor_mining_daily_expansion_v1"
-INCREMENTAL_MODULE = "cbond_on.domain.factors.defs.research_factor_mining_daily_incremental_v1"
+EXPANSION_MODULE = "cbond_on.domain.factors.operators.research_factor_mining_daily_expansion_v1"
+INCREMENTAL_MODULE = "cbond_on.domain.factors.operators.research_factor_mining_daily_incremental_v1"
 
 
 def _write_vetted(path: Path, mapping: dict[str, list[str]] | None = None) -> Path:

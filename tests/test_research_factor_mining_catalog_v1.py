@@ -9,8 +9,8 @@ import pytest
 from cbond_on.core.registry import FactorRegistry
 from cbond_on.domain.factors.base import FactorComputeContext
 from cbond_on.domain.factors.builder import build_factor_frame
-from cbond_on.domain.factors import defs as factor_defs
-from cbond_on.domain.factors.defs import research_factor_mining_catalog_v1 as catalog
+from cbond_on.domain.factors import operators as factor_operators
+from cbond_on.domain.factors.operators import research_factor_mining_catalog_v1 as catalog
 from cbond_on.domain.factors.spec import FactorSpec
 
 
@@ -171,8 +171,8 @@ def test_catalogue_has_exact_family_first_coverage_and_registered_kernels() -> N
     assert {entry.kernel for entry in entries} == set(expected_kernels)
     for kernel, factor_class in expected_kernels.items():
         assert FactorRegistry.get(kernel) is factor_class
-        assert not hasattr(factor_defs, factor_class.__name__)
-        assert factor_class.__name__ not in factor_defs.__all__
+        assert not hasattr(factor_operators, factor_class.__name__)
+        assert factor_class.__name__ not in factor_operators.__all__
 
     requirements = catalog.FactorMiningDailyCatalogV1.daily_requirements()
     assert [item.source for item in requirements] == [

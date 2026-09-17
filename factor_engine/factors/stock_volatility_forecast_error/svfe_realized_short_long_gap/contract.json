@@ -1,0 +1,87 @@
+{
+  "context_requirements": {
+    "daily": [
+      {
+        "columns": [
+          "exchange_code",
+          "close_price"
+        ],
+        "lookback_days": 66,
+        "source": "market_cbond.daily_price"
+      },
+      {
+        "columns": [
+          "exchange_code",
+          "stock_volatility",
+          "stk_prev_close_price",
+          "stk_close_price"
+        ],
+        "lookback_days": 66,
+        "source": "market_cbond.daily_base"
+      }
+    ],
+    "panel_field_schema_status": "operator_declared_pending_factor_minimal_audit",
+    "panel_fields": [],
+    "panel_name": "T1430",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "contract_hash": "8feca647aec68d67fe1d601404b484d7dde72dcda3ebdf1e64d09ec46a9748a4",
+  "definition": {
+    "kind": "parameterized_operator_definition",
+    "path": "factors/stock_volatility_forecast_error/svfe_realized_short_long_gap/definition.py",
+    "sha256": "1775d1cc23080fa9414ec82b686cd9af0a5b55470fb6ab42b5d0393d410c926b"
+  },
+  "fixed_params": {
+    "family": "stock_volatility_forecast_error",
+    "signal": "svfe_realized_short_long_gap"
+  },
+  "identity": {
+    "factor_id": "svfe_realized_short_long_gap",
+    "factor_version": "catalog-20260826-217d94708ac7-56c100e29a7a",
+    "primary_family": "stock_volatility_forecast_error",
+    "tags": []
+  },
+  "lifecycle": {
+    "catalog_status": "registered",
+    "live_admission_status": "not_evaluated_by_catalog_builder",
+    "research_status": "legacy_mapping_discovered",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "operator_bindings": [
+    {
+      "implementation_module": "cbond_on.domain.factors.operators.research_factor_mining_daily_contract_stock_v1",
+      "implementation_path": "cbond_on/domain/factors/operators/research_factor_mining_daily_contract_stock_v1.py",
+      "implementation_sha256": "217d94708ac76ccbfb88f8b9725b1dcfbaf165039d42a9a1ccbc5cd53b75c015",
+      "language": "python_runtime_operator",
+      "legacy_implementation_path": "cbond_on/domain/factors/defs/research_factor_mining_daily_contract_stock_v1.py",
+      "legacy_implementation_sha256": "217d94708ac76ccbfb88f8b9725b1dcfbaf165039d42a9a1ccbc5cd53b75c015",
+      "operator_contract_path": "operators/factor_mining_daily_contract_stock_v1/contract.json",
+      "operator_id": "factor_mining_daily_contract_stock_v1",
+      "operator_version": "20260803_daily_contract_stock_v1",
+      "rust_contract_id": null
+    }
+  ],
+  "output": {
+    "column": "svfe_realized_short_long_gap",
+    "dtype": "float64"
+  },
+  "schema_version": "factor_contract/v2",
+  "source_lineage": {
+    "hypothesis": "Reported stock volatility versus trailing realized stock volatility describes a forecast-error state.",
+    "snapshot_id": "canonical_factor_catalog_20260826_800",
+    "source_position": 1,
+    "source_root": "D:/cbond_on/research_scratch/factor_mining_20260803_unified_v7_with_joint_merged_v1",
+    "source_set": "research773"
+  },
+  "test_reference": {
+    "behavioral_parity_status": "pending_baseline_replay",
+    "contract_test": "tests/test_factor_engine_governance.py::test_all_factor_definitions_and_contracts",
+    "operator_test": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+  },
+  "time_contract": {
+    "factor_time": "14:30",
+    "pit_validation_status": "operator_migration_pending_factor_pit_audit",
+    "research_label_time_reference": "14:42"
+  }
+}

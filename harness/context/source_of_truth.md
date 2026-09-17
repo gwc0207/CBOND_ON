@@ -4,79 +4,67 @@ Agents must prefer current source-of-truth files over memory or old reports.
 
 ## Repository Root
 
-The real git root is:
+The real Git root is:
 
 ```text
 C:\Users\BaiYang\CBOND_ON\cbond_on
 ```
 
-The outer `C:\Users\BaiYang\CBOND_ON` folder is not the git root.
-
 ## Current Architecture
 
-Read:
-
-- `docs/architecture_layers.md`
-- `README.md`
-- `cbond_on/config/README.md`
-- `docs/项目风险点记录.md`
-
-The current code boundary is:
+Read `docs/architecture_layers.md`, `README.md`, `cbond_on/config/README.md`,
+and the current risk record. The runtime boundary is:
 
 ```text
 run (compat) -> cli -> bootstrap -> workflows -> app -> domain/infra
 ```
 
-`cbond_on/interfaces/cli/*` remains a compatibility adapter over `cbond_on/cli`.
-`cbond_on/run/*` files are compatibility wrappers and must not grow into one-off
-scripts.
+`run/` and `interfaces/cli/` are compatibility adapters; do not add one-off
+runtime paths there.
 
 ## Live Source Of Truth
 
-Read these before any live change:
+Before a live change, read:
 
 - `cbond_on/config/live/live_config.json5`
 - `cbond_on/config/live/live_models_config.json5`
-- `cbond_on/config/live/live_factors_config.json5`
-- model-specific configs referenced by `live_models_config`
+- the factor/model configs referenced by `live_config`
 - current artifacts under `D:/cbond_on/results/live/{target_day}`
 - current model states under `D:/cbond_on/results/model_state`
 
-Do not assume the current live champion/challenger chain from memory.
+Do not infer the active live chain from memory. A live change must preserve or
+explicitly confirm model, factor release, neutralization, universe, DB target,
+and schedule behavior.
 
 ## Research Source Of Truth
 
-Read:
-
-- `cbond_on/config/score/model/*.json5`
-- `cbond_on/config/score/evaluation/model_eval_config.json5`
-- `docs/experiment_records/*.md`
-- relevant `summary_metrics.json`, `summary.csv`, or generated report files
-
-When comparing models, align:
-
-- date window;
-- warm start/refit;
-- label and sell window;
-- benchmark;
-- neutralization/winsor/zscore;
-- universe and `o_0005` filter;
-- current live baseline if the user says baseline in a live context.
+Read current model, evaluation, experiment-record, summary, and report
+artifacts. Comparisons must align date window, warm-start/refit, label/sell
+window, benchmark, preprocessing, and universe.
 
 ## Factor Source Of Truth
 
 Read:
 
-- `docs/开发规则.md`
-- `docs/ai_factor_factory_dify_prompt.md`
-- `cbond_on/config/factor/`
-- factor specs referenced by the active config
-- factor contracts/profile if promotion is considered
+- `docs/因子工程治理规则.md`
+- `harness/skills/cbond-factor-governance/SKILL.md`
+- `factor_engine/catalog/factor_catalog.json`
+- the active release, experiment manifest, or caller profile
+- `cbond_on/config/factor/` and referenced contracts
 
-AI/Dify output is research-only until local validation, backtest, correlation
-check, and owner decision complete.
+Normal factor result routes are exactly:
+
+```text
+live             -> D:/cbond_on/factor_store/live
+experiment       -> D:/cbond_on/factor_store/experiment
+factor_library   -> D:/cbond_on/factor_store/factor_library/<family>
+```
+
+Normal consumers declare `factor_table` and verify table manifest, day
+manifest, and `.done`. Free-form `factor_data_root`, old `factor_data`, and
+direct parquet access are migration/audit/no-DB staging exceptions only.
 
 ## Memory Protocol
 
-Use memory as an index, not as final truth. For drift-prone facts, verify
-against current config/artifacts before answering.
+Use memory as an index, not as final truth. Verify drift-prone facts against
+current configurations and artifacts.

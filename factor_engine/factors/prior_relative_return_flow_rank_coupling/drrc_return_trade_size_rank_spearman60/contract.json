@@ -1,0 +1,80 @@
+{
+  "context_requirements": {
+    "daily": [
+      {
+        "columns": [
+          "exchange_code",
+          "prev_close_price",
+          "close_price",
+          "amount",
+          "deal"
+        ],
+        "lookback_days": 75,
+        "source": "market_cbond.daily_price"
+      }
+    ],
+    "panel_field_schema_status": "operator_declared_pending_factor_minimal_audit",
+    "panel_fields": [],
+    "panel_name": "T1430",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "contract_hash": "c14bf40565e8061b98e0447f7835381f21e3583d1b6695dc8c196428b18e14c7",
+  "definition": {
+    "kind": "parameterized_operator_definition",
+    "path": "factors/prior_relative_return_flow_rank_coupling/drrc_return_trade_size_rank_spearman60/definition.py",
+    "sha256": "fc24c2dc13d8daa199b82732845ddd28601b3af6aa6ebedbdce9058cfe0b941c"
+  },
+  "fixed_params": {
+    "family": "prior_relative_return_flow_rank_coupling",
+    "signal": "drrc_return_trade_size_rank_spearman60"
+  },
+  "identity": {
+    "factor_id": "drrc_return_trade_size_rank_spearman60",
+    "factor_version": "catalog-20260826-863e1523876b-185c4f0166f0",
+    "primary_family": "prior_relative_return_flow_rank_coupling",
+    "tags": []
+  },
+  "lifecycle": {
+    "catalog_status": "registered",
+    "live_admission_status": "not_evaluated_by_catalog_builder",
+    "research_status": "legacy_mapping_discovered",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "operator_bindings": [
+    {
+      "implementation_module": "cbond_on.domain.factors.operators.research_factor_mining_daily_relative_rank_flow_coupling_v2",
+      "implementation_path": "cbond_on/domain/factors/operators/research_factor_mining_daily_relative_rank_flow_coupling_v2.py",
+      "implementation_sha256": "863e1523876b6af00f81f527e251ce3ab872da1863efe95f721a29397cafadfe",
+      "language": "python_runtime_operator",
+      "legacy_implementation_path": "cbond_on/domain/factors/defs/research_factor_mining_daily_relative_rank_flow_coupling_v2.py",
+      "legacy_implementation_sha256": "45228f432794e7b07deef63beb2ea22b8a6818c14d85e28863a9d692b5b03b50",
+      "operator_contract_path": "operators/factor_mining_daily_relative_rank_flow_coupling_v2/contract.json",
+      "operator_id": "factor_mining_daily_relative_rank_flow_coupling_v2",
+      "operator_version": "20260803_daily_relative_rank_flow_coupling_v2",
+      "rust_contract_id": null
+    }
+  ],
+  "output": {
+    "column": "drrc_return_trade_size_rank_spearman60",
+    "dtype": "float64"
+  },
+  "schema_version": "factor_contract/v2",
+  "source_lineage": {
+    "hypothesis": "Completed return-standing coupling with distinct flow standings is a relative flow-participation state, not a raw return, amount, turnover, deal count, or volatility level.",
+    "snapshot_id": "canonical_factor_catalog_20260826_800",
+    "source_position": 3,
+    "source_root": "D:/cbond_on/research_scratch/factor_mining_20260804_daily_orthogonal_batch_v8_full_r2/factor_data",
+    "source_set": "research773"
+  },
+  "test_reference": {
+    "behavioral_parity_status": "pending_baseline_replay",
+    "contract_test": "tests/test_factor_engine_governance.py::test_all_factor_definitions_and_contracts",
+    "operator_test": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+  },
+  "time_contract": {
+    "factor_time": "14:30",
+    "pit_validation_status": "operator_migration_pending_factor_pit_audit",
+    "research_label_time_reference": "14:42"
+  }
+}

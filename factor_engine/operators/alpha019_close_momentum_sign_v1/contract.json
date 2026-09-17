@@ -1,0 +1,42 @@
+{
+  "contract_hash": "151197f554ee47df530c1fb46e317ed1a22ee178d878a2e34ffbc6cc16784af1",
+  "definition": {
+    "kind": "runtime_operator_reference",
+    "path": "operators/alpha019_close_momentum_sign_v1/definition.py",
+    "sha256": "80d3e720bbb5667377e206705a5a85496bc4d4bd391e38a501c69b0153a7fe94"
+  },
+  "factor_instances": [
+    "alpha019_close_momentum_sign_v1"
+  ],
+  "identity": {
+    "operator_class": "Alpha019CloseMomentumSignV1Factor",
+    "operator_id": "alpha019_close_momentum_sign_v1",
+    "operator_version": "legacy-unversioned"
+  },
+  "implementation": {
+    "language": "python_runtime_operator",
+    "module": "cbond_on.domain.factors.operators.alpha019_close_momentum_sign_v1",
+    "path": "cbond_on/domain/factors/operators/alpha019_close_momentum_sign_v1.py",
+    "sha256": "72e99072c09835a3023278c723374363a7a2dc844241d4800d6b679be284925d"
+  },
+  "lifecycle": {
+    "operator_catalog_status": "registered",
+    "runtime_source_status": "migrated_pending_cutover",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "migration": {
+    "behavior_parity_status": "pending_baseline_replay",
+    "legacy_path": "cbond_on/domain/factors/defs/alpha019_close_momentum_sign_v1.py",
+    "legacy_sha256": "2c151226f53a2986979f3121b90034cbb05b506ff4890c74e63a41fc7dc1bac3",
+    "migration_kind": "namespace_relocation_without_formula_change"
+  },
+  "runtime_contract": {
+    "input_schema_status": "operator_declared_pending_field_audit",
+    "pit_validation_status": "operator_migration_pending_pit_audit",
+    "registration_key": "alpha019_close_momentum_sign_v1",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "schema_version": "operator_contract/v1",
+  "test_reference": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+}

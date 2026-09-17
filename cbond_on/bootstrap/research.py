@@ -3,6 +3,7 @@
 from typing import Any
 
 from cbond_on.config.loader import load_config_file
+from cbond_on.core.config import load_paths_profile
 from cbond_on.schemas.config.factor_batch import validate_factor_batch_config
 from cbond_on.schemas.config.model_eval import validate_model_eval_config
 from cbond_on.schemas.config.model_score import validate_model_score_config
@@ -14,7 +15,7 @@ def load_factor_batch_inputs(
     paths_config_name: str = "paths",
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     cfg = validate_factor_batch_config(load_config_file(config_name))
-    paths_cfg = validate_paths_config(load_config_file(paths_config_name))
+    paths_cfg = validate_paths_config(load_paths_profile(paths_config_name))
     return cfg, paths_cfg
 
 

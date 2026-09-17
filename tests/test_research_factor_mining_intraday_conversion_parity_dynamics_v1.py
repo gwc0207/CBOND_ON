@@ -8,10 +8,10 @@ import pandas as pd
 import pytest
 
 from cbond_on.core.registry import FactorRegistry
-from cbond_on.domain.factors import defs as factor_defs
+from cbond_on.domain.factors import operators as factor_operators
 from cbond_on.domain.factors.base import FactorComputeContext
 from cbond_on.domain.factors.builder import build_factor_frame
-from cbond_on.domain.factors.defs import research_factor_mining_intraday_conversion_parity_dynamics_v1 as parity
+from cbond_on.domain.factors.operators import research_factor_mining_intraday_conversion_parity_dynamics_v1 as parity
 from cbond_on.domain.factors.spec import FactorSpec
 
 
@@ -182,7 +182,7 @@ def test_catalogue_has_three_nonstatic_families_and_research_only_registration()
     }
     assert set(parity.FORMULAS) == {entry.signal for entry in entries}
     assert FactorRegistry.get(parity.KERNEL_NAME) is parity.FactorMiningIntradayConversionParityDynamicsV1
-    assert parity.FactorMiningIntradayConversionParityDynamicsV1.__name__ not in factor_defs.__all__
+    assert parity.FactorMiningIntradayConversionParityDynamicsV1.__name__ not in factor_operators.__all__
     assert parity.FactorMiningIntradayConversionParityDynamicsV1.requires_stock_panel is True
     assert parity.FactorMiningIntradayConversionParityDynamicsV1.requires_bond_stock_map is True
 

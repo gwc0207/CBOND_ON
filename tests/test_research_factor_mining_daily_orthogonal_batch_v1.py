@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import Counter
 
-from cbond_on.domain.factors.defs import (
+from cbond_on.domain.factors.operators import (
     research_factor_mining_daily_orthogonal_batch_v1 as batch,
 )
 
@@ -24,9 +24,9 @@ def test_catalogue_has_expected_unique_research_family_structure() -> None:
 
 def test_catalogue_declares_exact_member_modules() -> None:
     assert batch.SOURCE_MODULE_NAMES == (
-        "cbond_on.domain.factors.defs.research_factor_mining_daily_asymmetric_equity_beta_v1",
-        "cbond_on.domain.factors.defs.research_factor_mining_daily_return_liquidity_topology_v1",
-        "cbond_on.domain.factors.defs.research_factor_mining_daily_relative_rank_flow_coupling_v2",
-        "cbond_on.domain.factors.defs.research_factor_mining_daily_relative_rank_tail_contradiction_v1",
-        "cbond_on.domain.factors.defs.research_factor_mining_daily_ohlc_wick_path_asymmetry_v1",
+        "cbond_on.domain.factors.operators.research_factor_mining_daily_asymmetric_equity_beta_v1",
+        "cbond_on.domain.factors.operators.research_factor_mining_daily_return_liquidity_topology_v1",
+        "cbond_on.domain.factors.operators.research_factor_mining_daily_relative_rank_flow_coupling_v2",
+        "cbond_on.domain.factors.operators.research_factor_mining_daily_relative_rank_tail_contradiction_v1",
+        "cbond_on.domain.factors.operators.research_factor_mining_daily_ohlc_wick_path_asymmetry_v1",
     )

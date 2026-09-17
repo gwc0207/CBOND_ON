@@ -26,14 +26,14 @@ def test_dashboard_coverage_target_follows_live50_factor_store() -> None:
     factor_cfg = load_config_file(live_cfg["factor"]["config"])
     runtime_paths = load_config_file(live_cfg["runtime"]["paths_config"])
 
-    label, expected_columns, raw_root, factor_root = _resolve_factor_coverage_target()
+    label, expected_columns, raw_root, factor_reader = _resolve_factor_coverage_target()
 
     assert label == "T1430"
     assert expected_columns == expected_factor_columns_from_cfg(factor_cfg)
     assert len(expected_columns) == 50
     assert raw_root == Path(runtime_paths["raw_data_root"])
-    assert factor_root == Path(runtime_paths["factor_data_root"])
-    assert factor_root == Path("D:/cbond_on/factor_data_live50_20260805")
+    assert Path(factor_reader.root) == Path(runtime_paths["factor_data_root"])
+    assert Path(factor_reader.root) == Path("D:/cbond_on/factor_store/live")
 
 
 def test_dashboard_calendar_uses_live50_factor_store_and_expected_columns(monkeypatch) -> None:
@@ -55,8 +55,8 @@ def test_dashboard_calendar_uses_live50_factor_store_and_expected_columns(monkey
     runtime_paths = load_config_file(live_cfg["runtime"]["paths_config"])
     captured: dict = {}
 
-    def fake_coverage(*, factor_dir, expected_factor_cols, trading_days):
-        captured["factor_dir"] = factor_dir
+    def fake_coverage(*, factor_reader, expected_factor_cols, trading_days):
+        captured["factor_reader"] = factor_reader
         captured["expected_factor_cols"] = expected_factor_cols
         captured["trading_days"] = trading_days
         return {
@@ -69,7 +69,7 @@ def test_dashboard_calendar_uses_live50_factor_store_and_expected_columns(monkey
         }
 
     monkeypatch.setattr(dashboard_app, "_load_open_days", lambda _root: [date(2026, 8, 6)])
-    monkeypatch.setattr(dashboard_app, "scan_factor_day_coverage", fake_coverage)
+    monkeypatch.setattr(dashboard_app, "scan_factor_reader_day_coverage", fake_coverage)
 
     payload = dashboard_app._build_data_calendar(anchor_day=date(2026, 8, 6), months=1)
     aug_06 = next(
@@ -82,7 +82,7 @@ def test_dashboard_calendar_uses_live50_factor_store_and_expected_columns(monkey
 
     assert payload["label"] == "T1430"
     assert payload["expected_factor_count"] == 50
-    assert captured["factor_dir"] == Path(runtime_paths["factor_data_root"]) / "factors" / "T1430"
+    assert Path(captured["factor_reader"].root) == Path(runtime_paths["factor_data_root"])
     assert captured["expected_factor_cols"] == expected_columns
     assert captured["trading_days"] == [date(2026, 8, 6)]
     assert aug_06["status"] == "ok"

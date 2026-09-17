@@ -9,6 +9,7 @@ import pandas as pd
 from cbond_on.infra.model.adapters import LinearAdapter
 from cbond_on.infra.model.impl.linear import linear_score
 from cbond_on.infra.model.score_io import load_scores_by_date
+from cbond_on.domain.factors.storage import FactorStore
 
 
 _CODES = ["110001", "110002", "110003", "110004"]
@@ -55,6 +56,7 @@ def _run(
 ) -> linear_score.ScoreResult:
     kwargs = {
         "factor_root": factor_root,
+        "factor_store": FactorStore(factor_root, panel_name="T1430"),
         "label_root": label_root,
         "start": start,
         "end": end,
@@ -78,6 +80,7 @@ def _run(
         "device": "cpu",
         "gpu_fallback_to_cpu": True,
         "neutralizer": None,
+        "audit_only": True,
     }
     kwargs.update(overrides)
     return linear_score.run_linear_score(**kwargs)
@@ -238,8 +241,9 @@ def test_runner_with_label_cutoff_does_not_reopen_target_label(tmp_path, monkeyp
     }
 
     class FakeStore:
-        def __init__(self, *args, **kwargs) -> None:
-            pass
+        def has_day(self, day: date) -> bool:
+            assert day == target
+            return True
 
         def read_day(self, day: date) -> pd.DataFrame:
             assert day == target
@@ -268,8 +272,8 @@ def test_runner_with_label_cutoff_does_not_reopen_target_label(tmp_path, monkeyp
         weights_history=pd.DataFrame(),
     )
     monkeypatch.setattr(train_linear, "load_config_file", fake_load_config)
-    monkeypatch.setattr(train_linear, "FactorStore", FakeStore)
-    monkeypatch.setattr(train_linear, "_iter_existing_factor_days", lambda *args, **kwargs: [target])
+    monkeypatch.setattr(train_linear, "build_factor_reader", lambda *args, **kwargs: FakeStore())
+    monkeypatch.setattr(train_linear, "list_trading_days_from_raw", lambda *args, **kwargs: [target])
     monkeypatch.setattr(train_linear, "build_neutralizer", lambda *args, **kwargs: None)
     monkeypatch.setattr(train_linear, "init_wandb_logger", lambda **kwargs: FakeLogger())
     monkeypatch.setattr(train_linear, "run_linear_score", lambda **kwargs: score_result)

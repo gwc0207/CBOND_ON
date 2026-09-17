@@ -7,7 +7,7 @@ import pytest
 
 from cbond_on.core.registry import FactorRegistry
 from cbond_on.domain.factors.base import FactorComputeContext
-from cbond_on.domain.factors.defs.parity_adjusted_stock_lag_v2 import ParityAdjustedStockLagV2Factor
+from cbond_on.domain.factors.operators.parity_adjusted_stock_lag_v2 import ParityAdjustedStockLagV2Factor
 
 
 def _panel(*, code: str, prices: list[float]) -> pd.DataFrame:

@@ -1,0 +1,80 @@
+{
+  "context_requirements": {
+    "daily": [
+      {
+        "columns": [
+          "exchange_code",
+          "prev_close_price",
+          "close_price",
+          "amount",
+          "deal"
+        ],
+        "lookback_days": 75,
+        "source": "market_cbond.daily_price"
+      }
+    ],
+    "panel_field_schema_status": "operator_declared_pending_factor_minimal_audit",
+    "panel_fields": [],
+    "panel_name": "T1430",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "contract_hash": "59e8e7c12bf0cce712372c26a70a177af519cbf9c0713a3d095e45b95bbfad3c",
+  "definition": {
+    "kind": "parameterized_operator_definition",
+    "path": "factors/prior_return_liquidity_information_dependence/rlmi_return_deal_sign_mutual_information60/definition.py",
+    "sha256": "e5d3ee19514d2d659ccd900bc414c6352ce9c920d41d8108e60192a6afdec624"
+  },
+  "fixed_params": {
+    "family": "prior_return_liquidity_information_dependence",
+    "signal": "rlmi_return_deal_sign_mutual_information60"
+  },
+  "identity": {
+    "factor_id": "rlmi_return_deal_sign_mutual_information60",
+    "factor_version": "catalog-20260826-089d8a9cd07f-849297227bff",
+    "primary_family": "prior_return_liquidity_information_dependence",
+    "tags": []
+  },
+  "lifecycle": {
+    "catalog_status": "registered",
+    "live_admission_status": "live_released",
+    "research_status": "legacy_mapping_discovered",
+    "rust_status": "live50_rust_capability_required"
+  },
+  "operator_bindings": [
+    {
+      "implementation_module": "cbond_on.domain.factors.operators.research_factor_mining_daily_return_liquidity_topology_v1",
+      "implementation_path": "cbond_on/domain/factors/operators/research_factor_mining_daily_return_liquidity_topology_v1.py",
+      "implementation_sha256": "089d8a9cd07fc15271dac2e10256e0e4810db08964e79d29e385a34f02f86072",
+      "language": "python_runtime_operator",
+      "legacy_implementation_path": "cbond_on/domain/factors/defs/research_factor_mining_daily_return_liquidity_topology_v1.py",
+      "legacy_implementation_sha256": "089d8a9cd07fc15271dac2e10256e0e4810db08964e79d29e385a34f02f86072",
+      "operator_contract_path": "operators/factor_mining_daily_return_liquidity_topology_v1/contract.json",
+      "operator_id": "factor_mining_daily_return_liquidity_topology_v1",
+      "operator_version": "20260803_daily_return_liquidity_topology_v1",
+      "rust_contract_id": "live50_r5/rlmi_return_deal_sign_mutual_information60"
+    }
+  ],
+  "output": {
+    "column": "rlmi_return_deal_sign_mutual_information60",
+    "dtype": "float64"
+  },
+  "schema_version": "factor_contract/v2",
+  "source_lineage": {
+    "hypothesis": "Completed return-sign dependence on trading-count and average-trade-size changes is a nonlinear information-absorption state rather than a raw liquidity level or a lagged linear impact beta.",
+    "snapshot_id": "canonical_factor_catalog_20260826_800",
+    "source_position": 3,
+    "source_root": "D:/cbond_on/research_scratch/factor_mining_20260804_daily_orthogonal_batch_v8_full_r2/factor_data",
+    "source_set": "research773"
+  },
+  "test_reference": {
+    "behavioral_parity_status": "pending_baseline_replay",
+    "contract_test": "tests/test_factor_engine_governance.py::test_all_factor_definitions_and_contracts",
+    "operator_test": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+  },
+  "time_contract": {
+    "factor_time": "14:30",
+    "pit_validation_status": "operator_migration_pending_factor_pit_audit",
+    "research_label_time_reference": "14:42"
+  }
+}

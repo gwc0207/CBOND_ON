@@ -10,16 +10,16 @@ import pandas as pd
 import pytest
 
 from cbond_on.domain.factors.base import FactorComputeContext
-from cbond_on.domain.factors.defs.research_factor_mining_daily_asymmetric_state_transitions_v1 import (
+from cbond_on.domain.factors.operators.research_factor_mining_daily_asymmetric_state_transitions_v1 import (
     FactorMiningDailyAsymmetricStateTransitionsV1,
 )
-from cbond_on.domain.factors.defs.research_factor_mining_daily_bond_stock_cross_sectional_rank_concordance_v1 import (
+from cbond_on.domain.factors.operators.research_factor_mining_daily_bond_stock_cross_sectional_rank_concordance_v1 import (
     FactorMiningDailyBondStockCrossSectionalRankConcordanceV1,
 )
-from cbond_on.domain.factors.defs.research_factor_mining_daily_bond_stock_return_flow_information_v1 import (
+from cbond_on.domain.factors.operators.research_factor_mining_daily_bond_stock_return_flow_information_v1 import (
     FactorMiningDailyBondStockReturnFlowInformationV1,
 )
-from cbond_on.domain.factors.defs.research_factor_mining_daily_capacity_rank_coupling_v1 import (
+from cbond_on.domain.factors.operators.research_factor_mining_daily_capacity_rank_coupling_v1 import (
     FactorMiningDailyCapacityRankCouplingV1,
 )
 from cbond_on.domain.factors.spec import FactorSpec

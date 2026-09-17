@@ -14,31 +14,31 @@ from cbond_on.workflows.research import factor_batch
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 _RESEARCH_MODULES = {
-    "cbond_on.domain.factors.defs.ai_factory_wave80_intraday_v1": {
+    "cbond_on.domain.factors.operators.ai_factory_wave80_intraday_v1": {
         "ai_factory_wave80_intraday_v1",
     },
-    "cbond_on.domain.factors.defs.daily_prior_intraday_return_surprise_v1": {
+    "cbond_on.domain.factors.operators.daily_prior_intraday_return_surprise_v1": {
         "daily_prior_intraday_return_surprise_v1",
     },
-    "cbond_on.domain.factors.defs.daily_prior_intraday_sharpe_v1": {
+    "cbond_on.domain.factors.operators.daily_prior_intraday_sharpe_v1": {
         "daily_prior_intraday_sharpe_v1",
     },
-    "cbond_on.domain.factors.defs.parity_adjusted_stock_lag_v1": {
+    "cbond_on.domain.factors.operators.parity_adjusted_stock_lag_v1": {
         "parity_adjusted_stock_lag_v1",
     },
-    "cbond_on.domain.factors.defs.parity_adjusted_stock_lag_v2": {
+    "cbond_on.domain.factors.operators.parity_adjusted_stock_lag_v2": {
         "parity_adjusted_stock_lag_v2",
     },
-    "cbond_on.domain.factors.defs.research_factor_mining_catalog_v1": {
+    "cbond_on.domain.factors.operators.research_factor_mining_catalog_v1": {
         "factor_mining_cross_asset_catalog_v1",
         "factor_mining_daily_catalog_v1",
         "factor_mining_hybrid_catalog_v1",
         "factor_mining_intraday_catalog_v1",
     },
-    "cbond_on.domain.factors.defs.t1430_amount_accel_depth_delta_v2": {
+    "cbond_on.domain.factors.operators.t1430_amount_accel_depth_delta_v2": {
         "t1430_amount_accel_depth_delta_v2",
     },
-    "cbond_on.domain.factors.defs.tail_path_efficiency_5m_v1": {
+    "cbond_on.domain.factors.operators.tail_path_efficiency_5m_v1": {
         "tail_path_efficiency_5m_v1",
     },
 }
@@ -105,9 +105,7 @@ registered = set(FactorRegistry.names())
 print("ISOLATION_PROBE=" + json.dumps({
     "research_registered": sorted(research_keys.intersection(registered)),
     "research_live_overlap": sorted(research_keys.intersection(live_implementations)),
-    "missing_live_implementations": sorted(
-        implementation for implementation in live_implementations if implementation not in registered
-    ),
+    "registered_count": len(registered),
     "live_implementation_count": len(live_implementations),
 }))
 """
@@ -115,7 +113,7 @@ print("ISOLATION_PROBE=" + json.dumps({
 
     assert payload["research_registered"] == []
     assert payload["research_live_overlap"] == []
-    assert payload["missing_live_implementations"] == []
+    assert payload["registered_count"] == 0
     assert payload["live_implementation_count"] == 20
 
 
@@ -161,7 +159,7 @@ print("ISOLATION_PROBE=" + json.dumps({{
 
 
 def test_research_loader_rejects_implicit_or_unallowlisted_imports() -> None:
-    module = "cbond_on.domain.factors.defs.daily_prior_intraday_sharpe_v1"
+    module = "cbond_on.domain.factors.operators.daily_prior_intraday_sharpe_v1"
     cfg = _research_cfg(module=module, factor_key="daily_prior_intraday_sharpe_v1")
 
     cfg["research_only"] = False

@@ -1,0 +1,68 @@
+{
+  "context_requirements": {
+    "daily": [],
+    "panel_field_schema_status": "operator_declared_pending_factor_minimal_audit",
+    "panel_fields": [],
+    "panel_name": "T1430",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "contract_hash": "4630dae1e25b8c73d021fe9c8ca5cf8b0bcaa6cec5081473d35d658b43aa9948",
+  "definition": {
+    "kind": "parameterized_operator_definition",
+    "path": "factors/bid_ask_geometry_coupling/qgeo_bidask_depth_shape_coherence/definition.py",
+    "sha256": "910ccc6d3e9a1d124e3e5066466ea9cb1ef4d5baed728feddb9d0b42a745fed5"
+  },
+  "fixed_params": {
+    "family": "bid_ask_geometry_coupling",
+    "signal": "qgeo_bidask_depth_shape_coherence"
+  },
+  "identity": {
+    "factor_id": "qgeo_bidask_depth_shape_coherence",
+    "factor_version": "catalog-20260826-5fcc9092fe7e-eed3a1aa0589",
+    "primary_family": "bid_ask_geometry_coupling",
+    "tags": []
+  },
+  "lifecycle": {
+    "catalog_status": "registered",
+    "live_admission_status": "not_evaluated_by_catalog_builder",
+    "research_status": "legacy_mapping_discovered",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "operator_bindings": [
+    {
+      "implementation_module": "cbond_on.domain.factors.operators.research_factor_mining_quote_geometry_microprice_v1",
+      "implementation_path": "cbond_on/domain/factors/operators/research_factor_mining_quote_geometry_microprice_v1.py",
+      "implementation_sha256": "5fcc9092fe7eb810a5d248d73ba54c32f53e9dfc72b3c90931aa65dbc922de13",
+      "language": "python_runtime_operator",
+      "legacy_implementation_path": "cbond_on/domain/factors/defs/research_factor_mining_quote_geometry_microprice_v1.py",
+      "legacy_implementation_sha256": "eb86fe28b071482b400d9ff27fd6d529b1ffc16fe5443e6150bf8cfb30d8f8bc",
+      "operator_contract_path": "operators/factor_mining_quote_geometry_microprice_v1/contract.json",
+      "operator_id": "factor_mining_quote_geometry_microprice_v1",
+      "operator_version": "20260803_quote_geometry_microprice_v1",
+      "rust_contract_id": null
+    }
+  ],
+  "output": {
+    "column": "qgeo_bidask_depth_shape_coherence",
+    "dtype": "float64"
+  },
+  "schema_version": "factor_contract/v2",
+  "source_lineage": {
+    "hypothesis": "Coupling between bid/ask depth shapes and between depth asymmetry and ladder curvature is distinct from same-side queue updates or centroid relocation.",
+    "snapshot_id": "canonical_factor_catalog_20260826_800",
+    "source_position": 2,
+    "source_root": "D:/cbond_on/research_scratch/factor_mining_20260803_aggregate_catalog_v5_full/factor_data",
+    "source_set": "research773"
+  },
+  "test_reference": {
+    "behavioral_parity_status": "pending_baseline_replay",
+    "contract_test": "tests/test_factor_engine_governance.py::test_all_factor_definitions_and_contracts",
+    "operator_test": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+  },
+  "time_contract": {
+    "factor_time": "14:30",
+    "pit_validation_status": "operator_migration_pending_factor_pit_audit",
+    "research_label_time_reference": "14:42"
+  }
+}

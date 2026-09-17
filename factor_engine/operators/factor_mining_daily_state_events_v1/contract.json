@@ -1,0 +1,65 @@
+{
+  "contract_hash": "948389ea5a042988c62fc1b7fb135fd96bb537c6aa8dc1a5e0a93cfc3c4f195b",
+  "definition": {
+    "kind": "runtime_operator_reference",
+    "path": "operators/factor_mining_daily_state_events_v1/definition.py",
+    "sha256": "700da3e2e02ebbc0a9400251a030b00b4006126f21734f4462d57d03d1f5d5e1"
+  },
+  "factor_instances": [
+    "adjustment_abs_imbalance",
+    "adjustment_any_magnitude",
+    "adjustment_cross_asset_gap",
+    "adjustment_event_rate20",
+    "adjustment_event_recency60",
+    "adjustment_net_log_shift",
+    "call_activation_flag",
+    "call_activation_recency60",
+    "call_active_age",
+    "call_active_revised_progress",
+    "call_active_revised_progress_velocity5",
+    "call_active_revised_required_days",
+    "quantity_imbalance_persistence20",
+    "quantity_relative_notional_per_unit_surprise20",
+    "quantity_relative_trade_size_surprise20",
+    "quantity_relative_volume_surprise20",
+    "quantity_volume_coupling20",
+    "quantity_volume_lead_lag20",
+    "supply_cumulative_log_change20",
+    "supply_event_rate20",
+    "supply_event_recency60",
+    "supply_log_change1",
+    "supply_shrink_liquidity_impulse1",
+    "supply_shrink_log1"
+  ],
+  "identity": {
+    "operator_class": "FactorMiningDailyStateEventsV1",
+    "operator_id": "factor_mining_daily_state_events_v1",
+    "operator_version": "20260803_daily_state_events_v1_r2"
+  },
+  "implementation": {
+    "language": "python_runtime_operator",
+    "module": "cbond_on.domain.factors.operators.research_factor_mining_daily_state_events_v1",
+    "path": "cbond_on/domain/factors/operators/research_factor_mining_daily_state_events_v1.py",
+    "sha256": "0c657697fb62d74d897bf434e0bb1d70bb2fe5c3a051d05d982cad938485f4ff"
+  },
+  "lifecycle": {
+    "operator_catalog_status": "registered",
+    "runtime_source_status": "migrated_pending_cutover",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "migration": {
+    "behavior_parity_status": "pending_baseline_replay",
+    "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_daily_state_events_v1.py",
+    "legacy_sha256": "0c657697fb62d74d897bf434e0bb1d70bb2fe5c3a051d05d982cad938485f4ff",
+    "migration_kind": "namespace_relocation_without_formula_change"
+  },
+  "runtime_contract": {
+    "input_schema_status": "operator_declared_pending_field_audit",
+    "pit_validation_status": "operator_migration_pending_pit_audit",
+    "registration_key": "factor_mining_daily_state_events_v1",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "schema_version": "operator_contract/v1",
+  "test_reference": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+}

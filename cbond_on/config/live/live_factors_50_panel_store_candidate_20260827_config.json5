@@ -1,0 +1,8 @@
+{
+  // Disabled candidate retained only for audit of the old no-DB branch.
+  // It must not request a persistent PanelStore if loaded manually.
+  modules: ["live/live_factors_50_20260805"],
+  panel_source: {
+    mode: "clean_direct",
+  },
+}

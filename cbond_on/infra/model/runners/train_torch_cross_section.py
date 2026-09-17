@@ -4,10 +4,12 @@ from dataclasses import dataclass
 from datetime import date, datetime
 import hashlib
 import json
+import math
 from pathlib import Path
 import random
+import re
 import sys
-from typing import Any, Iterable, Sequence
+from typing import Any, Mapping, Sequence
 
 import numpy as np
 import pandas as pd
@@ -21,6 +23,8 @@ if str(PROJECT_ROOT) not in sys.path:
 from cbond_on.core.config import load_config_file, parse_date, resolve_output_path
 from cbond_on.core.trading_days import list_trading_days_from_raw, prev_trading_days_from_raw
 from cbond_on.domain.factors.storage import FactorStore
+from cbond_on.infra.factors.factor_table_resolution import CanonicalFactorTableReader, build_factor_reader
+from cbond_on.infra.factors.r88_experiment_table import admit_r88_experiment_table
 from cbond_on.infra.model.impl.lgbm.trainer import (
     SplitData,
     _build_day_group_indices,
@@ -41,6 +45,30 @@ _PROTECTED_ROOTS = (
     Path("D:/cbond_on/results/model_state"),
     Path("D:/cbond_on/results/backtest"),
 )
+
+# The live50 path remains the historical default, including its checkpoint
+# fingerprint.  R88 is deliberately a separate, research-only contract: it
+# enters through the canonical experiment table and never inherits a live
+# profile or a direct scattered FactorStore root.
+_LIVE50_FACTOR_CONTRACT_REF = "factor_contracts/profiles/live50_rust50_20260806.json5"
+_R88_FACTOR_CONTRACT_REF = "factor_contracts/profiles/research_r88_rust88_20260825.json5"
+_R88_ADMISSION_PROFILE = "research_r88_rust88_20260825"
+_R88_RESEARCH_CONFIG_PROFILE = "research_r88_rust88_20260825"
+_R88_FACTOR_COUNT = 88
+_R88_RESEARCH_SCRATCH_ROOT = Path("D:/cbond_on/research_scratch")
+_R88_CANONICAL_TABLE_ID = "experiment"
+_R88_ALLOWED_MIN_COVERAGE_FRACTIONS = (0.75, 0.80, 0.85, 0.90, 0.95, 1.00)
+_R88_BACKFILL_MANIFEST_SCHEMA = "r88_factor_backfill_manifest/v1"
+_R88_BACKFILL_COMPLETION_DEFINITION = "requested_approved_range_and_exact_frozen_r50_day_coverage"
+_R88_APPROVED_BACKFILL_RANGE = {"start": "2024-01-01", "end": "2026-07-30"}
+_R88_FROZEN_R50_FACTOR_ROOT = (
+    _R88_RESEARCH_SCRATCH_ROOT
+    / "rust50_unified_final_20260806_160508"
+    / "fullchain_preseed_r4"
+    / "runtime_r2"
+    / "factor_data"
+)
+_R88_R38_EXECUTION_MODE = "r38_only_plus_frozen_r50_merge"
 
 
 @dataclass(frozen=True)
@@ -151,7 +179,7 @@ def _config_fingerprint(
 def _validate_factor_contract(*, contract_ref: str, factors: list[str]) -> dict:
     """Pin model input to the immutable Rust-50 admission profile."""
 
-    expected_ref = "factor_contracts/profiles/live50_rust50_20260806.json5"
+    expected_ref = _LIVE50_FACTOR_CONTRACT_REF
     if str(contract_ref).replace("\\", "/") != expected_ref:
         raise ValueError(f"torch cross-section r3 requires factor_contract={expected_ref}")
     path = PROJECT_ROOT / "cbond_on" / expected_ref
@@ -169,12 +197,512 @@ def _validate_factor_contract(*, contract_ref: str, factors: list[str]) -> dict:
     return {"path": str(path), "admission_profile": str(loaded.get("admission_profile", "")), "specs_sha256": digest}
 
 
+def _resolved_path(value: str | Path) -> Path:
+    return Path(value).expanduser().resolve(strict=False)
+
+
+def _path_is_within(*, value: str | Path, root: str | Path) -> bool:
+    """Compare lexical paths without requiring the research store to exist yet."""
+
+    candidate = str(_resolved_path(value)).replace("\\", "/").rstrip("/").lower()
+    boundary = str(_resolved_path(root)).replace("\\", "/").rstrip("/").lower()
+    return candidate == boundary or candidate.startswith(f"{boundary}/")
+
+
+def _canonical_r88_specs_sha256(raw_specs: object) -> tuple[list[str], str]:
+    """Validate the explicit R88 FactorSpec payload and return its digest."""
+
+    if not isinstance(raw_specs, list):
+        raise ValueError("R88 factor contract must declare factor_specs as an ordered list")
+    canonical_specs: list[dict[str, Any]] = []
+    names: list[str] = []
+    for idx, raw_spec in enumerate(raw_specs):
+        if not isinstance(raw_spec, Mapping):
+            raise ValueError(f"R88 factor_specs[{idx}] must be an object")
+        name = str(raw_spec.get("name", "")).strip()
+        factor = str(raw_spec.get("factor", "")).strip()
+        params = raw_spec.get("params")
+        if not name or not factor or not isinstance(params, Mapping):
+            raise ValueError(f"R88 factor_specs[{idx}] must contain name, factor, and params object")
+        output_col = raw_spec.get("output_col")
+        rust_contract_id = raw_spec.get("rust_contract_id")
+        canonical_specs.append(
+            {
+                "name": name,
+                "factor": factor,
+                "params": dict(params),
+                "output_col": None if output_col is None else str(output_col),
+                "rust_contract_id": None if rust_contract_id is None else str(rust_contract_id),
+            }
+        )
+        names.append(name)
+    if len(names) != _R88_FACTOR_COUNT or len(set(names)) != _R88_FACTOR_COUNT:
+        raise ValueError(f"R88 factor_specs must contain exactly {_R88_FACTOR_COUNT} unique ordered factors")
+    encoded = json.dumps(
+        canonical_specs,
+        ensure_ascii=True,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
+    return names, hashlib.sha256(encoded).hexdigest()
+
+
+def _require_r88_factor_contract(
+    *,
+    contract_ref: str,
+    factors: list[str],
+    panel_name: str,
+    factor_time: str,
+    label_time: str,
+) -> dict:
+    """Pin R88 to its explicit research-only Rust admission profile.
+
+    The profile is intentionally not a live profile.  The runner validates the
+    ordered feature universe and Rust execution declaration before opening the
+    FactorStore, while the R88 build/preflight owns formula-level Rust parity.
+    """
+
+    if str(contract_ref).replace("\\", "/") != _R88_FACTOR_CONTRACT_REF:
+        raise ValueError(f"torch cross-section R88 requires factor_contract={_R88_FACTOR_CONTRACT_REF}")
+    path = PROJECT_ROOT / "cbond_on" / _R88_FACTOR_CONTRACT_REF
+    if not path.exists():
+        raise FileNotFoundError(f"frozen R88 research factor contract is missing: {path}")
+    import json5
+
+    loaded = json5.loads(path.read_text(encoding="utf-8"))
+    if not bool(loaded.get("research_only", False)):
+        raise ValueError("R88 factor contract must declare research_only=true")
+    if str(loaded.get("admission_profile", "")).strip() != _R88_ADMISSION_PROFILE:
+        raise ValueError("unexpected R88 factor-contract admission profile")
+    if str(loaded.get("execution_policy", "")).strip().lower() != "rust_first":
+        raise ValueError("R88 factor contract requires execution_policy='rust_first'")
+    compute = loaded.get("compute")
+    if not isinstance(compute, Mapping):
+        raise ValueError("R88 factor contract must declare compute settings")
+    if str(compute.get("engine", "")).strip().lower() != "rust":
+        raise ValueError("R88 factor contract requires compute.engine='rust'")
+    if str(compute.get("execution_policy", "")).strip().lower() != "rust_first":
+        raise ValueError("R88 factor contract requires compute.execution_policy='rust_first'")
+    profile_factors = [str(item) for item in loaded.get("factors", [])]
+    if len(profile_factors) != _R88_FACTOR_COUNT or len(set(profile_factors)) != _R88_FACTOR_COUNT:
+        raise ValueError(f"R88 factor contract must contain exactly {_R88_FACTOR_COUNT} unique ordered factors")
+    if profile_factors != factors:
+        raise ValueError("torch cross-section factors do not exactly match frozen R88 research contract order")
+    spec_names, canonical_digest = _canonical_r88_specs_sha256(loaded.get("factor_specs"))
+    if spec_names != profile_factors:
+        raise ValueError("R88 factor_specs names do not exactly match the ordered factors contract")
+    digest = str(loaded.get("specs_sha256", "")).strip().lower()
+    if re.fullmatch(r"[0-9a-f]{64}", digest) is None:
+        raise ValueError("R88 factor contract must provide a SHA-256 specs_sha256")
+    if digest != canonical_digest:
+        raise ValueError("R88 factor-contract specs_sha256 does not match its canonical factor_specs payload")
+    time_contract = loaded.get("time_contract")
+    if not isinstance(time_contract, Mapping):
+        raise ValueError("R88 factor contract must declare a time_contract object")
+    expected_time_contract = {
+        "panel_name": str(panel_name),
+        "factor_time": str(factor_time),
+        "label_time": str(label_time),
+    }
+    actual_time_contract = {key: str(time_contract.get(key, "")).strip() for key in expected_time_contract}
+    if actual_time_contract != expected_time_contract:
+        raise ValueError(
+            "R88 factor-contract time contract drift: "
+            f"expected={expected_time_contract} actual={actual_time_contract}"
+        )
+    return {
+        "path": str(path),
+        "admission_profile": _R88_ADMISSION_PROFILE,
+        "specs_sha256": digest,
+        "research_only": True,
+        "execution_status": str(loaded.get("execution_status", "")).strip(),
+    }
+
+
+def _require_r88_backfill_readiness(
+    *,
+    factor_root: Path,
+    factor_contract: Mapping[str, Any],
+    factors: Sequence[str],
+    panel_name: str,
+    factor_time: str,
+    label_time: str,
+    raw_root: Path,
+    clean_root: Path,
+) -> dict[str, Any]:
+    """Require a completed, pinned Rust88 FactorStore before model input I/O."""
+
+    if str(factor_contract.get("execution_status", "")).strip() != "eligible_for_fresh_rust_backfill":
+        raise RuntimeError(
+            "R88 factor contract is not eligible for model training; "
+            "complete the exact Rust-contract and fresh-backfill gates first"
+        )
+    manifest_path = _resolved_path(factor_root) / "r88_backfill_manifest.json"
+    if not manifest_path.is_file():
+        raise FileNotFoundError(f"R88 completed Rust backfill manifest is required: {manifest_path}")
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"cannot read R88 completed Rust backfill manifest: {manifest_path}") from exc
+    if not isinstance(manifest, Mapping):
+        raise RuntimeError("R88 completed Rust backfill manifest must be an object")
+    if str(manifest.get("schema_version", "")).strip() != _R88_BACKFILL_MANIFEST_SCHEMA:
+        raise RuntimeError("unexpected R88 completed Rust backfill manifest schema")
+    if manifest.get("research_only") is not True:
+        raise RuntimeError("R88 completed Rust backfill manifest must declare research_only=true")
+    if str(manifest.get("execution_status", "")).strip() != "completed_rust88_backfill":
+        raise RuntimeError("R88 completed Rust backfill manifest is not completed_rust88_backfill")
+    if manifest.get("model_training_ready") is not True:
+        raise RuntimeError("R88 completed Rust backfill manifest is not model_training_ready")
+
+    # A status and readiness flag alone are not sufficient: old smoke
+    # manifests could be marked complete despite containing only one or a few
+    # days.  Model admission is tied to the completion proof emitted by the
+    # dedicated R38-only backfiller and re-checked against its durable stores.
+    completion = manifest.get("completion")
+    if not isinstance(completion, Mapping):
+        raise RuntimeError("R88 completed Rust backfill manifest is missing completion evidence")
+    if completion.get("full_completion") is not True:
+        raise RuntimeError("R88 completed Rust backfill manifest completion.full_completion must be true")
+    if str(completion.get("definition", "")).strip() != _R88_BACKFILL_COMPLETION_DEFINITION:
+        raise RuntimeError("R88 completed Rust backfill manifest completion definition drift")
+
+    def _require_approved_range(value: object, *, field: str) -> None:
+        if not isinstance(value, Mapping):
+            raise RuntimeError(f"R88 completed Rust backfill manifest {field} must be an object")
+        actual = {key: str(value.get(key, "")).strip() for key in _R88_APPROVED_BACKFILL_RANGE}
+        if set(value) != set(_R88_APPROVED_BACKFILL_RANGE) or actual != _R88_APPROVED_BACKFILL_RANGE:
+            raise RuntimeError(
+                f"R88 completed Rust backfill manifest {field} must equal the approved R88 range"
+            )
+
+    _require_approved_range(manifest.get("range_contract"), field="range_contract")
+    _require_approved_range(completion.get("approved_range"), field="completion.approved_range")
+    _require_approved_range(completion.get("profile_range"), field="completion.profile_range")
+    _require_approved_range(completion.get("requested_range"), field="completion.requested_range")
+    blocking_reasons = completion.get("blocking_reasons")
+    if not isinstance(blocking_reasons, list) or blocking_reasons:
+        raise RuntimeError("R88 completed Rust backfill manifest completion has blocking reasons")
+
+    def _require_day_list(value: object, *, field: str) -> list[date]:
+        if not isinstance(value, list) or not value:
+            raise RuntimeError(f"R88 completed Rust backfill manifest {field} must be a non-empty day list")
+        parsed: list[date] = []
+        for position, raw_day in enumerate(value):
+            if not isinstance(raw_day, str):
+                raise RuntimeError(
+                    f"R88 completed Rust backfill manifest {field}[{position}] must be an ISO date string"
+                )
+            try:
+                parsed_day = date.fromisoformat(raw_day)
+            except ValueError as exc:
+                raise RuntimeError(
+                    f"R88 completed Rust backfill manifest {field}[{position}] is not an ISO date"
+                ) from exc
+            if raw_day != parsed_day.isoformat():
+                raise RuntimeError(
+                    f"R88 completed Rust backfill manifest {field}[{position}] is not canonical"
+                )
+            parsed.append(parsed_day)
+        if parsed != sorted(parsed) or len(set(parsed)) != len(parsed):
+            raise RuntimeError(f"R88 completed Rust backfill manifest {field} must be sorted and unique")
+        return parsed
+
+    expected_frozen_days = _require_day_list(
+        completion.get("expected_frozen_r50_days"),
+        field="completion.expected_frozen_r50_days",
+    )
+    execution_days = _require_day_list(
+        completion.get("execution_days"),
+        field="completion.execution_days",
+    )
+    durable_r88_days = _require_day_list(
+        completion.get("r88_factor_store_days"),
+        field="completion.r88_factor_store_days",
+    )
+    if execution_days != expected_frozen_days or durable_r88_days != expected_frozen_days:
+        raise RuntimeError("R88 completed Rust backfill manifest completion coverage is not exact")
+
+    execution = manifest.get("execution")
+    if not isinstance(execution, Mapping):
+        raise RuntimeError("R88 completed Rust backfill manifest is missing execution provenance")
+    if str(execution.get("mode", "")).strip() != _R88_R38_EXECUTION_MODE:
+        raise RuntimeError("R88 completed Rust backfill manifest execution mode drift")
+    frozen_root_raw = str(completion.get("frozen_r50_factor_root", "")).strip()
+    if not frozen_root_raw:
+        raise RuntimeError("R88 completed Rust backfill manifest is missing frozen R50 provenance")
+    frozen_root = _resolved_path(frozen_root_raw)
+    if frozen_root != _resolved_path(_R88_FROZEN_R50_FACTOR_ROOT):
+        raise RuntimeError("R88 completed Rust backfill manifest frozen R50 FactorStore root drift")
+    execution_frozen_root = str(execution.get("frozen_r50_factor_root", "")).strip()
+    if not execution_frozen_root:
+        raise RuntimeError("R88 completed Rust backfill manifest execution is missing frozen R50 provenance")
+    if _resolved_path(execution_frozen_root) != frozen_root:
+        raise RuntimeError("R88 completed Rust backfill manifest execution frozen R50 provenance drift")
+    execution_r88_root = str(execution.get("r88_factor_root", "")).strip()
+    if not execution_r88_root:
+        raise RuntimeError("R88 completed Rust backfill manifest execution is missing R88 FactorStore provenance")
+    if _resolved_path(execution_r88_root) != _resolved_path(factor_root):
+        raise RuntimeError("R88 completed Rust backfill manifest execution R88 FactorStore root drift")
+
+    execution_rows = execution.get("days")
+    if not isinstance(execution_rows, list) or len(execution_rows) != len(execution_days):
+        raise RuntimeError("R88 completed Rust backfill manifest execution day ledger drift")
+    ledger_days = _require_day_list(
+        [row.get("day") if isinstance(row, Mapping) else None for row in execution_rows],
+        field="execution.days",
+    )
+    if ledger_days != expected_frozen_days:
+        raise RuntimeError("R88 completed Rust backfill manifest execution day coverage drift")
+
+    def _store_days(root: Path, *, field: str, restrict_to_approved_range: bool) -> list[date]:
+        base = _resolved_path(root) / "factors" / str(panel_name)
+        if not base.is_dir():
+            raise RuntimeError(f"R88 completed Rust backfill manifest {field} is missing panel data: {base}")
+        found: list[date] = []
+        for path in base.glob("*/*.parquet"):
+            try:
+                parsed_day = datetime.strptime(path.stem, "%Y%m%d").date()
+            except ValueError:
+                continue
+            if restrict_to_approved_range and not (
+                date.fromisoformat(_R88_APPROVED_BACKFILL_RANGE["start"])
+                <= parsed_day
+                <= date.fromisoformat(_R88_APPROVED_BACKFILL_RANGE["end"])
+            ):
+                continue
+            found.append(parsed_day)
+        found.sort()
+        if len(set(found)) != len(found):
+            raise RuntimeError(f"R88 completed Rust backfill manifest {field} has duplicate score-day files")
+        return found
+
+    actual_frozen_days = _store_days(
+        frozen_root,
+        field="frozen R50 FactorStore",
+        restrict_to_approved_range=True,
+    )
+    actual_r88_days = _store_days(
+        _resolved_path(factor_root),
+        field="R88 FactorStore",
+        restrict_to_approved_range=False,
+    )
+    if actual_frozen_days != expected_frozen_days:
+        raise RuntimeError("R88 completed Rust backfill manifest immutable frozen R50 coverage drift")
+    if actual_r88_days != expected_frozen_days:
+        raise RuntimeError("R88 completed Rust backfill manifest durable R88 FactorStore coverage drift")
+
+    profile = manifest.get("profile")
+    if not isinstance(profile, Mapping):
+        raise RuntimeError("R88 completed Rust backfill manifest is missing profile provenance")
+    if str(profile.get("path", "")).replace("\\", "/") != f"cbond_on/{_R88_FACTOR_CONTRACT_REF}":
+        raise RuntimeError("R88 completed Rust backfill manifest profile path drift")
+    if str(profile.get("admission_profile", "")).strip() != _R88_ADMISSION_PROFILE:
+        raise RuntimeError("R88 completed Rust backfill manifest admission profile drift")
+    if str(profile.get("specs_sha256", "")).strip().lower() != str(factor_contract["specs_sha256"]):
+        raise RuntimeError("R88 completed Rust backfill manifest factor-contract digest drift")
+    if _resolved_path(str(manifest.get("factor_root", ""))) != _resolved_path(factor_root):
+        raise RuntimeError("R88 completed Rust backfill manifest FactorStore root drift")
+    manifest_factors = [str(value) for value in manifest.get("factors", [])]
+    if int(manifest.get("factor_count", -1)) != _R88_FACTOR_COUNT or manifest_factors != list(factors):
+        raise RuntimeError("R88 completed Rust backfill manifest ordered factor contract drift")
+    expected_time_contract = {
+        "panel_name": str(panel_name),
+        "factor_time": str(factor_time),
+        "label_time": str(label_time),
+    }
+    time_contract = manifest.get("time_contract")
+    if not isinstance(time_contract, Mapping) or {
+        key: str(time_contract.get(key, "")).strip() for key in expected_time_contract
+    } != expected_time_contract:
+        raise RuntimeError("R88 completed Rust backfill manifest time contract drift")
+    source_inputs = manifest.get("source_inputs")
+    if not isinstance(source_inputs, Mapping):
+        raise RuntimeError("R88 completed Rust backfill manifest is missing source input provenance")
+    if _resolved_path(str(source_inputs.get("raw_data_root", ""))) != _resolved_path(raw_root):
+        raise RuntimeError("R88 completed Rust backfill manifest raw input root drift")
+    if _resolved_path(str(source_inputs.get("clean_data_root", ""))) != _resolved_path(clean_root):
+        raise RuntimeError("R88 completed Rust backfill manifest clean input root drift")
+    return {
+        "path": str(manifest_path),
+        "sha256": _sha256_file(manifest_path),
+        "execution_status": "completed_rust88_backfill",
+        "model_training_ready": True,
+    }
+
+
+def _require_r88_canonical_experiment_readiness(
+    *,
+    paths_cfg: Mapping[str, Any],
+    factor_root: Path,
+    factor_contract: Mapping[str, Any],
+    factors: Sequence[str],
+    panel_name: str,
+    factor_time: str,
+    label_time: str,
+) -> dict[str, Any]:
+    """Admit R88 only through the canonical experiment-table reader.
+
+    The old R88 backfill manifest remains migration/audit provenance attached
+    to canonical day bundles.  It is deliberately not opened as a runtime
+    FactorStore input here.
+    """
+
+    profile_path = Path(str(factor_contract.get("path", ""))).expanduser()
+    if not profile_path.is_file():
+        raise FileNotFoundError(f"R88 factor contract is missing: {profile_path}")
+    import json5
+
+    profile = json5.loads(profile_path.read_text(encoding="utf-8"))
+    if not isinstance(profile, Mapping):
+        raise RuntimeError("R88 factor contract must be a JSON object")
+    binding = admit_r88_experiment_table(
+        paths_cfg,
+        profile_path=profile_path,
+        profile=profile,
+    )
+    if _resolved_path(binding.table_root) != _resolved_path(factor_root):
+        raise RuntimeError("R88 canonical experiment resolver root differs from paths factor_data_root")
+    if list(binding.contract.factor_ids) != list(factors):
+        raise RuntimeError("R88 canonical experiment contract differs from the configured factor order")
+    time_contract = profile.get("time_contract")
+    expected_time_contract = {
+        "panel_name": str(panel_name),
+        "factor_time": str(factor_time),
+        "label_time": str(label_time),
+    }
+    if not isinstance(time_contract, Mapping) or {
+        key: str(time_contract.get(key, "")).strip() for key in expected_time_contract
+    } != expected_time_contract:
+        raise RuntimeError("R88 canonical experiment profile time contract drift")
+    return binding.to_evidence()
+
+
+def _r88_min_available_factors(*, fraction: object, factor_count: int) -> int:
+    """Resolve the explicit R88 availability gate without a hidden fallback.
+
+    A 75% floor (66 of 88 factors) keeps the expanded research panel usable
+    during a fresh historical backfill while rejecting sparse rows.  The small
+    discrete set permits stricter research variants but prevents an arbitrary
+    fractional setting from silently weakening admission.
+    """
+
+    if isinstance(fraction, bool):
+        raise ValueError("R88 research_only.min_available_fraction must be a numeric approved fraction")
+    try:
+        parsed = float(fraction)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("R88 research_only.min_available_fraction is required") from exc
+    if not any(np.isclose(parsed, allowed, rtol=0.0, atol=1e-12) for allowed in _R88_ALLOWED_MIN_COVERAGE_FRACTIONS):
+        allowed_text = ", ".join(f"{value:.2f}" for value in _R88_ALLOWED_MIN_COVERAGE_FRACTIONS)
+        raise ValueError(
+            "R88 research_only.min_available_fraction must be one of "
+            f"[{allowed_text}]"
+        )
+    return int(math.ceil(int(factor_count) * parsed))
+
+
+def _require_r88_research_profile(
+    cfg: dict,
+    *,
+    factor_root: Path,
+    results_root: Path,
+    score_output: Path,
+    state_dir: Path,
+    neutralization_cache_root: Path,
+    factors: Sequence[str],
+    missing_values: Mapping[str, Any],
+    paths_cfg: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Reject every implicit or live-adjacent R88 runtime configuration."""
+
+    research = cfg.get("research_only")
+    if not isinstance(research, Mapping):
+        raise ValueError("R88 requires an explicit top-level research_only object")
+    research_cfg = dict(research)
+    if str(research_cfg.get("profile", "")).strip() != _R88_RESEARCH_CONFIG_PROFILE:
+        raise ValueError(f"R88 research_only.profile must be {_R88_RESEARCH_CONFIG_PROFILE}")
+    experiment = cfg.get("experiment")
+    if not isinstance(experiment, Mapping) or not bool(experiment.get("research_only", False)):
+        raise ValueError("R88 requires experiment.research_only=true")
+    resolved_factor_root = _resolved_path(factor_root)
+    if paths_cfg is None:
+        # Audit/test compatibility only.  The normal ``main`` path always
+        # supplies paths_cfg and therefore takes the canonical-table branch.
+        configured_root_raw = str(research_cfg.get("factor_store_root", "")).strip()
+        if not configured_root_raw:
+            raise ValueError("R88 research_only.factor_store_root is required for legacy audit-only validation")
+        if _resolved_path(configured_root_raw) != resolved_factor_root:
+            raise ValueError("R88 legacy audit factor_store_root differs from factor_root")
+        if not _path_is_within(value=resolved_factor_root, root=_R88_RESEARCH_SCRATCH_ROOT):
+            raise ValueError(f"R88 legacy audit FactorStore must be below research scratch: {_R88_RESEARCH_SCRATCH_ROOT}")
+        if not resolved_factor_root.is_dir():
+            raise FileNotFoundError(f"R88 legacy audit FactorStore root does not exist: {resolved_factor_root}")
+        table_evidence: dict[str, Any] = {"factor_store_root": str(resolved_factor_root), "audit_only": True}
+    else:
+        if "factor_store_root" in research_cfg:
+            raise ValueError("R88 research_only.factor_store_root is retired; declare canonical factor_table instead")
+        configured_table = research_cfg.get("factor_table")
+        paths_table = paths_cfg.get("factor_table")
+        expected_table = {
+            "table_id": _R88_CANONICAL_TABLE_ID,
+            "root": str((paths_table or {}).get("root", "")),
+        }
+        if not isinstance(configured_table, Mapping) or dict(configured_table) != expected_table:
+            raise ValueError("R88 research_only.factor_table must exactly match paths.factor_table experiment identity")
+        if not isinstance(paths_table, Mapping) or str(paths_table.get("table_id", "")).strip() != _R88_CANONICAL_TABLE_ID:
+            raise ValueError("R88 paths must declare factor_table.table_id='experiment'")
+        if "factor_data_root" in dict(paths_cfg.get("read_only_input_roots", {})):
+            raise ValueError("R88 canonical paths must not declare a direct read_only_input_roots.factor_data_root")
+        expected_factor_root = _resolved_path(Path(str(paths_table.get("root"))) / _R88_CANONICAL_TABLE_ID)
+        if resolved_factor_root != expected_factor_root:
+            raise ValueError("R88 resolved factor_data_root does not equal the canonical experiment table root")
+        if not resolved_factor_root.is_dir():
+            raise FileNotFoundError(f"R88 canonical experiment table root does not exist: {resolved_factor_root}")
+        table_evidence = {"factor_table": dict(configured_table), "resolved_factor_table_root": str(resolved_factor_root)}
+    for label, value in (
+        ("results_root", results_root),
+        ("score_output", score_output),
+        ("state_dir", state_dir),
+        ("neutralization_cache_root", neutralization_cache_root),
+    ):
+        if not _path_is_within(value=value, root=_R88_RESEARCH_SCRATCH_ROOT):
+            raise ValueError(f"R88 {label} must be below isolated research scratch root: {_R88_RESEARCH_SCRATCH_ROOT}")
+    if len(factors) != _R88_FACTOR_COUNT or len(set(factors)) != _R88_FACTOR_COUNT:
+        raise ValueError(f"R88 requires exactly {_R88_FACTOR_COUNT} unique ordered factors")
+    expected_min_available = _r88_min_available_factors(
+        fraction=research_cfg.get("min_available_fraction"),
+        factor_count=len(factors),
+    )
+    if not bool(missing_values.get("enabled", False)) or not bool(missing_values.get("keep_nan", False)):
+        raise ValueError("R88 requires enabled missing-value handling with keep_nan=true")
+    if bool(missing_values.get("add_valid_count_features", False)) or missing_values.get("valid_count_features"):
+        raise ValueError("R88 requires no valid-count feature column")
+    try:
+        actual_min_available = int(missing_values.get("min_available_factors"))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("R88 requires explicit missing_values.min_available_factors") from exc
+    if actual_min_available != expected_min_available:
+        raise ValueError(
+            "R88 missing_values.min_available_factors must equal ceil(88 * "
+            f"research_only.min_available_fraction)={expected_min_available}; got {actual_min_available}"
+        )
+    return {
+        "profile": _R88_RESEARCH_CONFIG_PROFILE,
+        **table_evidence,
+        "min_available_fraction": float(research_cfg["min_available_fraction"]),
+        "min_available_factors": expected_min_available,
+    }
+
+
 def _resolve_model_input_factors(
     *,
     full_factors: Sequence[str],
     configured_subset: object,
+    contract_label: str = "frozen live50",
 ) -> list[str]:
-    """Resolve a canonical ordered model-input subset of frozen live50.
+    """Resolve a canonical ordered model-input subset of a frozen contract.
 
     The full contract remains responsible for all preprocessing and the
     >=27-factor admission gate.  This helper governs only the final columns
@@ -194,10 +722,10 @@ def _resolve_model_input_factors(
     positions = {factor: idx for idx, factor in enumerate(full)}
     unknown = [factor for factor in subset if factor not in positions]
     if unknown:
-        raise ValueError(f"model_input_factors are outside frozen live50: {unknown}")
+        raise ValueError(f"model_input_factors are outside {contract_label}: {unknown}")
     indices = [positions[factor] for factor in subset]
     if indices != sorted(indices):
-        raise ValueError("model_input_factors must preserve frozen live50 order")
+        raise ValueError(f"model_input_factors must preserve {contract_label} order")
     return subset
 
 
@@ -1381,7 +1909,7 @@ def _train_one_model(
     return model, history
 
 
-def _factor_day_exists(store: FactorStore, day: date) -> bool:
+def _factor_day_exists(store: FactorStore | CanonicalFactorTableReader, day: date) -> bool:
     try:
         return not store.read_day(day).empty
     except Exception:
@@ -1390,7 +1918,7 @@ def _factor_day_exists(store: FactorStore, day: date) -> bool:
 
 def _build_data(
     *,
-    store: FactorStore,
+    store: FactorStore | CanonicalFactorTableReader,
     label_root: Path,
     days: Sequence[date],
     factors: list[str],
@@ -1409,11 +1937,11 @@ def _build_data(
 ) -> CrossSectionSplit:
     input_factors = list(model_input_factors) if model_input_factors is not None else list(factors)
     # ``build_dataset`` owns the admission and preprocessing contract.  It must
-    # see every frozen live50 column: the >=27 availability gate is measured
-    # over full50, and z-score / T-1 Ridge neutralization are intentionally
-    # applied before a research-only model slice is selected.  Passing only
-    # ``input_factors`` here would leave the other live50 columns absent while
-    # asking the preprocessor to transform them.
+    # see every frozen contract column: the availability gate is measured over
+    # the full contract, and z-score / T-1 Ridge neutralization are
+    # intentionally applied before a research-only model slice is selected.
+    # Passing only ``input_factors`` here would leave the other contract
+    # columns absent while asking the preprocessor to transform them.
     raw = build_dataset(
         factor_store=store,
         label_root=label_root,
@@ -1441,8 +1969,8 @@ def _build_data(
             "full50 preprocessing did not return configured model input columns: "
             f"{missing_input_columns}"
         )
-    # Select only after all shared live50 transformations have completed.  The
-    # scalar model sees the requested subset, while admission remains full50.
+    # Select only after all shared contract transformations have completed. The
+    # scalar model sees the requested subset, while admission remains full.
     raw = SplitData(
         x=raw.x.loc[:, input_factors].copy(),
         y=raw.y,
@@ -1516,11 +2044,18 @@ def main(
     model_name = str(cfg.get("model_name", "torch_cross_section"))
     architecture = str(cfg.get("architecture", "deepsets"))
     factors = [str(x) for x in cfg.get("factors", [])]
-    if len(factors) != 50 or len(set(factors)) != 50:
+    r88_requested = cfg.get("research_only") is not None
+    if r88_requested:
+        if not isinstance(cfg.get("research_only"), Mapping):
+            raise ValueError("R88 requires an explicit top-level research_only object")
+        if len(factors) != _R88_FACTOR_COUNT or len(set(factors)) != _R88_FACTOR_COUNT:
+            raise ValueError(f"R88 requires exactly the frozen ordered {_R88_FACTOR_COUNT} factors")
+    elif len(factors) != 50 or len(set(factors)) != 50:
         raise ValueError("torch cross-section r3 requires exactly the frozen ordered 50 factors")
     model_input_factors = _resolve_model_input_factors(
         full_factors=factors,
         configured_subset=cfg.get("model_input_factors"),
+        contract_label="frozen R88 research contract" if r88_requested else "frozen live50",
     )
     desired_start = parse_date(start or cfg.get("start"))
     desired_end = parse_date(end or cfg.get("end"))
@@ -1533,6 +2068,7 @@ def main(
     if refit_every != 1:
         raise ValueError("torch cross-section research requires execution refit_every_n_days=1")
     raw_root = Path(paths_cfg["raw_data_root"])
+    clean_root = Path(paths_cfg["clean_data_root"])
     panel_root = Path(paths_cfg["panel_data_root"])
     label_root = Path(paths_cfg["label_data_root"])
     factor_root = Path(paths_cfg["factor_data_root"])
@@ -1567,8 +2103,6 @@ def main(
     if not bool(cfg.get("zscore", True)):
         raise ValueError("torch cross-section r3 requires daily z-score")
     missing_values = dict(dict(cfg.get("feature_engineering", {})).get("missing_values", {}))
-    if int(missing_values.get("min_available_factors", -1)) != 27 or bool(missing_values.get("add_valid_count_features", False)):
-        raise ValueError("torch cross-section r3 requires live50 missing-value admission (27, no valid-count column)")
     input_missingness = dict(cfg.get("model_input_missingness", {}))
     if not bool(input_missingness.get("add_missing_mask", True)):
         raise ValueError("torch cross-section r3 requires an internal missingness mask")
@@ -1581,6 +2115,46 @@ def main(
             results_root=results_root,
         )
     )
+    r88_research_profile: dict[str, Any] | None = None
+    r88_experiment_table: dict[str, Any] | None = None
+    factor_contract: dict | None = None
+    if r88_requested:
+        r88_research_profile = _require_r88_research_profile(
+            cfg,
+            paths_cfg=paths_cfg,
+            factor_root=factor_root,
+            results_root=results_root,
+            score_output=score_output,
+            state_dir=state_dir,
+            neutralization_cache_root=neutralization_cache_root,
+            factors=factors,
+            missing_values=missing_values,
+        )
+        factor_contract = _require_r88_factor_contract(
+            contract_ref=str(cfg.get("factor_contract", "")),
+            factors=factors,
+            panel_name=panel_name,
+            factor_time=factor_time,
+            label_time=label_time,
+        )
+        r88_experiment_table = _require_r88_canonical_experiment_readiness(
+            paths_cfg=paths_cfg,
+            factor_root=factor_root,
+            factor_contract=factor_contract,
+            factors=factors,
+            panel_name=panel_name,
+            factor_time=factor_time,
+            label_time=label_time,
+        )
+    else:
+        if int(missing_values.get("min_available_factors", -1)) != 27 or bool(missing_values.get("add_valid_count_features", False)):
+            raise ValueError("torch cross-section r3 requires live50 missing-value admission (27, no valid-count column)")
+        table = paths_cfg.get("factor_table")
+        if not isinstance(table, Mapping) or str(table.get("table_id", "")).strip() != "live":
+            raise ValueError("torch cross-section live50 requires factor_table.table_id='live'")
+        expected_factor_root = _resolved_path(Path(str(table.get("root", ""))) / "live")
+        if _resolved_path(factor_root) != expected_factor_root:
+            raise ValueError(f"torch cross-section r3 requires the declared live50 factor root: {expected_factor_root}")
     neutralizer = build_neutralizer(cfg.get("neutralization"), raw_data_root=raw_root, panel_data_root=panel_root, neutralization_cache_root=neutralization_cache_root)
     if neutralizer is None or not neutralizer.enabled:
         raise ValueError("torch cross-section r3 requires T-1 style-5 ridge neutralization")
@@ -1591,9 +2165,6 @@ def main(
         or int(neutralization_summary.get("min_count", -1)) != 30
     ):
         raise ValueError("torch cross-section r3 neutralization contract drift")
-    expected_factor_root = Path("D:/cbond_on/factor_data_live50_20260805").resolve(strict=False)
-    if factor_root.resolve(strict=False) != expected_factor_root:
-        raise ValueError(f"torch cross-section r3 requires frozen live50 factor root: {expected_factor_root}")
     objective = dict(cfg.get("objective", {}))
     if str(objective.get("name", "")).lower() != "listnet" or str(objective.get("day_weighting", "")).lower() != "equal":
         raise ValueError("torch cross-section r3 requires equal-day ListNet objective")
@@ -1602,7 +2173,11 @@ def main(
     calendar_days = list_trading_days_from_raw(raw_root, scan_start, desired_end, kind="snapshot", asset="cbond")
     if not calendar_days:
         raise RuntimeError("no trading calendar days for cross-sectional scorer")
-    store = FactorStore(factor_root, panel_name=panel_name, window_minutes=window_minutes)
+    store = build_factor_reader(
+        paths_cfg,
+        panel_name=panel_name,
+        window_minutes=window_minutes,
+    )
     label_days = set(_iter_existing_label_days(label_root, scan_start, desired_end))
     if cutoff_day is not None:
         label_days = {day for day in label_days if day <= cutoff_day}
@@ -1622,10 +2197,23 @@ def main(
         raise RuntimeError("T-1 o_0005 allowlist map is empty")
     train_cfg = dict(cfg.get("train", {}))
     model_params = dict(cfg.get("model_params", {}))
-    factor_contract = _validate_factor_contract(
-        contract_ref=str(cfg.get("factor_contract", "")),
-        factors=factors,
-    )
+    if factor_contract is None:
+        factor_contract = _validate_factor_contract(
+            contract_ref=str(cfg.get("factor_contract", "")),
+            factors=factors,
+        )
+    fingerprint_contract = {
+        "factor_contract": factor_contract,
+        "factor_root": str(factor_root),
+        "factor_time": factor_time,
+        "label_time": label_time,
+        "min_count": min_count,
+        "window_days": window_days,
+        "allowlist": "tminus1_o_0005_strict",
+    }
+    if r88_research_profile is not None:
+        fingerprint_contract["research_profile"] = r88_research_profile
+        fingerprint_contract["r88_experiment_table"] = r88_experiment_table
     fingerprint = _config_fingerprint(
         architecture=architecture,
         factors=factors,
@@ -1634,15 +2222,7 @@ def main(
         input_missingness=input_missingness,
         objective=objective,
         neutralization=neutralization_summary,
-        contract={
-            "factor_contract": factor_contract,
-            "factor_root": str(factor_root),
-            "factor_time": factor_time,
-            "label_time": label_time,
-            "min_count": min_count,
-            "window_days": window_days,
-            "allowlist": "tminus1_o_0005_strict",
-        },
+        contract=fingerprint_contract,
     )
     resume_reentry = False
     if resume_enabled:

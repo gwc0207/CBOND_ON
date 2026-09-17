@@ -5,10 +5,10 @@ from collections import Counter
 import pytest
 
 from cbond_on.core.registry import FactorRegistry
-from cbond_on.domain.factors.defs import (
+from cbond_on.domain.factors.operators import (
     research_factor_mining_intraday_state_gated_microstructure_healthy_catalog_v1 as healthy,
 )
-from cbond_on.domain.factors.defs import (
+from cbond_on.domain.factors.operators import (
     research_factor_mining_intraday_state_gated_microstructure_v1 as source,
 )
 

@@ -1,0 +1,40 @@
+{
+  "contract_hash": "06713d5381fba3a992d4bf29907fab789215977e708b74e52e2a3f8e9e0494f9",
+  "definition": {
+    "kind": "runtime_operator_reference",
+    "path": "operators/t1430_mid_return_30m_v1/definition.py",
+    "sha256": "c36e2582801f240072ab3a1c3ff65e07deefe8d8d6cb78108e8eaaede2633ddb"
+  },
+  "factor_instances": [],
+  "identity": {
+    "operator_class": "T1430MidReturn30mV1",
+    "operator_id": "t1430_mid_return_30m_v1",
+    "operator_version": "legacy-unversioned"
+  },
+  "implementation": {
+    "language": "python_runtime_operator",
+    "module": "cbond_on.domain.factors.operators.t1430_mid_return_30m_v1",
+    "path": "cbond_on/domain/factors/operators/t1430_mid_return_30m_v1.py",
+    "sha256": "a8b209078b0351d0d6919e9f76519f61b515c94f5a2982ad516b8be4888cfb05"
+  },
+  "lifecycle": {
+    "operator_catalog_status": "registered",
+    "runtime_source_status": "migrated_pending_cutover",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "migration": {
+    "behavior_parity_status": "pending_baseline_replay",
+    "legacy_path": "cbond_on/domain/factors/defs/t1430_mid_return_30m_v1.py",
+    "legacy_sha256": "5c19943c84ffb727438232c2950fcc41b85d0b4ce878c5144f679449d9c46da3",
+    "migration_kind": "namespace_relocation_without_formula_change"
+  },
+  "runtime_contract": {
+    "input_schema_status": "operator_declared_pending_field_audit",
+    "pit_validation_status": "operator_migration_pending_pit_audit",
+    "registration_key": "t1430_mid_return_30m_v1",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "schema_version": "operator_contract/v1",
+  "test_reference": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+}

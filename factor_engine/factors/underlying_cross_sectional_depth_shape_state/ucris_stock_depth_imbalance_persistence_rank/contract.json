@@ -1,0 +1,68 @@
+{
+  "context_requirements": {
+    "daily": [],
+    "panel_field_schema_status": "operator_declared_pending_factor_minimal_audit",
+    "panel_fields": [],
+    "panel_name": "T1430",
+    "requires_bond_stock_map": true,
+    "requires_stock_panel": true
+  },
+  "contract_hash": "9b7db2e5ce8d640c0a62e9bbe77fa8aa60862790b1fe1becc2c3fcbac39be72f",
+  "definition": {
+    "kind": "parameterized_operator_definition",
+    "path": "factors/underlying_cross_sectional_depth_shape_state/ucris_stock_depth_imbalance_persistence_rank/definition.py",
+    "sha256": "b77c64cbffe467df9615f94a7bac4dad5078fefeb3657900d38fd405af155908"
+  },
+  "fixed_params": {
+    "family": "underlying_cross_sectional_depth_shape_state",
+    "signal": "ucris_stock_depth_imbalance_persistence_rank"
+  },
+  "identity": {
+    "factor_id": "ucris_stock_depth_imbalance_persistence_rank",
+    "factor_version": "catalog-20260826-529b41d671f3-56c81981a8a7",
+    "primary_family": "underlying_cross_sectional_depth_shape_state",
+    "tags": []
+  },
+  "lifecycle": {
+    "catalog_status": "registered",
+    "live_admission_status": "not_evaluated_by_catalog_builder",
+    "research_status": "legacy_mapping_discovered",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "operator_bindings": [
+    {
+      "implementation_module": "cbond_on.domain.factors.operators.research_factor_mining_underlying_cohort_intraday_rank_state_v1",
+      "implementation_path": "cbond_on/domain/factors/operators/research_factor_mining_underlying_cohort_intraday_rank_state_v1.py",
+      "implementation_sha256": "529b41d671f36f47225a889db9c286060b2f7f3c86d7dc252b8dcb512c8080e5",
+      "language": "python_runtime_operator",
+      "legacy_implementation_path": "cbond_on/domain/factors/defs/research_factor_mining_underlying_cohort_intraday_rank_state_v1.py",
+      "legacy_implementation_sha256": "529b41d671f36f47225a889db9c286060b2f7f3c86d7dc252b8dcb512c8080e5",
+      "operator_contract_path": "operators/factor_mining_underlying_cohort_intraday_rank_state_v1/contract.json",
+      "operator_id": "factor_mining_underlying_cohort_intraday_rank_state_v1",
+      "operator_version": "20260803_underlying_cohort_intraday_rank_state_v1",
+      "rust_contract_id": null
+    }
+  ],
+  "output": {
+    "column": "ucris_stock_depth_imbalance_persistence_rank",
+    "dtype": "float64"
+  },
+  "schema_version": "factor_contract/v2",
+  "source_lineage": {
+    "hypothesis": "A bond inherits the mapped stock's cross-sectional displayed-depth curve, imbalance persistence, and intraday rebuild state, not a cross-asset book geometry comparison.",
+    "snapshot_id": "canonical_factor_catalog_20260826_800",
+    "source_position": 2,
+    "source_root": "D:/cbond_on/research_scratch/factor_mining_20260803_aggregate_catalog_v5_full/factor_data",
+    "source_set": "research773"
+  },
+  "test_reference": {
+    "behavioral_parity_status": "pending_baseline_replay",
+    "contract_test": "tests/test_factor_engine_governance.py::test_all_factor_definitions_and_contracts",
+    "operator_test": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+  },
+  "time_contract": {
+    "factor_time": "14:30",
+    "pit_validation_status": "operator_migration_pending_factor_pit_audit",
+    "research_label_time_reference": "14:42"
+  }
+}

@@ -10,13 +10,13 @@ import pandas as pd
 import pytest
 
 from cbond_on.domain.factors.base import FactorComputeContext
-from cbond_on.domain.factors.defs.research_factor_mining_catalog_v1 import (
+from cbond_on.domain.factors.operators.research_factor_mining_catalog_v1 import (
     FactorMiningDailyCatalogV1,
 )
-from cbond_on.domain.factors.defs.research_factor_mining_daily_contract_stock_v1 import (
+from cbond_on.domain.factors.operators.research_factor_mining_daily_contract_stock_v1 import (
     FactorMiningDailyContractStockV1,
 )
-from cbond_on.domain.factors.defs.research_factor_mining_daily_ohlc_wick_path_asymmetry_v1 import (
+from cbond_on.domain.factors.operators.research_factor_mining_daily_ohlc_wick_path_asymmetry_v1 import (
     FactorMiningDailyOhlcWickPathAsymmetryV1,
 )
 from cbond_on.domain.factors.spec import FactorSpec

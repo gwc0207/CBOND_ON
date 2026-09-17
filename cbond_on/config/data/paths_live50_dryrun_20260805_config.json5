@@ -11,4 +11,9 @@
     label_data_root: "D:/cbond_on/research_scratch/live50_cutover_dryrun_20260805/runtime/label_data",
     factor_data_root: "D:/cbond_on/research_scratch/live50_cutover_dryrun_20260805/runtime/factor_data",
   },
+  lifecycle: {
+    status: "audit_only",
+    reason: "legacy_scratch_factor_store",
+    normal_consumer: false,
+  },
 }

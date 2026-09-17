@@ -22,6 +22,7 @@ if TYPE_CHECKING:
 # Keep this string local so the FactorPipeline can load its write guard without
 # importing factor_admission while that module itself imports factor metadata.
 LIVE50_RUST50_PROFILE = "live50_rust50_20260806"
+CANONICAL_LIVE_FACTOR_STORE_ROOT = "D:/cbond_on/factor_store/live"
 
 
 _PERMIT_SEAL = object()
@@ -38,6 +39,15 @@ def _configured_live50_factor_store_root() -> str:
     raw = cfg.get("factor_data_root")
     if not raw:
         raise RuntimeError("paths_live50_20260805 must define factor_data_root")
+    table = cfg.get("factor_table")
+    if table is not None:
+        if not isinstance(table, dict):
+            raise RuntimeError("paths_live50_20260805 factor_table must be an object")
+        if str(table.get("table_id", "")).strip() != "live" or str(table.get("writer", "")).strip().lower() != "admitted_live":
+            raise RuntimeError(
+                "paths_live50_20260805 canonical live writer must declare "
+                "factor_table.table_id='live', writer='admitted_live'"
+            )
     return _normalise_path(str(raw))
 
 
@@ -54,6 +64,7 @@ def issue_live50_factor_store_write_permit(
     admission: Live50FactorAdmission | None,
     *,
     factor_data_root: str | Path,
+    expected_factor_store_root: str | Path | None = None,
 ) -> Live50FactorStoreWritePermit | None:
     """Issue the only permit accepted for the versioned production store.
 
@@ -67,7 +78,7 @@ def issue_live50_factor_store_write_permit(
     if admission.profile != LIVE50_RUST50_PROFILE:
         raise RuntimeError("cannot issue a FactorStore permit for an unknown live admission profile")
     actual_root = _normalise_path(factor_data_root)
-    expected_root = _configured_live50_factor_store_root()
+    expected_root = _normalise_path(expected_factor_store_root or _configured_live50_factor_store_root())
     if actual_root != expected_root:
         raise RuntimeError(
             "frozen live50 factor admission must use the configured live50 FactorStore: "
@@ -84,18 +95,20 @@ def validate_factor_store_write_permit(
     factor_data_root: str | Path,
     *,
     permit: Live50FactorStoreWritePermit | None,
+    expected_factor_store_root: str | Path | None = None,
 ) -> None:
     """Reject generic API/CLI access to the production live-50 FactorStore."""
 
     actual_root = _normalise_path(factor_data_root)
-    expected_root = _configured_live50_factor_store_root()
-    if actual_root != expected_root:
+    expected_root = _normalise_path(expected_factor_store_root or _configured_live50_factor_store_root())
+    canonical_root = _normalise_path(CANONICAL_LIVE_FACTOR_STORE_ROOT)
+    if actual_root not in {expected_root, canonical_root}:
         return
     if (
         not isinstance(permit, Live50FactorStoreWritePermit)
         or permit._seal is not _PERMIT_SEAL
         or permit.profile != LIVE50_RUST50_PROFILE
-        or permit.factor_store_root != expected_root
+        or permit.factor_store_root != actual_root
     ):
         raise PermissionError(
             "the live50 FactorStore is writable only by the admitted live factor runtime; "
@@ -105,6 +118,7 @@ def validate_factor_store_write_permit(
 
 __all__ = [
     "Live50FactorStoreWritePermit",
+    "CANONICAL_LIVE_FACTOR_STORE_ROOT",
     "issue_live50_factor_store_write_permit",
     "validate_factor_store_write_permit",
 ]

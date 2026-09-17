@@ -1,0 +1,68 @@
+{
+  "context_requirements": {
+    "daily": [],
+    "panel_field_schema_status": "operator_declared_pending_factor_minimal_audit",
+    "panel_fields": [],
+    "panel_name": "T1430",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "contract_hash": "6ac2a738d95a128accf8d32935e0e645ad7a676ad54f48829c5d33e3903b00b9",
+  "definition": {
+    "kind": "parameterized_operator_definition",
+    "path": "factors/cs_price_action_abnormality/csr_price_terminal_return_residual/definition.py",
+    "sha256": "c8b1173bb231d35abb3dd19944e26d2f3378c5439021efc48d17cd6d4755d252"
+  },
+  "fixed_params": {
+    "family": "cs_price_action_abnormality",
+    "signal": "csr_price_terminal_return_residual"
+  },
+  "identity": {
+    "factor_id": "csr_price_terminal_return_residual",
+    "factor_version": "catalog-20260826-570451992274-1870cf0cf2d9",
+    "primary_family": "cs_price_action_abnormality",
+    "tags": []
+  },
+  "lifecycle": {
+    "catalog_status": "registered",
+    "live_admission_status": "not_evaluated_by_catalog_builder",
+    "research_status": "legacy_mapping_discovered",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "operator_bindings": [
+    {
+      "implementation_module": "cbond_on.domain.factors.operators.research_factor_mining_intraday_cross_section_residual_v1",
+      "implementation_path": "cbond_on/domain/factors/operators/research_factor_mining_intraday_cross_section_residual_v1.py",
+      "implementation_sha256": "570451992274c833360dffdca77f7a797c40aa5104c08033ce5775814781f945",
+      "language": "python_runtime_operator",
+      "legacy_implementation_path": "cbond_on/domain/factors/defs/research_factor_mining_intraday_cross_section_residual_v1.py",
+      "legacy_implementation_sha256": "8b1aa78bd7ea7b5f1fc9e31f871d7a2bc46f296dfa0faddf88c695d0fab5dcf7",
+      "operator_contract_path": "operators/factor_mining_intraday_cross_section_residual_v1/contract.json",
+      "operator_id": "factor_mining_intraday_cross_section_residual_v1",
+      "operator_version": "20260803_intraday_cross_section_residual_v1_r1",
+      "rust_contract_id": null
+    }
+  ],
+  "output": {
+    "column": "csr_price_terminal_return_residual",
+    "dtype": "float64"
+  },
+  "schema_version": "factor_contract/v2",
+  "source_lineage": {
+    "hypothesis": "A price path can be unusual relative to the same-day scale, volatility, visible liquidity, and book state without using a future return.",
+    "snapshot_id": "canonical_factor_catalog_20260826_800",
+    "source_position": 1,
+    "source_root": "D:/cbond_on/research_scratch/factor_mining_20260803_unified_v7_with_joint_merged_v1",
+    "source_set": "research773"
+  },
+  "test_reference": {
+    "behavioral_parity_status": "pending_baseline_replay",
+    "contract_test": "tests/test_factor_engine_governance.py::test_all_factor_definitions_and_contracts",
+    "operator_test": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+  },
+  "time_contract": {
+    "factor_time": "14:30",
+    "pit_validation_status": "operator_migration_pending_factor_pit_audit",
+    "research_label_time_reference": "14:42"
+  }
+}

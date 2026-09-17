@@ -1,0 +1,50 @@
+{
+  "contract_hash": "9ba2aad6577b13a4812c4c1b47f5f8e58b245645d79a1ed3751b8d27f7a3895f",
+  "definition": {
+    "kind": "runtime_operator_reference",
+    "path": "operators/factor_mining_historical_execution_to_open_transition_state_v1/definition.py",
+    "sha256": "fda3b5fafee1fa4dfbc0cfe81088df9b75e25ed6d50c6ac51420b059cc7c59f6"
+  },
+  "factor_instances": [
+    "heot_conditional_open_distribution_drift20_60",
+    "heot_extreme_magnitude_lift60",
+    "heot_joint_state_concentration_shift20_60",
+    "heot_joint_state_js_divergence20_60",
+    "heot_magnitude_state_information60",
+    "heot_quiet_tail_open_escape60",
+    "heot_terminal_conditional_information60",
+    "heot_terminal_joint_surprisal60",
+    "heot_terminal_open_state_residual60"
+  ],
+  "identity": {
+    "operator_class": "FactorMiningHistoricalExecutionToOpenTransitionStateV1",
+    "operator_id": "factor_mining_historical_execution_to_open_transition_state_v1",
+    "operator_version": "20260803_historical_execution_to_open_transition_state_v1"
+  },
+  "implementation": {
+    "language": "python_runtime_operator",
+    "module": "cbond_on.domain.factors.operators.research_factor_mining_historical_execution_to_open_transition_state_v1",
+    "path": "cbond_on/domain/factors/operators/research_factor_mining_historical_execution_to_open_transition_state_v1.py",
+    "sha256": "9754df8eec77bd8db712ddc2b85c568817458261e06d6d7808dd0150f108947f"
+  },
+  "lifecycle": {
+    "operator_catalog_status": "registered",
+    "runtime_source_status": "migrated_pending_cutover",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "migration": {
+    "behavior_parity_status": "pending_baseline_replay",
+    "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_historical_execution_to_open_transition_state_v1.py",
+    "legacy_sha256": "9754df8eec77bd8db712ddc2b85c568817458261e06d6d7808dd0150f108947f",
+    "migration_kind": "namespace_relocation_without_formula_change"
+  },
+  "runtime_contract": {
+    "input_schema_status": "operator_declared_pending_field_audit",
+    "pit_validation_status": "operator_migration_pending_pit_audit",
+    "registration_key": "factor_mining_historical_execution_to_open_transition_state_v1",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "schema_version": "operator_contract/v1",
+  "test_reference": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+}

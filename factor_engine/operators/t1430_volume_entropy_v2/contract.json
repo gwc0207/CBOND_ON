@@ -1,0 +1,40 @@
+{
+  "contract_hash": "a1c8cfd1b84aba4a0bbf5445dd3a03034b28eb1bbc9d31c8252d116985b75977",
+  "definition": {
+    "kind": "runtime_operator_reference",
+    "path": "operators/t1430_volume_entropy_v2/definition.py",
+    "sha256": "e3d595d022078a7b0594c574431b9a23c62809f99426c50687a004869f9a7966"
+  },
+  "factor_instances": [],
+  "identity": {
+    "operator_class": "T1430VolumeEntropyV2",
+    "operator_id": "t1430_volume_entropy_v2",
+    "operator_version": "legacy-unversioned"
+  },
+  "implementation": {
+    "language": "python_runtime_operator",
+    "module": "cbond_on.domain.factors.operators.t1430_volume_entropy_v2",
+    "path": "cbond_on/domain/factors/operators/t1430_volume_entropy_v2.py",
+    "sha256": "6d97a09d498bd4967144435fb68bce3baa5488769a8eac258641b92378f4e419"
+  },
+  "lifecycle": {
+    "operator_catalog_status": "registered",
+    "runtime_source_status": "migrated_pending_cutover",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "migration": {
+    "behavior_parity_status": "pending_baseline_replay",
+    "legacy_path": "cbond_on/domain/factors/defs/t1430_volume_entropy_v2.py",
+    "legacy_sha256": "1fdf3b387d647a21abbc94e8ea5bc6ef58850fce83d693f840b980fcea846e41",
+    "migration_kind": "namespace_relocation_without_formula_change"
+  },
+  "runtime_contract": {
+    "input_schema_status": "operator_declared_pending_field_audit",
+    "pit_validation_status": "operator_migration_pending_pit_audit",
+    "registration_key": "t1430_volume_entropy_v2",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "schema_version": "operator_contract/v1",
+  "test_reference": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+}

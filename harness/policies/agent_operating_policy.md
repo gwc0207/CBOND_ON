@@ -21,6 +21,16 @@ High-risk tasks require a scope report before editing.
 
 ## Confirmation Gates
 
+For every execution request, before task-specific inspection or action, the
+agent must summarize the requested outcome, scope, workflow, existing
+services/data to reuse, intended commands/write targets/artifacts, and
+verification plan; it then waits for explicit owner confirmation. Confirmation
+authorizes only that declared scope. A changed data contract, new write target,
+new long-running process, or materially different workflow requires a new
+confirmation. Pure answers, explanations, and explicitly requested read-only
+status checks are exempt. A narrowly scoped immediate action may proceed only
+when the owner explicitly waives this gate.
+
 The owner must confirm before:
 
 1. changing the live chain;
@@ -60,3 +70,15 @@ After editing:
 2. inspect `git diff`;
 3. record open risks and skipped checks;
 4. update task state for long tasks.
+
+## Factor Route Contract
+
+Normal factor result paths are only `D:/cbond_on/factor_store/live`,
+`experiment`, and `factor_library/<family>`. Normal consumers declare
+`factor_table` and validate table manifest, day manifest, and `.done`; a
+free-form `factor_data_root` is not a normal input. The admitted live runtime
+is the sole `live` writer, an explicit research publisher writes `experiment`,
+and the 23:59 supplement publishes `factor_library`. Legacy FactorStore paths
+must be an explicit audit-only/migration/no-DB staging exception with a narrow
+root proof; they cannot be model, backtest, Dashboard, scheduler, or live
+inputs.

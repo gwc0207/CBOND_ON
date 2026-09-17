@@ -1,0 +1,88 @@
+{
+  "context_requirements": {
+    "daily": [
+      {
+        "columns": [
+          "exchange_code",
+          "prev_close_price",
+          "close_price"
+        ],
+        "lookback_days": 75,
+        "source": "market_cbond.daily_price"
+      },
+      {
+        "columns": [
+          "exchange_code",
+          "stock_code",
+          "stk_prev_close_price",
+          "stk_close_price"
+        ],
+        "lookback_days": 75,
+        "source": "market_cbond.daily_base"
+      }
+    ],
+    "panel_field_schema_status": "operator_declared_pending_factor_minimal_audit",
+    "panel_fields": [],
+    "panel_name": "T1430",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "contract_hash": "19d7b1cb795e3452e98a76263c4a5b8561d89009c13db2536bec9524273c489b",
+  "definition": {
+    "kind": "parameterized_operator_definition",
+    "path": "factors/prior_bond_stock_cross_sectional_rank_concordance/bssrc_upper_rank_tail_alignment60/definition.py",
+    "sha256": "131e284b4ffe7b6feaffdfacd25b992c4de71fbc38cbccc96c5a999eb1bb7018"
+  },
+  "fixed_params": {
+    "family": "prior_bond_stock_cross_sectional_rank_concordance",
+    "signal": "bssrc_upper_rank_tail_alignment60"
+  },
+  "identity": {
+    "factor_id": "bssrc_upper_rank_tail_alignment60",
+    "factor_version": "catalog-20260826-ed397526983c-f862213a186f",
+    "primary_family": "prior_bond_stock_cross_sectional_rank_concordance",
+    "tags": []
+  },
+  "lifecycle": {
+    "catalog_status": "registered",
+    "live_admission_status": "not_evaluated_by_catalog_builder",
+    "research_status": "legacy_mapping_discovered",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "operator_bindings": [
+    {
+      "implementation_module": "cbond_on.domain.factors.operators.research_factor_mining_daily_bond_stock_cross_sectional_rank_concordance_v1",
+      "implementation_path": "cbond_on/domain/factors/operators/research_factor_mining_daily_bond_stock_cross_sectional_rank_concordance_v1.py",
+      "implementation_sha256": "ed397526983cdcc1d5d3b4782cc0f9f07fc6ecdc0813034a815a7e28f03ca676",
+      "language": "python_runtime_operator",
+      "legacy_implementation_path": "cbond_on/domain/factors/defs/research_factor_mining_daily_bond_stock_cross_sectional_rank_concordance_v1.py",
+      "legacy_implementation_sha256": "9ca437a1609957266820871379e5a70fd2c9051950dc4846c662b4639c15dfe0",
+      "operator_contract_path": "operators/factor_mining_daily_bond_stock_cross_sectional_rank_concordance_v1/contract.json",
+      "operator_id": "factor_mining_daily_bond_stock_cross_sectional_rank_concordance_v1",
+      "operator_version": "20260803_daily_bond_stock_cross_sectional_rank_concordance_v1",
+      "rust_contract_id": null
+    }
+  ],
+  "output": {
+    "column": "bssrc_upper_rank_tail_alignment60",
+    "dtype": "float64"
+  },
+  "schema_version": "factor_contract/v2",
+  "source_lineage": {
+    "hypothesis": "Historical concordance between a convertible bond's full-market return standing and its mapped underlying stock's distinct-underlying return standing captures relative cross-asset participation beyond a raw gap, linear beta, or static contract attribute.",
+    "snapshot_id": "canonical_factor_catalog_20260826_800",
+    "source_position": 3,
+    "source_root": "D:/cbond_on/research_scratch/factor_mining_20260804_daily_orthogonal_batch_v8_full_r2/factor_data",
+    "source_set": "research773"
+  },
+  "test_reference": {
+    "behavioral_parity_status": "pending_baseline_replay",
+    "contract_test": "tests/test_factor_engine_governance.py::test_all_factor_definitions_and_contracts",
+    "operator_test": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+  },
+  "time_contract": {
+    "factor_time": "14:30",
+    "pit_validation_status": "operator_migration_pending_factor_pit_audit",
+    "research_label_time_reference": "14:42"
+  }
+}

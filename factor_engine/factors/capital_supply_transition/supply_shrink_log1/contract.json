@@ -1,0 +1,86 @@
+{
+  "context_requirements": {
+    "daily": [
+      {
+        "columns": [
+          "exchange_code",
+          "close_price"
+        ],
+        "lookback_days": 66,
+        "source": "market_cbond.daily_price"
+      },
+      {
+        "columns": [
+          "exchange_code",
+          "remain_size",
+          "cb_amount"
+        ],
+        "lookback_days": 66,
+        "source": "market_cbond.daily_base"
+      }
+    ],
+    "panel_field_schema_status": "operator_declared_pending_factor_minimal_audit",
+    "panel_fields": [],
+    "panel_name": "T1430",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "contract_hash": "4134b660d230d5c3dcfffd41e8e25eb450b6f76ff3781eacaef7fd8b843ff0f3",
+  "definition": {
+    "kind": "parameterized_operator_definition",
+    "path": "factors/capital_supply_transition/supply_shrink_log1/definition.py",
+    "sha256": "da4cb46346cd00db4409cb72485e2db22ef83ea1f36a2c295bad79f0f82cf6b0"
+  },
+  "fixed_params": {
+    "family": "capital_supply_transition",
+    "signal": "supply_shrink_log1"
+  },
+  "identity": {
+    "factor_id": "supply_shrink_log1",
+    "factor_version": "catalog-20260826-0c657697fb62-aad3a7153e84",
+    "primary_family": "capital_supply_transition",
+    "tags": []
+  },
+  "lifecycle": {
+    "catalog_status": "registered",
+    "live_admission_status": "not_evaluated_by_catalog_builder",
+    "research_status": "legacy_mapping_discovered",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "operator_bindings": [
+    {
+      "implementation_module": "cbond_on.domain.factors.operators.research_factor_mining_daily_state_events_v1",
+      "implementation_path": "cbond_on/domain/factors/operators/research_factor_mining_daily_state_events_v1.py",
+      "implementation_sha256": "0c657697fb62d74d897bf434e0bb1d70bb2fe5c3a051d05d982cad938485f4ff",
+      "language": "python_runtime_operator",
+      "legacy_implementation_path": "cbond_on/domain/factors/defs/research_factor_mining_daily_state_events_v1.py",
+      "legacy_implementation_sha256": "0c657697fb62d74d897bf434e0bb1d70bb2fe5c3a051d05d982cad938485f4ff",
+      "operator_contract_path": "operators/factor_mining_daily_state_events_v1/contract.json",
+      "operator_id": "factor_mining_daily_state_events_v1",
+      "operator_version": "20260803_daily_state_events_v1_r2",
+      "rust_contract_id": null
+    }
+  ],
+  "output": {
+    "column": "supply_shrink_log1",
+    "dtype": "float64"
+  },
+  "schema_version": "factor_contract/v2",
+  "source_lineage": {
+    "hypothesis": "T-1 reported outstanding-size changes identify discrete supply retirement or expansion events, distinct from a static float level.",
+    "snapshot_id": "canonical_factor_catalog_20260826_800",
+    "source_position": 1,
+    "source_root": "D:/cbond_on/research_scratch/factor_mining_20260803_unified_v7_with_joint_merged_v1",
+    "source_set": "research773"
+  },
+  "test_reference": {
+    "behavioral_parity_status": "pending_baseline_replay",
+    "contract_test": "tests/test_factor_engine_governance.py::test_all_factor_definitions_and_contracts",
+    "operator_test": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+  },
+  "time_contract": {
+    "factor_time": "14:30",
+    "pit_validation_status": "operator_migration_pending_factor_pit_audit",
+    "research_label_time_reference": "14:42"
+  }
+}

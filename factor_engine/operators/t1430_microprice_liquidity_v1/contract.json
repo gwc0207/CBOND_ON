@@ -1,0 +1,40 @@
+{
+  "contract_hash": "fdda19fc3e49004a4dd6588990d52bafcb28b4b39080e007b55fb6a4a1c66ff0",
+  "definition": {
+    "kind": "runtime_operator_reference",
+    "path": "operators/t1430_microprice_liquidity_v1/definition.py",
+    "sha256": "c97c44eeba80c07481ac192f476e8b749bf27f0bfc88d3f66e744f50c517117c"
+  },
+  "factor_instances": [],
+  "identity": {
+    "operator_class": "T1430MicropriceLiquidityV1",
+    "operator_id": "t1430_microprice_liquidity_v1",
+    "operator_version": "legacy-unversioned"
+  },
+  "implementation": {
+    "language": "python_runtime_operator",
+    "module": "cbond_on.domain.factors.operators.t1430_microprice_liquidity_v1",
+    "path": "cbond_on/domain/factors/operators/t1430_microprice_liquidity_v1.py",
+    "sha256": "a08a770a1a9e6fadfb98579035f108b36a4ba9c345daaf864a4b96adc871f8ab"
+  },
+  "lifecycle": {
+    "operator_catalog_status": "registered",
+    "runtime_source_status": "migrated_pending_cutover",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "migration": {
+    "behavior_parity_status": "pending_baseline_replay",
+    "legacy_path": "cbond_on/domain/factors/defs/t1430_microprice_liquidity_v1.py",
+    "legacy_sha256": "074e1da31fd638d889210ea5efe89edc81cc4ba792e22501c67e082d0484d334",
+    "migration_kind": "namespace_relocation_without_formula_change"
+  },
+  "runtime_contract": {
+    "input_schema_status": "operator_declared_pending_field_audit",
+    "pit_validation_status": "operator_migration_pending_pit_audit",
+    "registration_key": "t1430_microprice_liquidity_v1",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "schema_version": "operator_contract/v1",
+  "test_reference": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+}

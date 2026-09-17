@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "total_factors": 112,
+  "total_factors": 129,
   "module": "cbond_on_rust",
   "runtime_authority": {
     "kind": "loaded_extension_capability",
@@ -68,6 +68,61 @@
         {"id": "live50_r5/rjst_amount_joint_transition_entropy60", "output_col": "rjst_amount_joint_transition_entropy60", "factor": "factor_mining_daily_return_liquidity_topology_v1", "signal": "rjst_amount_joint_transition_entropy60", "params_sha256": "41735d89b85137d253f5a67fe31cc09a224aa1d034ad4400ee02aad2aceda5dd"},
         {"id": "live50_r5/rlmi_return_deal_sign_mutual_information60", "output_col": "rlmi_return_deal_sign_mutual_information60", "factor": "factor_mining_daily_return_liquidity_topology_v1", "signal": "rlmi_return_deal_sign_mutual_information60", "params_sha256": "849297227bff76f5751f0d4f6c782f8effd0b6af63a2a5df30ac2c6a4ea7310f"},
         {"id": "live50_r5/ydpt_yield_fall_return_beta60", "output_col": "ydpt_yield_fall_return_beta60", "factor": "factor_mining_daily_asymmetric_state_transitions_v1", "signal": "ydpt_yield_fall_return_beta60", "params_sha256": "9ca5c129a50853d31180ea9a91584b5af739c1b063613804290fe64657d21ece"}
+      ]
+    }
+  ],
+  "research_contracts": [
+    {
+      "profile": "research_r88_rust88_20260825",
+      "research_only": true,
+      "execution_policy": "rust_first",
+      "profile_path": "cbond_on/factor_contracts/profiles/research_r88_rust88_20260825.json5",
+      "execution_status": "eligible_for_fresh_rust_backfill",
+      "model_training_ready": false,
+      "factor_count": 88,
+      "inherited_live50_contract_count": 50,
+      "research_contract_count": 38,
+      "contract_id_namespace": "research_r88_20260825/<signal>/v1",
+      "specs_sha256": "e8f7ab3bbbd15e300876c49b9751f5438a28d98bf12d6020f6db101c6f5e6d44",
+      "contracts": [
+        {"id": "research_r88_20260825/hybrid_current_range_vs_hist_twap_curve/v1", "output_col": "hybrid_current_range_vs_hist_twap_curve", "factor": "factor_mining_hybrid_catalog_v1", "signal": "hybrid_current_range_vs_hist_twap_curve", "params_sha256": "bf774890577b429972931a75dae183c4142f609f041117c660697c2d7369427e"},
+        {"id": "research_r88_20260825/base_duration_stockvol_interaction/v1", "output_col": "base_duration_stockvol_interaction", "factor": "factor_mining_daily_catalog_v1", "signal": "base_duration_stockvol_interaction", "params_sha256": "93d16fe371004673097aa3bef7424ec6bc5d40aab6dd2a763e7d5d331a79bb17"},
+        {"id": "research_r88_20260825/base_stockvol_per_moneyness/v1", "output_col": "base_stockvol_per_moneyness", "factor": "factor_mining_daily_catalog_v1", "signal": "base_stockvol_per_moneyness", "params_sha256": "79fd1b5c0979a443c317f7e7a0680e4ece6da916f8ee412620085aa3f8916201"},
+        {"id": "research_r88_20260825/exp_exec_amount_concentration_impact/v1", "output_col": "exp_exec_amount_concentration_impact", "factor": "factor_mining_intraday_expansion_v1", "signal": "exp_exec_amount_concentration_impact", "params_sha256": "746ba5dc7b89e1a98a6cb577e4cefcb80e4610c74fd7eba1d87a2ed7423a6176"},
+        {"id": "research_r88_20260825/drrq_return_amount_opposite_tail_excess60/v1", "output_col": "drrq_return_amount_opposite_tail_excess60", "factor": "factor_mining_daily_relative_rank_tail_contradiction_v1", "signal": "drrq_return_amount_opposite_tail_excess60", "params_sha256": "9da0359383c4842b71dc74ce65059ed4762d871ecc45905456c035351258bcd6"},
+        {"id": "research_r88_20260825/bsab_upside_beta60/v1", "output_col": "bsab_upside_beta60", "factor": "factor_mining_daily_asymmetric_equity_beta_v1", "signal": "bsab_upside_beta60", "params_sha256": "3749d00db08700860a0a7e892e7cfcf26beaf2ac7aae69d3d2a0e4e179b73d58"},
+        {"id": "research_r88_20260825/rating_current_ordinal/v1", "output_col": "rating_current_ordinal", "factor": "factor_mining_daily_contract_stock_v1", "signal": "rating_current_ordinal", "params_sha256": "2e14844204496db43478efa9582f718590f67cd3a51f052121e2ed6facce89b8"},
+        {"id": "research_r88_20260825/lcc_size_frequency_coupling60/v1", "output_col": "lcc_size_frequency_coupling60", "factor": "factor_mining_daily_liquidity_channel_composition_v1", "signal": "lcc_size_frequency_coupling60", "params_sha256": "3dfd2b592f748a24f83f52446f90f5743fed19c860ae7c9a1fb4754e0dc81ba7"},
+        {"id": "research_r88_20260825/bssrc_upper_rank_tail_alignment60/v1", "output_col": "bssrc_upper_rank_tail_alignment60", "factor": "factor_mining_daily_bond_stock_cross_sectional_rank_concordance_v1", "signal": "bssrc_upper_rank_tail_alignment60", "params_sha256": "f862213a186fb09187fdd8613ca98c54ebf63a60fa9d87e1e6007951f66ee8b5"},
+        {"id": "research_r88_20260825/joint_tail_range_coexpansion/v1", "output_col": "joint_tail_range_coexpansion", "factor": "factor_mining_intraday_joint_state_v1", "signal": "joint_tail_range_coexpansion", "params_sha256": "469739ab2e2add83795ce79d0c5626c457cf334690813c2b773ac350e36c8841"},
+        {"id": "research_r88_20260825/itr_stock_shock_same_bin_directional_agreement/v1", "output_col": "itr_stock_shock_same_bin_directional_agreement", "factor": "factor_mining_intraday_transmission_response_v1", "signal": "itr_stock_shock_same_bin_directional_agreement", "params_sha256": "756c31ed557c5f3ee6eff088ea52801dbdf8fbbdb526e0d5416b5b015459dac2"},
+        {"id": "research_r88_20260825/osa_terminal_amount_streak60/v1", "output_col": "osa_terminal_amount_streak60", "factor": "factor_mining_daily_observable_seasoning_v1", "signal": "osa_terminal_amount_streak60", "params_sha256": "4cc5301fe894ec2063e44682f984ad83991b2ba76e49ba5699e883057941818c"},
+        {"id": "research_r88_20260825/exp_noise_variance_ratio_5/v1", "output_col": "exp_noise_variance_ratio_5", "factor": "factor_mining_intraday_expansion_v1", "signal": "exp_noise_variance_ratio_5", "params_sha256": "ab2667787bc81d082b45061d9cd9db45439ed39796d1fcc617568798a36940fc"},
+        {"id": "research_r88_20260825/joint_tail_signed_cojump/v1", "output_col": "joint_tail_signed_cojump", "factor": "factor_mining_intraday_joint_state_v1", "signal": "joint_tail_signed_cojump", "params_sha256": "9270050ce98ebf44d0ec232b578d89418898a517e9542eb32f897ad54e40071e"},
+        {"id": "research_r88_20260825/bsab_downside_beta60/v1", "output_col": "bsab_downside_beta60", "factor": "factor_mining_daily_asymmetric_equity_beta_v1", "signal": "bsab_downside_beta60", "params_sha256": "b802571c8774c26f4ca87df8e818d8930bb72235715ada1ad67dc4a669ca4527"},
+        {"id": "research_r88_20260825/hybrid_current_flow_vs_hist_overnight_response/v1", "output_col": "hybrid_current_flow_vs_hist_overnight_response", "factor": "factor_mining_hybrid_catalog_v1", "signal": "hybrid_current_flow_vs_hist_overnight_response", "params_sha256": "3029cda49562287d44853a465b41dfbfa786f18fa63c5b302cdb9f059938d2cc"},
+        {"id": "research_r88_20260825/ucd_peer_stock_return_dispersion1/v1", "output_col": "ucd_peer_stock_return_dispersion1", "factor": "factor_mining_underlying_cohort_distribution_v1", "signal": "ucd_peer_stock_return_dispersion1", "params_sha256": "88770fcf5e3dcc849042e9722823112ee53f0ea763b169c1ac4801ec53a1262a"},
+        {"id": "research_r88_20260825/exp_stick_quote_update_rate/v1", "output_col": "exp_stick_quote_update_rate", "factor": "factor_mining_intraday_expansion_v1", "signal": "exp_stick_quote_update_rate", "params_sha256": "1348604071b683ec53de64826dcb38b2cd87d0c8ea56d8770d7564354288b716"},
+        {"id": "research_r88_20260825/isgm_stockvol_trade_quote_clock_center_gap/v1", "output_col": "isgm_stockvol_trade_quote_clock_center_gap", "factor": "factor_mining_intraday_state_gated_microstructure_v1", "signal": "isgm_stockvol_trade_quote_clock_center_gap", "params_sha256": "ae2474ce953180295d812b5414d6d38b20629f7330f69973f99aa01e21ea3f18"},
+        {"id": "research_r88_20260825/rlmi_return_trade_size_sign_mutual_information60/v1", "output_col": "rlmi_return_trade_size_sign_mutual_information60", "factor": "factor_mining_daily_return_liquidity_topology_v1", "signal": "rlmi_return_trade_size_sign_mutual_information60", "params_sha256": "7c86232c8a83b7e748446b1b8907c7dfa0c70bd0f5f027c0532134f945bd3446"},
+        {"id": "research_r88_20260825/book_quote_dislocation/v1", "output_col": "book_quote_dislocation", "factor": "factor_mining_intraday_catalog_v1", "signal": "book_quote_dislocation", "params_sha256": "6520e21e186f9a521ea3db5443df6074b8e56af057dc0346cad9a0feb1c5d440"},
+        {"id": "research_r88_20260825/qgeo_micro_last_next_return_sign_alignment/v1", "output_col": "qgeo_micro_last_next_return_sign_alignment", "factor": "factor_mining_quote_geometry_microprice_v1", "signal": "qgeo_micro_last_next_return_sign_alignment", "params_sha256": "90641348abb4c90a047da9f797aa184a72e862579001122e92503c3a3a5bf82a"},
+        {"id": "research_r88_20260825/base_trigger_progress_ratio/v1", "output_col": "base_trigger_progress_ratio", "factor": "factor_mining_daily_catalog_v1", "signal": "base_trigger_progress_ratio", "params_sha256": "e544f8ed0466fed66febe3b5820bd2980360318eca56989478e9c69e0bb4c5e8"},
+        {"id": "research_r88_20260825/drrc_return_trade_size_rank_spearman60/v1", "output_col": "drrc_return_trade_size_rank_spearman60", "factor": "factor_mining_daily_relative_rank_flow_coupling_v2", "signal": "drrc_return_trade_size_rank_spearman60", "params_sha256": "185c4f0166f010d0ecbf9e3a89d597a05a4ba4d037c7ca63e443d78061fc7cf0"},
+        {"id": "research_r88_20260825/execdisc_direction_reversal_rate/v1", "output_col": "execdisc_direction_reversal_rate", "factor": "factor_mining_intraday_execution_discreteness_v1", "signal": "execdisc_direction_reversal_rate", "params_sha256": "de0e802c8288cd66ff2e6bbb45e4699837de4f6cc25455ae06543f5cf2293232"},
+        {"id": "research_r88_20260825/bsct_upper_tail_dependence60/v1", "output_col": "bsct_upper_tail_dependence60", "factor": "factor_mining_daily_bond_stock_copula_tail_dependence_v1", "signal": "bsct_upper_tail_dependence60", "params_sha256": "b05c2cc33d14bde05536518a9ae149ec9a5e544fd9ac5fa9b92611e90a1af1f8"},
+        {"id": "research_r88_20260825/sng_peer_return_dispersion1/v1", "output_col": "sng_peer_return_dispersion1", "factor": "factor_mining_structural_neighborhood_v1", "signal": "sng_peer_return_dispersion1", "params_sha256": "679f75a006c5062693bf51acd3d739f5c2f6361448308e51c9c91075f35a91de"},
+        {"id": "research_r88_20260825/base_trigger_revision_gap/v1", "output_col": "base_trigger_revision_gap", "factor": "factor_mining_daily_catalog_v1", "signal": "base_trigger_revision_gap", "params_sha256": "b195a049d09bc6fb1446f6e51e462805f4c71dcd4767fc4da9586d442801bb4f"},
+        {"id": "research_r88_20260825/exp_noise_median_mean_abs_return_ratio/v1", "output_col": "exp_noise_median_mean_abs_return_ratio", "factor": "factor_mining_intraday_expansion_v1", "signal": "exp_noise_median_mean_abs_return_ratio", "params_sha256": "00d155d3a4d692f6fb988f1953130bd1ad1fe2124886c7592a518273bf0906f9"},
+        {"id": "research_r88_20260825/joint_tail_terminal_location_coshock/v1", "output_col": "joint_tail_terminal_location_coshock", "factor": "factor_mining_intraday_joint_state_v1", "signal": "joint_tail_terminal_location_coshock", "params_sha256": "c60a16dc0e2efb3c9d6a069be215c3bccec691d3f9003297be12c481531f4274"},
+        {"id": "research_r88_20260825/exp_noise_variance_ratio_2/v1", "output_col": "exp_noise_variance_ratio_2", "factor": "factor_mining_intraday_expansion_v1", "signal": "exp_noise_variance_ratio_2", "params_sha256": "8d96ba361eaf646791ddfa3b522e71cce4eb067e63a2e9aa95db6120a67a193e"},
+        {"id": "research_r88_20260825/csn_pql_churn_neighbor_gap/v1", "output_col": "csn_pql_churn_neighbor_gap", "factor": "factor_mining_cross_sectional_microstructure_neighborhood_v1", "signal": "csn_pql_churn_neighbor_gap", "params_sha256": "bbd5a226e8866f6be6b74aeb3c88249f6e20f1aff2ae3f56c924e8ac6682b824"},
+        {"id": "research_r88_20260825/bssrc_lower_rank_tail_alignment60/v1", "output_col": "bssrc_lower_rank_tail_alignment60", "factor": "factor_mining_daily_bond_stock_cross_sectional_rank_concordance_v1", "signal": "bssrc_lower_rank_tail_alignment60", "params_sha256": "09a0c3d2b379af7279f5351cd5df61863820c0705a19476c8ce8f1346874d443"},
+        {"id": "research_r88_20260825/rdm_joint_reprice_depth_retention/v1", "output_col": "rdm_joint_reprice_depth_retention", "factor": "factor_mining_orderbook_repricing_v1", "signal": "rdm_joint_reprice_depth_retention", "params_sha256": "12e9264b4df90f21bd541b4313c58c63fc4bf9b8b4e1fbec77113e1cb44f132e"},
+        {"id": "research_r88_20260825/dtwm_session_afternoon_late_log_slope/v1", "output_col": "dtwm_session_afternoon_late_log_slope", "factor": "factor_mining_daily_twap_microstructure_v1", "signal": "dtwm_session_afternoon_late_log_slope", "params_sha256": "d7cdfb9d4421e4382115be44a23c546c517831f5d7ee3ffd4d15cd94940a05c2"},
+        {"id": "research_r88_20260825/dret_momentum_5/v1", "output_col": "dret_momentum_5", "factor": "factor_mining_daily_expansion_v1", "signal": "dret_momentum_5", "params_sha256": "efc69db799df7cce05194c33efa7ea7930b749295c35956cf5b4c6efd3d62a71"},
+        {"id": "research_r88_20260825/exp_rotation_segment_return_dispersion/v1", "output_col": "exp_rotation_segment_return_dispersion", "factor": "factor_mining_intraday_expansion_v1", "signal": "exp_rotation_segment_return_dispersion", "params_sha256": "05170cfa179110b0cf5a5ffe2d766b9fadc2163e131cb2969bbd21e9d89d3543"},
+        {"id": "research_r88_20260825/execdisc_step_multiplicity_entropy/v1", "output_col": "execdisc_step_multiplicity_entropy", "factor": "factor_mining_intraday_execution_discreteness_v1", "signal": "execdisc_step_multiplicity_entropy", "params_sha256": "61b0a184a2b143828b83ffd34394b438412ac9cd5cfbe85de98cfd3e72966c1c"}
       ]
     }
   ],
@@ -451,79 +506,211 @@
       "factor": "factor_mining_daily_asymmetric_state_transitions_v1",
       "python_file": "research_factor_mining_daily_asymmetric_state_transitions_v1.py",
       "rust_status": "implemented_frozen_contracts_only",
-      "contract_scope": "live50_rust50_20260806"
+      "contract_scope": "live50_rust50_20260806",
+      "additional_contract_scopes": ["research_r88_rust88_20260825"]
     },
     {
       "factor": "factor_mining_daily_bond_stock_cross_sectional_rank_concordance_v1",
       "python_file": "research_factor_mining_daily_bond_stock_cross_sectional_rank_concordance_v1.py",
       "rust_status": "implemented_frozen_contracts_only",
-      "contract_scope": "live50_rust50_20260806"
+      "contract_scope": "live50_rust50_20260806",
+      "additional_contract_scopes": ["research_r88_rust88_20260825"]
     },
     {
       "factor": "factor_mining_daily_bond_stock_return_flow_information_v1",
       "python_file": "research_factor_mining_daily_bond_stock_return_flow_information_v1.py",
       "rust_status": "implemented_frozen_contracts_only",
-      "contract_scope": "live50_rust50_20260806"
+      "contract_scope": "live50_rust50_20260806",
+      "additional_contract_scopes": ["research_r88_rust88_20260825"]
     },
     {
       "factor": "factor_mining_daily_capacity_rank_coupling_v1",
       "python_file": "research_factor_mining_daily_capacity_rank_coupling_v1.py",
       "rust_status": "implemented_frozen_contracts_only",
-      "contract_scope": "live50_rust50_20260806"
+      "contract_scope": "live50_rust50_20260806",
+      "additional_contract_scopes": ["research_r88_rust88_20260825"]
     },
     {
       "factor": "factor_mining_daily_catalog_v1",
       "python_file": "research_factor_mining_catalog_v1.py",
       "rust_status": "implemented_frozen_contracts_only",
-      "contract_scope": "live50_rust50_20260806"
+      "contract_scope": "live50_rust50_20260806",
+      "additional_contract_scopes": ["research_r88_rust88_20260825"]
     },
     {
       "factor": "factor_mining_daily_contract_stock_v1",
       "python_file": "research_factor_mining_daily_contract_stock_v1.py",
       "rust_status": "implemented_frozen_contracts_only",
-      "contract_scope": "live50_rust50_20260806"
+      "contract_scope": "live50_rust50_20260806",
+      "additional_contract_scopes": ["research_r88_rust88_20260825"]
     },
     {
       "factor": "factor_mining_daily_expansion_v1",
       "python_file": "research_factor_mining_daily_expansion_v1.py",
       "rust_status": "implemented_frozen_contracts_only",
-      "contract_scope": "live50_rust50_20260806"
+      "contract_scope": "live50_rust50_20260806",
+      "additional_contract_scopes": ["research_r88_rust88_20260825"]
     },
     {
       "factor": "factor_mining_daily_incremental_v1",
       "python_file": "research_factor_mining_daily_incremental_v1.py",
       "rust_status": "implemented_frozen_contracts_only",
-      "contract_scope": "live50_rust50_20260806"
+      "contract_scope": "live50_rust50_20260806",
+      "additional_contract_scopes": ["research_r88_rust88_20260825"]
     },
     {
       "factor": "factor_mining_daily_liquidity_channel_composition_v1",
       "python_file": "research_factor_mining_daily_liquidity_channel_composition_v1.py",
       "rust_status": "implemented_frozen_contracts_only",
-      "contract_scope": "live50_rust50_20260806"
+      "contract_scope": "live50_rust50_20260806",
+      "additional_contract_scopes": ["research_r88_rust88_20260825"]
     },
     {
       "factor": "factor_mining_daily_ohlc_wick_path_asymmetry_v1",
       "python_file": "research_factor_mining_daily_ohlc_wick_path_asymmetry_v1.py",
       "rust_status": "implemented_frozen_contracts_only",
-      "contract_scope": "live50_rust50_20260806"
+      "contract_scope": "live50_rust50_20260806",
+      "additional_contract_scopes": ["research_r88_rust88_20260825"]
     },
     {
       "factor": "factor_mining_daily_return_liquidity_topology_v1",
       "python_file": "research_factor_mining_daily_return_liquidity_topology_v1.py",
       "rust_status": "implemented_frozen_contracts_only",
-      "contract_scope": "live50_rust50_20260806"
+      "contract_scope": "live50_rust50_20260806",
+      "additional_contract_scopes": ["research_r88_rust88_20260825"]
     },
     {
       "factor": "factor_mining_orderbook_repricing_v1",
       "python_file": "research_factor_mining_orderbook_repricing_v1.py",
       "rust_status": "implemented_frozen_contracts_only",
-      "contract_scope": "live50_rust50_20260806"
+      "contract_scope": "live50_rust50_20260806",
+      "additional_contract_scopes": ["research_r88_rust88_20260825"]
     },
     {
       "factor": "factor_mining_quote_execution_dynamics_v1",
       "python_file": "research_factor_mining_quote_execution_dynamics_v1.py",
       "rust_status": "implemented_frozen_contracts_only",
-      "contract_scope": "live50_rust50_20260806"
+      "contract_scope": "live50_rust50_20260806",
+      "additional_contract_scopes": ["research_r88_rust88_20260825"]
+    },
+    {
+      "factor": "factor_mining_cross_sectional_microstructure_neighborhood_v1",
+      "python_file": "research_factor_mining_cross_sectional_microstructure_neighborhood_v1.py",
+      "rust_status": "implemented_frozen_contracts_only",
+      "contract_scope": "research_r88_rust88_20260825",
+      "research_only": true
+    },
+    {
+      "factor": "factor_mining_daily_asymmetric_equity_beta_v1",
+      "python_file": "research_factor_mining_daily_asymmetric_equity_beta_v1.py",
+      "rust_status": "implemented_frozen_contracts_only",
+      "contract_scope": "research_r88_rust88_20260825",
+      "research_only": true
+    },
+    {
+      "factor": "factor_mining_daily_bond_stock_copula_tail_dependence_v1",
+      "python_file": "research_factor_mining_daily_bond_stock_copula_tail_dependence_v1.py",
+      "rust_status": "implemented_frozen_contracts_only",
+      "contract_scope": "research_r88_rust88_20260825",
+      "research_only": true
+    },
+    {
+      "factor": "factor_mining_daily_observable_seasoning_v1",
+      "python_file": "research_factor_mining_daily_observable_seasoning_v1.py",
+      "rust_status": "implemented_frozen_contracts_only",
+      "contract_scope": "research_r88_rust88_20260825",
+      "research_only": true
+    },
+    {
+      "factor": "factor_mining_daily_relative_rank_flow_coupling_v2",
+      "python_file": "research_factor_mining_daily_relative_rank_flow_coupling_v2.py",
+      "rust_status": "implemented_frozen_contracts_only",
+      "contract_scope": "research_r88_rust88_20260825",
+      "research_only": true
+    },
+    {
+      "factor": "factor_mining_daily_relative_rank_tail_contradiction_v1",
+      "python_file": "research_factor_mining_daily_relative_rank_tail_contradiction_v1.py",
+      "rust_status": "implemented_frozen_contracts_only",
+      "contract_scope": "research_r88_rust88_20260825",
+      "research_only": true
+    },
+    {
+      "factor": "factor_mining_daily_twap_microstructure_v1",
+      "python_file": "research_factor_mining_daily_twap_microstructure_v1.py",
+      "rust_status": "implemented_frozen_contracts_only",
+      "contract_scope": "research_r88_rust88_20260825",
+      "research_only": true
+    },
+    {
+      "factor": "factor_mining_hybrid_catalog_v1",
+      "python_file": "research_factor_mining_catalog_v1.py",
+      "rust_status": "implemented_frozen_contracts_only",
+      "contract_scope": "research_r88_rust88_20260825",
+      "research_only": true
+    },
+    {
+      "factor": "factor_mining_intraday_catalog_v1",
+      "python_file": "research_factor_mining_catalog_v1.py",
+      "rust_status": "implemented_frozen_contracts_only",
+      "contract_scope": "research_r88_rust88_20260825",
+      "research_only": true
+    },
+    {
+      "factor": "factor_mining_intraday_execution_discreteness_v1",
+      "python_file": "research_factor_mining_intraday_execution_discreteness_v1.py",
+      "rust_status": "implemented_frozen_contracts_only",
+      "contract_scope": "research_r88_rust88_20260825",
+      "research_only": true
+    },
+    {
+      "factor": "factor_mining_intraday_expansion_v1",
+      "python_file": "research_factor_mining_expansion_intraday_v1.py",
+      "rust_status": "implemented_frozen_contracts_only",
+      "contract_scope": "research_r88_rust88_20260825",
+      "research_only": true
+    },
+    {
+      "factor": "factor_mining_intraday_joint_state_v1",
+      "python_file": "research_factor_mining_intraday_joint_state_v1.py",
+      "rust_status": "implemented_frozen_contracts_only",
+      "contract_scope": "research_r88_rust88_20260825",
+      "research_only": true
+    },
+    {
+      "factor": "factor_mining_intraday_state_gated_microstructure_v1",
+      "python_file": "research_factor_mining_intraday_state_gated_microstructure_v1.py",
+      "rust_status": "implemented_frozen_contracts_only",
+      "contract_scope": "research_r88_rust88_20260825",
+      "research_only": true
+    },
+    {
+      "factor": "factor_mining_intraday_transmission_response_v1",
+      "python_file": "research_factor_mining_intraday_transmission_response_v1.py",
+      "rust_status": "implemented_frozen_contracts_only",
+      "contract_scope": "research_r88_rust88_20260825",
+      "research_only": true
+    },
+    {
+      "factor": "factor_mining_quote_geometry_microprice_v1",
+      "python_file": "research_factor_mining_quote_geometry_microprice_v1.py",
+      "rust_status": "implemented_frozen_contracts_only",
+      "contract_scope": "research_r88_rust88_20260825",
+      "research_only": true
+    },
+    {
+      "factor": "factor_mining_structural_neighborhood_v1",
+      "python_file": "research_factor_mining_structural_neighborhood_v1.py",
+      "rust_status": "implemented_frozen_contracts_only",
+      "contract_scope": "research_r88_rust88_20260825",
+      "research_only": true
+    },
+    {
+      "factor": "factor_mining_underlying_cohort_distribution_v1",
+      "python_file": "research_factor_mining_underlying_cohort_distribution_v1.py",
+      "rust_status": "implemented_frozen_contracts_only",
+      "contract_scope": "research_r88_rust88_20260825",
+      "research_only": true
     },
     {
       "factor": "intraday_momentum_v1",

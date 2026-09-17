@@ -52,19 +52,19 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--apply-remove-deprecated",
         action=argparse.BooleanOptionalAction,
-        default=True,
+        default=False,
         help=(
             "apply action: remove deprecated factor columns from factor parquet store "
-            "(default: enabled; use --no-apply-remove-deprecated to disable)"
+            "(default: disabled; canonical tables are immutable and cannot be edited)"
         ),
     )
     parser.add_argument(
         "--apply-disable-bad",
         action=argparse.BooleanOptionalAction,
-        default=True,
+        default=False,
         help=(
             "apply action: add bad factors into disabled_factors file "
-            "(default: enabled; use --no-apply-disable-bad to disable)"
+            "(default: disabled; use only with separately authorized legacy audit work)"
         ),
     )
     parser.add_argument(
@@ -141,6 +141,14 @@ def main() -> int:
     factor_cfg = load_config_file(args.config)
     paths_cfg = load_config_file("paths")
     start, end = _resolve_window(factor_cfg, start_arg=args.start, end_arg=args.end)
+
+    if paths_cfg.get("factor_table") is not None and (
+        bool(args.apply_disable_bad) or bool(args.apply_remove_deprecated)
+    ):
+        raise RuntimeError(
+            "factor quality guard cannot mutate an immutable canonical factor table or its live/research profile; "
+            "run a read-only scan, then use the governed release or experiment workflow"
+        )
 
     result = run_factor_quality_scan(
         factor_cfg=factor_cfg,

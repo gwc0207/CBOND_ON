@@ -1,4 +1,9 @@
 {
+  lifecycle: {
+    status: "audit_only",
+    reason: "legacy_direct_factor_store",
+    normal_consumer: false,
+  },
   // Raw/clean DataHub locations are read-only; every derived result is isolated.
   raw_data_root: "D:/cbond_data_hub/raw_data",
   clean_data_root: "D:/cbond_data_hub/clean_data",

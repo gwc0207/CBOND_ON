@@ -1,0 +1,68 @@
+{
+  "context_requirements": {
+    "daily": [],
+    "panel_field_schema_status": "operator_declared_pending_factor_minimal_audit",
+    "panel_fields": [],
+    "panel_name": "T1430",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "contract_hash": "2f1e7cddcdb98b502fb2c88ffe0de13352bc0ddca41ae4aa165d2b59a0390b62",
+  "definition": {
+    "kind": "parameterized_operator_definition",
+    "path": "factors/execution_step_multiplicity_geometry/execdisc_step_multiplicity_entropy/definition.py",
+    "sha256": "51993158bbec82f197cfef521d3d7f47749961f77aaec817ffdb44f500b25ea5"
+  },
+  "fixed_params": {
+    "family": "execution_step_multiplicity_geometry",
+    "signal": "execdisc_step_multiplicity_entropy"
+  },
+  "identity": {
+    "factor_id": "execdisc_step_multiplicity_entropy",
+    "factor_version": "catalog-20260826-f18f0679b771-61b0a184a2b1",
+    "primary_family": "execution_step_multiplicity_geometry",
+    "tags": []
+  },
+  "lifecycle": {
+    "catalog_status": "registered",
+    "live_admission_status": "not_evaluated_by_catalog_builder",
+    "research_status": "legacy_mapping_discovered",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "operator_bindings": [
+    {
+      "implementation_module": "cbond_on.domain.factors.operators.research_factor_mining_intraday_execution_discreteness_v1",
+      "implementation_path": "cbond_on/domain/factors/operators/research_factor_mining_intraday_execution_discreteness_v1.py",
+      "implementation_sha256": "f18f0679b771cb3f655a372dd3c68b33942ad7577242dca1d03478f1232436b4",
+      "language": "python_runtime_operator",
+      "legacy_implementation_path": "cbond_on/domain/factors/defs/research_factor_mining_intraday_execution_discreteness_v1.py",
+      "legacy_implementation_sha256": "13d7b34a1f77248d4f2ee04f8988e90867e24db1ec74909533064e215e3292ea",
+      "operator_contract_path": "operators/factor_mining_intraday_execution_discreteness_v1/contract.json",
+      "operator_id": "factor_mining_intraday_execution_discreteness_v1",
+      "operator_version": "20260803_intraday_execution_discreteness_v1",
+      "rust_contract_id": null
+    }
+  ],
+  "output": {
+    "column": "execdisc_step_multiplicity_entropy",
+    "dtype": "float64"
+  },
+  "schema_version": "factor_contract/v2",
+  "source_lineage": {
+    "hypothesis": "The count geometry of trade-confirmed non-zero price steps, expressed as robust small-step multiples, can distinguish granular updating from sparse multi-step repricing without using return magnitude shares.",
+    "snapshot_id": "canonical_factor_catalog_20260826_800",
+    "source_position": 2,
+    "source_root": "D:/cbond_on/research_scratch/factor_mining_20260803_aggregate_catalog_v5_full/factor_data",
+    "source_set": "research773"
+  },
+  "test_reference": {
+    "behavioral_parity_status": "pending_baseline_replay",
+    "contract_test": "tests/test_factor_engine_governance.py::test_all_factor_definitions_and_contracts",
+    "operator_test": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+  },
+  "time_contract": {
+    "factor_time": "14:30",
+    "pit_validation_status": "operator_migration_pending_factor_pit_audit",
+    "research_label_time_reference": "14:42"
+  }
+}

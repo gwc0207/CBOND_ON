@@ -2,7 +2,9 @@
 
 from collections.abc import Callable
 from dataclasses import replace
+import hashlib
 import json
+import os
 from datetime import date, datetime
 from pathlib import Path
 
@@ -23,6 +25,10 @@ from cbond_on.app.usecases.factor_build_runtime import run as run_factor_build
 from cbond_on.app.usecases.label_runtime import run as run_label_build
 from cbond_on.app.usecases.model_score_runtime import run as run_model_score
 from cbond_on.app.usecases.panel_runtime import run as run_panel_build
+from cbond_on.infra.factors.factor_table_resolution import (
+    assert_admitted_live_factor_writer,
+    build_factor_reader,
+)
 from cbond_on.infra.live.config import (
     assert_no_date_fields_in_live_config,
     configure_live_paths_profile,
@@ -102,14 +108,86 @@ def _panel_day_path(paths_cfg: dict, day: date, *, asset: str, panel_name: str) 
     )
 
 
-def _factor_day_path(paths_cfg: dict, day: date, *, panel_name: str) -> Path:
+def _panel_manifest_day_path(paths_cfg: dict, day: date, *, panel_name: str) -> Path:
     return (
-        Path(paths_cfg["factor_data_root"])
-        / "factors"
+        Path(paths_cfg["panel_data_root"])
+        / "manifests"
         / panel_name
         / f"{day.year:04d}-{day.month:02d}"
-        / f"{day.strftime('%Y%m%d')}.parquet"
+        / f"{day.strftime('%Y%m%d')}.json"
     )
+
+
+def _panel_done_day_path(paths_cfg: dict, day: date, *, panel_name: str) -> Path:
+    return (
+        Path(paths_cfg["panel_data_root"])
+        / "publish"
+        / panel_name
+        / f"{day.year:04d}-{day.month:02d}"
+        / f"{day.strftime('%Y%m%d')}.done"
+    )
+
+
+def _factor_day_path(paths_cfg: dict, day: date, *, panel_name: str) -> Path:
+    return build_factor_reader(paths_cfg, panel_name=panel_name).day_path(day)
+
+
+def _factor_day_ready(paths_cfg: dict, day: date, *, panel_name: str) -> bool:
+    """Check a factor day through the required canonical commit boundary."""
+
+    reader = build_factor_reader(paths_cfg, panel_name=panel_name)
+    if hasattr(reader, "has_day"):
+        return bool(reader.has_day(day))
+    return not reader.read_day(day).empty
+
+
+def _is_no_db_ephemeral_factor_stage(live_cfg: dict, paths_cfg: dict) -> bool:
+    """Recognise the isolated verifier's only legacy scratch exception."""
+
+    runtime = live_cfg.get("runtime")
+    lifecycle = paths_cfg.get("lifecycle")
+    output = live_cfg.get("output")
+    return bool(
+        isinstance(runtime, dict)
+        and runtime.get("factor_route_mode") == "no_db_ephemeral_factor_stage"
+        and isinstance(lifecycle, dict)
+        and lifecycle.get("status") == "audit_only"
+        and lifecycle.get("reason") == "no_db_ephemeral_factor_stage"
+        and lifecycle.get("normal_consumer") is False
+        and isinstance(output, dict)
+        and output.get("db_write") is False
+        and os.environ.get("CBOND_ON_ALLOW_NO_DB_AUDIT_FACTORSTORE", "").strip() == "1"
+    )
+
+
+def _resolve_db_write_enabled(output_cfg: dict, *, score_day: date) -> tuple[bool, dict[str, object]]:
+    """Apply an auditable, date-scoped process no-DB override.
+
+    The override is process-local rather than a persistent live-config edit.
+    A scheduler launched with ``CBOND_ON_LIVE_NO_DB_DATE`` still computes the
+    ordinary factor/model/trade-list chain but cannot write a DB row on that
+    exact score day. All other dates retain the configured DB mode.
+    """
+
+    configured = bool(output_cfg.get("db_write", False))
+    override_day = os.environ.get("CBOND_ON_LIVE_NO_DB_DATE", "").strip()
+    active = override_day == score_day.isoformat()
+    return (
+        bool(configured and not active),
+        {
+            "configured_db_write": configured,
+            "effective_db_write": bool(configured and not active),
+            "override_env": "CBOND_ON_LIVE_NO_DB_DATE" if override_day else None,
+            "override_date": override_day or None,
+            "override_active": active,
+            "score_day": score_day.isoformat(),
+        },
+    )
+
+
+def _require_factor_day_ready(paths_cfg: dict, day: date, *, panel_name: str, name: str) -> None:
+    if not _factor_day_ready(paths_cfg, day, panel_name=panel_name):
+        raise RuntimeError(f"{name} missing after live build: {_factor_day_path(paths_cfg, day, panel_name=panel_name)}")
 
 
 def _label_day_path(paths_cfg: dict, day: date) -> Path:
@@ -142,14 +220,158 @@ def _normalize_assets(value: object) -> list[str]:
     return []
 
 
+def _require_cached_panel_source(factor_cfg: dict) -> None:
+    """Require the live factor stage to consume the published PanelStore only."""
+
+    source_cfg = factor_cfg.get("panel_source")
+    mode = (
+        str(source_cfg.get("mode", "")).strip().lower()
+        if isinstance(source_cfg, dict)
+        else ""
+    )
+    if mode != "cached_panel":
+        raise ValueError(
+            "live factor panel_source.mode must be explicit cached_panel; "
+            f"got {mode or '<missing>'}"
+        )
+
+
 def _factor_panel_source_mode(factor_cfg: dict) -> str:
     raw = factor_cfg.get("panel_source")
     if isinstance(raw, dict):
-        raw = raw.get("mode", "cached_panel")
-    text = str(raw or "cached_panel").strip().lower()
+        raw = raw.get("mode", "clean_direct")
+    text = str(raw or "clean_direct").strip().lower()
     if text in {"clean", "clean_data", "clean_direct", "on_demand", "on_demand_clean"}:
         return "clean_direct"
-    return "cached_panel"
+    if text in {"cache", "cached", "panel", "panel_data", "cached_panel"}:
+        return "cached_panel"
+    raise ValueError(f"unsupported live factor panel_source.mode={raw!r}")
+
+
+def _uses_published_read_only_panel_store(factor_cfg: dict) -> bool:
+    panel_store_cfg = factor_cfg.get("panel_store")
+    if not isinstance(panel_store_cfg, dict):
+        return False
+    return str(panel_store_cfg.get("mode", "")).strip().lower() == "published_read_only"
+
+
+def _panel_assets(panel_cfg: dict) -> list[str]:
+    assets = _normalize_assets(panel_cfg.get("assets", []))
+    if not assets:
+        assets = ["cbond"]
+    return list(dict.fromkeys(assets))
+
+
+def _format_days(days: list[date]) -> str:
+    ordered = sorted(set(days))
+    if len(ordered) <= 8:
+        return ",".join(day.isoformat() for day in ordered)
+    return f"{ordered[0]:%Y-%m-%d}..{ordered[-1]:%Y-%m-%d} ({len(ordered)} days)"
+
+
+def _read_published_panel_json(path: Path, *, label: str) -> dict:
+    if not path.is_file():
+        raise RuntimeError(f"published PanelStore {label} missing: {path}")
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise RuntimeError(f"published PanelStore {label} is invalid JSON: {path}") from exc
+    if not isinstance(payload, dict):
+        raise RuntimeError(f"published PanelStore {label} must be a JSON object: {path}")
+    return payload
+
+
+def _require_published_panel_bundle(
+    *,
+    paths_cfg: dict,
+    day: date,
+    assets: list[str],
+    panel_name: str,
+) -> None:
+    """Validate the read-only per-day commit marker before consumer use."""
+
+    manifest_path = _panel_manifest_day_path(paths_cfg, day, panel_name=panel_name)
+    done_path = _panel_done_day_path(paths_cfg, day, panel_name=panel_name)
+    manifest = _read_published_panel_json(manifest_path, label="manifest")
+    done = _read_published_panel_json(done_path, label="done marker")
+    expected_day = day.isoformat()
+    if str(manifest.get("status", "")).strip().lower() != "published":
+        raise RuntimeError(f"published PanelStore manifest is not published: {manifest_path}")
+    if str(manifest.get("trade_day", "")).strip() != expected_day:
+        raise RuntimeError(f"published PanelStore manifest trade_day mismatch: {manifest_path}")
+    if done.get("ready") is not True or str(done.get("trade_day", "")).strip() != expected_day:
+        raise RuntimeError(f"published PanelStore done marker is not ready for {expected_day}: {done_path}")
+    manifest_sha = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
+    if str(done.get("manifest_sha256", "")).strip() != manifest_sha:
+        raise RuntimeError(f"published PanelStore done marker hash mismatch: {done_path}")
+    manifest_assets = manifest.get("assets")
+    done_assets = done.get("assets")
+    if not isinstance(manifest_assets, dict) or not isinstance(done_assets, dict):
+        raise RuntimeError(f"published PanelStore bundle has no complete asset manifest: {manifest_path}")
+    for asset in assets:
+        manifest_asset = manifest_assets.get(asset)
+        if not isinstance(manifest_asset, dict):
+            raise RuntimeError(f"published PanelStore manifest missing asset={asset}: {manifest_path}")
+        asset_sha = str(manifest_asset.get("sha256", "")).strip()
+        if not asset_sha or str(done_assets.get(asset, "")).strip() != asset_sha:
+            raise RuntimeError(
+                f"published PanelStore done marker asset hash mismatch: asset={asset}, path={done_path}"
+            )
+        panel_path = _panel_day_path(paths_cfg, day, asset=asset, panel_name=panel_name)
+        actual_sha = hashlib.sha256(panel_path.read_bytes()).hexdigest()
+        if actual_sha != asset_sha:
+            raise RuntimeError(
+                f"published PanelStore asset hash mismatch: asset={asset}, path={panel_path}"
+            )
+
+
+def _require_cached_panel_coverage(
+    *,
+    paths_cfg: dict,
+    days: list[date],
+    assets: list[str],
+    panel_name: str,
+    scope: str,
+) -> None:
+    """Fail before live derived writes when the published PanelStore is incomplete."""
+
+    requested_days = sorted(set(days))
+    missing_by_asset: dict[str, list[date]] = {}
+    for asset in assets:
+        missing = _missing_days(
+            requested_days,
+            path_builder=lambda d, _asset=asset: _panel_day_path(
+                paths_cfg,
+                d,
+                asset=_asset,
+                panel_name=panel_name,
+            ),
+        )
+        if missing:
+            missing_by_asset[asset] = missing
+    if missing_by_asset:
+        details = "; ".join(
+            f"{asset}=[{_format_days(missing)}]"
+            for asset, missing in sorted(missing_by_asset.items())
+        )
+        raise RuntimeError(
+            "live cached PanelStore coverage missing: "
+            f"scope={scope}, panel={panel_name}, root={paths_cfg['panel_data_root']}, {details}"
+        )
+    for day in requested_days:
+        _require_published_panel_bundle(
+            paths_cfg=paths_cfg,
+            day=day,
+            assets=assets,
+            panel_name=panel_name,
+        )
+    print(
+        "live cached PanelStore coverage:",
+        f"scope={scope}",
+        f"panel={panel_name}",
+        f"assets={','.join(assets)}",
+        f"days={_format_days(requested_days)}",
+    )
 
 
 def _missing_days(days: list[date], *, path_builder) -> list[date]:
@@ -159,6 +381,25 @@ def _missing_days(days: list[date], *, path_builder) -> list[date]:
 def _build_day_span(days: list[date]) -> tuple[date, date]:
     ordered = sorted(set(days))
     return ordered[0], ordered[-1]
+
+
+def _live_history_days(
+    *,
+    raw_root: str,
+    score_day: date,
+    prev_trade_day: date,
+    window_days: int,
+) -> list[date]:
+    history_days = prev_trading_days_from_raw(
+        raw_root,
+        score_day,
+        max(1, int(window_days)),
+        kind="snapshot",
+        asset="cbond",
+    )
+    if not history_days:
+        history_days = [prev_trade_day]
+    return sorted(set(history_days))
 
 
 def _parse_live_model_window_days(live_model_score_cfg: dict, model_id: str) -> int:
@@ -800,7 +1041,6 @@ def _backfill_live_history(
     assets = _normalize_assets(panel_cfg.get("assets", []))
     if not assets:
         assets = ["cbond"]
-
     missing_panel_by_asset: dict[str, list[date]] = {}
     if skip_panel_build:
         print(
@@ -883,10 +1123,9 @@ def _backfill_live_history(
         for day in missing_label_days:
             _require_existing(_label_day_path(paths_cfg, day), name="label(backfill)")
 
-    missing_factor_days = _missing_days(
-        history_days,
-        path_builder=lambda d: _factor_day_path(paths_cfg, d, panel_name=panel_name),
-    )
+    missing_factor_days = [
+        day for day in history_days if not _factor_day_ready(paths_cfg, day, panel_name=panel_name)
+    ]
     if missing_factor_days:
         factor_start, factor_end = _build_day_span(missing_factor_days)
         factor_backfill_cfg = dict(factor_cfg)
@@ -910,7 +1149,12 @@ def _backfill_live_history(
         )
         print("live backfill factors done:", factor_result)
         for day in missing_factor_days:
-            _require_existing(_factor_day_path(paths_cfg, day, panel_name=panel_name), name="factor(backfill)")
+            _require_factor_day_ready(
+                paths_cfg,
+                day,
+                panel_name=panel_name,
+                name="factor(backfill)",
+            )
 
 
 def _allowlist_diagnostics(pool_info: dict, pre_count: int, post_count: int) -> dict:
@@ -1008,6 +1252,11 @@ def run_once(
     live_cfg = load_config_file("live")
     configure_live_paths_profile(live_cfg)
     paths_cfg = load_config_file("paths")
+    # The standard live runtime is the only process allowed to write the
+    # canonical live table. Direct FactorStore profiles are never compatible
+    # with a live run, including any inherited server or audit profile.
+    if not _is_no_db_ephemeral_factor_stage(live_cfg, paths_cfg):
+        assert_admitted_live_factor_writer(paths_cfg, operation="standard live runtime")
     _assert_live_data_boundary(live_cfg)
 
     schedule_cfg = dict(live_cfg.get("schedule", {}))
@@ -1019,6 +1268,7 @@ def run_once(
     allowlist_enabled = bool(allowlist_cfg.get("enabled", True)) if isinstance(allowlist_raw, dict) else bool(allowlist_raw)
     factor_cfg_key, live_factor_cfg = load_live_factor_runtime(live_cfg)
     model_cfg_key, live_model_score_cfg, model_id = load_live_model_runtime(live_cfg)
+    published_read_only_panel_store = _uses_published_read_only_panel_store(live_factor_cfg)
 
     assert_no_date_fields_in_live_config(schedule_cfg, model_cfg)
 
@@ -1026,6 +1276,10 @@ def run_once(
     target_day = parse_date(target) if target is not None else today
     score_day = parse_date(start) if start is not None else (
         today if target_day >= today else target_day
+    )
+    db_write_enabled, db_write_policy = _resolve_db_write_enabled(
+        output_cfg,
+        score_day=score_day,
     )
 
     raw_root = str(paths_cfg["raw_data_root"])
@@ -1043,7 +1297,11 @@ def run_once(
         f"score_day={score_day}",
         f"target_day={target_day}",
         f"prev_trading_day={prev_trade_day}",
-        "mode=clean_consumer_build_local",
+        "mode=" + (
+            "published_panel_consumer"
+            if published_read_only_panel_store
+            else "clean_consumer_build_local"
+        ),
     )
 
     _report_live_stage(stage_reporter, "ready_gate")
@@ -1076,9 +1334,30 @@ def run_once(
     factor_runtime_cfg["panel_name"] = panel_name
     panel_source_mode = _factor_panel_source_mode(factor_runtime_cfg)
     use_clean_direct_panel_source = panel_source_mode == "clean_direct"
+    use_published_read_only_panel_store = _uses_published_read_only_panel_store(factor_runtime_cfg)
+    if use_published_read_only_panel_store:
+        _require_cached_panel_source(factor_runtime_cfg)
 
     _report_live_stage(stage_reporter, "build_panel")
     window_days = _parse_live_model_window_days(live_model_score_cfg, model_id)
+    if use_published_read_only_panel_store:
+        panel_days = [score_day]
+        if window_days > 0:
+            panel_days.extend(
+                _live_history_days(
+                    raw_root=raw_root,
+                    score_day=score_day,
+                    prev_trade_day=prev_trade_day,
+                    window_days=window_days,
+                )
+            )
+        _require_cached_panel_coverage(
+            paths_cfg=paths_cfg,
+            days=panel_days,
+            assets=_panel_assets(panel_cfg),
+            panel_name=panel_name,
+            scope="live_history_and_score_day",
+        )
     if window_days > 0:
         print(
             "live backfill check:",
@@ -1095,10 +1374,20 @@ def run_once(
             factor_cfg=factor_runtime_cfg,
             panel_name=panel_name,
             window_days=window_days,
-            skip_panel_build=use_clean_direct_panel_source,
+            skip_panel_build=(
+                use_clean_direct_panel_source
+                or use_published_read_only_panel_store
+            ),
         )
 
-    if use_clean_direct_panel_source:
+    if use_published_read_only_panel_store:
+        print(
+            "live consume published PanelStore:",
+            f"day={score_day}",
+            f"panel={panel_name}",
+            f"panel_source={panel_source_mode}",
+        )
+    elif use_clean_direct_panel_source:
         print(
             "live build panel skipped:",
             f"day={score_day}",
@@ -1140,7 +1429,7 @@ def run_once(
         overwrite=True,
         cfg=factor_runtime_cfg,
     )
-    _require_existing(_factor_day_path(paths_cfg, score_day, panel_name=panel_name), name="factor")
+    _require_factor_day_ready(paths_cfg, score_day, panel_name=panel_name, name="factor")
     print("live build factors done:", factor_result)
 
     model_start = score_day
@@ -1266,6 +1555,7 @@ def run_once(
         "base_model_id": model_id,
         "selected_model_id": selected_model_id,
         "model_switch_enabled": bool(switch_cfg.get("enabled", False)),
+        "db_write_policy": db_write_policy,
     }
     if switch_decision is not None:
         allowlist_summary["model_switch_reason"] = switch_decision.reason
@@ -1274,7 +1564,7 @@ def run_once(
     (out_dir / "allowlist_summary.json").write_text(summary_text, encoding="utf-8")
     (out_dir / "universe_filter_summary.json").write_text(summary_text, encoding="utf-8")
 
-    if bool(output_cfg.get("db_write", False)):
+    if db_write_enabled:
         _report_live_stage(stage_reporter, "db_write")
         if not output_cfg.get("db_table"):
             raise ValueError("live_config.output.db_table is required when db_write=true")
@@ -1291,6 +1581,11 @@ def run_once(
             )
         except FileNotFoundError as exc:
             print(f"skip output db write: {exc}")
+    elif bool(output_cfg.get("db_write", False)) and bool(db_write_policy["override_active"]):
+        print(
+            "skip output db write: date-scoped no-DB override active "
+            f"for score_day={score_day}"
+        )
 
     return out_dir
 

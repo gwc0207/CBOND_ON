@@ -1,0 +1,78 @@
+{
+  // Research-only V1: creates a no-compute plan/ledger at 23:59.  It is not a
+  // live configuration and must not be used to launch or repair live trading.
+  schema: "cbond_on_factor_supplement/v1",
+  research_only: true,
+  schedule: {
+    time: "23:59",
+  },
+  compute: {
+    // This engine is rejected by every ordinary path.  It becomes usable only
+    // with a ResearchCatalogExecutionPermit pinned to the canonical catalog,
+    // exact factor contracts, and a scratch-only FactorStore root.
+    engine: "research_python",
+    execution_policy: "research_catalog_python",
+  },
+  catalog: {
+    // Canonical identity catalog: research773 plus the 27 legacy live-only
+    // instances, all with a definition and immutable contract.
+    format: "factor_catalog_json",
+    path: "factor_engine/catalog/factor_catalog.json",
+    expected_factor_count: 800,
+  },
+  // This source-controlled release is read solely to exclude factor IDs from
+  // the research supplement.  No live config, FactorStore, model, score, or
+  // DB setting is read by this task.
+  release_exclude: {
+    format: "live_release_instances",
+    manifest: "factor_engine/releases/live/live50_rust50_operator_source_20260826.json",
+  },
+  data_hub: {
+    manifest_root: {
+      windows: "D:/cbond_data_hub/manifests",
+      linux: "/mnt/cbond_data_hub_ro/manifests",
+    },
+    require_datasets: ["clean"],
+    required_profile: "cbond_on_live_t1430",
+  },
+  // Explicit read-only inputs for the isolated one-score-day factor stage.
+  // These are not resolved through the live runtime or any mutable live path
+  // profile; all generated data goes exclusively to output.scratch_root.
+  inputs: {
+    raw_data_root: {
+      windows: "D:/cbond_data_hub/raw_data",
+      linux: "/mnt/cbond_data_hub_ro/raw_data",
+    },
+    cleaned_data_root: {
+      windows: "D:/cbond_data_hub/clean_data",
+      linux: "/mnt/cbond_data_hub_ro/clean_data",
+    },
+    // The already-published current live release is a manifest-bound
+    // canonical-table companion input. The supplement never recalculates or
+    // overwrites it; it combines these columns with non-live output before
+    // publishing one complete factor-library logical day.
+    live_factor_table: {
+      table_id: "live",
+      root: {
+        windows: "D:/cbond_on/factor_store",
+        linux: "/home/gswzif/cbond_on_runtime/factor_store",
+      },
+    },
+  },
+  // One score day is processed per invocation.  Factor workers may be tuned
+  // only within this research task; the live scheduler never reads this file.
+  factor_workers: 4,
+  output: {
+    // Runtime-only ledgers, locks, logs and ephemeral permit staging live
+    // here.  This directory is no longer a FactorStore writer.
+    scratch_root: {
+      windows: "D:/cbond_on/research_scratch/factor_supplement_v1",
+      linux: "/home/gswzif/cbond_on_runtime/research_scratch/factor_supplement_v1",
+    },
+    // The sole persistent factor-result destination for this task.
+    canonical_factor_store_root: {
+      windows: "D:/cbond_on/factor_store",
+      linux: "/home/gswzif/cbond_on_runtime/factor_store",
+    },
+  },
+}

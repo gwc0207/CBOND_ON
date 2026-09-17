@@ -35,6 +35,15 @@ These keys are loaded by the standard commands:
   and screened factory packs are no longer kept in the default config tree.
 - `factor/archive/`: placeholder only; historical JSON snapshots were cleared.
 
+## Factor Result Routing
+
+Every normal `data/paths*.json5` profile declares `factor_table` rather than a
+free-form factor result root. The only normal table IDs are `live`,
+`experiment`, and `factor_library` (with explicit families). `factor_data_root`
+is an internal resolved compatibility value, never a user-selectable normal
+input/output path. Profiles without a canonical table must be explicit
+`lifecycle.status="audit_only"` and cannot enter normal consumers.
+
 ## Score Configs
 
 - `score/model/`: model scoring registry and execution settings.

@@ -7,10 +7,10 @@ import pandas as pd
 import pytest
 
 from cbond_on.core.registry import FactorRegistry
-from cbond_on.domain.factors import defs as factor_defs
+from cbond_on.domain.factors import operators as factor_operators
 from cbond_on.domain.factors.base import FactorComputeContext
 from cbond_on.domain.factors.builder import build_factor_frame
-from cbond_on.domain.factors.defs import research_factor_mining_intraday_cross_section_residual_v1 as residual
+from cbond_on.domain.factors.operators import research_factor_mining_intraday_cross_section_residual_v1 as residual
 from cbond_on.domain.factors.spec import FactorSpec
 
 
@@ -177,7 +177,7 @@ def test_catalogue_has_six_families_thirty_six_signals_and_import_only_kernel() 
     }
     assert {entry.kernel for entry in entries} == {residual.KERNEL_NAME}
     assert FactorRegistry.get(residual.KERNEL_NAME) is residual.FactorMiningIntradayCrossSectionResidualV1
-    assert residual.FactorMiningIntradayCrossSectionResidualV1.__name__ not in factor_defs.__all__
+    assert residual.FactorMiningIntradayCrossSectionResidualV1.__name__ not in factor_operators.__all__
     assert residual.FactorMiningIntradayCrossSectionResidualV1.requires_stock_panel is False
     assert residual.FactorMiningIntradayCrossSectionResidualV1.requires_bond_stock_map is False
     assert residual.FactorMiningIntradayCrossSectionResidualV1.daily_requirements() == []

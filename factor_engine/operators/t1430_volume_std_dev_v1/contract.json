@@ -1,0 +1,40 @@
+{
+  "contract_hash": "f08b87ef3ced1585fbd1fb3396a01b45069b7ede55bf214063f8020bcbaaaf58",
+  "definition": {
+    "kind": "runtime_operator_reference",
+    "path": "operators/t1430_volume_std_dev_v1/definition.py",
+    "sha256": "54b405aab87c0a768306f128fd540cfa9ba830277b9fe5af825ca334b8995699"
+  },
+  "factor_instances": [],
+  "identity": {
+    "operator_class": "T1430VolumeStdDevV1",
+    "operator_id": "t1430_volume_std_dev_v1",
+    "operator_version": "legacy-unversioned"
+  },
+  "implementation": {
+    "language": "python_runtime_operator",
+    "module": "cbond_on.domain.factors.operators.t1430_volume_std_dev_v1",
+    "path": "cbond_on/domain/factors/operators/t1430_volume_std_dev_v1.py",
+    "sha256": "ccba7fa22c17a591792235ea3ddc7aa6e86fe0d5b0c793a7c8232941f7dea130"
+  },
+  "lifecycle": {
+    "operator_catalog_status": "registered",
+    "runtime_source_status": "migrated_pending_cutover",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "migration": {
+    "behavior_parity_status": "pending_baseline_replay",
+    "legacy_path": "cbond_on/domain/factors/defs/t1430_volume_std_dev_v1.py",
+    "legacy_sha256": "cb97b7c04d1ec861c30b4790e229039e9479ee130fca004bce26e2877ae2554b",
+    "migration_kind": "namespace_relocation_without_formula_change"
+  },
+  "runtime_contract": {
+    "input_schema_status": "operator_declared_pending_field_audit",
+    "pit_validation_status": "operator_migration_pending_pit_audit",
+    "registration_key": "t1430_volume_std_dev_v1",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "schema_version": "operator_contract/v1",
+  "test_reference": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+}

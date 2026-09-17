@@ -376,6 +376,56 @@ pub fn lrd_cross_side_reprice_symmetry(rows: &[BookRow]) -> f64 {
     }
 }
 
+/// `rdm_joint_reprice_depth_retention`: for intervals in which both ladders
+/// make validated reprices, average `min(total_depth_t, total_depth_t-1) /
+/// total_depth_t-1`.  It deliberately shares the complete-book, session, and
+/// global log-move validation contract with the LRD signals.
+pub fn rdm_joint_reprice_depth_retention(rows: &[BookRow]) -> f64 {
+    let rows = ordered_book_rows(rows);
+    if rows.len() < MIN_ROWS
+        || rows.iter().any(|(row, _)| !valid_book_row(row))
+        || !all_ladder_log_moves_finite(&rows)
+    {
+        return f64::NAN;
+    }
+    let mut retention = Vec::with_capacity(rows.len().saturating_sub(1));
+    for pair in rows.windows(2) {
+        let (prior, prior_session) = pair[0];
+        let (current, current_session) = pair[1];
+        let same_session = prior_session == current_session;
+        let bid_direction = ladder_direction(&prior.bid_price, &current.bid_price, same_session);
+        let ask_direction = ladder_direction(&prior.ask_price, &current.ask_price, same_session);
+        if bid_direction == 0.0 || ask_direction == 0.0 {
+            continue;
+        }
+        let previous_depth =
+            prior.bid_volume.iter().sum::<f64>() + prior.ask_volume.iter().sum::<f64>();
+        let current_depth =
+            current.bid_volume.iter().sum::<f64>() + current.ask_volume.iter().sum::<f64>();
+        if !previous_depth.is_finite()
+            || !current_depth.is_finite()
+            || previous_depth <= EPS
+            || current_depth < 0.0
+        {
+            return f64::NAN;
+        }
+        let value = previous_depth.min(current_depth) / previous_depth;
+        if !value.is_finite() {
+            return f64::NAN;
+        }
+        retention.push(value);
+    }
+    if retention.len() < MIN_REPRICE_EVENT_INTERVALS {
+        return f64::NAN;
+    }
+    let value = retention.iter().sum::<f64>() / retention.len() as f64;
+    if value.is_finite() {
+        value
+    } else {
+        f64::NAN
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -569,6 +619,7 @@ mod tests {
             .collect::<Vec<_>>();
         rows[3].ask_volume[2] = -0.1;
         assert!(lrd_cross_side_reprice_symmetry(&rows).is_nan());
+        assert!(rdm_joint_reprice_depth_retention(&rows).is_nan());
     }
 
     #[test]
@@ -597,6 +648,32 @@ mod tests {
         // reprices.  Python nonetheless returns NaN because the intervening
         // 11:30 -> 13:00 log-ratio is non-finite before its session mask.
         assert!(lrd_cross_side_reprice_symmetry(&rows).is_nan());
+        assert!(rdm_joint_reprice_depth_retention(&rows).is_nan());
+    }
+
+    #[test]
+    fn rdm_joint_depth_retention_uses_only_joint_reprice_intervals() {
+        let mut rows = Vec::new();
+        for index in 0..12 {
+            let mut row = book_row(
+                clock_ns(9, 30, index, 0),
+                index,
+                90.0 + index as f64,
+                110.0 + index as f64,
+            );
+            row.ask_volume = [10.0; 5];
+            row.bid_volume = [20.0 - index as f64; 5];
+            rows.push(row);
+        }
+        // Each adjacent pair reprices both ladders.  Total depth
+        // stays positive and declines by five across each side, so the literal
+        // previous-depth denominator is testable independently of the LRD
+        // direction sign.
+        let expected = (1..12)
+            .map(|index| (150.0 - 5.0 * index as f64) / (150.0 - 5.0 * (index - 1) as f64))
+            .sum::<f64>()
+            / 11.0;
+        assert_close(rdm_joint_reprice_depth_retention(&rows), expected);
     }
 
     #[test]

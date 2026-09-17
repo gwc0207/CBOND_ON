@@ -1,0 +1,40 @@
+{
+  "contract_hash": "228b19aba0bdd763704fadcacde15ad05b70c0f6a263cd2e9f4155dd210f08b3",
+  "definition": {
+    "kind": "runtime_operator_reference",
+    "path": "operators/t1430_volume_weighted_time_center_v1/definition.py",
+    "sha256": "27e599fa9bb227020a6932a9543a0cba8a993ec28d3ae562bbff98207dcecd5b"
+  },
+  "factor_instances": [],
+  "identity": {
+    "operator_class": "T1430VolumeWeightedTimeCenterV1",
+    "operator_id": "t1430_volume_weighted_time_center_v1",
+    "operator_version": "legacy-unversioned"
+  },
+  "implementation": {
+    "language": "python_runtime_operator",
+    "module": "cbond_on.domain.factors.operators.t1430_volume_weighted_time_center_v1",
+    "path": "cbond_on/domain/factors/operators/t1430_volume_weighted_time_center_v1.py",
+    "sha256": "123fcf9f7110750980167c189f436d93d8f207c6a11752dc76ee10658738dfc7"
+  },
+  "lifecycle": {
+    "operator_catalog_status": "registered",
+    "runtime_source_status": "migrated_pending_cutover",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "migration": {
+    "behavior_parity_status": "pending_baseline_replay",
+    "legacy_path": "cbond_on/domain/factors/defs/t1430_volume_weighted_time_center_v1.py",
+    "legacy_sha256": "fddeeffddbf9725c4d19c5419d6626cfd362730219d343213370dd90541472f8",
+    "migration_kind": "namespace_relocation_without_formula_change"
+  },
+  "runtime_contract": {
+    "input_schema_status": "operator_declared_pending_field_audit",
+    "pit_validation_status": "operator_migration_pending_pit_audit",
+    "registration_key": "t1430_volume_weighted_time_center_v1",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "schema_version": "operator_contract/v1",
+  "test_reference": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+}

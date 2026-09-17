@@ -35,9 +35,10 @@ from cbond_on.infra.data.io import read_table_range, read_trading_calendar
 from cbond_on.infra.factors.quality import (
     expected_factor_columns_from_cfg,
     resolve_factor_store_label,
-    scan_factor_day_coverage,
+    scan_factor_reader_day_coverage,
 )
-from cbond_on.infra.live.config import load_strategy_config
+from cbond_on.infra.factors.factor_table_resolution import build_factor_reader
+from cbond_on.infra.live.config import configure_live_paths_profile, load_strategy_config
 from cbond_on.infra.live.model_switch import (
     decide_scoreopt_t1430_dispersion,
     decide_scoreopt_t1430_fusion_gate,
@@ -159,8 +160,16 @@ def _tail(path: Path, n: int = 120) -> str:
     return "\n".join(lines[-n:])
 
 
+def _active_live_paths() -> tuple[dict, dict]:
+    """Bind Dashboard reads to the same paths profile as the live runtime."""
+
+    live_cfg = load_config_file("live")
+    configure_live_paths_profile(live_cfg)
+    return live_cfg, load_config_file("paths")
+
+
 def _results_live_root() -> Path:
-    paths_cfg = load_config_file("paths")
+    _live_cfg, paths_cfg = _active_live_paths()
     return Path(paths_cfg["results_root"]) / "live"
 
 
@@ -424,9 +433,8 @@ def _read_trade_list_context_for_buy_day(
 
 def _read_holdings(day: str | None = None, *, sell_col_override: str | None = None) -> tuple[list[dict], str]:
     iso_day = _to_iso_day_tag(day)
-    paths_cfg = load_config_file("paths")
+    live_cfg, paths_cfg = _active_live_paths()
     raw_root = paths_cfg["raw_data_root"]
-    live_cfg = _load_live_cfg()
     data_cfg = dict(live_cfg.get("data", {}))
     output_cfg = dict(live_cfg.get("output", {}))
     sell_col_default = str(output_cfg.get("sell_twap_col", data_cfg.get("sell_twap_col", "twap_0930_0939")))
@@ -555,7 +563,7 @@ def _read_holdings(day: str | None = None, *, sell_col_override: str | None = No
 
 
 def _read_trade_list(day: date) -> pd.DataFrame:
-    paths_cfg = load_config_file("paths")
+    _live_cfg, paths_cfg = _active_live_paths()
     raw_root = paths_cfg["raw_data_root"]
     ctx = _read_trade_list_context_for_buy_day(day, raw_data_root=raw_root)
     if ctx is None:
@@ -631,7 +639,7 @@ def _month_back(base: date, offset: int) -> tuple[int, int]:
     return year, month
 
 
-def _resolve_factor_coverage_target() -> tuple[str, list[str], Path, Path]:
+def _resolve_factor_coverage_target() -> tuple[str, list[str], Path, object]:
     """Resolve the FactorStore displayed by the Dashboard from live config.
 
     The live-50 configuration keeps its ordered factors in ``factor_files``
@@ -663,20 +671,19 @@ def _resolve_factor_coverage_target() -> tuple[str, list[str], Path, Path]:
         label,
         expected_cols,
         Path(paths_cfg["raw_data_root"]),
-        Path(paths_cfg["factor_data_root"]),
+        build_factor_reader(paths_cfg, panel_name=label),
     )
 
 
 def _build_data_calendar(*, anchor_day: date, months: int = 2, selected_day: date | None = None) -> dict:
     months = max(1, min(int(months), 6))
-    label, expected_factor_cols, raw_root, factor_root = _resolve_factor_coverage_target()
-    factor_dir = factor_root / "factors" / label
+    label, expected_factor_cols, raw_root, factor_reader = _resolve_factor_coverage_target()
     open_days = set(_load_open_days(raw_root))
     oldest_year, oldest_month = _month_back(anchor_day, months - 1)
     range_start = date(oldest_year, oldest_month, 1)
     trading_days = sorted(d for d in open_days if range_start <= d <= anchor_day)
-    coverage_map = scan_factor_day_coverage(
-        factor_dir=factor_dir,
+    coverage_map = scan_factor_reader_day_coverage(
+        factor_reader=factor_reader,
         expected_factor_cols=expected_factor_cols,
         trading_days=trading_days,
     )
@@ -1975,7 +1982,8 @@ def _live_cfg_path() -> Path:
 
 
 def _load_live_cfg() -> dict:
-    return load_config_file("live")
+    live_cfg, _paths_cfg = _active_live_paths()
+    return live_cfg
 
 
 def _save_live_cfg(cfg: dict) -> None:
@@ -2817,7 +2825,7 @@ def _stop_scheduler_processes() -> list[int]:
 
 
 def create_app() -> Flask:
-    paths_cfg = load_config_file("paths")
+    _live_cfg, paths_cfg = _active_live_paths()
     results_root = Path(paths_cfg["results_root"])
     sched_dir = results_root / "live" / "scheduler"
     global _PID_PATH
@@ -2940,8 +2948,7 @@ def create_app() -> Flask:
             )
         rows, sell_col = _read_holdings(day=resolved, sell_col_override=sell_col_override)
         first_row = rows[0] if rows else {}
-        paths_cfg = load_config_file("paths")
-        live_cfg = _load_live_cfg()
+        live_cfg, paths_cfg = _active_live_paths()
         data_cfg = dict(live_cfg.get("data", {}))
         output_cfg = dict(live_cfg.get("output", {}))
         buy_col = str(output_cfg.get("buy_twap_col", data_cfg.get("buy_twap_col", "twap_1442_1457")))

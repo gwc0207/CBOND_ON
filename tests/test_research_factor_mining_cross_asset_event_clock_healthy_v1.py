@@ -5,8 +5,8 @@ from collections import Counter
 import pytest
 
 from cbond_on.core.registry import FactorRegistry
-from cbond_on.domain.factors.defs import research_factor_mining_cross_asset_event_clock_healthy_v1 as healthy
-from cbond_on.domain.factors.defs import research_factor_mining_cross_asset_event_clock_v1 as source
+from cbond_on.domain.factors.operators import research_factor_mining_cross_asset_event_clock_healthy_v1 as healthy
+from cbond_on.domain.factors.operators import research_factor_mining_cross_asset_event_clock_v1 as source
 
 
 EXPECTED_HEALTHY_SIGNALS = (

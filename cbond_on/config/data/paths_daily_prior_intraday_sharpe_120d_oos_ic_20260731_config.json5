@@ -1,4 +1,9 @@
 {
+  lifecycle: {
+    status: "audit_only",
+    reason: "legacy_direct_factor_store",
+    normal_consumer: false,
+  },
   // Production raw/clean data is read-only. All derived paths resolve below
   // this separate scratch runtime root when CBOND_ON_PATHS_CONFIG is set.
   raw_data_root: "D:/cbond_data_hub/raw_data",

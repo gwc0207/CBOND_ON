@@ -1,0 +1,40 @@
+{
+  "contract_hash": "ca8110e59906723373309e0728334711e4204fe19b916206d0b5a5e91961d18e",
+  "definition": {
+    "kind": "runtime_operator_reference",
+    "path": "operators/alpha022_high_volume_corr_change_v1/definition.py",
+    "sha256": "432bcb9be9904223dd9fd94611bc53380c75c18847b437315362764f63f7430f"
+  },
+  "factor_instances": [],
+  "identity": {
+    "operator_class": "Alpha022HighVolumeCorrChangeV1Factor",
+    "operator_id": "alpha022_high_volume_corr_change_v1",
+    "operator_version": "legacy-unversioned"
+  },
+  "implementation": {
+    "language": "python_runtime_operator",
+    "module": "cbond_on.domain.factors.operators.alpha022_high_volume_corr_change_v1",
+    "path": "cbond_on/domain/factors/operators/alpha022_high_volume_corr_change_v1.py",
+    "sha256": "e24335261e5d894acce3f920e6c08ff7593590091d575c7407c5aab32bdc0ac0"
+  },
+  "lifecycle": {
+    "operator_catalog_status": "registered",
+    "runtime_source_status": "migrated_pending_cutover",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "migration": {
+    "behavior_parity_status": "pending_baseline_replay",
+    "legacy_path": "cbond_on/domain/factors/defs/alpha022_high_volume_corr_change_v1.py",
+    "legacy_sha256": "b166e70b2f239f9203aabebd6c122b8432e52bd91216dd363265ed41eb6ef252",
+    "migration_kind": "namespace_relocation_without_formula_change"
+  },
+  "runtime_contract": {
+    "input_schema_status": "operator_declared_pending_field_audit",
+    "pit_validation_status": "operator_migration_pending_pit_audit",
+    "registration_key": "alpha022_high_volume_corr_change_v1",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "schema_version": "operator_contract/v1",
+  "test_reference": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+}

@@ -1,0 +1,82 @@
+{
+  "context_requirements": {
+    "daily": [
+      {
+        "columns": [
+          "twap_1442_1457",
+          "twap_0930_0935"
+        ],
+        "lookback_days": 22,
+        "source": "market_cbond.daily_twap"
+      }
+    ],
+    "panel_field_schema_status": "operator_declared_pending_factor_minimal_audit",
+    "panel_fields": [],
+    "panel_name": "T1430",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "contract_hash": "9af1c548e20c65b735fb6aeadbf3dc1067253de68f50c1348ed39ecb27c186b9",
+  "definition": {
+    "kind": "parameterized_operator_definition",
+    "path": "factors/overnight/daily_sharpe_twap_20d_mean5/definition.py",
+    "sha256": "7f572380731f6d7287f6e6e4c4c2ca13eeed708b6a7c140af65ba8876446ae46"
+  },
+  "fixed_params": {
+    "annualize": false,
+    "buy_col": "twap_1442_1457",
+    "min_periods": 10,
+    "sell_col": "twap_0930_0935",
+    "source": "market_cbond.daily_twap",
+    "time_tag": "0930_0935",
+    "window": 20
+  },
+  "identity": {
+    "factor_id": "daily_sharpe_twap_20d_mean5",
+    "factor_version": "catalog-20260826-6471d7eb4298-a0d55f978d11",
+    "primary_family": "overnight",
+    "tags": []
+  },
+  "lifecycle": {
+    "catalog_status": "registered",
+    "live_admission_status": "live_released",
+    "research_status": "not_evaluated",
+    "rust_status": "live50_rust_capability_required"
+  },
+  "operator_bindings": [
+    {
+      "implementation_module": "cbond_on.domain.factors.operators.daily_sharpe_mean_v1",
+      "implementation_path": "cbond_on/domain/factors/operators/daily_sharpe_mean_v1.py",
+      "implementation_sha256": "6471d7eb42985d082d713051026e942da6db4b5255d72515282387da70cadfaf",
+      "language": "python_runtime_operator",
+      "legacy_implementation_path": "cbond_on/domain/factors/defs/daily_sharpe_mean_v1.py",
+      "legacy_implementation_sha256": "6471d7eb42985d082d713051026e942da6db4b5255d72515282387da70cadfaf",
+      "operator_contract_path": "operators/daily_sharpe_mean_v1/contract.json",
+      "operator_id": "daily_sharpe_mean_v1",
+      "operator_version": "legacy-unversioned",
+      "rust_contract_id": "live50_r5/daily_sharpe_twap_20d_mean5"
+    }
+  ],
+  "output": {
+    "column": "daily_sharpe_twap_20d_mean5",
+    "dtype": "float64"
+  },
+  "schema_version": "factor_contract/v2",
+  "source_lineage": {
+    "hypothesis": "Frozen legacy live27 instance; identity is independent of live admission.",
+    "snapshot_id": "canonical_factor_catalog_20260826_800",
+    "source_position": null,
+    "source_root": "cbond_on/config/factor/packs/live_screened_no_winsor_27.json5",
+    "source_set": "legacy_live27"
+  },
+  "test_reference": {
+    "behavioral_parity_status": "pending_baseline_replay",
+    "contract_test": "tests/test_factor_engine_governance.py::test_all_factor_definitions_and_contracts",
+    "operator_test": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+  },
+  "time_contract": {
+    "factor_time": "14:30",
+    "pit_validation_status": "operator_migration_pending_factor_pit_audit",
+    "research_label_time_reference": "14:42"
+  }
+}

@@ -1,0 +1,40 @@
+{
+  "contract_hash": "249e99de1ba0be03fdbf05fb2361b872b166b6ac9176789434b4d4ead35c8ff7",
+  "definition": {
+    "kind": "runtime_operator_reference",
+    "path": "operators/alpha014_return_open_volume_v1/definition.py",
+    "sha256": "c391b3ca61bc9ba5da61baf22c729db0de377bf907cb430b9e42316922b45964"
+  },
+  "factor_instances": [],
+  "identity": {
+    "operator_class": "Alpha014ReturnOpenVolumeV1Factor",
+    "operator_id": "alpha014_return_open_volume_v1",
+    "operator_version": "legacy-unversioned"
+  },
+  "implementation": {
+    "language": "python_runtime_operator",
+    "module": "cbond_on.domain.factors.operators.alpha014_return_open_volume_v1",
+    "path": "cbond_on/domain/factors/operators/alpha014_return_open_volume_v1.py",
+    "sha256": "e28e9e58124109e16744746021a77903e1fbfaf2a28bbca0c51aa08e35bbc807"
+  },
+  "lifecycle": {
+    "operator_catalog_status": "registered",
+    "runtime_source_status": "migrated_pending_cutover",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "migration": {
+    "behavior_parity_status": "pending_baseline_replay",
+    "legacy_path": "cbond_on/domain/factors/defs/alpha014_return_open_volume_v1.py",
+    "legacy_sha256": "8015ff2c8b36bd51dcdb4aedcbd2c3b130b76436f2fe8ca1a3943090909bebd7",
+    "migration_kind": "namespace_relocation_without_formula_change"
+  },
+  "runtime_contract": {
+    "input_schema_status": "operator_declared_pending_field_audit",
+    "pit_validation_status": "operator_migration_pending_pit_audit",
+    "registration_key": "alpha014_return_open_volume_v1",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "schema_version": "operator_contract/v1",
+  "test_reference": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+}

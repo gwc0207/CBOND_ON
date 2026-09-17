@@ -1,0 +1,68 @@
+{
+  "context_requirements": {
+    "daily": [],
+    "panel_field_schema_status": "operator_declared_pending_factor_minimal_audit",
+    "panel_fields": [],
+    "panel_name": "T1430",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "contract_hash": "09bb6005b9bd1a672901d2c6b010c7a0f8f6e6e29183c5d5709eed980d16de3f",
+  "definition": {
+    "kind": "parameterized_operator_definition",
+    "path": "factors/price_ladder_spacing_curvature/qgeo_ladder_convexity_phase_shift/definition.py",
+    "sha256": "f3f1dd0f09b7b1424a9b2b86b7d5bdc9024ae674817465b2e5baa7905d3bf432"
+  },
+  "fixed_params": {
+    "family": "price_ladder_spacing_curvature",
+    "signal": "qgeo_ladder_convexity_phase_shift"
+  },
+  "identity": {
+    "factor_id": "qgeo_ladder_convexity_phase_shift",
+    "factor_version": "catalog-20260826-5fcc9092fe7e-a5ba369e8ff3",
+    "primary_family": "price_ladder_spacing_curvature",
+    "tags": []
+  },
+  "lifecycle": {
+    "catalog_status": "registered",
+    "live_admission_status": "not_evaluated_by_catalog_builder",
+    "research_status": "legacy_mapping_discovered",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "operator_bindings": [
+    {
+      "implementation_module": "cbond_on.domain.factors.operators.research_factor_mining_quote_geometry_microprice_v1",
+      "implementation_path": "cbond_on/domain/factors/operators/research_factor_mining_quote_geometry_microprice_v1.py",
+      "implementation_sha256": "5fcc9092fe7eb810a5d248d73ba54c32f53e9dfc72b3c90931aa65dbc922de13",
+      "language": "python_runtime_operator",
+      "legacy_implementation_path": "cbond_on/domain/factors/defs/research_factor_mining_quote_geometry_microprice_v1.py",
+      "legacy_implementation_sha256": "eb86fe28b071482b400d9ff27fd6d529b1ffc16fe5443e6150bf8cfb30d8f8bc",
+      "operator_contract_path": "operators/factor_mining_quote_geometry_microprice_v1/contract.json",
+      "operator_id": "factor_mining_quote_geometry_microprice_v1",
+      "operator_version": "20260803_quote_geometry_microprice_v1",
+      "rust_contract_id": null
+    }
+  ],
+  "output": {
+    "column": "qgeo_ladder_convexity_phase_shift",
+    "dtype": "float64"
+  },
+  "schema_version": "factor_contract/v2",
+  "source_lineage": {
+    "hypothesis": "Relative outer-versus-inner spacing of L1--L5 quotes is ladder curvature, not the endpoint book slope or a reprice direction.",
+    "snapshot_id": "canonical_factor_catalog_20260826_800",
+    "source_position": 2,
+    "source_root": "D:/cbond_on/research_scratch/factor_mining_20260803_aggregate_catalog_v5_full/factor_data",
+    "source_set": "research773"
+  },
+  "test_reference": {
+    "behavioral_parity_status": "pending_baseline_replay",
+    "contract_test": "tests/test_factor_engine_governance.py::test_all_factor_definitions_and_contracts",
+    "operator_test": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+  },
+  "time_contract": {
+    "factor_time": "14:30",
+    "pit_validation_status": "operator_migration_pending_factor_pit_audit",
+    "research_label_time_reference": "14:42"
+  }
+}

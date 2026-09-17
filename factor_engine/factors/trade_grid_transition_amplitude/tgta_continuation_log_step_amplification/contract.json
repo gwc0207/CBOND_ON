@@ -1,0 +1,68 @@
+{
+  "context_requirements": {
+    "daily": [],
+    "panel_field_schema_status": "operator_declared_pending_factor_minimal_audit",
+    "panel_fields": [],
+    "panel_name": "T1430",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "contract_hash": "120041aa4cfe0dd388ddf7dd9c1877faf6087c6a27ab6249b601faa63d6a6860",
+  "definition": {
+    "kind": "parameterized_operator_definition",
+    "path": "factors/trade_grid_transition_amplitude/tgta_continuation_log_step_amplification/definition.py",
+    "sha256": "670316061b13bb9e1fb453ea79d4f3da36aadb3d1de6999cd97aea876d2f8c86"
+  },
+  "fixed_params": {
+    "family": "trade_grid_transition_amplitude",
+    "signal": "tgta_continuation_log_step_amplification"
+  },
+  "identity": {
+    "factor_id": "tgta_continuation_log_step_amplification",
+    "factor_version": "catalog-20260826-57fe2f067385-815301be895a",
+    "primary_family": "trade_grid_transition_amplitude",
+    "tags": []
+  },
+  "lifecycle": {
+    "catalog_status": "registered",
+    "live_admission_status": "not_evaluated_by_catalog_builder",
+    "research_status": "legacy_mapping_discovered",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "operator_bindings": [
+    {
+      "implementation_module": "cbond_on.domain.factors.operators.research_factor_mining_intraday_trade_grid_topology_v1",
+      "implementation_path": "cbond_on/domain/factors/operators/research_factor_mining_intraday_trade_grid_topology_v1.py",
+      "implementation_sha256": "57fe2f067385a146828774652f75d4da80a09cac5af62cebf6cbc94dbb580bcb",
+      "language": "python_runtime_operator",
+      "legacy_implementation_path": "cbond_on/domain/factors/defs/research_factor_mining_intraday_trade_grid_topology_v1.py",
+      "legacy_implementation_sha256": "e4716ee2cc9798eba852b9548e8e4a38779a47a8e35fd69201298776e42e1b2f",
+      "operator_contract_path": "operators/factor_mining_intraday_trade_grid_topology_v1/contract.json",
+      "operator_id": "factor_mining_intraday_trade_grid_topology_v1",
+      "operator_version": "20260803_intraday_trade_grid_topology_v1",
+      "rust_contract_id": null
+    }
+  ],
+  "output": {
+    "column": "tgta_continuation_log_step_amplification",
+    "dtype": "float64"
+  },
+  "schema_version": "factor_contract/v2",
+  "source_lineage": {
+    "hypothesis": "The size of a next step relative to its adjacent predecessor can amplify differently after a directional reversal or continuation, beyond sign-only run topology.",
+    "snapshot_id": "canonical_factor_catalog_20260826_800",
+    "source_position": 2,
+    "source_root": "D:/cbond_on/research_scratch/factor_mining_20260803_aggregate_catalog_v5_full/factor_data",
+    "source_set": "research773"
+  },
+  "test_reference": {
+    "behavioral_parity_status": "pending_baseline_replay",
+    "contract_test": "tests/test_factor_engine_governance.py::test_all_factor_definitions_and_contracts",
+    "operator_test": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+  },
+  "time_contract": {
+    "factor_time": "14:30",
+    "pit_validation_status": "operator_migration_pending_factor_pit_audit",
+    "research_label_time_reference": "14:42"
+  }
+}

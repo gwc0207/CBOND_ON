@@ -5,8 +5,8 @@ from collections import Counter
 import pytest
 
 from cbond_on.core.registry import FactorRegistry
-from cbond_on.domain.factors.defs import research_factor_mining_intraday_queue_state_healthy_catalog_v1 as healthy
-from cbond_on.domain.factors.defs import research_factor_mining_intraday_queue_state_v1 as queue
+from cbond_on.domain.factors.operators import research_factor_mining_intraday_queue_state_healthy_catalog_v1 as healthy
+from cbond_on.domain.factors.operators import research_factor_mining_intraday_queue_state_v1 as queue
 
 
 def test_healthy_queue_state_catalogue_has_the_exact_nine_non_lock_entries_and_registered_kernel() -> None:

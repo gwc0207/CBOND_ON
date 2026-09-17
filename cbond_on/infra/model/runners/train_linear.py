@@ -13,7 +13,8 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from cbond_on.core.config import load_config_file, parse_date, resolve_output_path
-from cbond_on.domain.factors.storage import FactorStore
+from cbond_on.core.trading_days import list_trading_days_from_raw
+from cbond_on.infra.factors.factor_table_resolution import build_factor_reader
 from cbond_on.infra.model.wandb_utils import init_wandb_logger
 from cbond_on.infra.model.preprocess_config import parse_winsor_bounds
 from cbond_on.infra.model.neutralization import build_neutralizer
@@ -22,7 +23,6 @@ from cbond_on.infra.model.impl.lgbm.trainer import (
     evaluate_metrics,
 )
 from cbond_on.infra.model.impl.linear.linear_score import (
-    _iter_existing_factor_days,
     linear_contract_fingerprint,
     run_linear_score,
     write_linear_outputs,
@@ -171,18 +171,20 @@ def main(
     factor_time = str(cfg.get("factor_time", "14:30"))
     label_time = str(cfg.get("label_time", "14:42"))
 
-    store = FactorStore(factor_root, panel_name=panel_name, window_minutes=window_minutes)
+    store = build_factor_reader(paths_cfg, panel_name=panel_name, window_minutes=window_minutes)
     # Pick factor columns from the target factor days.  A live target does not
     # have a realised label yet, so label availability cannot define the input
     # universe here.
+    candidate_factor_days = list_trading_days_from_raw(
+        raw_root,
+        start,
+        end,
+        kind="snapshot",
+        asset="cbond",
+    )
+    target_days = [day for day in candidate_factor_days if store.has_day(day)]
     sample = pd.DataFrame()
-    for day in _iter_existing_factor_days(
-        factor_root,
-        panel_name=panel_name,
-        window_minutes=window_minutes,
-        start=start,
-        end=end,
-    ):
+    for day in target_days:
         sample = store.read_day(day)
         if not sample.empty:
             break
@@ -310,6 +312,7 @@ def main(
 
     result = run_linear_score(
         factor_root=factor_root,
+        factor_store=store,
         label_root=label_root,
         start=start,
         end=end,
@@ -343,6 +346,12 @@ def main(
         incremental_save_state=bool(incremental_save_state),
         state_dir=incremental_state_dir,
         warm_start_fingerprint=warm_start_fingerprint,
+        target_days=target_days,
+        audit_only=bool(
+            isinstance(paths_cfg.get("lifecycle"), dict)
+            and paths_cfg["lifecycle"].get("status") == "audit_only"
+            and paths_cfg["lifecycle"].get("reason") == "no_db_ephemeral_factor_stage"
+        ),
     )
 
     if result.scores.empty:

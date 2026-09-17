@@ -7,10 +7,10 @@ import pandas as pd
 import pytest
 
 from cbond_on.core.registry import FactorRegistry
-from cbond_on.domain.factors import defs as factor_defs
+from cbond_on.domain.factors import operators as factor_operators
 from cbond_on.domain.factors.base import FactorComputeContext
 from cbond_on.domain.factors.builder import build_factor_frame
-from cbond_on.domain.factors.defs import research_factor_mining_intraday_trigger_state_response_v1 as trigger
+from cbond_on.domain.factors.operators import research_factor_mining_intraday_trigger_state_response_v1 as trigger
 from cbond_on.domain.factors.spec import FactorSpec
 
 
@@ -175,7 +175,7 @@ def test_catalogue_has_four_dynamic_families_and_research_only_registration() ->
     }
     assert set(trigger.FORMULAS) == {entry.signal for entry in entries}
     assert FactorRegistry.get(trigger.KERNEL_NAME) is trigger.FactorMiningIntradayTriggerStateResponseV1
-    assert trigger.FactorMiningIntradayTriggerStateResponseV1.__name__ not in factor_defs.__all__
+    assert trigger.FactorMiningIntradayTriggerStateResponseV1.__name__ not in factor_operators.__all__
     assert trigger.FactorMiningIntradayTriggerStateResponseV1.requires_stock_panel
     assert trigger.FactorMiningIntradayTriggerStateResponseV1.requires_bond_stock_map
 

@@ -1,0 +1,40 @@
+{
+  "contract_hash": "c2f90a55bbe7b46f5ed5622cff9980eb247b5976f8d5a80639a74c3758abee4b",
+  "definition": {
+    "kind": "runtime_operator_reference",
+    "path": "operators/t1430_volume_concentration_hhi_v1/definition.py",
+    "sha256": "5c800834e2326e0118ad4d7deb482c4727cd98f37c9f95bfa5717ef4aa17b685"
+  },
+  "factor_instances": [],
+  "identity": {
+    "operator_class": "T1430VolumeConcentrationHhiV1",
+    "operator_id": "t1430_volume_concentration_hhi_v1",
+    "operator_version": "legacy-unversioned"
+  },
+  "implementation": {
+    "language": "python_runtime_operator",
+    "module": "cbond_on.domain.factors.operators.t1430_volume_concentration_hhi_v1",
+    "path": "cbond_on/domain/factors/operators/t1430_volume_concentration_hhi_v1.py",
+    "sha256": "ce723fc05467e8fae06a84d377a40641091291ad356e5bf162315e2f5d8ed975"
+  },
+  "lifecycle": {
+    "operator_catalog_status": "registered",
+    "runtime_source_status": "migrated_pending_cutover",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "migration": {
+    "behavior_parity_status": "pending_baseline_replay",
+    "legacy_path": "cbond_on/domain/factors/defs/t1430_volume_concentration_hhi_v1.py",
+    "legacy_sha256": "94ada47747244c0984917e8e6141d5cc1f138da21a39fe2559a5c78bffe4576d",
+    "migration_kind": "namespace_relocation_without_formula_change"
+  },
+  "runtime_contract": {
+    "input_schema_status": "operator_declared_pending_field_audit",
+    "pit_validation_status": "operator_migration_pending_pit_audit",
+    "registration_key": "t1430_volume_concentration_hhi_v1",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "schema_version": "operator_contract/v1",
+  "test_reference": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+}

@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from collections import Counter
 
-from cbond_on.domain.factors.defs import (
+from cbond_on.domain.factors.operators import (
     research_factor_mining_daily_orthogonal_batch_v4 as batch_v4,
 )
-from cbond_on.domain.factors.defs import (
+from cbond_on.domain.factors.operators import (
     research_factor_mining_daily_orthogonal_batch_v5 as batch_v5,
 )
 
@@ -32,7 +32,7 @@ def test_catalogue_preserves_v4_and_adds_return_flow_information_family() -> Non
 def test_catalogue_source_order_keeps_v4_prefix_immutable() -> None:
     assert batch_v5.SOURCE_MODULE_NAMES[:-1] == batch_v4.SOURCE_MODULE_NAMES
     assert batch_v5.SOURCE_MODULE_NAMES[-1] == (
-        "cbond_on.domain.factors.defs."
+        "cbond_on.domain.factors.operators."
         "research_factor_mining_daily_bond_stock_return_flow_information_v1"
     )
     assert len(batch_v5.SOURCE_MODULE_NAMES) == 9

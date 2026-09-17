@@ -1,0 +1,2042 @@
+{
+  "deletion_status": "retired_source_deleted_after_scheduler_restart_and_fresh_process_parity",
+  "files": [
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/__init__.py",
+      "legacy_sha256": "8e18ab73f127718022663b03b7c6de6e3c4c941050a4992774203191782d29c1",
+      "namespace_replacement_count": 0,
+      "target_path": "cbond_on/domain/factors/operators/__init__.py",
+      "target_sha256": "8e18ab73f127718022663b03b7c6de6e3c4c941050a4992774203191782d29c1"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/_alpha_group5_utils.py",
+      "legacy_sha256": "9ddea66cf9b92706cb04edf2832011f90bd4c9eec72c58e932e4a3adde0049ff",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/_alpha_group5_utils.py",
+      "target_sha256": "022ffd2478e3629ab35d7f98a7737f16f557881f4e3fda07507c0a832289ceaa"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/_bond_stock_utils.py",
+      "legacy_sha256": "17db29170de9fcede8c8ba6e53324a3518f4c3cb9c839e3da656e31a2422a4a5",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/_bond_stock_utils.py",
+      "target_sha256": "c3d0852b676c0805c6eaea9768ad6b573b33ea48b1e3881cc1722dd04553d47c"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/_intraday_utils.py",
+      "legacy_sha256": "17ed6abfa11bf5b522baee8366e68fa48231b4b14988086e3541dbc0050c60d8",
+      "namespace_replacement_count": 0,
+      "target_path": "cbond_on/domain/factors/operators/_intraday_utils.py",
+      "target_sha256": "17ed6abfa11bf5b522baee8366e68fa48231b4b14988086e3541dbc0050c60d8"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/aacb.py",
+      "legacy_sha256": "83a9c5b63e428de8f93ca98a83792dec3506fedef220a38d9395eb92426fbe84",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/aacb.py",
+      "target_sha256": "ac596a0775721dedcaa7d1c4e981172a464899f268b6f4ace3b2079755b29a93"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/ai_factory_wave80_intraday_v1.py",
+      "legacy_sha256": "c8e7f1783005cf01e87ea74336947ff747be0311d7779357ba923ef8572f5a6e",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/ai_factory_wave80_intraday_v1.py",
+      "target_sha256": "cd6819391e6f1ddf3cd85ca4e7b25048bb2428295c6e819303ec38eeba35bf2a"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/alpha001_signed_power_v1.py",
+      "legacy_sha256": "31105d4f3bde0bec1a5f9e5ad06b12eb69f864a707b2d0bfa792e9cefdf54160",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/alpha001_signed_power_v1.py",
+      "target_sha256": "c4196334851194da732e1f8498deca28db377adffac7bca5bebbf84602db6819"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/alpha002_corr_volume_return_v1.py",
+      "legacy_sha256": "991957175974bfcfba14d69d5040d98ce2f3728181774fbf7c24ffaabf48c9a6",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/alpha002_corr_volume_return_v1.py",
+      "target_sha256": "c27a29a8e6121ef4e72b89cc1f462f96010f5f6c199cdbc0d3cb8aee7daf93c1"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/alpha003_corr_open_volume_v1.py",
+      "legacy_sha256": "8307999bbcb82a3b2968fda9b0120221e1af203994892fd2eea09cc087233fce",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/alpha003_corr_open_volume_v1.py",
+      "target_sha256": "36b3e9a7dacbf7c35aed9b371a800b1c959f56e526cec1486345794ae14e7998"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/alpha004_ts_rank_low_v1.py",
+      "legacy_sha256": "e3b752b55cb52bb112b2e31fa15e5b4181fda8e04e44ad35b5216794074550a4",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/alpha004_ts_rank_low_v1.py",
+      "target_sha256": "f5266dbd18f74d06a6a4fa995c26fffa17e09d4810c9d85b0bdb06aabf51b075"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/alpha005_vwap_gap_v1.py",
+      "legacy_sha256": "95eaf6bf78044a74739d8307a1c445865d4e8d624886d459daa6d36da665681f",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/alpha005_vwap_gap_v1.py",
+      "target_sha256": "416e5d6a6aea5e9e3665a4514f77d08cdddcf8499750aabd822ebb0774e73908"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/alpha006_corr_open_volume_neg_v1.py",
+      "legacy_sha256": "a15874b03ae09788955ea1e01074bd682d46a368d86bd9c19f97676a0251491a",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/alpha006_corr_open_volume_neg_v1.py",
+      "target_sha256": "f428c5774b7d5365f1ce6a4732a8cdc6bc7c34920bf43786b28f9cd4bc99080c"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/alpha007_volume_breakout_v1.py",
+      "legacy_sha256": "c337284c804c3f98e4e2b61c454097d187605e0af5c260d3df98e111c13eb972",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/alpha007_volume_breakout_v1.py",
+      "target_sha256": "cf3845c3c66a3bd02d30d2a4e14078edd5f9f1c34fc8c7e360d51bbf72694089"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/alpha008_open_return_momentum_v1.py",
+      "legacy_sha256": "51000f76e301607649a4c3bfaf9a9e5f82b8f48dd66557f23c427f9f637ee23c",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/alpha008_open_return_momentum_v1.py",
+      "target_sha256": "93c1946a26ff23c7436e0adf629ccee96271b147467b1ba843ddb8045d0ac01b"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/alpha009_close_change_filter_v1.py",
+      "legacy_sha256": "2b9960219b41bea2802625f3e05ac8913c219126ef97e5b765439a5a00406d09",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/alpha009_close_change_filter_v1.py",
+      "target_sha256": "ed0a01bda53cac85ef9182c61670f042e1df727413dcb10553e61f3494cf237f"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/alpha010_close_change_rank_v1.py",
+      "legacy_sha256": "f4ac4c9184ed6422502857f9193ba2e1f7b65c6cc6fce8bcff41e72b02a6fc29",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/alpha010_close_change_rank_v1.py",
+      "target_sha256": "212616556643fd910ee3b0dbc56494354a272bc983dc7b000886d1a552a007ca"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/alpha011_vwap_close_volume_v1.py",
+      "legacy_sha256": "8fa22fed3c2d5d4e208bb5ab0ae6ef5c9f6785c501fbb43fa2337b60d66e27a5",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/alpha011_vwap_close_volume_v1.py",
+      "target_sha256": "adf3b92deb30074fd73de856c0afc8e717e76342404d281eaf6f65ff9ef9d690"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/alpha012_volume_close_reversal_v1.py",
+      "legacy_sha256": "5b5e5d4e016eafe7ba78218cd14d09e71a9fb32394a68d44e5e446efea691d30",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/alpha012_volume_close_reversal_v1.py",
+      "target_sha256": "1d11f3f362a99085de8c3c891382f4b1f57e5427637ebdefcdf097b4b2ffbe5a"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/alpha013_cov_close_volume_v1.py",
+      "legacy_sha256": "facae6abe66096c4ac0585d44d53d6f0531f03a3e4d15ed099d74d3bcc928830",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/alpha013_cov_close_volume_v1.py",
+      "target_sha256": "87e0a315b096aff0f62090553596507280cb5e2c0cb420ba71063703b8906b96"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/alpha014_return_open_volume_v1.py",
+      "legacy_sha256": "8015ff2c8b36bd51dcdb4aedcbd2c3b130b76436f2fe8ca1a3943090909bebd7",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/alpha014_return_open_volume_v1.py",
+      "target_sha256": "e28e9e58124109e16744746021a77903e1fbfaf2a28bbca0c51aa08e35bbc807"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/alpha015_high_volume_corr_v1.py",
+      "legacy_sha256": "59469ece09a12bc403cf82f8930b017555ac8dae43c8c7191c59cd0db9abbc91",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/alpha015_high_volume_corr_v1.py",
+      "target_sha256": "daf073d4ae73ff2e0d5ce8fc2feb13dfe4deb450f6278e2b1bf5a1596cd93967"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/alpha016_cov_high_volume_v1.py",
+      "legacy_sha256": "ac44fd097179e718d82858a4b0d573d643d0bd651f418f5b6439c40ca24534ae",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/alpha016_cov_high_volume_v1.py",
+      "target_sha256": "e2f4624f29c5f6d120413a1e75c16eb88c47fb082ed14d1aef9f14f677bd59b0"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/alpha017_close_rank_volume_v1.py",
+      "legacy_sha256": "9590591c842d3a80ab469fba55b831e59cc2603400478b445071e323078b0218",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/alpha017_close_rank_volume_v1.py",
+      "target_sha256": "a046d2726aab5d407744165614a07066056043796424bd48cc18d93b565d51d3"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/alpha018_close_open_vol_v1.py",
+      "legacy_sha256": "909321dbafd3a68d744abeffd0c20325b90ea014b45dd318abb2703a86abc9b9",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/alpha018_close_open_vol_v1.py",
+      "target_sha256": "a4111f740a691f13ea3f40326912604bd4c3021e43f589cc366faf571915f15b"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/alpha019_close_momentum_sign_v1.py",
+      "legacy_sha256": "2c151226f53a2986979f3121b90034cbb05b506ff4890c74e63a41fc7dc1bac3",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/alpha019_close_momentum_sign_v1.py",
+      "target_sha256": "72e99072c09835a3023278c723374363a7a2dc844241d4800d6b679be284925d"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/alpha020_open_delay_range_v1.py",
+      "legacy_sha256": "4a8fc3ecb273d3790b86c1ce5cc12542cf000c4b458db25277b392e4f414d5a2",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/alpha020_open_delay_range_v1.py",
+      "target_sha256": "e44ef2ddad357f21bb652585226906f15b683171636f713a8a61f0c39db24bfe"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/alpha021_close_volatility_breakout_v1.py",
+      "legacy_sha256": "75271c84edd5015980f40100bf9d93f5779467f942040821183e66b7ac25edfd",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/alpha021_close_volatility_breakout_v1.py",
+      "target_sha256": "5033bbe93ddb2e902ddf588ab7ae6a986ad55e8d7cb1e8eba81742322a4d2590"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/alpha022_high_volume_corr_change_v1.py",
+      "legacy_sha256": "b166e70b2f239f9203aabebd6c122b8432e52bd91216dd363265ed41eb6ef252",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/alpha022_high_volume_corr_change_v1.py",
+      "target_sha256": "e24335261e5d894acce3f920e6c08ff7593590091d575c7407c5aab32bdc0ac0"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/alpha023_high_momentum_v1.py",
+      "legacy_sha256": "43130b696ac2f7d723582b21b6f6674a53effe8ccadf38d22902e0f290aefadc",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/alpha023_high_momentum_v1.py",
+      "target_sha256": "9059ea452f76aa017b85c33639c955cf42ada8e804ef0ed7885cbc89ec6084ac"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/alpha024_close_trend_filter_v1.py",
+      "legacy_sha256": "2971a9a487c72ab64d66a087cdbcf57b0c6df7a3501165631f7ec760385a154f",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/alpha024_close_trend_filter_v1.py",
+      "target_sha256": "fcd144646b20270cb3da1d470bf7a3081838db7b59d4c076b9c0ea647cdc99b9"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/alpha025_return_volume_vwap_range_v1.py",
+      "legacy_sha256": "ec49840ced84860e58146c01100db7e1f4c0a1ca77924e1a4813a14b3b90b89b",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/alpha025_return_volume_vwap_range_v1.py",
+      "target_sha256": "74560f900ef6bac1591599d9d70edf92a1b9de65df7f8bfb128fa8129c807125"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/alpha026_volume_high_rank_corr_v1.py",
+      "legacy_sha256": "a2070e2034ddb540f09c9d07560fa7579eee39a92c89f7174873e33c36c60fea",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/alpha026_volume_high_rank_corr_v1.py",
+      "target_sha256": "86b1c7d3b3883edfae73faf06f1572fc57f95a6771c20d23727fb7a08ab4c110"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/alpha027_volume_vwap_corr_signal_v1.py",
+      "legacy_sha256": "9ace78d0c545afa4297940c301982d3a7dfc95a2b26f483e8e2059f77e48f074",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/alpha027_volume_vwap_corr_signal_v1.py",
+      "target_sha256": "a9073dfbf47b68a07a2ca140775e107b6e13ea7746cb4a55f74a99927fe30c0a"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/alpha028_adv_low_close_signal_v1.py",
+      "legacy_sha256": "dc7f1e4b444614c3eca3efa4aedd49c76e47a5010621a006f998f2fda30a6b57",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/alpha028_adv_low_close_signal_v1.py",
+      "target_sha256": "968a61424a16243ddb7cedb39e75ad7473ccb45f6da00af9f5a9b90960ec88ce"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/alpha029_complex_rank_signal_v1.py",
+      "legacy_sha256": "1b310ea3bc00886a113bb586d2d1d868f6db62be5fec4403536a30ea8b4d29c0",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/alpha029_complex_rank_signal_v1.py",
+      "target_sha256": "8c8a4a4157fdcc15834b4836a00d47451adcb1a30beb5522d18741438334cb92"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/alpha030_close_sign_volume_v1.py",
+      "legacy_sha256": "8d48236e26f1ee46e0c471eb8808a867518402e21ae7db6c58ca002f9b2e40e3",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/alpha030_close_sign_volume_v1.py",
+      "target_sha256": "7df991b56081cb7cf2a81d01f80929c9cf9a09930def31c235fa0037f647aa73"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/alpha031_close_decay_momentum_v1.py",
+      "legacy_sha256": "d3861739cdaae849b5684c3bc4bf3480ff78047f92666aa7fb7e56431996b1e7",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/alpha031_close_decay_momentum_v1.py",
+      "target_sha256": "5b58790bd89fa152fd03b58577eb668dd704f508cb492de0fa9d853eb947f1b1"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/alpha032_vwap_close_mean_reversion_v1.py",
+      "legacy_sha256": "e0d37192cdabbd4bcacb4426a84bbe4443cfeb88f52b61e52a96d00c29dabfe9",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/alpha032_vwap_close_mean_reversion_v1.py",
+      "target_sha256": "edf568de95f103e311bbddd2f76a5150369e12b0265991ca0f17a3557829f577"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/alpha033_open_close_ratio_v1.py",
+      "legacy_sha256": "c6772785ebd7ca73438a5e3984f314cb0c7e00399e9cffc7763eba1e17f88bb6",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/alpha033_open_close_ratio_v1.py",
+      "target_sha256": "d71e94aa89cd7549c1b4038bb0868d5cd6ed3a875850d812ede28551ee8b5c03"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/alpha034_return_volatility_rank_v1.py",
+      "legacy_sha256": "c8f589e7d9c4dd53717c7f35c85bb5d2c7952ae8496c444c38aa9fca9f0bcc09",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/alpha034_return_volatility_rank_v1.py",
+      "target_sha256": "798dfe1b511dd9c3a8cc419279cefe56f7f68c37b53fdf32fcaecca84c4bc717"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/alpha035_volume_price_momentum_v1.py",
+      "legacy_sha256": "94e95b5ad4cbf62b338a4ddfbfe6669fd861c7bc20446968f33977d35c5543a8",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/alpha035_volume_price_momentum_v1.py",
+      "target_sha256": "e9542bc101ec77c0a2658ab6a7242407f7cd8c8a3e9d26b5c50c2c2fd0c7c587"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/alpha036_complex_correlation_signal_v1.py",
+      "legacy_sha256": "d394685c869a1b926ca9f56a1951d213fa04a83aaf0a3008d6e48c8f78970d0d",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/alpha036_complex_correlation_signal_v1.py",
+      "target_sha256": "44012f0dab66098d5f93f3288697dfac1d833e9fa093e52fb08abada9179fda7"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/alpha037_open_close_correlation_v1.py",
+      "legacy_sha256": "74f9179c7063e480ac028ea42dcadfb1140febd6015370f747c085874dae8dcc",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/alpha037_open_close_correlation_v1.py",
+      "target_sha256": "1e5a6895f7043eec084b2f72269b7a48c08868f82d5d34b3a20480d0631b34f8"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/alpha038_close_rank_ratio_v1.py",
+      "legacy_sha256": "7d4dcf3c79b331045420abc054fcb65b4b23d41ea46762f4546b50edd82d6d52",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/alpha038_close_rank_ratio_v1.py",
+      "target_sha256": "4ca7e6efae145d48b7dbc8c1315f07f040eda6c8facd64f58991b5cf6c359290"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/alpha039_volume_decay_momentum_v1.py",
+      "legacy_sha256": "d25d649ed73820c69ac8d4c1de76661170b828bbc6925cdb828480fc75fbae60",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/alpha039_volume_decay_momentum_v1.py",
+      "target_sha256": "ecd01f4302e325c8d6aab9c565cd00f2b85305940322d3425938bad37a6661a5"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/alpha040_high_volatility_corr_v1.py",
+      "legacy_sha256": "87a5a0442a14cc1ce91d18a636fa29fc80289b0fdb3c760df87b5150ef2a58a1",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/alpha040_high_volatility_corr_v1.py",
+      "target_sha256": "fc6c5df6be3aeb343164069c3e87df5a4a0e1cfcc2d9daf6e6cd61d5071fd6c6"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/alpha041_geometric_mean_vwap_v1.py",
+      "legacy_sha256": "8dae4420fba5402fff2a6ba6746e2541602e2709682fba5c6ee9f1957e5f1fdc",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/alpha041_geometric_mean_vwap_v1.py",
+      "target_sha256": "090c2e8f9f160faa3a30e47e06f48e6ee99c201688766f330a941144c43ff3d4"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/alpha042_vwap_close_rank_ratio_v1.py",
+      "legacy_sha256": "19457d6f7ad8232eb9785037b7c2eea2fead0450124d9aec7b4ed9af5c3b054f",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/alpha042_vwap_close_rank_ratio_v1.py",
+      "target_sha256": "89dff4e9006fce2de97576b60d0376d57f313ab515b332b85b1597faad5efd21"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/alpha043_volume_delay_momentum_v1.py",
+      "legacy_sha256": "19b71a95925fb7d2d136546765b1c2a62c2ba2215d528afe89ac290c994c56fc",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/alpha043_volume_delay_momentum_v1.py",
+      "target_sha256": "aa43103669b345243a1a6d6f5bbf15c05c55720a0960f050514142af79bc1202"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/alpha044_high_volume_rank_corr_v1.py",
+      "legacy_sha256": "7fbfef1f4a32144673c799aa1d9d165923c63f372007b2e2e13681ef45506a5d",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/alpha044_high_volume_rank_corr_v1.py",
+      "target_sha256": "cd619131b0b20503b854ca170d54f14a64acc2b1744fe235004ac5d34713bbb1"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/alpha045_close_sum_corr_v1.py",
+      "legacy_sha256": "587ace37ce5c55f8a8bebe0c7ad4a546fb8cbb82c07f80195a42ed1d44f9f17b",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/alpha045_close_sum_corr_v1.py",
+      "target_sha256": "1e34955acb9f9fd6e7eda3cd3fd74cac0183515fa99989935bb28e634a65c8a0"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/alpha046_close_delay_trend_v1.py",
+      "legacy_sha256": "d5bfcb8d29c6cba3e9d8c05d04fd0d0ac0ab1f144f38e02b5164e2d8df7d829a",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/alpha046_close_delay_trend_v1.py",
+      "target_sha256": "acb86127d3be93fc129c0f66ee0fdee7bb46b6d9b2f443a95595e8748930a66e"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/alpha047_inverse_close_volume_v1.py",
+      "legacy_sha256": "84d660e41fed0ebacb5a09ac78f1935a2be860b4622b74dd7c1476fdb812c0e1",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/alpha047_inverse_close_volume_v1.py",
+      "target_sha256": "6e935fef687635fe7eefe3a346e2077c75e06da4eec8ca903bad6b128e1086a2"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/alpha049_close_delay_threshold_v1.py",
+      "legacy_sha256": "50672da6dc2f9fd55d021efdb6ee51a4c08f47daa192641a0f5e3753498d46e4",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/alpha049_close_delay_threshold_v1.py",
+      "target_sha256": "c19348661ab88360cc1f1b80e0dd2e70e2bdf54aaeb6a2ca8ec25cc793fc57f7"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/alpha050_volume_vwap_corr_max_v1.py",
+      "legacy_sha256": "92c9cae827f5e1f86795bb9ab20db23d92d121224fa1be1b4469e7169db253ed",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/alpha050_volume_vwap_corr_max_v1.py",
+      "target_sha256": "56377f68506fd7a7cb697b48f399ac6e61eda2928615350feebfa7ce218a54ae"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/alpha051_close_delay_threshold_v2_v1.py",
+      "legacy_sha256": "629a734db9fb46d9ee6dfe3f74406cd18cfbc162b915575e38131981b9ecc178",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/alpha051_close_delay_threshold_v2_v1.py",
+      "target_sha256": "2b73ba2e14e7851f83bcfe00de443316113dfa1e5e147e114943da594ce70e97"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/alpha052_low_momentum_volume_v1.py",
+      "legacy_sha256": "1fd24f68747b55ea968a1c4f17d0afc1b22c0164a59a576936def41c33746946",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/alpha052_low_momentum_volume_v1.py",
+      "target_sha256": "36b33b3abd2907911ac5b375886b4eaa765243a648ad082afe24b76ad3f75c5e"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/alpha053_price_position_delta_v1.py",
+      "legacy_sha256": "3aa21c15d6c7fc0d5f75fb26b686a136131407a50889654e160490a30519fd7d",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/alpha053_price_position_delta_v1.py",
+      "target_sha256": "1b0340dc3fd1d213b8cc37bc43f7a6117e790c9b510349ba49fd27262177c527"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/alpha054_price_power_ratio_v1.py",
+      "legacy_sha256": "516b3f624697805e5c2f067980961583f5a3f76a5f5173fa94cf7d88fad375e3",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/alpha054_price_power_ratio_v1.py",
+      "target_sha256": "5e985df64f362ccf6e300b68285071c855da431f4f235e7e3b13ab7d54d58da3"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/alpha055_close_range_volume_corr_v1.py",
+      "legacy_sha256": "07ecd36b978920588ababd8fe5ba785250366b3742a4d2eb724a49ddc417227b",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/alpha055_close_range_volume_corr_v1.py",
+      "target_sha256": "5d8b61ceef3d876884b574bb5550c84eb31d84d23181c8350ad6cd7e092314ec"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/alpha057_close_vwap_decay_v1.py",
+      "legacy_sha256": "78575e8d7e0f5a0ff01718147c83402dfd8038319d54eeeba311b953b073409c",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/alpha057_close_vwap_decay_v1.py",
+      "target_sha256": "28526ccec4972fc3057d93662b995ad12fe7673a2991a2d360a5f8df4a6a1e19"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/alpha060_price_range_volume_scale_v1.py",
+      "legacy_sha256": "c82d0e6837ae98173617f81c794e7fdde08a2d91a9187fbb5d9d1ac972cdb380",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/alpha060_price_range_volume_scale_v1.py",
+      "target_sha256": "04a89a12d1b9487589895ec00e5453f6ed22086c8cf0865b8a760eaa02362e95"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/alpha062_vwap_open_rank_compare_v1.py",
+      "legacy_sha256": "3c143649e26f3016b2b92e830fb6f844575011e543bfbb64d12e2ae72a0284f6",
+      "namespace_replacement_count": 2,
+      "target_path": "cbond_on/domain/factors/operators/alpha062_vwap_open_rank_compare_v1.py",
+      "target_sha256": "a7726662af9d562ebcf3987ecbffe6c919f09c4bb0b81100ad41d9dc0e4e6984"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/alpha065_open_vwap_min_signal_v1.py",
+      "legacy_sha256": "283c982d59f3ab6c3e5a6ac30588d84e25fe89a8a4446f49073f02c1e06679b7",
+      "namespace_replacement_count": 2,
+      "target_path": "cbond_on/domain/factors/operators/alpha065_open_vwap_min_signal_v1.py",
+      "target_sha256": "0526fd8737a36d5f7433354adba6ab6308d6ffa757ea58b0eb1fbd49dcf729a9"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/alpha066_vwap_low_decay_v1.py",
+      "legacy_sha256": "053b4fed03d6a7c5ecaeb412609915d27c2cd63b63fdba5b02031ae48b32abe6",
+      "namespace_replacement_count": 2,
+      "target_path": "cbond_on/domain/factors/operators/alpha066_vwap_low_decay_v1.py",
+      "target_sha256": "8cda56df22317f674dde37f148343a834e7ee1b4050119b22e5d9f549b9f6bc6"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/alpha068_high_adv_rank_signal_v1.py",
+      "legacy_sha256": "2bef116840592a32513417699bcb9f9e94ff8ec141c058d0a26d195449167299",
+      "namespace_replacement_count": 2,
+      "target_path": "cbond_on/domain/factors/operators/alpha068_high_adv_rank_signal_v1.py",
+      "target_sha256": "3d466bd72fe4e058ad0feb6bcc7f2995c214a20d11131bc5800a11cca35d2221"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/alpha072_vwap_volume_decay_ratio_v1.py",
+      "legacy_sha256": "6f59ca4b5d1eef90c25ef361ee05b2241bf93cfc29a015d467b9113a70eba005",
+      "namespace_replacement_count": 2,
+      "target_path": "cbond_on/domain/factors/operators/alpha072_vwap_volume_decay_ratio_v1.py",
+      "target_sha256": "ce3fafab9ee710f9271a8f9097555c7a054ce61ae671dca5129adf80c9d73f45"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/alpha073_vwap_open_decay_max_v1.py",
+      "legacy_sha256": "9926c069fba03d5c60682fcd19310542a239a7cf56d05865162e527afc9efb4f",
+      "namespace_replacement_count": 2,
+      "target_path": "cbond_on/domain/factors/operators/alpha073_vwap_open_decay_max_v1.py",
+      "target_sha256": "220c4d061f138594da260a12086a3c9b7b5935c4905b2f3b286af427f0ad4605"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/alpha074_close_adv_rank_corr_v1.py",
+      "legacy_sha256": "241c52484f1c4b856effa4909c0e22288b4118091565c68597e4083522dc27c6",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/alpha074_close_adv_rank_corr_v1.py",
+      "target_sha256": "cc938816149674067d8e1604e5834096d3cf668ff822c1f9430505011bf24d43"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/alpha075_vwap_volume_low_adv_corr_v1.py",
+      "legacy_sha256": "3205830f9405f888c72fbd9a6ed4cadeb5ebdcad889708a52d1f887c8e87b411",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/alpha075_vwap_volume_low_adv_corr_v1.py",
+      "target_sha256": "1ed58065daf91fda47c2db4145e71fc85068d0717eb3e5516f0a16fb57f4900e"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/alpha077_mid_price_adv_decay_min_v1.py",
+      "legacy_sha256": "3e22cd740a4f3c73a115f7cfd500a0b896dc6c295d7bf05e9ff4512e0f2fc389",
+      "namespace_replacement_count": 2,
+      "target_path": "cbond_on/domain/factors/operators/alpha077_mid_price_adv_decay_min_v1.py",
+      "target_sha256": "cc9882c96f892d260236c03c6b4aa5b1168e4f27cfd05b7929ce70d6c4bb94c3"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/alpha078_low_vwap_adv_corr_v1.py",
+      "legacy_sha256": "3496f02993298f0d3a71c9096f7af70eac8087c5d7f4a5c313619fbe78581450",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/alpha078_low_vwap_adv_corr_v1.py",
+      "target_sha256": "ffd42e0422a86064640c8feaba9d111c5812d4100d389655936a3ced1a94d8c6"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/amihud_illiq.py",
+      "legacy_sha256": "cf14989054a510c449146eaec60a02929ce84076713c34e3181c6579825a6ba2",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/amihud_illiq.py",
+      "target_sha256": "ae3f8e37e85a0c62973fbec8d0126ddcbbafe7825267dd05d17268b037a7c234"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/amount_sum.py",
+      "legacy_sha256": "2d9ca2dea97b9712888a8e251260fe7c973cd113d3f02118df30c1a0e7ec2771",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/amount_sum.py",
+      "target_sha256": "660cbbfb9d66aa358414a4a625c108bcc936ba9d989cd987785503bf889fdf00"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/bid_ask_spread_v1.py",
+      "legacy_sha256": "89916f2a1c0e08a67dc502c9dba88f828efd315008046e4c13a654123c827eb6",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/bid_ask_spread_v1.py",
+      "target_sha256": "f45c02f8679643b5941adc326b432dd5b7595b3c527a319272c12d085c215094"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/daily_overnight_return_mean_v1.py",
+      "legacy_sha256": "f0673926fc5985564483a7d25717457b55c3b27cc33908ea3f1b421a4bae7c7e",
+      "namespace_replacement_count": 0,
+      "target_path": "cbond_on/domain/factors/operators/daily_overnight_return_mean_v1.py",
+      "target_sha256": "f0673926fc5985564483a7d25717457b55c3b27cc33908ea3f1b421a4bae7c7e"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/daily_prior_intraday_return_surprise_v1.py",
+      "legacy_sha256": "ff9f2cbed050170ae1e1837f53250ae7de5fecffb8eb21d8a9f7d302f973bfa3",
+      "namespace_replacement_count": 0,
+      "target_path": "cbond_on/domain/factors/operators/daily_prior_intraday_return_surprise_v1.py",
+      "target_sha256": "ff9f2cbed050170ae1e1837f53250ae7de5fecffb8eb21d8a9f7d302f973bfa3"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/daily_prior_intraday_sharpe_v1.py",
+      "legacy_sha256": "bd663d308b069ac7870347d8dc71bb0ab4f06409eaca07d24d245cb16cd912b1",
+      "namespace_replacement_count": 0,
+      "target_path": "cbond_on/domain/factors/operators/daily_prior_intraday_sharpe_v1.py",
+      "target_sha256": "bd663d308b069ac7870347d8dc71bb0ab4f06409eaca07d24d245cb16cd912b1"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/daily_sharpe_mean_v1.py",
+      "legacy_sha256": "6471d7eb42985d082d713051026e942da6db4b5255d72515282387da70cadfaf",
+      "namespace_replacement_count": 0,
+      "target_path": "cbond_on/domain/factors/operators/daily_sharpe_mean_v1.py",
+      "target_sha256": "6471d7eb42985d082d713051026e942da6db4b5255d72515282387da70cadfaf"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/depth_imbalance.py",
+      "legacy_sha256": "28079fa2ea29f6c35d9fdc6a9526cc637d9d7fa418ad31e181e055946b1d1944",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/depth_imbalance.py",
+      "target_sha256": "569037f650bc0e562520a3973cb5cc23f51ef7349b168cc101cfb77e8b93fcdb"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/depth_slope.py",
+      "legacy_sha256": "37e4e79a991e747ccc646766468a4c1a9b71289f6a395fc1c8c301dd11efd661",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/depth_slope.py",
+      "target_sha256": "42d3b7cdac9bb6e819e18e228fce178841130e7868225d43b197ff08d9c61126"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/depth_weighted_imbalance_v1.py",
+      "legacy_sha256": "759a0f02d9588555c83b52b7590712ac0a3aae4b6c3782996f2846e910eadc9d",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/depth_weighted_imbalance_v1.py",
+      "target_sha256": "76476f6f0ce94515b57583b9634bcffa74226efa436db64f6103c41ce261bdac"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/intraday_momentum_v1.py",
+      "legacy_sha256": "e40bae9a9f3aed5bd184c5fd154cde5cf02537c8d9f9d861314bf29269e96a75",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/intraday_momentum_v1.py",
+      "target_sha256": "440d436d7d0309631be09fe2e8b6f42907c677446d0e38cd84e32626aef5d88b"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/microprice_bias.py",
+      "legacy_sha256": "7a7f895978067ff26bdcaa9d9a2fa3e22486a2b02b54a6919fbb5d2e882369d4",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/microprice_bias.py",
+      "target_sha256": "c474e7733ff09beaee05f13ffd588d437433f6e6493f5451bc065dded60f3d15"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/microprice_dev_liquidity_v1.py",
+      "legacy_sha256": "290148a6baf56e843ab50cf5b2ee82afee5dbb35553928b3ba64d0007020b9d7",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/microprice_dev_liquidity_v1.py",
+      "target_sha256": "3dd1a48fb5767dfbe8992a91aa3d103884a418f47b377248638e1f79428b94f7"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/microprice_deviation_liq_cond_v1.py",
+      "legacy_sha256": "c022ebf07aadeaf1c50d33239e63dfdfabcdf0cc22c8a88dc5a73da6005a4695",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/microprice_deviation_liq_cond_v1.py",
+      "target_sha256": "838bedb4d32058894785b4bd7ec86fc377a9379adecb769f9b1b3e94ccb9f771"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/microprice_deviation_liq_v1.py",
+      "legacy_sha256": "18a5c29a74aaaf3bb9adb73bfb9c4667afdbf32af7183771ec0d5e87e31804a0",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/microprice_deviation_liq_v1.py",
+      "target_sha256": "372e782f7002e3a16747016f197af4e06c4f94eaec063569415a0c6fd83a049a"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/microprice_deviation_v1.py",
+      "legacy_sha256": "792916f7fc6fca0b9dbbf905fc8c9d76fdbcee033d17576df70038cc8cb817e9",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/microprice_deviation_v1.py",
+      "target_sha256": "4282c3c800eb74e1b7d1e0ff9d018e560cbd7e229adef97652c6889221050d0d"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/midprice_move.py",
+      "legacy_sha256": "9e1860d8d0b3f93144023e42769bc3463eddd0076607c69c18748c284bcb1c37",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/midprice_move.py",
+      "target_sha256": "1709caac6b9161a8b41b1f48143869f0c80242075656daa56b23435196664da5"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/mom_slope.py",
+      "legacy_sha256": "6e2ff5bf1952b14e22f32c64b04258d66b240b031651c8d053fc0f5543c2132a",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/mom_slope.py",
+      "target_sha256": "e8dff9a4d10bba546a08483258100ef60dd361b9421f8e8d9bd329f5aa643192"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/ob_pressure_spread_persistence_v1.py",
+      "legacy_sha256": "28ab2258ae7f25b91b28aa2021443e567c83f5a6a55d08d8a7155e57433ead0c",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/ob_pressure_spread_persistence_v1.py",
+      "target_sha256": "0873744a5482e40b16e07269e045c169422f508f538b7c91b3b1f59274010ae4"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/ob_pressure_spread_recovery_v1.py",
+      "legacy_sha256": "d08296533dd86fb9ce1315e6546e55f33d90e3abd02542093d362cf24f1dd5c0",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/ob_pressure_spread_recovery_v1.py",
+      "target_sha256": "f7d057e80cb623e819e789ccace49c9b1b79dbd508cbeaeff6ab4e9cdf852ecf"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/ob_pressure_spread_v1.py",
+      "legacy_sha256": "c142ac6f9eab0255ccc10aea13bddd4fe0159d7897b2af260171aeba9c07fd1a",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/ob_pressure_spread_v1.py",
+      "target_sha256": "dfd6825b64c1282e6a5fb2a46e0e2a145b8c1f7f025430dac7ec71dc41717a08"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/order_flow_imbalance_v1.py",
+      "legacy_sha256": "3db479eb4f62fd185caf4ac0dccf241bbc0b2f1ac35d8841134e88483283c953",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/order_flow_imbalance_v1.py",
+      "target_sha256": "2cc5e287bb1f105364cc5b2e4cfd084d66aea0acc30633681c84b29d4d7ce531"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/parity_adjusted_stock_lag_v1.py",
+      "legacy_sha256": "515e887d710990d889a7dd31fa27d44bd1f7efc741fed0bee608b662055abcc1",
+      "namespace_replacement_count": 0,
+      "target_path": "cbond_on/domain/factors/operators/parity_adjusted_stock_lag_v1.py",
+      "target_sha256": "515e887d710990d889a7dd31fa27d44bd1f7efc741fed0bee608b662055abcc1"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/parity_adjusted_stock_lag_v2.py",
+      "legacy_sha256": "9c61e03264440970c120085bce74e2f9cfc16b8d9d31133dfd273e8e66af7d80",
+      "namespace_replacement_count": 0,
+      "target_path": "cbond_on/domain/factors/operators/parity_adjusted_stock_lag_v2.py",
+      "target_sha256": "9c61e03264440970c120085bce74e2f9cfc16b8d9d31133dfd273e8e66af7d80"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/premium_momentum_proxy_v1.py",
+      "legacy_sha256": "2cf070dbd6b35f9ba03dcd2fd389e4e948ff9d1ab4d74d6425015983c3e3e948",
+      "namespace_replacement_count": 2,
+      "target_path": "cbond_on/domain/factors/operators/premium_momentum_proxy_v1.py",
+      "target_sha256": "86d6d02160051ddff0095f34ef5b2391c89d19ae927d73ba21ff97661f709b2c"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/price_level_position_v1.py",
+      "legacy_sha256": "51c5fe211ed22b3e1cda2a682ff2572761e3868944d5af7e561c7b485c73f3e1",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/price_level_position_v1.py",
+      "target_sha256": "7b0612937fd4c61ff9ee4835869be6238623d071d2ff946cccaecfdcf9e4372f"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/price_position.py",
+      "legacy_sha256": "f2c6f6dce984ed252fb39cdeed546759178630075acda0570361ded647b66eb1",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/price_position.py",
+      "target_sha256": "711ded0fd9a4808e6152f764a5b0340bf302bf850971e75bd6e7470c9df5e8b6"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/range_ratio.py",
+      "legacy_sha256": "b600f87b9e863f85f2993363ff46ed2782e3718190f8d11caa367ffea7644d12",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/range_ratio.py",
+      "target_sha256": "a7905bcb2b23ac965257c01c138b6193b8e0901a2f8cd8f221180656021784c8"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_aggregate_catalog_v1.py",
+      "legacy_sha256": "5d2c1372efba8fa6330d97cc6e4f1d3672ff2dad192d5d601ad70debcb6aeb87",
+      "namespace_replacement_count": 16,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_aggregate_catalog_v1.py",
+      "target_sha256": "64d5c0b8e1fa59b47865df88a1bbf51f52eeba284aa8f26a147e9c9a6f1394b0"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_aggregate_catalog_v2.py",
+      "legacy_sha256": "4867a8a1135ec2f8d2aaaf07ef4d187f6aa79ef687407e37486d38a3848d7e97",
+      "namespace_replacement_count": 15,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_aggregate_catalog_v2.py",
+      "target_sha256": "9f29828539e52ec9bbafcbdd9dfb8d043b4c53f03951da327fe4ec4c269f557e"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_aggregate_catalog_v3.py",
+      "legacy_sha256": "0a36e1896f3cbe4f4aa657b7fce59f50d81de1b872ce75493a7da883421522ce",
+      "namespace_replacement_count": 11,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_aggregate_catalog_v3.py",
+      "target_sha256": "04fe30aab389be3ca6699c5e08490a3c34b62cc153933c5f098609f0a511531c"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_aggregate_catalog_v4.py",
+      "legacy_sha256": "b755ce93aff71c79bc2cabe14a44433eea5eefc1e1e552c7e7e768d99ad4a01f",
+      "namespace_replacement_count": 14,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_aggregate_catalog_v4.py",
+      "target_sha256": "e1f43049b9ad1e95435bf81efe02d8b2351c0a76978df68cb5fe6d29e8fe0956"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_aggregate_catalog_v5.py",
+      "legacy_sha256": "910c21c5d554fd95cf2b1536c4b373a0c6eb395c53cf5a63018f44d1e1283597",
+      "namespace_replacement_count": 4,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_aggregate_catalog_v5.py",
+      "target_sha256": "825a6c69a94be320323e62b59d941124d86fd60771c27fc50fad174399876b74"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_catalog_v1.py",
+      "legacy_sha256": "a31605881ba6046a34eb51270ede258ac1db442708de4c0a783d27dc59615ce9",
+      "namespace_replacement_count": 0,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_catalog_v1.py",
+      "target_sha256": "a31605881ba6046a34eb51270ede258ac1db442708de4c0a783d27dc59615ce9"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_conditional_response_residual_v1.py",
+      "legacy_sha256": "f5c1ae04c56e1bf408d6df0441f9f8cf1c539b8956c9e8e715489eae5f2bd70e",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_conditional_response_residual_v1.py",
+      "target_sha256": "e34f22ad6e59c94c78d152d6f9965f804e52dc6045fee1c85a587f8a5fc70a0a"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_cross_asset_activity_calendar_v1.py",
+      "legacy_sha256": "46d8c0e3eac574d21fd513d95037adecc6ccb959c7439e0581e2c9c8c4120d14",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_cross_asset_activity_calendar_v1.py",
+      "target_sha256": "56e2441a52233de92c1df472cf32159794eef246a099589047eee0198c34a1e8"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_cross_asset_book_event_transmission_v1.py",
+      "legacy_sha256": "715aad78c9f9fbb6d323f82f5245f5837c98240561f5546e690c1fbb880c8c15",
+      "namespace_replacement_count": 0,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_cross_asset_book_event_transmission_v1.py",
+      "target_sha256": "715aad78c9f9fbb6d323f82f5245f5837c98240561f5546e690c1fbb880c8c15"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_cross_asset_book_geometry_v1.py",
+      "legacy_sha256": "f0f8973ed846d06647cbf39d78ddf875f0ffccfb404cc1ced86bd0c977257b7c",
+      "namespace_replacement_count": 0,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_cross_asset_book_geometry_v1.py",
+      "target_sha256": "f0f8973ed846d06647cbf39d78ddf875f0ffccfb404cc1ced86bd0c977257b7c"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_cross_asset_event_clock_healthy_v1.py",
+      "legacy_sha256": "bceee20877afd7167e9e4727a4670924669ed21b58104b84743114bcb88e492f",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_cross_asset_event_clock_healthy_v1.py",
+      "target_sha256": "9800f947146fe4d567ece7dbf8437b9763b0ada933baf8be5832acc0089ef753"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_cross_asset_event_clock_v1.py",
+      "legacy_sha256": "1de45e3d552ae261d046657675780118465ec26a358f82eecf247b2312457d10",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_cross_asset_event_clock_v1.py",
+      "target_sha256": "6c57d79e69598e7950dd5e9d63a7e0bf98531b7a2ee459b1e37041df77cb0146"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_cross_asset_event_sequence_topology_v1.py",
+      "legacy_sha256": "8c1fe51948775e11f8c4221bdcce62027bb665c77af2d21fd3fd5d2288231019",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_cross_asset_event_sequence_topology_v1.py",
+      "target_sha256": "588bb615960806bf85846a20e8960264c854d17fec4d79b733c00ebf59b19cdd"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_cross_sectional_microstructure_neighborhood_healthy_catalog_v1.py",
+      "legacy_sha256": "227c8efab21e75c455148749fe44c0ca7bb4de103343bf43eabe1a322c5c3d30",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_cross_sectional_microstructure_neighborhood_healthy_catalog_v1.py",
+      "target_sha256": "0466661e92d24583c54e1b9e410a4a61d9002862cab9174e83290112fa583eec"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_cross_sectional_microstructure_neighborhood_v1.py",
+      "legacy_sha256": "78326d9b4ed74099815c0c7ca8c6e188f4c5033304876ba2bf5fd772c851269c",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_cross_sectional_microstructure_neighborhood_v1.py",
+      "target_sha256": "613e9a3199a5539d9072d6b8fce394f6cf69ab807b64b7417cbf8e52fa3f7daf"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_cross_sectional_rank_lattice_healthy_catalog_v1.py",
+      "legacy_sha256": "b7e8e7a2c739a5683a01a4f51369f2a133787f6489bea806e23e9a753d1bb492",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_cross_sectional_rank_lattice_healthy_catalog_v1.py",
+      "target_sha256": "7360458ee73e12bd76b89bb4aafeaa4a73d4ed2bf7ec35de8c8b75c780e18056"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_cross_sectional_rank_lattice_v1.py",
+      "legacy_sha256": "64ea888623312fcca65832466b6a37440e000aeff4db3ea4bbb742492e127f0c",
+      "namespace_replacement_count": 0,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_cross_sectional_rank_lattice_v1.py",
+      "target_sha256": "64ea888623312fcca65832466b6a37440e000aeff4db3ea4bbb742492e127f0c"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_daily_asymmetric_equity_beta_v1.py",
+      "legacy_sha256": "db0aa727a282c8b732496705effe477238871a07731221f7d6f696c71d8f7665",
+      "namespace_replacement_count": 0,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_daily_asymmetric_equity_beta_v1.py",
+      "target_sha256": "db0aa727a282c8b732496705effe477238871a07731221f7d6f696c71d8f7665"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_daily_asymmetric_state_transitions_crossperiod_healthy_catalog_v1.py",
+      "legacy_sha256": "7a8d3f4c379bc9bd6b0e197644351c637dee116812f55e9621aba9cdfba0c6e8",
+      "namespace_replacement_count": 2,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_daily_asymmetric_state_transitions_crossperiod_healthy_catalog_v1.py",
+      "target_sha256": "99ca4b6fce2abc0e779161526ecfa493cd4d42e1a2d3cc76ed476c42d419e0ce"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_daily_asymmetric_state_transitions_healthy_catalog_v1.py",
+      "legacy_sha256": "4f4b6f4419cfa9655a69a4a1e2e654b17313a315f19f000ecea6b61aa0b34d67",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_daily_asymmetric_state_transitions_healthy_catalog_v1.py",
+      "target_sha256": "b8563846415f79cfe491d310d312286328e6917c930739a0719e65aa207d26bc"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_daily_asymmetric_state_transitions_v1.py",
+      "legacy_sha256": "757804dca127393853dee981f9dc8381d57044123110d4d940b6894e0f8fbf43",
+      "namespace_replacement_count": 0,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_daily_asymmetric_state_transitions_v1.py",
+      "target_sha256": "757804dca127393853dee981f9dc8381d57044123110d4d940b6894e0f8fbf43"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_daily_bond_stock_copula_tail_dependence_healthy_catalog_v1.py",
+      "legacy_sha256": "78f756d390191c791ab15629409ab643258a615c5b8a0873ebb983f74368c1f3",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_daily_bond_stock_copula_tail_dependence_healthy_catalog_v1.py",
+      "target_sha256": "83060da515bc0713c1a2889637c6304b309a48db8cc301a94e2d6578ed55e2d6"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_daily_bond_stock_copula_tail_dependence_v1.py",
+      "legacy_sha256": "05b9d6ed7701eae8fcf441f6ac6cd26cdf576f2bbb01a5f7e73fd34c67ae5bda",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_daily_bond_stock_copula_tail_dependence_v1.py",
+      "target_sha256": "6c0e7d7d63f68a6692f32ba86a94eeca2045125cfe7d813d148851162ed41b44"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_daily_bond_stock_cross_sectional_rank_concordance_v1.py",
+      "legacy_sha256": "9ca437a1609957266820871379e5a70fd2c9051950dc4846c662b4639c15dfe0",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_daily_bond_stock_cross_sectional_rank_concordance_v1.py",
+      "target_sha256": "ed397526983cdcc1d5d3b4782cc0f9f07fc6ecdc0813034a815a7e28f03ca676"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_daily_bond_stock_return_flow_information_v1.py",
+      "legacy_sha256": "9e3b4f7b2a5a8fb528a483173133b428ed41bd5676a6559fa829edf9c6ccf5b5",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_daily_bond_stock_return_flow_information_v1.py",
+      "target_sha256": "e201421217b807d6775ca768975786747502c7006b0d91d101034e1fba5b56cf"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_daily_breadth_regime_relation_v1.py",
+      "legacy_sha256": "fbc88af14b437aa2327e923db71f84db890c6b73da56db260155763f0e7245e9",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_daily_breadth_regime_relation_v1.py",
+      "target_sha256": "4a82f08e47fe7959963148316d5d1a6dfb48b0db2ff8e48dc66a9ad0417b037f"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_daily_capacity_rank_coupling_v1.py",
+      "legacy_sha256": "b295375ea1b9f6003f25341f7dda9f4829ccaedc0a9ca79acef78a769ed1d253",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_daily_capacity_rank_coupling_v1.py",
+      "target_sha256": "72b18f4b8c677aefe526c248bc97e07ea75d7ba48f49a8ee711baf7eb4439d43"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_daily_contract_stock_v1.py",
+      "legacy_sha256": "217d94708ac76ccbfb88f8b9725b1dcfbaf165039d42a9a1ccbc5cd53b75c015",
+      "namespace_replacement_count": 0,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_daily_contract_stock_v1.py",
+      "target_sha256": "217d94708ac76ccbfb88f8b9725b1dcfbaf165039d42a9a1ccbc5cd53b75c015"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_daily_credit_duration_term_supply_dynamics_healthy_catalog_v1.py",
+      "legacy_sha256": "e21dbf7b6febc9f2d9330f8ee303eb64e290e8a52f7cade11349410e05be31ef",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_daily_credit_duration_term_supply_dynamics_healthy_catalog_v1.py",
+      "target_sha256": "57e93dca946b04c6d1ab6eec405ad3df834d745d18f98bb134ef1ded3947e18a"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_daily_credit_duration_term_supply_dynamics_v1.py",
+      "legacy_sha256": "2a46331e58e7c5ef92491b98bba0f76044d2a59ead981f927dbc7239b7066957",
+      "namespace_replacement_count": 0,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_daily_credit_duration_term_supply_dynamics_v1.py",
+      "target_sha256": "2a46331e58e7c5ef92491b98bba0f76044d2a59ead981f927dbc7239b7066957"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_daily_credit_duration_term_supply_dynamics_v2.py",
+      "legacy_sha256": "eae5d9d87dce17c1f7377fa5e659017c06743371db29fe943a57a8a31ffcaa76",
+      "namespace_replacement_count": 0,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_daily_credit_duration_term_supply_dynamics_v2.py",
+      "target_sha256": "eae5d9d87dce17c1f7377fa5e659017c06743371db29fe943a57a8a31ffcaa76"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_daily_debt_floor_wedge_dynamics_v1.py",
+      "legacy_sha256": "3ba712323a7a4c3aa69c03fde46847b855ab25ac1d4e55017ab952751df717df",
+      "namespace_replacement_count": 0,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_daily_debt_floor_wedge_dynamics_v1.py",
+      "target_sha256": "3ba712323a7a4c3aa69c03fde46847b855ab25ac1d4e55017ab952751df717df"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_daily_expansion_v1.py",
+      "legacy_sha256": "3dc311a0b60c44b1f9e407897e48ccde61b665af0458ed6259f41d88a29afe4f",
+      "namespace_replacement_count": 0,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_daily_expansion_v1.py",
+      "target_sha256": "3dc311a0b60c44b1f9e407897e48ccde61b665af0458ed6259f41d88a29afe4f"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_daily_incremental_v1.py",
+      "legacy_sha256": "8675e38d85e0b4eed73409ff99e847e5f0c329006047a0ce2c990efee741455c",
+      "namespace_replacement_count": 0,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_daily_incremental_v1.py",
+      "target_sha256": "8675e38d85e0b4eed73409ff99e847e5f0c329006047a0ce2c990efee741455c"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_daily_interday_topology_v1.py",
+      "legacy_sha256": "cfbf2768f28bca7d71536d066ee8b3dc3ddb023e401bff7ccc06acf6f23726ae",
+      "namespace_replacement_count": 0,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_daily_interday_topology_v1.py",
+      "target_sha256": "cfbf2768f28bca7d71536d066ee8b3dc3ddb023e401bff7ccc06acf6f23726ae"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_daily_liquidity_channel_composition_v1.py",
+      "legacy_sha256": "97fb8a44fbecb4a244ae2547d3fd86df31f7d20bd5eaf422f254383ac490e9b7",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_daily_liquidity_channel_composition_v1.py",
+      "target_sha256": "34ffc06d65421fc908147983287e170b7c45423338254b68efc5f3ebdbe851c2"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_daily_mark_barrier_dynamics_v1.py",
+      "legacy_sha256": "a9c3ac5a82583aa6bb368a66dfc56d02e0de9b458695f40507677f1709d72123",
+      "namespace_replacement_count": 0,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_daily_mark_barrier_dynamics_v1.py",
+      "target_sha256": "a9c3ac5a82583aa6bb368a66dfc56d02e0de9b458695f40507677f1709d72123"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_daily_observable_seasoning_v1.py",
+      "legacy_sha256": "7914cd9684b3cc25cbeb5cf651d6816b7a12d3780c3c7d44842ca83c1da3ba61",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_daily_observable_seasoning_v1.py",
+      "target_sha256": "ddbf3617ccc08162fb5b3d0269af48b80aba8d1f9388a2457395132151bb94c4"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_daily_ohlc_wick_path_asymmetry_v1.py",
+      "legacy_sha256": "93859fd3f74a9fea6169d96e0171af23cb9470434fb42fc5d74a6b6ee801fc14",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_daily_ohlc_wick_path_asymmetry_v1.py",
+      "target_sha256": "19db135d854909c66d2abdd15e29ba1ff58d8171b2ad02c5cae686c6996400fe"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_daily_orthogonal_batch_v1.py",
+      "legacy_sha256": "aa9d8cac20e9c1486991d1690b90de45eaa9d559cfd459ffea623b797f4d829e",
+      "namespace_replacement_count": 6,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_daily_orthogonal_batch_v1.py",
+      "target_sha256": "77a1d7f993033951b283b5d11408c07c5306e9261981500abaf491196486c187"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_daily_orthogonal_batch_v2.py",
+      "legacy_sha256": "f2db34ffada5d45b181610784c9baea5b1c4404256464de943f8ef4905553e4b",
+      "namespace_replacement_count": 3,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_daily_orthogonal_batch_v2.py",
+      "target_sha256": "6e4319fb05bd355085cba309e69ae4956bae254ac65828df4999a0b11264b9dc"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_daily_orthogonal_batch_v3.py",
+      "legacy_sha256": "dc374cfeab78289346303f45189ad4bbfbc1c9a9a097b77c269943903b2c7d3c",
+      "namespace_replacement_count": 3,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_daily_orthogonal_batch_v3.py",
+      "target_sha256": "d42b5ec4e0d4ce44aa377e27272e55109b5f3620b6bc57ea064045b5268180de"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_daily_orthogonal_batch_v4.py",
+      "legacy_sha256": "7e8b3fa6dc333fb446d252bb33557a312e68ab7a91220dcb02e381c29dfdf0d9",
+      "namespace_replacement_count": 3,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_daily_orthogonal_batch_v4.py",
+      "target_sha256": "1a45ab1beea1a3246b6b69fc507f048381d704ce574d5f5f8ed5e2cee4128777"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_daily_orthogonal_batch_v5.py",
+      "legacy_sha256": "bb561f40e3bc155cd124bc4ffff7b3c71f3a54ac1821b6239e0b4bb51a4fdafb",
+      "namespace_replacement_count": 3,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_daily_orthogonal_batch_v5.py",
+      "target_sha256": "89bdf649cdc94a907e9269202a497602b8623052605bb89b003c0685d77f0249"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_daily_orthogonal_batch_v6.py",
+      "legacy_sha256": "f76b94c3f472c3c4d5a598142db84ab88787a2ff99917dfc626348a03f14a092",
+      "namespace_replacement_count": 3,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_daily_orthogonal_batch_v6.py",
+      "target_sha256": "676f4159a31aefddd857700415be1ddce256a592421f248996e94e25d647207f"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_daily_orthogonal_batch_v7.py",
+      "legacy_sha256": "7f9991ea1930b2ef8331e5e7d65bb2e0cf5cddf045ba54035147f19c3ce07bf0",
+      "namespace_replacement_count": 3,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_daily_orthogonal_batch_v7.py",
+      "target_sha256": "058d4f172478d8813cd4761fc51c2fd94049dcd212de9f4dd4147074cea0e006"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_daily_orthogonal_batch_v8.py",
+      "legacy_sha256": "5a5dbafa6ee093e085067335943ffaccc4d40ba93dfdf0d5c1f862b73a8704d5",
+      "namespace_replacement_count": 3,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_daily_orthogonal_batch_v8.py",
+      "target_sha256": "0612a912bbf8e30b3ea513415bad93ad51f8e196f04060d798ee81b3a4ce802a"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_daily_price_base_relations_v1.py",
+      "legacy_sha256": "522d4bf5407036636fe0d4069e029c07591e88fa9a7d782b6abcbc3b89421e2c",
+      "namespace_replacement_count": 0,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_daily_price_base_relations_v1.py",
+      "target_sha256": "522d4bf5407036636fe0d4069e029c07591e88fa9a7d782b6abcbc3b89421e2c"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_daily_relative_rank_coupling_v1.py",
+      "legacy_sha256": "5f4c068f6d8ca6598b8fdfdba14e39d229e074fb23f9d7af0d9ec8dfb4a1fd63",
+      "namespace_replacement_count": 0,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_daily_relative_rank_coupling_v1.py",
+      "target_sha256": "5f4c068f6d8ca6598b8fdfdba14e39d229e074fb23f9d7af0d9ec8dfb4a1fd63"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_daily_relative_rank_flow_coupling_v2.py",
+      "legacy_sha256": "45228f432794e7b07deef63beb2ea22b8a6818c14d85e28863a9d692b5b03b50",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_daily_relative_rank_flow_coupling_v2.py",
+      "target_sha256": "863e1523876b6af00f81f527e251ce3ab872da1863efe95f721a29397cafadfe"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_daily_relative_rank_tail_contradiction_v1.py",
+      "legacy_sha256": "7765b92df6753b10c2684ef91413015b256e8d7d0ccdab2295e82480bf802332",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_daily_relative_rank_tail_contradiction_v1.py",
+      "target_sha256": "f7c7cd4747ea0be0b14c55925caf820a34a46c5d45fdc27bbbde65d9ae7ab9f8"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_daily_return_liquidity_dependence_v1.py",
+      "legacy_sha256": "cc42950e59ed9983f9e373844fca20490d7aa7162e61fc1ae3061e236826256e",
+      "namespace_replacement_count": 0,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_daily_return_liquidity_dependence_v1.py",
+      "target_sha256": "cc42950e59ed9983f9e373844fca20490d7aa7162e61fc1ae3061e236826256e"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_daily_return_liquidity_topology_v1.py",
+      "legacy_sha256": "089d8a9cd07fc15271dac2e10256e0e4810db08964e79d29e385a34f02f86072",
+      "namespace_replacement_count": 0,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_daily_return_liquidity_topology_v1.py",
+      "target_sha256": "089d8a9cd07fc15271dac2e10256e0e4810db08964e79d29e385a34f02f86072"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_daily_state_events_v1.py",
+      "legacy_sha256": "0c657697fb62d74d897bf434e0bb1d70bb2fe5c3a051d05d982cad938485f4ff",
+      "namespace_replacement_count": 0,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_daily_state_events_v1.py",
+      "target_sha256": "0c657697fb62d74d897bf434e0bb1d70bb2fe5c3a051d05d982cad938485f4ff"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_daily_twap_microsegments_v1.py",
+      "legacy_sha256": "33d40d68b50427bb813fd61c94c8878dcb0c5eadb228adfac3a1662e8c76e333",
+      "namespace_replacement_count": 0,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_daily_twap_microsegments_v1.py",
+      "target_sha256": "33d40d68b50427bb813fd61c94c8878dcb0c5eadb228adfac3a1662e8c76e333"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_daily_twap_microstructure_v1.py",
+      "legacy_sha256": "b13092be8fa54cc323484744e7da05859b1a97eeb35a522db6ca7a0c4a30e0c2",
+      "namespace_replacement_count": 0,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_daily_twap_microstructure_v1.py",
+      "target_sha256": "b13092be8fa54cc323484744e7da05859b1a97eeb35a522db6ca7a0c4a30e0c2"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_expansion_intraday_v1.py",
+      "legacy_sha256": "df31a56aa0515e80c7db3cf4b36a0c18c8f9d4f9ce25f3e1d31e982558396f44",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_expansion_intraday_v1.py",
+      "target_sha256": "61982bae1ce3aa9b7cf8e1a2623a21a88c2d6270036c0ee5cf0df471228cf5fb"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_historical_execution_to_open_transition_state_v1.py",
+      "legacy_sha256": "9754df8eec77bd8db712ddc2b85c568817458261e06d6d7808dd0150f108947f",
+      "namespace_replacement_count": 0,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_historical_execution_to_open_transition_state_v1.py",
+      "target_sha256": "9754df8eec77bd8db712ddc2b85c568817458261e06d6d7808dd0150f108947f"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_incremental_flow_geometry_v1.py",
+      "legacy_sha256": "b3f3f9ba66d87e7542bcace5e8a955645c3984194f86baa29e3a1aeb61c6bb13",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_incremental_flow_geometry_v1.py",
+      "target_sha256": "3d7891c8013115a3e70d39cf9e0ca13f5fd2b6bb28df5aa86b6f24322cbf91f6"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_intraday_combined_v1.py",
+      "legacy_sha256": "0530e006f7cc7b7ddca971b7ac490c89652b5d63bfb844f166a8ca9d00c332e7",
+      "namespace_replacement_count": 2,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_intraday_combined_v1.py",
+      "target_sha256": "1b2db8913de6fb5703dafaf33e6deea4eed6949531616504ca2892d620491f7c"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_intraday_conversion_parity_dynamics_v1.py",
+      "legacy_sha256": "f16673c23bb06b6efd8c2a7f23afa821bd16865e7b9784a7d5dd59fe7e5ac685",
+      "namespace_replacement_count": 0,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_intraday_conversion_parity_dynamics_v1.py",
+      "target_sha256": "f16673c23bb06b6efd8c2a7f23afa821bd16865e7b9784a7d5dd59fe7e5ac685"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_intraday_cross_section_residual_v1.py",
+      "legacy_sha256": "8b1aa78bd7ea7b5f1fc9e31f871d7a2bc46f296dfa0faddf88c695d0fab5dcf7",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_intraday_cross_section_residual_v1.py",
+      "target_sha256": "570451992274c833360dffdca77f7a797c40aa5104c08033ce5775814781f945"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_intraday_depth_dominance_topology_v1.py",
+      "legacy_sha256": "17db3f5a4d2a27611433957aabbf77c2563251d88272cd48f40dd9148484671c",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_intraday_depth_dominance_topology_v1.py",
+      "target_sha256": "367f8cfa9b43db49abed5708b40ff7c3defd4570144e23e4bb728adf81bce73c"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_intraday_execution_discreteness_v1.py",
+      "legacy_sha256": "13d7b34a1f77248d4f2ee04f8988e90867e24db1ec74909533064e215e3292ea",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_intraday_execution_discreteness_v1.py",
+      "target_sha256": "f18f0679b771cb3f655a372dd3c68b33942ad7577242dca1d03478f1232436b4"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_intraday_information_clock_geometry_v1.py",
+      "legacy_sha256": "a096d12d620634f58ccf96f8c438fb63e344a76023821d8f709231f3a8ab755c",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_intraday_information_clock_geometry_v1.py",
+      "target_sha256": "c3de662d1c32f0089b24785d0e3315852bed75866893a729eb82529dc49f1916"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_intraday_joint_state_v1.py",
+      "legacy_sha256": "b4cff5e02f17d6554f8ef7158cc90d5f757716d60951fbf6e67750aaff23e724",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_intraday_joint_state_v1.py",
+      "target_sha256": "18725542a57740f1e4697af9909291e861a38f4a4781d672995dbade8259252a"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_intraday_lunch_reopen_dynamics_v1.py",
+      "legacy_sha256": "8be8412c6da01df0babe54fe752c3900890f59a672c65fe625c622d164c1672e",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_intraday_lunch_reopen_dynamics_v1.py",
+      "target_sha256": "7c048e774a48d63a90d7c00ed5e1c45d46e078695545b5dcd1fa83fc5c1bf462"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_intraday_microstructure_v2.py",
+      "legacy_sha256": "0aba5b0f4cfa793f1f2bb66fdd67480a3b18a580f096c430c9ad3f5d43bb8803",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_intraday_microstructure_v2.py",
+      "target_sha256": "c00f75da43af637c0c3b9b733d0f2d96bed92cc60bb971e60e06b17e04e1f60e"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_intraday_queue_state_healthy_catalog_v1.py",
+      "legacy_sha256": "c3ce445c4b65280c3359d6b55d33b05e635f614c16239acdd1e0cb0eb1a043fc",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_intraday_queue_state_healthy_catalog_v1.py",
+      "target_sha256": "c3696d525807851953662616014fff143363955adb70b36db2daffeec6e09133"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_intraday_queue_state_v1.py",
+      "legacy_sha256": "9cd06fadebd1c0403eee40f53ccdebb54c26c68e262767fff56d3b7fd255bc73",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_intraday_queue_state_v1.py",
+      "target_sha256": "2819216fa17f747a27e5a867f0f4e588f35bce956bdc7dfa2aa00eafbfd45ea3"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_intraday_state_gated_microstructure_healthy_catalog_v1.py",
+      "legacy_sha256": "6f0719623cbcfb439939d0c19520ccbac02d5d14d44037699a7444cb3e6e2dbe",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_intraday_state_gated_microstructure_healthy_catalog_v1.py",
+      "target_sha256": "2fcdd622886a88d64f8256cc0624cfcec7e1eff79c7b63529e0ba65d77c44782"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_intraday_state_gated_microstructure_v1.py",
+      "legacy_sha256": "3bfbf18c9c0ca52e073259aac040fc2f51f3f903fc94adce3f4a26ef4d17d7b9",
+      "namespace_replacement_count": 0,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_intraday_state_gated_microstructure_v1.py",
+      "target_sha256": "3bfbf18c9c0ca52e073259aac040fc2f51f3f903fc94adce3f4a26ef4d17d7b9"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_intraday_state_interaction_v1.py",
+      "legacy_sha256": "e68414bda14597b5d15cf47fe8894adfdb541becd0aa3b32bd52d89dab93dd33",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_intraday_state_interaction_v1.py",
+      "target_sha256": "8be8a9bdc056bc401059a4333874f329b0ce7ad101ccb1a0132dccab9bbd9480"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_intraday_temporal_shape_v1.py",
+      "legacy_sha256": "3adfb9214094ad28c9eff08b690148539694b65f387fa492564fc03312b67efe",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_intraday_temporal_shape_v1.py",
+      "target_sha256": "2bb351c15bbd2e8952a6451741bbc04f600dc5ab2664c1bef7628d577eae87f1"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_intraday_trade_grid_topology_v1.py",
+      "legacy_sha256": "e4716ee2cc9798eba852b9548e8e4a38779a47a8e35fd69201298776e42e1b2f",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_intraday_trade_grid_topology_v1.py",
+      "target_sha256": "57fe2f067385a146828774652f75d4da80a09cac5af62cebf6cbc94dbb580bcb"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_intraday_transmission_response_v1.py",
+      "legacy_sha256": "d879adb62455133748c51e59508bcfdfefdcbdc99237fd2777ff868ff45cbcb2",
+      "namespace_replacement_count": 0,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_intraday_transmission_response_v1.py",
+      "target_sha256": "d879adb62455133748c51e59508bcfdfefdcbdc99237fd2777ff868ff45cbcb2"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_intraday_trigger_state_response_v1.py",
+      "legacy_sha256": "29164ea2f2032ffd420777bc8758a6be7e662dc890db4dadd7b949c611fe3088",
+      "namespace_replacement_count": 0,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_intraday_trigger_state_response_v1.py",
+      "target_sha256": "29164ea2f2032ffd420777bc8758a6be7e662dc890db4dadd7b949c611fe3088"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_limit_pressure_temporal_topology_v1.py",
+      "legacy_sha256": "ccca874918d5fc2d6c5f423db4919a0b8928708b5d87000a367a57d13907ab59",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_limit_pressure_temporal_topology_v1.py",
+      "target_sha256": "c498603c4056353d94777a03871e4a643d36956aa39673e2889a795b24a3bb6c"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_orderbook_repricing_v1.py",
+      "legacy_sha256": "32a0ebd535be3b1e4121ede9c569572b6678b8daa2dd4bbaa85f64773653817e",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_orderbook_repricing_v1.py",
+      "target_sha256": "d24776118a31287d0330007b23505d473f8985a202a09b338973356e05593621"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_path_transform_v1.py",
+      "legacy_sha256": "057f3d44f8f4f0ee7904fec5202f6f474a734ce35373b50389c83aca7b01d965",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_path_transform_v1.py",
+      "target_sha256": "76cbcff1f12b257928c2bbcea2b36fa2a625b9d591044c8998be6b8aab7ea24e"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_quote_execution_dynamics_v1.py",
+      "legacy_sha256": "6e5bb2f0454295badae6814e07cd5bb329c4ceb260faf9171dfc7e69b84afb07",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_quote_execution_dynamics_v1.py",
+      "target_sha256": "75adf422d18f2d10451aaec809200ca103d57497426ae667bd5d10e302fb07a6"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_quote_geometry_microprice_v1.py",
+      "legacy_sha256": "eb86fe28b071482b400d9ff27fd6d529b1ffc16fe5443e6150bf8cfb30d8f8bc",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_quote_geometry_microprice_v1.py",
+      "target_sha256": "5fcc9092fe7eb810a5d248d73ba54c32f53e9dfc72b3c90931aa65dbc922de13"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_structural_neighborhood_v1.py",
+      "legacy_sha256": "be4ae6e3bd5f652fecb9934ac9de64a711fd76d833c77d92178b45964e9b7656",
+      "namespace_replacement_count": 0,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_structural_neighborhood_v1.py",
+      "target_sha256": "be4ae6e3bd5f652fecb9934ac9de64a711fd76d833c77d92178b45964e9b7656"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_underlying_cohort_distribution_v1.py",
+      "legacy_sha256": "2e626080c7d095126784d9314e22a5aa2a84dd52220f062538486da3e4c8bd8c",
+      "namespace_replacement_count": 0,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_underlying_cohort_distribution_v1.py",
+      "target_sha256": "2e626080c7d095126784d9314e22a5aa2a84dd52220f062538486da3e4c8bd8c"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_underlying_cohort_intraday_rank_state_v1.py",
+      "legacy_sha256": "529b41d671f36f47225a889db9c286060b2f7f3c86d7dc252b8dcb512c8080e5",
+      "namespace_replacement_count": 0,
+      "target_path": "cbond_on/domain/factors/operators/research_factor_mining_underlying_cohort_intraday_rank_state_v1.py",
+      "target_sha256": "529b41d671f36f47225a889db9c286060b2f7f3c86d7dc252b8dcb512c8080e5"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/ret_open_to_time.py",
+      "legacy_sha256": "b6a72c7b93a84367180fbc08ed02f86e68c96ff8114a09408b73f60d88d83774",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/ret_open_to_time.py",
+      "target_sha256": "d86cadd0a0a9768245480381df5e7cd1ec4a6a106028ecfe1fce65184d380b88"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/ret_window.py",
+      "legacy_sha256": "9fb34268a4aa5f34dc258851d7dea0dec13cfd950a11bab533b4b2eb07bd243c",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/ret_window.py",
+      "target_sha256": "8564e464b0afb2f6d8fa0458327d2194c3bdc24fa88754a4fc1ea3d6754a8a1f"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/return_skew.py",
+      "legacy_sha256": "5928bda48d7e6de49ae5bf9bb0fe42277626c5bbf5080522de60e168bf7acc1a",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/return_skew.py",
+      "target_sha256": "781347e767ae1e33c934b91d120638330f3c11d6730afdbbbbc79d76e8403b56"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/spread.py",
+      "legacy_sha256": "5b2dd328cb547661f8e5b8a086296d86ef9a6d8993cde228e74eb51741928045",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/spread.py",
+      "target_sha256": "79130d541b49d72ba7669d93f6dccbc56d745d99a652e3e10e8a2698ea2bbbb8"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/spread_depth_pressure_v1.py",
+      "legacy_sha256": "bd5a0d810f38749921955c70e58944e98e42a0992a9c4dc3ee62cf8550034ff2",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/spread_depth_pressure_v1.py",
+      "target_sha256": "69f73dfe17870d2e90fb71cdfdd51d95d1c570ef1670b156636e7be5b864b4a9"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/stock_bond_momentum_gap_v1.py",
+      "legacy_sha256": "54f28313ac287e356a65bd8e277f84f7bc81d6869d9b1c2b75972b76c6f25a20",
+      "namespace_replacement_count": 2,
+      "target_path": "cbond_on/domain/factors/operators/stock_bond_momentum_gap_v1.py",
+      "target_sha256": "0af492cf6cd4bcb3c6c5df193f87c2c19c72144112abf232432e9c8c21c5a724"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_amount_accel_30m_v1.py",
+      "legacy_sha256": "254ba12f5daf2099f7bddb5618cac9ae0c5fdaf3192551f6697ea5795b9d2bcf",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_amount_accel_30m_v1.py",
+      "target_sha256": "66c724a3c167a5f5c15810735c8b1144696e07f5e96ce911370467564abb396d"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_amount_accel_depth_delta_v2.py",
+      "legacy_sha256": "fa935ead9f96635525a52652f8f10d2de5f3a56a4be84f96bb40da6f77c8e540",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_amount_accel_depth_delta_v2.py",
+      "target_sha256": "00b5ae320b0c4b1524cb86af84d7e6713328aac12b6701ed6772786c9e5f0869"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_amount_intensity_v1.py",
+      "legacy_sha256": "0090e4bb3267d36a78bec1e0e594ecc54c74475c0d82b8b36fc767e24fa928b8",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_amount_intensity_v1.py",
+      "target_sha256": "75e495b542703a31bbdad7699a879aaa2cef7bc5ab707c0a791520c4aa37be15"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_amount_vol_ratio_v1.py",
+      "legacy_sha256": "134189959421fdb0318ea890b22d1e1931599bdff532de5d387414fd16c27972",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_amount_vol_ratio_v1.py",
+      "target_sha256": "f6a4f83f7dbe4b17e826e336dd6a255796ea0b3296a24fc842c2eec9fc31dcb7"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_bid_ask_imbalance_v1.py",
+      "legacy_sha256": "45650c520dcc4c077c5733dcd24492d82ed469fe1f6dd1264a3e1c88e5431682",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_bid_ask_imbalance_v1.py",
+      "target_sha256": "3ece41ece8e4c33f0bb8b8105b015bc052a80f4741258448b4a1db4c12632938"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_bid_ask_spread_v1.py",
+      "legacy_sha256": "23d260a024be8f1cdcd9f9c505e23a482d18c3994364e2d1cae0be7b1fcb232b",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_bid_ask_spread_v1.py",
+      "target_sha256": "003e7b3d34659d5bc607cd182c47fb2772ddf80d1342870a98e9faadc0d8a64a"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_close_position_v1.py",
+      "legacy_sha256": "bac710a314785bfbcb853c14cbaa12549d3d4d4e82fb99de7fe96e6a6fada76e",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_close_position_v1.py",
+      "target_sha256": "c907655df017597a7476c6b15b011452e2197dba59a758103aec04c54e319d46"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_close_range_position_v1.py",
+      "legacy_sha256": "a1322eb6cc3fc82469b49ff829938fba7ec48a030654cb1bf17b055e4cb2c20a",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_close_range_position_v1.py",
+      "target_sha256": "ea8c493528d411a7638f3fd62fafb63b7b50614e0d9c41f034ec3b7227c7dfdc"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_cumulative_volume_ratio_v1.py",
+      "legacy_sha256": "4f11fe2a713ad8a45fffd3df2d87122053eedab370f8e69176de0782c8f29301",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_cumulative_volume_ratio_v1.py",
+      "target_sha256": "0f7fba518db1fd9659f2851c00f08d6575ec9d27a25eae0f8030a8c1e775274d"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_depth_concentration_v1.py",
+      "legacy_sha256": "afd1c1920bd54c5b5ad23b07a20f2c576bd7601c0f7456e3b32aef034330ba78",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_depth_concentration_v1.py",
+      "target_sha256": "3cd4c216e9839f190fe153442e8ef33ca3ef6bd58d40ea039d9c684085a506f1"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_depth_imbalance_change_v1.py",
+      "legacy_sha256": "2981d7541799d555165162a7054f54474ca7729b51a86547b522b31f39e303d0",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_depth_imbalance_change_v1.py",
+      "target_sha256": "165d0924ee726b27a31bb121f40e0160528c03359b8aae72ea61f9d42830e47d"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_depth_pressure_return_v1.py",
+      "legacy_sha256": "410f84be835160384c250db0264d6cd4219716d06e5ebbf100e25817acea1355",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_depth_pressure_return_v1.py",
+      "target_sha256": "626fcc302448318f4147f38f2e56066dba3adb291728fecc80f30e9ddd591ebf"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_depth_weighted_mid_v1.py",
+      "legacy_sha256": "10bd8c6278ddd3be4797586ee97dc513a75683b072924d47f1d4cce4c1830490",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_depth_weighted_mid_v1.py",
+      "target_sha256": "1b4749b4c440041a1de63990948277881ee7ac026517aaf422ad07022b9442bf"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_last_return_30m_v1.py",
+      "legacy_sha256": "1fc581a16d18c524deb95998262469be2a9c5a4dcd3136419cfa0380c0f69366",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_last_return_30m_v1.py",
+      "target_sha256": "a88da61f2b62a684ad299556e3a31b9dc2124db091715b36b9550dd556ff6da5"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_liq_adj_spread_v1.py",
+      "legacy_sha256": "4bc976a5eb8f6043ccf4483aaa79b12cef3510c90134e7c48c5d0b1115a44d8d",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_liq_adj_spread_v1.py",
+      "target_sha256": "dac60c119bddf061e5ec221536ecb0a577ac5574f475d0878f29b08af1bf270b"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_micro_price_deviation_v1.py",
+      "legacy_sha256": "b26ebf8cd0cfa5ad9d3a3d13e0e201f9a6547ddd38a134fed51f000acc51bcdb",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_micro_price_deviation_v1.py",
+      "target_sha256": "c540a2f4a074a9100d0d6977a53ca7285bc56f0ca696d0a9f51787013cc7b5a1"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_microprice_imbalance_v1.py",
+      "legacy_sha256": "8eb597fb03be58fef2fe08cab8a48324e43c05b0dee4e264d8ebdb2e39b3a9d4",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_microprice_imbalance_v1.py",
+      "target_sha256": "2d299ad97c4c1885ad2acdfd8e90f253b9efc15bed10fdda51b5d738d2c97b78"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_microprice_last_gap_v1.py",
+      "legacy_sha256": "3a2aeb8dcea2f3d6f54ba0e4f6299b59b7325ab4bc93cdbdf88fef04e3838122",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_microprice_last_gap_v1.py",
+      "target_sha256": "3d459d5b9e9ebf512ebeb9aa13bd85f84afccbe4d147ea8178a956626b9e76b7"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_microprice_liquidity_v1.py",
+      "legacy_sha256": "074e1da31fd638d889210ea5efe89edc81cc4ba792e22501c67e082d0484d334",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_microprice_liquidity_v1.py",
+      "target_sha256": "a08a770a1a9e6fadfb98579035f108b36a4ba9c345daaf864a4b96adc871f8ab"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_microprice_mid_deviation_v1.py",
+      "legacy_sha256": "31bb3c7fddb0c88e6ed783273630148965a0686fec3bb3780c445b908cc0e444",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_microprice_mid_deviation_v1.py",
+      "target_sha256": "deeb0922e0e218235979490eb4e7ee7d187a0c13f631e5a4d6f4eb76450e740b"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_microprice_mid_spread_v1.py",
+      "legacy_sha256": "e06fbe39d85122b5c28e3eb5cfc7e890811a617828c29e96dd347850f030243c",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_microprice_mid_spread_v1.py",
+      "target_sha256": "2fa97cee282e2b0d22c18454845f75c6f3ff2ac15a41f92b779795408d6031f4"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_microprice_midpoint_dev_v1.py",
+      "legacy_sha256": "3c4b31270916c99332a70dc371495a51f96f46f45d1b566ed7fbf166465cb9e1",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_microprice_midpoint_dev_v1.py",
+      "target_sha256": "4ae69ddd165aa4a646aef4c4a807cbb2cdc16ad8c2bad2c92fbadd59b71ff167"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_mid_price_return_v1.py",
+      "legacy_sha256": "7f3d8263c1a14a512dc7b1ec67d964cd35c383c6896c6bb52e642d32848b3b55",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_mid_price_return_v1.py",
+      "target_sha256": "58fe4b11da438ed4500aa9f715b61c2bb368beacf1da9587b137cd76ea8242fc"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_mid_return_30m_v1.py",
+      "legacy_sha256": "5c19943c84ffb727438232c2950fcc41b85d0b4ce878c5144f679449d9c46da3",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_mid_return_30m_v1.py",
+      "target_sha256": "a8b209078b0351d0d6919e9f76519f61b515c94f5a2982ad516b8be4888cfb05"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_ob_imbalance_flow_v1.py",
+      "legacy_sha256": "78743842ec7ad4fab0b26469c71493727077a39a48ac0e55f6d8ece7e4797c17",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_ob_imbalance_flow_v1.py",
+      "target_sha256": "b71e052496f48d11cb03a1c050d611c6d4810c43d3eec2380ae1ea7f143e57eb"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_order_flow_imbalance_v1.py",
+      "legacy_sha256": "d45d85764dc936aa059358277c10828b9a441b5dc9cc05304eb4bee615e9a320",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_order_flow_imbalance_v1.py",
+      "target_sha256": "9fd92905d62baf885d25bebb1235cfc6a1296d494f89e49d71a0d34ed7898cbc"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_order_flow_toxicity_v1.py",
+      "legacy_sha256": "af78586cffa5561867bcc7e43b6a47c03ea74b817b5e50430f533dcb14bb3064",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_order_flow_toxicity_v1.py",
+      "target_sha256": "e37eeb08d1d03a23f5be9270a890bd70ebdbac2a6ea8423f559d35c860925a93"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_order_imbalance_v1.py",
+      "legacy_sha256": "21cfd21d7043199d775d52c1bf6cf3fe5880f3012288fab719ef99a0bc257c16",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_order_imbalance_v1.py",
+      "target_sha256": "7a7418d9dbb1a6a170f4a04f50595f4fa8c962734eefd31b1f37617fbf50ab0b"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_orderflow_imbalance_v1.py",
+      "legacy_sha256": "929a1d82e5e899428fc36bf4744d9d65e12a86a2911d9fce051a88e1c0c7a944",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_orderflow_imbalance_v1.py",
+      "target_sha256": "856acecf5c3cf66aaf380aba01ea3064ec862d7932fd80626b2db987255804e6"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_price_range_30m_v1.py",
+      "legacy_sha256": "28801de334b70bfe5aaa3451ca8d734b277ea22d50bfea7dcfc4c02db0e1f02f",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_price_range_30m_v1.py",
+      "target_sha256": "3653fb06a639e5f2fbb40c7cc519e7dd65ea591bceb45f403f36ad3bf00fddc3"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_price_range_depth_ratio_v1.py",
+      "legacy_sha256": "7be3a98376ed34b40171b65ed0b5e23973635847b49421f35af3a3d9419a3d70",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_price_range_depth_ratio_v1.py",
+      "target_sha256": "5d25309fd9f4b1da52aa5eaeb9d9a58ddb7b0b6cea094bc90612f8afe06dde9f"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_pv_interaction_v1.py",
+      "legacy_sha256": "2952d352a2d1a3ce02a6b04ef82e354daa23dbea64af0ec746dd11ffc43389c5",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_pv_interaction_v1.py",
+      "target_sha256": "1ca05c0a3f63682049cd48745817869a347888e32fad9341f49fd2cf0dd4dd44"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_pv_ratio_v1.py",
+      "legacy_sha256": "ba06af2f084c86b665836c59eb9efb13f9cb6f3f0f40bf74197a5ed0b72ea6bb",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_pv_ratio_v1.py",
+      "target_sha256": "cd5e09cee91044ebf725f66ccee0239b43d7bbc11969bf4e58dd158f1710d202"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_range_norm_volume_v1.py",
+      "legacy_sha256": "30a2624d8b0423406a93768ec139ec2c8953a360a127432460af0ca2e59925af",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_range_norm_volume_v1.py",
+      "target_sha256": "035054b57c36d424ca4601410c3c098b5eecb750bb8e1f398da5c0006b5427eb"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_range_vol_norm_v1.py",
+      "legacy_sha256": "da45142da06cb1f8a609d7488e3d141757f4868ff44c59bbf18ff4eab0a800ab",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_range_vol_norm_v1.py",
+      "target_sha256": "d48ee92dd3228c2083dc0e022adf907c91bb2ce44dd253919b7bf32a2f78126c"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_range_volume_norm_v1.py",
+      "legacy_sha256": "6962eed2f5242164b0619fb62ddd67e8f76be039f15f2dbddc1e18c5336130f1",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_range_volume_norm_v1.py",
+      "target_sha256": "3e1e729735639bf2b26418155411b19d499c904ecd3e60ae59328136e305e37d"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_range_volume_v1.py",
+      "legacy_sha256": "3fa96a794c82a3b47bede83060ce8e7679e92c888c9cd68db97dbe53b8d32b7a",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_range_volume_v1.py",
+      "target_sha256": "f6e552846e57a5bf9d1585619b61c23b7ca09d067d7537c7ecca4a04ee125d53"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_relative_bid_ask_strength_v1.py",
+      "legacy_sha256": "b7cfebee20ed62d04321fea244a25fb4f1294a02d26e7207b584a5260a5e9176",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_relative_bid_ask_strength_v1.py",
+      "target_sha256": "4f7cc89db2c10a13b4665efd451b51249859ebe0995ef0dae959e9d278a09968"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_relative_strength_v1.py",
+      "legacy_sha256": "c11a89ce018811b7495d5f4cdb381258da80a4641631f4c2b111f661882f0f73",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_relative_strength_v1.py",
+      "target_sha256": "971081a3102ba56d1e7f85662362722ee8f4d9ccb182faa85192ea34dfd929b7"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_relative_strength_vwap_v1.py",
+      "legacy_sha256": "3a2eb264fe303a8277959606d71117df8cb509ff65ae2a13b4159c07240359db",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_relative_strength_vwap_v1.py",
+      "target_sha256": "0f2b9cabb52b431cbcf9d3c9136d7b5c9b17bee463e74cb5a6fd3e854492d424"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_spread_change_30m_v1.py",
+      "legacy_sha256": "0d63df651a81e049c80ce5a618521ea10feab866e6b1393ad0c79f7471a5f8ae",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_spread_change_30m_v1.py",
+      "target_sha256": "282ae8ce0081e4436216f5652ef4a46f3a8f5229837aab56b367c7d73cb6955c"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_spread_liquidity_ratio_v1.py",
+      "legacy_sha256": "aed1c9fa7114961b314802a9a39b088c4a30bf061cd9020ecbcd956f2e38d880",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_spread_liquidity_ratio_v1.py",
+      "target_sha256": "7b25fb08e1d70f254492c23e95247925c2f333e6fa8444162a9f4d1d06142311"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_spread_mean_guarded_30m_v1.py",
+      "legacy_sha256": "00296f8b597369998c740bcb8a91a20a86008efed6d63c2974571a04a1c00f52",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_spread_mean_guarded_30m_v1.py",
+      "target_sha256": "4b258b613373068385da9a5139053edf0658a74d16808eaa8df6d57a8a9523b6"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_spread_volatility_ratio_v1.py",
+      "legacy_sha256": "25a9f0052b4e3354fa1a8165349e821be119549f554dbaa0c9f79b6179b41687",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_spread_volatility_ratio_v1.py",
+      "target_sha256": "a4c2ce7e27bbdd8930d30222324e6e5851dd207c02b6d6be65c282efa3865949"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_spread_width_norm_v1.py",
+      "legacy_sha256": "0b9b955817987151ad24a942db99240a07dbce00bee5386347cdda85346ce60a",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_spread_width_norm_v1.py",
+      "target_sha256": "521bd0b8cc553d9132e2d9b185cdc7f9d4ae7418853d26aeae06ee294336b075"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_tail_pressure_v1.py",
+      "legacy_sha256": "0837a941dbfe3e33ffd205b1f80c34923e782c4fa99bd501616208b1aa3fcdf1",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_tail_pressure_v1.py",
+      "target_sha256": "02d2a141f5090b19f02d69f5a3c9443e3adaf4ef0a50e7605e76a969bf1f3107"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_vol_turnover_ratio_v1.py",
+      "legacy_sha256": "c08dd9b6d32c2e010d032d21df880b53059c75acfe833d1c982d09fe65c178ca",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_vol_turnover_ratio_v1.py",
+      "target_sha256": "6d5aede2fcc0ffe98c75b1e4b8ea1a40c557033100558690a24fced9e4967e80"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_volatility_turnover_v1.py",
+      "legacy_sha256": "88ea19ed3a1677649563c675352c4553c5584c2324f859e8ab5721b5e3c13f7f",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_volatility_turnover_v1.py",
+      "target_sha256": "062ef30b163db964c85ff5c8b5f843a800fea4020324812119e07fac05908482"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_volume_acceleration_v1.py",
+      "legacy_sha256": "b068752f4448ca962989fbbd2e3c2f43a634680bf711aec6296f731edbdd91bb",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_volume_acceleration_v1.py",
+      "target_sha256": "3c38863f383983a78570ee0d6595811afb86446d4fd2e3c47ccad23c847a6316"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_volume_autocorrelation_v1.py",
+      "legacy_sha256": "9c1b35be13ce97637e4ac5140bc9155ade8205341bfb70169452cf9f00b72a49",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_volume_autocorrelation_v1.py",
+      "target_sha256": "007a48eeae6ba3818f407521dda347808d180db1f8d5ba18a53afdb79110eaf9"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_volume_concentration_gini_v1.py",
+      "legacy_sha256": "5b7073bbf42dec95d51bc01a66c0c763a82ba85584440f4391cb032bf5840126",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_volume_concentration_gini_v1.py",
+      "target_sha256": "ba5f16e400fbd6a5f7d3a8f9cf3721bf2b386eb3e9af3208181614f0f813d789"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_volume_concentration_hhi_v1.py",
+      "legacy_sha256": "94ada47747244c0984917e8e6141d5cc1f138da21a39fe2559a5c78bffe4576d",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_volume_concentration_hhi_v1.py",
+      "target_sha256": "ce723fc05467e8fae06a84d377a40641091291ad356e5bf162315e2f5d8ed975"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_volume_count_v1.py",
+      "legacy_sha256": "82a5de2f26ba8f3589933f0aa5b781caf25948e655d172aae40f0da799a1fb11",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_volume_count_v1.py",
+      "target_sha256": "fbc48c88e309ed94ea15396d8ef17dfae20aee7f6c0a89353e2286949c110c7e"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_volume_count_v2.py",
+      "legacy_sha256": "96a6840221d91f96bef775dd260b81f89201c3f034ee99dd67b316093a7f7561",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_volume_count_v2.py",
+      "target_sha256": "72e2469b2e8f793e311211cfc5bbf8cc3fd218e1f1705ba2e1371f48f61eec84"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_volume_count_v3.py",
+      "legacy_sha256": "975531084f541193a71b53d6639a0e2d0fb769393d8736b29785995c85d41a02",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_volume_count_v3.py",
+      "target_sha256": "945f9c9223a2b69b14e4e13e943f6fd030286bb64b9461cf38be62bb27a4e7b2"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_volume_cumsum_slope_v1.py",
+      "legacy_sha256": "fbfb8c3b032fd4df2d4c356d58a5cee3ec52e9bc5ff301f0a8635cdc76876361",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_volume_cumsum_slope_v1.py",
+      "target_sha256": "ffd176e043f94552a235a0f7527455dbcc25a65cbb4a5db808338ed5b01c8697"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_volume_cumsum_v1.py",
+      "legacy_sha256": "83589c32f7104f9fa0509ab493a61b46d4e4642b2a6b156ca6e9835909ccde4e",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_volume_cumsum_v1.py",
+      "target_sha256": "6a5b9c2fe06065c3f9ecd8c7dba7e3d2c588370813f4ae7a185663350be57b70"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_volume_cv_v1.py",
+      "legacy_sha256": "d9df1640f05053668a568c6d223d21691ee9f5a1b6a6e35f2e6311738c892238",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_volume_cv_v1.py",
+      "target_sha256": "16b079ac6ca87be04d0bf76a08f9fc0d6e741750194d2baf4c5352c58ecd124b"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_volume_entropy_v1.py",
+      "legacy_sha256": "3572a0d95b39cf32c25ff800df79253d7db46fc402a84002880a3b1217129e67",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_volume_entropy_v1.py",
+      "target_sha256": "46b31b457abe9da1627a0a8fbdadac52479eda58296d2c011bf109f053fbb506"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_volume_entropy_v2.py",
+      "legacy_sha256": "1fdf3b387d647a21abbc94e8ea5bc6ef58850fce83d693f840b980fcea846e41",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_volume_entropy_v2.py",
+      "target_sha256": "6d97a09d498bd4967144435fb68bce3baa5488769a8eac258641b92378f4e419"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_volume_gini_coefficient_v1.py",
+      "legacy_sha256": "30bd0b27744a8f0317aca2307d939e7a580520681eee3f9f7b8e6894709b7bce",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_volume_gini_coefficient_v1.py",
+      "target_sha256": "31cb11ef024ad3578f9ec5a9ca3f28f4d9ff6b104b81c60861e58c6ac0ac8e8c"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_volume_gini_simple_v1.py",
+      "legacy_sha256": "71d72f4a9e5a058c31f44b79cd242d426f341584b086c4bcae790798469bae92",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_volume_gini_simple_v1.py",
+      "target_sha256": "809b99fbb72b8f500ea85f8e24b1d476411fca991588c403ef4348bde9d2c220"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_volume_hhi_v1.py",
+      "legacy_sha256": "3ee5e41c247765ea9df27e846f4db4c9c5f24a3ad1a1d102df156df6a84144b8",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_volume_hhi_v1.py",
+      "target_sha256": "235f8be5a6d41275f1c600317aaacc699a68a9dfe29bf13a212b5debfca828d4"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_volume_hhi_v2.py",
+      "legacy_sha256": "a74ef61b869f18770c2b13b1072d6d64e57535af200f54fa98ec948ea4817e32",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_volume_hhi_v2.py",
+      "target_sha256": "da3fd7c9d56bf7299198a3d7266b51981774a43a4a873cfd1ebf863947c3e6d2"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_volume_kurtosis_v1.py",
+      "legacy_sha256": "ffa89d18c6ff3a58d3c00dc2fbe6de2df50df0a316fd587b470f245844a4eb50",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_volume_kurtosis_v1.py",
+      "target_sha256": "1cc4c52fa155cd22997a63c528f2e6db5ff0906edc56e380be1f749dcbf13ec4"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_volume_max_tick_v1.py",
+      "legacy_sha256": "0fa827d8f5f76bd480068fef3f2fa303f6de071abbe329428f946c9ee0cac014",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_volume_max_tick_v1.py",
+      "target_sha256": "8c7bce801e706b947a6653a9c551d7f13cfe992b6924a48c271007b51ef5fcdb"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_volume_max_v1.py",
+      "legacy_sha256": "f31200ef52f3b13abd6c4c63bb144cf4a657775d8ca3c3bc62d9f96a00ba3cbf",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_volume_max_v1.py",
+      "target_sha256": "61e61c3662f54356d2d0d221e694a8ac8de3bb1bcae44a8887cc1fea636d3af0"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_volume_max_v2.py",
+      "legacy_sha256": "410641bf2c8ef7787487f25c7dfafbf90702dac8267a19d76fa9bed47afb0b05",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_volume_max_v2.py",
+      "target_sha256": "7a7da48c6e47d6e76a4f3985de1cf5a0e68553cbe5febaa4caf0e87b37427241"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_volume_mean_v1.py",
+      "legacy_sha256": "43d810395e43be99c53ea0f929dd1ef75ed3b04a46b0446e5d325793aeb665a2",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_volume_mean_v1.py",
+      "target_sha256": "757ef5b452a01b8ff7b4c5786d5c73d148da5693ffeb22a40e5e1ffcddd0f141"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_volume_mean_v2.py",
+      "legacy_sha256": "f7863c210277ce757e02813538408d15247622ba450ee7162468517c9c34649f",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_volume_mean_v2.py",
+      "target_sha256": "2146244934329160a86cda83481c97fc042697b67c5bf3c159a2d2a738cbe26c"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_volume_min_v1.py",
+      "legacy_sha256": "98aa709b4f3afd85706fc4e42fe22bc6e3f4a0a94aab42229edbb3e60abbf3b3",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_volume_min_v1.py",
+      "target_sha256": "1e561ec4b8c75cdbd18601ae414ec165422425beae7a6fa8daa7eabba7de1a59"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_volume_min_v2.py",
+      "legacy_sha256": "fe0ab852b36cb7005149bbb38fb8c911b588fde52492c5c484ba829c07ad1714",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_volume_min_v2.py",
+      "target_sha256": "458994a6fa24c837f8910bb8955646251f9e5106dd01e153fcdfb9b66e08417a"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_volume_moment_v1.py",
+      "legacy_sha256": "dc1d7c2f9f38b13efd68228fc350b6133ae905235624c3522d9382318feb763c",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_volume_moment_v1.py",
+      "target_sha256": "cf377981e0fbc7851681721b51d4555c751e3bda1676a52ac8412e6956cbff45"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_volume_momentum_v1.py",
+      "legacy_sha256": "39d592b3e7c1716e363e0128907eaaeb4e32ca5e8fdbc2cb1941fedb62f32ecd",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_volume_momentum_v1.py",
+      "target_sha256": "dd35a1040b18dd1c567bdc258d4bad7a4ef392d0ce6b8e9e4f9cb8f7bab49f9d"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_volume_range_v1.py",
+      "legacy_sha256": "cb54c95078b3184ae4b46a40a58c99c5697e9c254458846e1f3bb2a388a2049c",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_volume_range_v1.py",
+      "target_sha256": "c92c5b96c0ed96d144c5f663eac96b3add4d6347021e5e58e09f369769780f1c"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_volume_recent_share_v1.py",
+      "legacy_sha256": "0a6716411124ed7573f03b3a69405a3be4d430edfe0b36c0fe314680fe679083",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_volume_recent_share_v1.py",
+      "target_sha256": "3d97737e047055adccf4eb98707a6723ae53ba988e82d814ecbbbd1bde8de9a9"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_volume_skewness_v1.py",
+      "legacy_sha256": "d2b7e9d6eb05546a9a6eb5fe30c028a4be47ffcbb849b96478ca32a755dbe9fb",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_volume_skewness_v1.py",
+      "target_sha256": "f9fc295ba83d395d9f922ee062c807c01435ea750500ee80d29450d4e0c39cd9"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_volume_std_dev_v1.py",
+      "legacy_sha256": "cb97b7c04d1ec861c30b4790e229039e9479ee130fca004bce26e2877ae2554b",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_volume_std_dev_v1.py",
+      "target_sha256": "ccba7fa22c17a591792235ea3ddc7aa6e86fe0d5b0c793a7c8232941f7dea130"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_volume_std_dev_v2.py",
+      "legacy_sha256": "db43e9322a5915ac51da8956985baa13d4f7fc2291e14e18bbebd1fe9e4c4c77",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_volume_std_dev_v2.py",
+      "target_sha256": "85d5bdf4ccd20bfd72beb54b4be2c7164f2aa09862becf91e0e5d4b537d24929"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_volume_sum_v1.py",
+      "legacy_sha256": "5c82e67ad7b0ecf77c6073ab87fd995a5cd46a1bffdb7eeea047b7405726e8a4",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_volume_sum_v1.py",
+      "target_sha256": "630d26c1b201bbb9b9782b42e63205e2b722fc30892be1e78fd0e3ae1ea4b98f"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_volume_weighted_avg_size_v1.py",
+      "legacy_sha256": "677b99a535c33fe4362b11af57aa94959b3c96077d6b5f4f45ec0012ce934ea3",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_volume_weighted_avg_size_v1.py",
+      "target_sha256": "116b83d44ac7b0846123a204aaa36ff5cad594d3f1d1a62a2854622b891f6aff"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_volume_weighted_mid_v1.py",
+      "legacy_sha256": "3f78006ebadd57bd3a9948c856d73826812329d9b76c94a5678c50a58382c442",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_volume_weighted_mid_v1.py",
+      "target_sha256": "7dd0be0093d620a4f329012942726629bb98bfdf813366b853edd0e39b8926da"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_volume_weighted_price_deviation_v1.py",
+      "legacy_sha256": "41f0b29bed614c6f1af38485b1e092a848917a0d7ee5747781677e68800887a0",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_volume_weighted_price_deviation_v1.py",
+      "target_sha256": "879a758d804f7df405ebb57817e3ba130de810cb3abaf4f6d2f7286b6d61deba"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_volume_weighted_time_center_v1.py",
+      "legacy_sha256": "fddeeffddbf9725c4d19c5419d6626cfd362730219d343213370dd90541472f8",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_volume_weighted_time_center_v1.py",
+      "target_sha256": "123fcf9f7110750980167c189f436d93d8f207c6a11752dc76ee10658738dfc7"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_vwap_deviation_v1.py",
+      "legacy_sha256": "6a4405adc9d3995d558a4ec471bb33afe7ee2c009a11cdc57be8403f2d1fdd3a",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_vwap_deviation_v1.py",
+      "target_sha256": "839eeb94cce66ae314f6d123677e11b0582b5bcccf597f3fbb2e71ffbe2a4c83"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/t1430_window_vwap_last_gap_v1.py",
+      "legacy_sha256": "ad9006070e739f845d8460fdb2e2b2b3e8a23d0fb6bb7fc0f67aa061e2cc70a1",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/t1430_window_vwap_last_gap_v1.py",
+      "target_sha256": "4a8af40bb0a32d8732c0d438ce8bcc6cd5ca45da610686822564e010e0120604"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/tail_path_efficiency_5m_v1.py",
+      "legacy_sha256": "01816d543228f2171cab1999ce933407b9b23eceb5eaaf426ed4e59cb568ee2b",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/tail_path_efficiency_5m_v1.py",
+      "target_sha256": "149579354bd5359250ade5ecb303164c63a66ff4c23b85829c2f62b93de9e618"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/tail_volume_absorption_v1.py",
+      "legacy_sha256": "82addf4cb084180fb8a91b3b434b0d0e64c3d5db50fd194a0aadf22731ef7bc1",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/tail_volume_absorption_v1.py",
+      "target_sha256": "fd033bc7e16999a5541ee801bdb7535a92e7f88d08131619c110775e6c1ce893"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/trade_intensity_v1.py",
+      "legacy_sha256": "51236d782fae38daab52900262cefbb289644b0e6bef49dda7b5faca557d70a8",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/trade_intensity_v1.py",
+      "target_sha256": "130950619e3170bfa820b4b3b283d308eb13714f50a13f6c04e9e7525f56a0e5"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/turnover_rate.py",
+      "legacy_sha256": "bda09af2283f644819013bf2f73fa43d86c0d6f305d15288cc7240dc8e848465",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/turnover_rate.py",
+      "target_sha256": "6babbefa1113335ee1fba79d090b54410a1d6abb8ba72cc925fba2f16ef090f2"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/volatility.py",
+      "legacy_sha256": "3cd22f611b90fc1de2d98cf2b691257213ab8c66119c758cb3729dab6ba6b6c1",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/volatility.py",
+      "target_sha256": "a9b534652b072e4e745420cde8f2c16c4038c145455f280d93a8df656ec089e6"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/volatility_scaled_return_v1.py",
+      "legacy_sha256": "f99e9bd3cca586fa8d53031bb8c9307e1590290df725e21d6c4d72a036072fe2",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/volatility_scaled_return_v1.py",
+      "target_sha256": "66385009c2714f85bdd95c4fb18e4f6b30b04f51ab3a9d9bff6f44e125f06dd7"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/volen.py",
+      "legacy_sha256": "4227b35ac68e9b9f0371f04b39000fcf4e2f719fb4829f51eda8cf31b6a85dd6",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/volen.py",
+      "target_sha256": "e40e799d1756068a6fea5358a058cbfe27347d9e3761b39c8188b47956ee3545"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/volume_imbalance.py",
+      "legacy_sha256": "fcfe431a3d6f61db9842018ac4973ff1c9ddd895d472f10f960ce58868cc2f77",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/volume_imbalance.py",
+      "target_sha256": "e94fb77e2a1d58276e8bfd0fef65ab7cfb7698a3693089dd036ad22264fe861c"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/volume_price_trend_v1.py",
+      "legacy_sha256": "59640bd5dae7885d029b569dd60efdb70b5abbdac121454fee446cf380047510",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/volume_price_trend_v1.py",
+      "target_sha256": "1220f5ecaad2774309327bde783606b83c9f5f4ecd45317b464059ac01de95b4"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/volume_sum.py",
+      "legacy_sha256": "5cc6b8889b47d64b54577ef97bebad3730760da7ea2cd1ebe27b4af81e4ed075",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/volume_sum.py",
+      "target_sha256": "da35c90620bd14003682808ce04a24db10da8b456bec186fbcebb2ffe4cca40a"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/vwap.py",
+      "legacy_sha256": "136b3de2361d4a14294b55109a7f31abd2b88b5a2276c4c1a7ae332ef45ae45a",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/vwap.py",
+      "target_sha256": "f7eff67110ac41434436b673c4f07361fcd9dbb92e176e7eea7c01b3c407df47"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/vwap_deviation_liquidity_cond_v1.py",
+      "legacy_sha256": "0e58d11413af370e9dd1626ce018dd7089e1d249f9c05875d4b1b96fbb401658",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/vwap_deviation_liquidity_cond_v1.py",
+      "target_sha256": "e3a410297c7301f9517a3239d87b395066a981e4eaa18bcad3f2b4a50984f769"
+    },
+    {
+      "legacy_path": "cbond_on/domain/factors/defs/vwap_gap.py",
+      "legacy_sha256": "f9561d77fac2dcd9923c369e9d4d6ea9b6394deb43eb8204eba50fc900075ed5",
+      "namespace_replacement_count": 1,
+      "target_path": "cbond_on/domain/factors/operators/vwap_gap.py",
+      "target_sha256": "c50a2637e0bc424839191437d81d95eb97b25a312b6a4b447850363aad0b77a6"
+    }
+  ],
+  "legacy_source_root": "cbond_on/domain/factors/defs",
+  "migration_kind": "completed_namespace_relocation_without_formula_change",
+  "new_module_prefix": "cbond_on.domain.factors.operators",
+  "old_module_prefix": "cbond_on.domain.factors.defs",
+  "schema_version": "operator_source_migration/v1",
+  "source_file_count": 290,
+  "target_source_root": "cbond_on/domain/factors/operators"
+}

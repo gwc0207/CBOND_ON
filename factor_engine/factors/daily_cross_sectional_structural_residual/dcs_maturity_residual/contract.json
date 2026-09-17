@@ -1,0 +1,84 @@
+{
+  "context_requirements": {
+    "daily": [
+      {
+        "columns": [
+          "exchange_code",
+          "bond_prem_ratio",
+          "ytm",
+          "current_yield",
+          "duration",
+          "convexity",
+          "remain_size",
+          "turnover_rate",
+          "year_to_mat"
+        ],
+        "lookback_days": 65,
+        "source": "market_cbond.daily_base"
+      }
+    ],
+    "panel_field_schema_status": "operator_declared_pending_factor_minimal_audit",
+    "panel_fields": [],
+    "panel_name": "T1430",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "contract_hash": "9285fd3c8c3d9bb762c9c19c3d156528395fe01a8694331e2dc37aedf1166fb7",
+  "definition": {
+    "kind": "parameterized_operator_definition",
+    "path": "factors/daily_cross_sectional_structural_residual/dcs_maturity_residual/definition.py",
+    "sha256": "f0677e3eeb4287244401bd3a8d5028074a2ad9739707564b3d18567ba4abe0ae"
+  },
+  "fixed_params": {
+    "family": "daily_cross_sectional_structural_residual",
+    "signal": "dcs_maturity_residual"
+  },
+  "identity": {
+    "factor_id": "dcs_maturity_residual",
+    "factor_version": "catalog-20260826-3dc311a0b60c-303d13d5acda",
+    "primary_family": "daily_cross_sectional_structural_residual",
+    "tags": []
+  },
+  "lifecycle": {
+    "catalog_status": "registered",
+    "live_admission_status": "not_evaluated_by_catalog_builder",
+    "research_status": "legacy_mapping_discovered",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "operator_bindings": [
+    {
+      "implementation_module": "cbond_on.domain.factors.operators.research_factor_mining_daily_expansion_v1",
+      "implementation_path": "cbond_on/domain/factors/operators/research_factor_mining_daily_expansion_v1.py",
+      "implementation_sha256": "3dc311a0b60c44b1f9e407897e48ccde61b665af0458ed6259f41d88a29afe4f",
+      "language": "python_runtime_operator",
+      "legacy_implementation_path": "cbond_on/domain/factors/defs/research_factor_mining_daily_expansion_v1.py",
+      "legacy_implementation_sha256": "3dc311a0b60c44b1f9e407897e48ccde61b665af0458ed6259f41d88a29afe4f",
+      "operator_contract_path": "operators/factor_mining_daily_expansion_v1/contract.json",
+      "operator_id": "factor_mining_daily_expansion_v1",
+      "operator_version": "20260803_daily_expansion_v1",
+      "rust_contract_id": null
+    }
+  ],
+  "output": {
+    "column": "dcs_maturity_residual",
+    "dtype": "float64"
+  },
+  "schema_version": "factor_contract/v2",
+  "source_lineage": {
+    "hypothesis": "T-1 structural values are demeaned within the score-day output universe.",
+    "snapshot_id": "canonical_factor_catalog_20260826_800",
+    "source_position": 1,
+    "source_root": "D:/cbond_on/research_scratch/factor_mining_20260803_unified_v7_with_joint_merged_v1",
+    "source_set": "research773"
+  },
+  "test_reference": {
+    "behavioral_parity_status": "pending_baseline_replay",
+    "contract_test": "tests/test_factor_engine_governance.py::test_all_factor_definitions_and_contracts",
+    "operator_test": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+  },
+  "time_contract": {
+    "factor_time": "14:30",
+    "pit_validation_status": "operator_migration_pending_factor_pit_audit",
+    "research_label_time_reference": "14:42"
+  }
+}

@@ -7,10 +7,10 @@ import pandas as pd
 import pytest
 
 from cbond_on.core.registry import FactorRegistry
-from cbond_on.domain.factors import defs as factor_defs
+from cbond_on.domain.factors import operators as factor_operators
 from cbond_on.domain.factors.base import FactorComputeContext
 from cbond_on.domain.factors.builder import build_factor_frame
-from cbond_on.domain.factors.defs import research_factor_mining_orderbook_repricing_v1 as repricing
+from cbond_on.domain.factors.operators import research_factor_mining_orderbook_repricing_v1 as repricing
 from cbond_on.domain.factors.spec import FactorSpec
 
 
@@ -116,7 +116,7 @@ def test_catalogue_has_two_three_signal_reprice_families_and_registry() -> None:
     assert {entry.kernel for entry in entries} == {repricing.KERNEL_NAME}
     assert set(repricing.FORMULAS) == {entry.signal for entry in entries}
     assert FactorRegistry.get(repricing.KERNEL_NAME) is repricing.FactorMiningOrderbookRepricingV1
-    assert repricing.FactorMiningOrderbookRepricingV1.__name__ not in factor_defs.__all__
+    assert repricing.FactorMiningOrderbookRepricingV1.__name__ not in factor_operators.__all__
     assert repricing.FactorMiningOrderbookRepricingV1.daily_requirements() == []
 
 

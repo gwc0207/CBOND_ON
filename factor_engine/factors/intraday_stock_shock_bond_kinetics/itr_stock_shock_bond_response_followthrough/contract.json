@@ -1,0 +1,68 @@
+{
+  "context_requirements": {
+    "daily": [],
+    "panel_field_schema_status": "operator_declared_pending_factor_minimal_audit",
+    "panel_fields": [],
+    "panel_name": "T1430",
+    "requires_bond_stock_map": true,
+    "requires_stock_panel": true
+  },
+  "contract_hash": "242f034664dbc703a434f562fa08452f6b1929942b237cee15eb22f5cd36d47b",
+  "definition": {
+    "kind": "parameterized_operator_definition",
+    "path": "factors/intraday_stock_shock_bond_kinetics/itr_stock_shock_bond_response_followthrough/definition.py",
+    "sha256": "80c017f74c40137320b8d5c14565c84684dd0bcd0f36bc853e1ca2000e7f800b"
+  },
+  "fixed_params": {
+    "family": "intraday_stock_shock_bond_kinetics",
+    "signal": "itr_stock_shock_bond_response_followthrough"
+  },
+  "identity": {
+    "factor_id": "itr_stock_shock_bond_response_followthrough",
+    "factor_version": "catalog-20260826-d879adb62455-3623e1836c25",
+    "primary_family": "intraday_stock_shock_bond_kinetics",
+    "tags": []
+  },
+  "lifecycle": {
+    "catalog_status": "registered",
+    "live_admission_status": "not_evaluated_by_catalog_builder",
+    "research_status": "legacy_mapping_discovered",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "operator_bindings": [
+    {
+      "implementation_module": "cbond_on.domain.factors.operators.research_factor_mining_intraday_transmission_response_v1",
+      "implementation_path": "cbond_on/domain/factors/operators/research_factor_mining_intraday_transmission_response_v1.py",
+      "implementation_sha256": "d879adb62455133748c51e59508bcfdfefdcbdc99237fd2777ff868ff45cbcb2",
+      "language": "python_runtime_operator",
+      "legacy_implementation_path": "cbond_on/domain/factors/defs/research_factor_mining_intraday_transmission_response_v1.py",
+      "legacy_implementation_sha256": "d879adb62455133748c51e59508bcfdfefdcbdc99237fd2777ff868ff45cbcb2",
+      "operator_contract_path": "operators/factor_mining_intraday_transmission_response_v1/contract.json",
+      "operator_id": "factor_mining_intraday_transmission_response_v1",
+      "operator_version": "20260803_intraday_transmission_response_v1",
+      "rust_contract_id": null
+    }
+  ],
+  "output": {
+    "column": "itr_stock_shock_bond_response_followthrough",
+    "dtype": "float64"
+  },
+  "schema_version": "factor_contract/v2",
+  "source_lineage": {
+    "hypothesis": "For stock shock intervals only, bond response persistence and deferment are compared with the underlying stock's own next-bin path; activity-clock factors do not use price-response kinetics.",
+    "snapshot_id": "canonical_factor_catalog_20260826_800",
+    "source_position": 2,
+    "source_root": "D:/cbond_on/research_scratch/factor_mining_20260803_aggregate_catalog_v5_full/factor_data",
+    "source_set": "research773"
+  },
+  "test_reference": {
+    "behavioral_parity_status": "pending_baseline_replay",
+    "contract_test": "tests/test_factor_engine_governance.py::test_all_factor_definitions_and_contracts",
+    "operator_test": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+  },
+  "time_contract": {
+    "factor_time": "14:30",
+    "pit_validation_status": "operator_migration_pending_factor_pit_audit",
+    "research_label_time_reference": "14:42"
+  }
+}

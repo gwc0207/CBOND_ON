@@ -1,0 +1,42 @@
+{
+  "contract_hash": "33c1ce41d857248d40af7cb1c66e17270dd8847e061ff2fc27279d2cf714e116",
+  "definition": {
+    "kind": "runtime_operator_reference",
+    "path": "operators/depth_weighted_imbalance_v1/definition.py",
+    "sha256": "5a3ea906544c450a06593aaddf481d6c971a83c98466cd655319f2efeb8e6666"
+  },
+  "factor_instances": [
+    "depth_weighted_imbalance_v1"
+  ],
+  "identity": {
+    "operator_class": "DepthWeightedImbalanceV1Factor",
+    "operator_id": "depth_weighted_imbalance_v1",
+    "operator_version": "legacy-unversioned"
+  },
+  "implementation": {
+    "language": "python_runtime_operator",
+    "module": "cbond_on.domain.factors.operators.depth_weighted_imbalance_v1",
+    "path": "cbond_on/domain/factors/operators/depth_weighted_imbalance_v1.py",
+    "sha256": "76476f6f0ce94515b57583b9634bcffa74226efa436db64f6103c41ce261bdac"
+  },
+  "lifecycle": {
+    "operator_catalog_status": "registered",
+    "runtime_source_status": "migrated_pending_cutover",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "migration": {
+    "behavior_parity_status": "pending_baseline_replay",
+    "legacy_path": "cbond_on/domain/factors/defs/depth_weighted_imbalance_v1.py",
+    "legacy_sha256": "759a0f02d9588555c83b52b7590712ac0a3aae4b6c3782996f2846e910eadc9d",
+    "migration_kind": "namespace_relocation_without_formula_change"
+  },
+  "runtime_contract": {
+    "input_schema_status": "operator_declared_pending_field_audit",
+    "pit_validation_status": "operator_migration_pending_pit_audit",
+    "registration_key": "depth_weighted_imbalance_v1",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "schema_version": "operator_contract/v1",
+  "test_reference": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+}

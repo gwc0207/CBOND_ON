@@ -9,8 +9,8 @@
   workers: 1,
   factor_workers: 2,
   panel_source: {
-    // cached_panel reads D:/cbond_on/panel_data.
-    // clean_direct builds an in-memory panel from DataHub clean_data per factor day.
-    mode: "cached_panel",
+    // Normal factor construction builds a per-day in-memory T1430 panel from
+    // DataHub clean_data.  It never reads or writes D:/cbond_on/panel_data.
+    mode: "clean_direct",
   },
 }

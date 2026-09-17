@@ -7,10 +7,13 @@ import json
 from pathlib import Path
 from typing import Any, Sequence
 
+import pandas as pd
+
 from cbond_on.core.config import CONFIG_DIR, load_config_file, resolve_config_file_path
 from cbond_on.core.naming import make_window_label
 from cbond_on.core.trading_days import list_trading_days_from_raw
 from cbond_on.domain.factors.spec import FactorSpec, build_factor_col
+from cbond_on.infra.factors.factor_table_resolution import CanonicalFactorTableReader, build_factor_reader
 
 try:
     import pyarrow.parquet as pq
@@ -285,6 +288,27 @@ def cleanup_factor_store_columns(
     end: date,
     columns_to_remove: Sequence[str],
 ) -> dict[str, Any]:
+    resolved_dir = factor_dir.resolve(strict=False)
+    # A canonical table is immutable after its day manifest and .done marker
+    # have been published. This legacy helper remains for explicitly scoped
+    # migration/audit maintenance only; it must never mutate one of the three
+    # normal local factor tables.
+    for ancestor in (resolved_dir, *resolved_dir.parents):
+        manifest = ancestor / "table_manifest.json"
+        if manifest.is_file():
+            try:
+                payload = json.loads(manifest.read_text(encoding="utf-8"))
+            except Exception:
+                payload = None
+            if isinstance(payload, dict) and payload.get("table_id") in {
+                "live",
+                "experiment",
+                "factor_library",
+            }:
+                raise RuntimeError(
+                    "cleanup_factor_store_columns cannot mutate a canonical factor table; "
+                    "publish a new immutable contract/release instead"
+                )
     targets = {str(c).strip() for c in columns_to_remove if str(c).strip()}
     if not targets:
         return {
@@ -363,6 +387,51 @@ def scan_factor_day_coverage(
             "unexpected_factor_count": unexpected,
             "factor_file_exists": True,
             "factor_file": str(p),
+        }
+    return out
+
+
+def scan_factor_reader_day_coverage(
+    *,
+    factor_reader: Any,
+    expected_factor_cols: Sequence[str],
+    trading_days: Sequence[date],
+) -> dict[date, dict[str, Any]]:
+    """Inspect a FactorStore-shaped reader without bypassing canonical guards.
+
+    Dashboard and operations surfaces must not inspect a canonical parquet path
+    directly: that would ignore its manifest and ``.done`` visibility
+    contract. A legacy reader remains supported for compatibility, while a
+    canonical reader validates each published bundle through ``read_day``.
+    """
+
+    expected = {str(value) for value in expected_factor_cols}
+    total = len(expected)
+    out: dict[date, dict[str, Any]] = {}
+    for day in trading_days:
+        try:
+            frame = factor_reader.read_day(day)
+        except FileNotFoundError:
+            frame = pd.DataFrame()
+        if frame is None or frame.empty:
+            out[day] = {
+                "present_factor_count": 0,
+                "expected_factor_count": total,
+                "coverage_ratio": 0.0 if total > 0 else 1.0,
+                "unexpected_factor_count": 0,
+                "factor_file_exists": False,
+            }
+            continue
+        factor_cols = {str(column) for column in frame.columns if _is_factor_column(str(column))}
+        present = len(expected.intersection(factor_cols))
+        unexpected = len(factor_cols.difference(expected))
+        out[day] = {
+            "present_factor_count": present,
+            "expected_factor_count": total,
+            "coverage_ratio": (float(present) / float(total)) if total > 0 else 1.0,
+            "unexpected_factor_count": unexpected,
+            "factor_file_exists": True,
+            "factor_file": str(factor_reader.day_path(day)),
         }
     return out
 
@@ -472,6 +541,36 @@ def _summarize_day_column_stats(path: Path, factor_cols: set[str]) -> tuple[int,
     return total_rows, out
 
 
+def _summarize_frame_column_stats(
+    frame: pd.DataFrame,
+    factor_cols: set[str],
+) -> tuple[int, dict[str, dict[str, Any]]]:
+    """Summarize a manifest-validated factor frame without reopening parquet.
+
+    Canonical consumers receive a frame only after ``read_day`` has validated
+    its parquet hash, day manifest, and ``.done`` marker.  Reopening the path
+    for parquet metadata would bypass that guarantee, so quality scans use the
+    already validated frame instead.
+    """
+
+    total_rows = int(len(frame))
+    out: dict[str, dict[str, Any]] = {}
+    for col in factor_cols:
+        values = pd.to_numeric(frame[col], errors="coerce")
+        non_null = values.notna()
+        non_null_count = int(non_null.sum())
+        ratio = (float(non_null_count) / float(total_rows)) if total_rows > 0 else None
+        is_constant: bool | None = None
+        if non_null_count > 0:
+            is_constant = bool(values.loc[non_null].nunique(dropna=True) <= 1)
+        out[col] = {
+            "non_null_ratio": ratio,
+            "is_constant": is_constant,
+            "non_null_count": non_null_count,
+        }
+    return total_rows, out
+
+
 def run_factor_quality_scan(
     *,
     factor_cfg: dict[str, Any],
@@ -485,12 +584,15 @@ def run_factor_quality_scan(
 ) -> dict[str, Any]:
     panel_cfg = load_config_file("panel")
     label = resolve_factor_store_label(factor_cfg=factor_cfg, panel_cfg=panel_cfg)
-    factor_dir = Path(paths_cfg["factor_data_root"]) / "factors" / label
+    factor_reader: CanonicalFactorTableReader = build_factor_reader(
+        paths_cfg,
+        panel_name=label,
+        window_minutes=int(factor_cfg.get("window_minutes", 15)),
+    )
     expected_cols = expected_factor_columns_from_cfg(factor_cfg)
     expected_set = set(expected_cols)
 
     trading_days = list_trading_days_from_raw(Path(paths_cfg["raw_data_root"]), start, end)
-    day_to_path = _collect_factor_day_paths(factor_dir=factor_dir, start=start, end=end)
 
     stats = {c: _FactorAccum(missing_days=len(trading_days)) for c in expected_cols}
     unexpected_days: dict[str, int] = {}
@@ -499,8 +601,9 @@ def run_factor_quality_scan(
     day_coverage_rows: list[dict[str, Any]] = []
 
     for d in trading_days:
-        p = day_to_path.get(d)
-        if p is None:
+        try:
+            raw = factor_reader.read_day(d)
+        except FileNotFoundError:
             day_coverage_rows.append(
                 {
                     "day": f"{d:%Y-%m-%d}",
@@ -513,11 +616,10 @@ def run_factor_quality_scan(
             )
             continue
 
-        cols = read_factor_file_columns(p)
-        factor_cols = {c for c in cols if _is_factor_column(c)}
+        factor_cols = {str(c) for c in raw.columns if _is_factor_column(str(c))}
         present_cols = factor_cols.intersection(expected_set)
         unexpected_cols = factor_cols.difference(expected_set)
-        _, day_col_stats = _summarize_day_column_stats(p, present_cols)
+        _, day_col_stats = _summarize_frame_column_stats(raw, present_cols)
 
         for col in present_cols:
             acc = stats[col]
@@ -638,7 +740,12 @@ def run_factor_quality_scan(
 
     return {
         "panel_label": label,
-        "factor_dir": str(factor_dir),
+        "factor_dir": str(factor_reader.root),
+        "factor_table": {
+            "table_id": factor_reader.resolution.table_id,
+            "root": str(factor_reader.resolution.store_root),
+            "manifest_path": str(factor_reader.resolution.manifest_path),
+        },
         "start": f"{start:%Y-%m-%d}",
         "end": f"{end:%Y-%m-%d}",
         "trading_days": int(total_days),

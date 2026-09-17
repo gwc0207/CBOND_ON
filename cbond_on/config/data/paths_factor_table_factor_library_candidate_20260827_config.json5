@@ -1,0 +1,20 @@
+{
+  // Candidate-only factor-library consumer profile.  A family-aware reader
+  // must additionally select its registered family; this profile only binds
+  // the common canonical table root.
+  raw_data_root: "D:/cbond_data_hub/raw_data",
+  clean_data_root: "D:/cbond_data_hub/clean_data",
+  cleaned_data_root: "D:/cbond_data_hub/clean_data",
+  results_root: "D:/cbond_on/research_scratch/factor_table_factor_library_candidate_20260827/runtime/results",
+  read_only_input_roots: {
+    panel_data_root: "D:/cbond_on/panel_data",
+    label_data_root: "D:/cbond_on/label_data",
+  },
+  factor_table: {
+    table_id: "factor_library",
+    root: "D:/cbond_on/factor_store",
+    // The factor-library table is one table with family-scoped partitions;
+    // a consumer must bind one explicit family rather than scan them all.
+    families: ["alpha"],
+  },
+}

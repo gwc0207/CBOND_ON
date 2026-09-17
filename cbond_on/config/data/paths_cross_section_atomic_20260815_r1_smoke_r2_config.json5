@@ -5,6 +5,6 @@
   read_only_input_roots: {
     panel_data_root: "D:/cbond_on/panel_data",
     label_data_root: "D:/cbond_on/label_data",
-    factor_data_root: "D:/cbond_on/factor_data_live50_20260805",
   },
+  factor_table: { table_id: "live", root: "D:/cbond_on/factor_store" },
 }

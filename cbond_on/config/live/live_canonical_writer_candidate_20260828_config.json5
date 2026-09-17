@@ -1,0 +1,20 @@
+{
+  // Candidate-only no-DB validation profile. It is deliberately excluded from
+  // the scheduler until its canonical writer replay has passed.
+  modules: ["live"],
+  candidate: {
+    mode: "canonical_live_factor_table",
+    scheduler_selectable: false,
+  },
+  runtime: {
+    paths_config: "data/paths_live50_canonical_writer_candidate_20260828",
+  },
+  factor: {
+    config: "live/live_factors_50_20260805",
+  },
+  output: {
+    db_write: false,
+    db_table: null,
+    db_backend: null,
+  },
+}

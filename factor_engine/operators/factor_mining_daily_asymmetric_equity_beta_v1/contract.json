@@ -1,0 +1,43 @@
+{
+  "contract_hash": "7bb65acdaa3512902c0c8df5f025323e9783789028ea8e9bf42d6ecb4b1dc7fc",
+  "definition": {
+    "kind": "runtime_operator_reference",
+    "path": "operators/factor_mining_daily_asymmetric_equity_beta_v1/definition.py",
+    "sha256": "cacfc04ed3bdc1cfe83f09940a543ea3b676419c34f440afeb0a2e83cd41d16f"
+  },
+  "factor_instances": [
+    "bsab_downside_beta60",
+    "bsab_upside_beta60"
+  ],
+  "identity": {
+    "operator_class": "FactorMiningDailyAsymmetricEquityBetaV1",
+    "operator_id": "factor_mining_daily_asymmetric_equity_beta_v1",
+    "operator_version": "20260803_daily_asymmetric_equity_beta_v1"
+  },
+  "implementation": {
+    "language": "python_runtime_operator",
+    "module": "cbond_on.domain.factors.operators.research_factor_mining_daily_asymmetric_equity_beta_v1",
+    "path": "cbond_on/domain/factors/operators/research_factor_mining_daily_asymmetric_equity_beta_v1.py",
+    "sha256": "db0aa727a282c8b732496705effe477238871a07731221f7d6f696c71d8f7665"
+  },
+  "lifecycle": {
+    "operator_catalog_status": "registered",
+    "runtime_source_status": "migrated_pending_cutover",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "migration": {
+    "behavior_parity_status": "pending_baseline_replay",
+    "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_daily_asymmetric_equity_beta_v1.py",
+    "legacy_sha256": "db0aa727a282c8b732496705effe477238871a07731221f7d6f696c71d8f7665",
+    "migration_kind": "namespace_relocation_without_formula_change"
+  },
+  "runtime_contract": {
+    "input_schema_status": "operator_declared_pending_field_audit",
+    "pit_validation_status": "operator_migration_pending_pit_audit",
+    "registration_key": "factor_mining_daily_asymmetric_equity_beta_v1",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "schema_version": "operator_contract/v1",
+  "test_reference": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+}

@@ -21,6 +21,7 @@ from cbond_on.infra.live import config as live_config_module
 from cbond_on.infra.live.factor_admission import (
     LIVE50_COLUMNS,
     LIVE50_REGISTRATION_MODULES,
+    LIVE50_RELEASE_ID,
     LIVE50_RUNTIME_METADATA_MODULES,
     LIVE50_RUST50_PROFILE,
     prepare_live50_factor_admission,
@@ -51,6 +52,7 @@ def test_active_live50_config_is_one_rust_first_contract_without_hybrid_fields()
     assert compute["execution_policy"] == "rust_first"
     assert not {"rust_columns", "python_columns", "preserve_existing_rust_columns"}.intersection(compute)
     assert cfg["live_factor_admission"]["profile"] == LIVE50_RUST50_PROFILE
+    assert cfg["live_factor_admission"]["release_id"] == LIVE50_RELEASE_ID
     assert cfg["live_factor_admission"]["model_feature_contract"] == (
         "models/lgbm/lgbm_live50_feature_contract_20260805"
     )
@@ -75,7 +77,7 @@ from cbond_on.infra.live.factor_admission import LIVE50_REGISTRATION_MODULES
 
 modules = [
     module for module in LIVE50_REGISTRATION_MODULES
-    if module != 'cbond_on.domain.factors.defs' and module in sys.modules
+    if module != 'cbond_on.domain.factors.operators' and module in sys.modules
 ]
 print(json.dumps(sorted(modules)))
 """
@@ -100,11 +102,12 @@ def test_live50_admission_loads_one_ordered_rust50_contract() -> None:
     )
     assert admission is not None
     assert admission.profile == LIVE50_RUST50_PROFILE
+    assert admission.release_id == LIVE50_RELEASE_ID
     assert admission.factor_columns == LIVE50_COLUMNS
     assert set(admission.modules) == set(LIVE50_RUNTIME_METADATA_MODULES)
     assert admission.feature_contract == "models/lgbm/lgbm_live50_feature_contract_20260805"
     for spec in _active_live50_specs():
-        assert FactorRegistry.get(spec.factor).__module__.startswith("cbond_on.domain.factors.defs.")
+        assert FactorRegistry.get(spec.factor).__module__.startswith("cbond_on.domain.factors.operators.")
 
 
 def test_live50_admission_rejects_module_outside_static_allowlist() -> None:
@@ -112,6 +115,14 @@ def test_live50_admission_rejects_module_outside_static_allowlist() -> None:
     cfg["live_factor_admission"] = dict(cfg["live_factor_admission"])
     cfg["live_factor_admission"]["modules"] = ["os"]
     with pytest.raises(ValueError, match="static live50 registration"):
+        prepare_live50_factor_admission(cfg, specs=_active_live50_specs())
+
+
+def test_live50_admission_rejects_wrong_catalog_release() -> None:
+    cfg = _active_live50_cfg()
+    cfg["live_factor_admission"] = dict(cfg["live_factor_admission"])
+    cfg["live_factor_admission"]["release_id"] = "unknown_release"
+    with pytest.raises(ValueError, match="release_id"):
         prepare_live50_factor_admission(cfg, specs=_active_live50_specs())
 
 

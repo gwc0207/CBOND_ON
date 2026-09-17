@@ -7,7 +7,7 @@
   label_time: "14:42",
   research_only: true,
   research_factor_modules: [
-    "cbond_on.domain.factors.defs.daily_prior_intraday_return_surprise_v1",
+    "cbond_on.domain.factors.operators.daily_prior_intraday_return_surprise_v1",
   ],
   refresh: false,
   overwrite: false,

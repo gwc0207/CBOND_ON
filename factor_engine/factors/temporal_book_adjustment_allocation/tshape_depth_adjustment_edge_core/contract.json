@@ -1,0 +1,68 @@
+{
+  "context_requirements": {
+    "daily": [],
+    "panel_field_schema_status": "operator_declared_pending_factor_minimal_audit",
+    "panel_fields": [],
+    "panel_name": "T1430",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "contract_hash": "31b1ed967bf0d63e1609bb911703bf363298dec0b8ae94601da89ae2cbd7b069",
+  "definition": {
+    "kind": "parameterized_operator_definition",
+    "path": "factors/temporal_book_adjustment_allocation/tshape_depth_adjustment_edge_core/definition.py",
+    "sha256": "63aea714a86b925db57a9f492ac748266512afb476ec9a495f2354f25d8be080"
+  },
+  "fixed_params": {
+    "family": "temporal_book_adjustment_allocation",
+    "signal": "tshape_depth_adjustment_edge_core"
+  },
+  "identity": {
+    "factor_id": "tshape_depth_adjustment_edge_core",
+    "factor_version": "catalog-20260826-2bb351c15bbd-d1c2f689689e",
+    "primary_family": "temporal_book_adjustment_allocation",
+    "tags": []
+  },
+  "lifecycle": {
+    "catalog_status": "registered",
+    "live_admission_status": "not_evaluated_by_catalog_builder",
+    "research_status": "legacy_mapping_discovered",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "operator_bindings": [
+    {
+      "implementation_module": "cbond_on.domain.factors.operators.research_factor_mining_intraday_temporal_shape_v1",
+      "implementation_path": "cbond_on/domain/factors/operators/research_factor_mining_intraday_temporal_shape_v1.py",
+      "implementation_sha256": "2bb351c15bbd2e8952a6451741bbc04f600dc5ab2664c1bef7628d577eae87f1",
+      "language": "python_runtime_operator",
+      "legacy_implementation_path": "cbond_on/domain/factors/defs/research_factor_mining_intraday_temporal_shape_v1.py",
+      "legacy_implementation_sha256": "3adfb9214094ad28c9eff08b690148539694b65f387fa492564fc03312b67efe",
+      "operator_contract_path": "operators/factor_mining_intraday_temporal_shape_v1/contract.json",
+      "operator_id": "factor_mining_intraday_temporal_shape_v1",
+      "operator_version": "20260803_intraday_temporal_shape_v1",
+      "rust_contract_id": null
+    }
+  ],
+  "output": {
+    "column": "tshape_depth_adjustment_edge_core",
+    "dtype": "float64"
+  },
+  "schema_version": "factor_contract/v2",
+  "source_lineage": {
+    "hypothesis": "Displayed L1 depth adjustment has a temporal concentration and clock shape distinct from a static depth level, queue lifecycle, or order-book repricing event.",
+    "snapshot_id": "canonical_factor_catalog_20260826_800",
+    "source_position": 2,
+    "source_root": "D:/cbond_on/research_scratch/factor_mining_20260803_aggregate_catalog_v5_full/factor_data",
+    "source_set": "research773"
+  },
+  "test_reference": {
+    "behavioral_parity_status": "pending_baseline_replay",
+    "contract_test": "tests/test_factor_engine_governance.py::test_all_factor_definitions_and_contracts",
+    "operator_test": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+  },
+  "time_contract": {
+    "factor_time": "14:30",
+    "pit_validation_status": "operator_migration_pending_factor_pit_audit",
+    "research_label_time_reference": "14:42"
+  }
+}

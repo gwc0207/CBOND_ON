@@ -16,6 +16,7 @@ This project is indexed by GitNexus as **CBOND_ON** (823 symbols, 2447 relations
 | Task | Read this skill file |
 |------|---------------------|
 | Understand architecture / "How does X work?" | `.claude/skills/gitnexus/gitnexus-exploring/SKILL.md` |
+| Use, add, modify, retire, delete, screen, backfill, or admit a factor/operator | `harness/skills/cbond-factor-governance/SKILL.md` |
 | Blast radius / "What breaks if I change X?" | `.claude/skills/gitnexus/gitnexus-impact-analysis/SKILL.md` |
 | Trace bugs / "Why is X failing?" | `.claude/skills/gitnexus/gitnexus-debugging/SKILL.md` |
 | Rename / extract / split / refactor | `.claude/skills/gitnexus/gitnexus-refactoring/SKILL.md` |
@@ -42,4 +43,5 @@ Hard project rules:
 3. Treat live neutralization as all-or-none; do not restore partial neutralization unless the owner explicitly requests a new design.
 4. Do not write to production DB or restart live scheduling from harness tasks unless the owner has confirmed the final scope.
 5. For long tasks, keep `harness/templates/task_state.md` style state: objective, current facts, open risks, next action, evidence.
+6. Normal factor readers and writers must follow `harness/skills/cbond-factor-governance/SKILL.md`: use only the three canonical tables, their designated writers, and manifest/.done validation. Legacy FactorStore paths are audit-only exceptions.
 <!-- cbond-agent-harness:end -->

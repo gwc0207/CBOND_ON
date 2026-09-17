@@ -1,0 +1,68 @@
+{
+  "context_requirements": {
+    "daily": [],
+    "panel_field_schema_status": "operator_declared_pending_factor_minimal_audit",
+    "panel_fields": [],
+    "panel_name": "T1430",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "contract_hash": "c96a7cea9b15f83634af046b76cddbfff8f79a6b1c18658b82b1cb6324535c68",
+  "definition": {
+    "kind": "parameterized_operator_definition",
+    "path": "factors/cs_phase_rotation_anomaly/csr_phase_early_late_turn_residual/definition.py",
+    "sha256": "65296bf6ecb2207de3a923154d159c2e75df3fc05f261cae9fff862d7d76338d"
+  },
+  "fixed_params": {
+    "family": "cs_phase_rotation_anomaly",
+    "signal": "csr_phase_early_late_turn_residual"
+  },
+  "identity": {
+    "factor_id": "csr_phase_early_late_turn_residual",
+    "factor_version": "catalog-20260826-570451992274-7fc57b20ef79",
+    "primary_family": "cs_phase_rotation_anomaly",
+    "tags": []
+  },
+  "lifecycle": {
+    "catalog_status": "registered",
+    "live_admission_status": "not_evaluated_by_catalog_builder",
+    "research_status": "legacy_mapping_discovered",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "operator_bindings": [
+    {
+      "implementation_module": "cbond_on.domain.factors.operators.research_factor_mining_intraday_cross_section_residual_v1",
+      "implementation_path": "cbond_on/domain/factors/operators/research_factor_mining_intraday_cross_section_residual_v1.py",
+      "implementation_sha256": "570451992274c833360dffdca77f7a797c40aa5104c08033ce5775814781f945",
+      "language": "python_runtime_operator",
+      "legacy_implementation_path": "cbond_on/domain/factors/defs/research_factor_mining_intraday_cross_section_residual_v1.py",
+      "legacy_implementation_sha256": "8b1aa78bd7ea7b5f1fc9e31f871d7a2bc46f296dfa0faddf88c695d0fab5dcf7",
+      "operator_contract_path": "operators/factor_mining_intraday_cross_section_residual_v1/contract.json",
+      "operator_id": "factor_mining_intraday_cross_section_residual_v1",
+      "operator_version": "20260803_intraday_cross_section_residual_v1_r1",
+      "rust_contract_id": null
+    }
+  ],
+  "output": {
+    "column": "csr_phase_early_late_turn_residual",
+    "dtype": "float64"
+  },
+  "schema_version": "factor_contract/v2",
+  "source_lineage": {
+    "hypothesis": "The timing and phase rotation of a path can contain distinct state information after total path and liquidity conditions are removed.",
+    "snapshot_id": "canonical_factor_catalog_20260826_800",
+    "source_position": 1,
+    "source_root": "D:/cbond_on/research_scratch/factor_mining_20260803_unified_v7_with_joint_merged_v1",
+    "source_set": "research773"
+  },
+  "test_reference": {
+    "behavioral_parity_status": "pending_baseline_replay",
+    "contract_test": "tests/test_factor_engine_governance.py::test_all_factor_definitions_and_contracts",
+    "operator_test": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+  },
+  "time_contract": {
+    "factor_time": "14:30",
+    "pit_validation_status": "operator_migration_pending_factor_pit_audit",
+    "research_label_time_reference": "14:42"
+  }
+}

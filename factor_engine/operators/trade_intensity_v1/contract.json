@@ -1,0 +1,40 @@
+{
+  "contract_hash": "22750d08ffb847ba7b63e6e18e13438f73b4c4d87f8dc86209ec1c5a6f5a7643",
+  "definition": {
+    "kind": "runtime_operator_reference",
+    "path": "operators/trade_intensity_v1/definition.py",
+    "sha256": "ef1918a75c22bbbb1d31737e589569e852f5d069bb4aa9491cfc03c6d24f4f67"
+  },
+  "factor_instances": [],
+  "identity": {
+    "operator_class": "TradeIntensityV1Factor",
+    "operator_id": "trade_intensity_v1",
+    "operator_version": "legacy-unversioned"
+  },
+  "implementation": {
+    "language": "python_runtime_operator",
+    "module": "cbond_on.domain.factors.operators.trade_intensity_v1",
+    "path": "cbond_on/domain/factors/operators/trade_intensity_v1.py",
+    "sha256": "130950619e3170bfa820b4b3b283d308eb13714f50a13f6c04e9e7525f56a0e5"
+  },
+  "lifecycle": {
+    "operator_catalog_status": "registered",
+    "runtime_source_status": "migrated_pending_cutover",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "migration": {
+    "behavior_parity_status": "pending_baseline_replay",
+    "legacy_path": "cbond_on/domain/factors/defs/trade_intensity_v1.py",
+    "legacy_sha256": "51236d782fae38daab52900262cefbb289644b0e6bef49dda7b5faca557d70a8",
+    "migration_kind": "namespace_relocation_without_formula_change"
+  },
+  "runtime_contract": {
+    "input_schema_status": "operator_declared_pending_field_audit",
+    "pit_validation_status": "operator_migration_pending_pit_audit",
+    "registration_key": "trade_intensity_v1",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "schema_version": "operator_contract/v1",
+  "test_reference": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+}

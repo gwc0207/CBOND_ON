@@ -7,10 +7,10 @@ import pandas as pd
 import pytest
 
 from cbond_on.core.registry import FactorRegistry
-from cbond_on.domain.factors import defs as factor_defs
+from cbond_on.domain.factors import operators as factor_operators
 from cbond_on.domain.factors.base import FactorComputeContext
 from cbond_on.domain.factors.builder import build_factor_frame
-from cbond_on.domain.factors.defs import research_factor_mining_underlying_cohort_distribution_v1 as cohort_dist
+from cbond_on.domain.factors.operators import research_factor_mining_underlying_cohort_distribution_v1 as cohort_dist
 from cbond_on.domain.factors.spec import FactorSpec
 
 
@@ -123,7 +123,7 @@ def test_catalogue_has_two_distribution_families_and_no_peer_mean_signal() -> No
     assert all("mean" not in entry.signal for entry in entries)
     assert {entry.kernel for entry in entries} == {cohort_dist.KERNEL_NAME}
     assert FactorRegistry.get(cohort_dist.KERNEL_NAME) is cohort_dist.FactorMiningUnderlyingCohortDistributionV1
-    assert cohort_dist.FactorMiningUnderlyingCohortDistributionV1.__name__ not in factor_defs.__all__
+    assert cohort_dist.FactorMiningUnderlyingCohortDistributionV1.__name__ not in factor_operators.__all__
     assert cohort_dist.FactorMiningUnderlyingCohortDistributionV1.requires_stock_panel is False
     assert cohort_dist.FactorMiningUnderlyingCohortDistributionV1.requires_bond_stock_map is False
 

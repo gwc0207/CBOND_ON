@@ -1,0 +1,85 @@
+{
+  "context_requirements": {
+    "daily": [
+      {
+        "columns": [
+          "exchange_code",
+          "close_price"
+        ],
+        "lookback_days": 10,
+        "source": "market_cbond.daily_price"
+      },
+      {
+        "columns": [
+          "exchange_code",
+          "stock_code"
+        ],
+        "lookback_days": 10,
+        "source": "market_cbond.daily_base"
+      }
+    ],
+    "panel_field_schema_status": "operator_declared_pending_factor_minimal_audit",
+    "panel_fields": [],
+    "panel_name": "T1430",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": true
+  },
+  "contract_hash": "7a0e6c2fc7d2122c91ed1583182300bcb54951fa40f4760361a0f6d562202bba",
+  "definition": {
+    "kind": "parameterized_operator_definition",
+    "path": "factors/cross_asset_activity_calendar_burst_asymmetry/xca_activity_calendar_afternoon_mass_gap/definition.py",
+    "sha256": "63894302a90d6bb88587c8127c17073d1fad4bab204cd2c2a43e229a4fde8dba"
+  },
+  "fixed_params": {
+    "family": "cross_asset_activity_calendar_burst_asymmetry",
+    "signal": "xca_activity_calendar_afternoon_mass_gap"
+  },
+  "identity": {
+    "factor_id": "xca_activity_calendar_afternoon_mass_gap",
+    "factor_version": "catalog-20260826-56e2441a5223-82f01c855ebc",
+    "primary_family": "cross_asset_activity_calendar_burst_asymmetry",
+    "tags": []
+  },
+  "lifecycle": {
+    "catalog_status": "registered",
+    "live_admission_status": "not_evaluated_by_catalog_builder",
+    "research_status": "legacy_mapping_discovered",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "operator_bindings": [
+    {
+      "implementation_module": "cbond_on.domain.factors.operators.research_factor_mining_cross_asset_activity_calendar_v1",
+      "implementation_path": "cbond_on/domain/factors/operators/research_factor_mining_cross_asset_activity_calendar_v1.py",
+      "implementation_sha256": "56e2441a52233de92c1df472cf32159794eef246a099589047eee0198c34a1e8",
+      "language": "python_runtime_operator",
+      "legacy_implementation_path": "cbond_on/domain/factors/defs/research_factor_mining_cross_asset_activity_calendar_v1.py",
+      "legacy_implementation_sha256": "46d8c0e3eac574d21fd513d95037adecc6ccb959c7439e0581e2c9c8c4120d14",
+      "operator_contract_path": "operators/factor_mining_cross_asset_activity_calendar_v1/contract.json",
+      "operator_id": "factor_mining_cross_asset_activity_calendar_v1",
+      "operator_version": "20260803_cross_asset_activity_calendar_v1",
+      "rust_contract_id": null
+    }
+  ],
+  "output": {
+    "column": "xca_activity_calendar_afternoon_mass_gap",
+    "dtype": "float64"
+  },
+  "schema_version": "factor_contract/v2",
+  "source_lineage": {
+    "hypothesis": "The gap in high-activity timing, temporal skewness, and afternoon mass captures burst placement and distribution asymmetry without cross-asset correlation.",
+    "snapshot_id": "canonical_factor_catalog_20260826_800",
+    "source_position": 2,
+    "source_root": "D:/cbond_on/research_scratch/factor_mining_20260803_aggregate_catalog_v5_full/factor_data",
+    "source_set": "research773"
+  },
+  "test_reference": {
+    "behavioral_parity_status": "pending_baseline_replay",
+    "contract_test": "tests/test_factor_engine_governance.py::test_all_factor_definitions_and_contracts",
+    "operator_test": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+  },
+  "time_contract": {
+    "factor_time": "14:30",
+    "pit_validation_status": "operator_migration_pending_factor_pit_audit",
+    "research_label_time_reference": "14:42"
+  }
+}

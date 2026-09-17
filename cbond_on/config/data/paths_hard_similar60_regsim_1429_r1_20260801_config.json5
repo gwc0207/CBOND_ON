@@ -12,6 +12,13 @@
     label_data_root: "D:/cbond_on/label_data",
     factor_data_root: "D:/cbond_on/factor_data"
   },
+  // This 310-column historical contract is not the current canonical live
+  // table. It is retained only for the named audit/replay.
+  lifecycle: {
+    status: "audit_only",
+    reason: "legacy_310_factor_contract",
+    normal_consumer: false,
+  },
 
   strict_state_history: {
     scratch_root: "D:/cbond_on/research_scratch/similar60_regsim_hard1429_20260801",

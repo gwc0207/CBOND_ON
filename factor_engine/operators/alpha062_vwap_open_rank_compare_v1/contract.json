@@ -1,0 +1,40 @@
+{
+  "contract_hash": "b702f13bf554113ea741ea89dee60523403aa87c03cc4fbba089ce3926704b81",
+  "definition": {
+    "kind": "runtime_operator_reference",
+    "path": "operators/alpha062_vwap_open_rank_compare_v1/definition.py",
+    "sha256": "2bf4b5638f84e56603265c68734ed6f5b2f115a58f79febb59517bed090f7868"
+  },
+  "factor_instances": [],
+  "identity": {
+    "operator_class": "Alpha062VwapOpenRankCompareV1Factor",
+    "operator_id": "alpha062_vwap_open_rank_compare_v1",
+    "operator_version": "legacy-unversioned"
+  },
+  "implementation": {
+    "language": "python_runtime_operator",
+    "module": "cbond_on.domain.factors.operators.alpha062_vwap_open_rank_compare_v1",
+    "path": "cbond_on/domain/factors/operators/alpha062_vwap_open_rank_compare_v1.py",
+    "sha256": "a7726662af9d562ebcf3987ecbffe6c919f09c4bb0b81100ad41d9dc0e4e6984"
+  },
+  "lifecycle": {
+    "operator_catalog_status": "registered",
+    "runtime_source_status": "migrated_pending_cutover",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "migration": {
+    "behavior_parity_status": "pending_baseline_replay",
+    "legacy_path": "cbond_on/domain/factors/defs/alpha062_vwap_open_rank_compare_v1.py",
+    "legacy_sha256": "3c143649e26f3016b2b92e830fb6f844575011e543bfbb64d12e2ae72a0284f6",
+    "migration_kind": "namespace_relocation_without_formula_change"
+  },
+  "runtime_contract": {
+    "input_schema_status": "operator_declared_pending_field_audit",
+    "pit_validation_status": "operator_migration_pending_pit_audit",
+    "registration_key": "alpha062_vwap_open_rank_compare_v1",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "schema_version": "operator_contract/v1",
+  "test_reference": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+}

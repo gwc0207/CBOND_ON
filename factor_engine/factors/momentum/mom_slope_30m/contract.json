@@ -1,0 +1,68 @@
+{
+  "context_requirements": {
+    "daily": [],
+    "panel_field_schema_status": "operator_declared_pending_factor_minimal_audit",
+    "panel_fields": [],
+    "panel_name": "T1430",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "contract_hash": "28488c0c268cb4344171dc973b1adbaa85418b1975d5b859f7cbb56813ade7c6",
+  "definition": {
+    "kind": "parameterized_operator_definition",
+    "path": "factors/momentum/mom_slope_30m/definition.py",
+    "sha256": "acc9fa91d23abb0ab6c9fd45488d1fe542e72a306433203b62527e4c2e5798de"
+  },
+  "fixed_params": {
+    "price_col": "last",
+    "window_minutes": 30
+  },
+  "identity": {
+    "factor_id": "mom_slope_30m",
+    "factor_version": "catalog-20260826-e8dff9a4d10b-9ee4e7fefde7",
+    "primary_family": "momentum",
+    "tags": []
+  },
+  "lifecycle": {
+    "catalog_status": "registered",
+    "live_admission_status": "live_released",
+    "research_status": "not_evaluated",
+    "rust_status": "live50_rust_capability_required"
+  },
+  "operator_bindings": [
+    {
+      "implementation_module": "cbond_on.domain.factors.operators.mom_slope",
+      "implementation_path": "cbond_on/domain/factors/operators/mom_slope.py",
+      "implementation_sha256": "e8dff9a4d10bba546a08483258100ef60dd361b9421f8e8d9bd329f5aa643192",
+      "language": "python_runtime_operator",
+      "legacy_implementation_path": "cbond_on/domain/factors/defs/mom_slope.py",
+      "legacy_implementation_sha256": "6e2ff5bf1952b14e22f32c64b04258d66b240b031651c8d053fc0f5543c2132a",
+      "operator_contract_path": "operators/mom_slope/contract.json",
+      "operator_id": "mom_slope",
+      "operator_version": "legacy-unversioned",
+      "rust_contract_id": "live50_r5/mom_slope_30m"
+    }
+  ],
+  "output": {
+    "column": "mom_slope_30m",
+    "dtype": "float64"
+  },
+  "schema_version": "factor_contract/v2",
+  "source_lineage": {
+    "hypothesis": "Frozen legacy live27 instance; identity is independent of live admission.",
+    "snapshot_id": "canonical_factor_catalog_20260826_800",
+    "source_position": null,
+    "source_root": "cbond_on/config/factor/packs/live_screened_no_winsor_27.json5",
+    "source_set": "legacy_live27"
+  },
+  "test_reference": {
+    "behavioral_parity_status": "pending_baseline_replay",
+    "contract_test": "tests/test_factor_engine_governance.py::test_all_factor_definitions_and_contracts",
+    "operator_test": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+  },
+  "time_contract": {
+    "factor_time": "14:30",
+    "pit_validation_status": "operator_migration_pending_factor_pit_audit",
+    "research_label_time_reference": "14:42"
+  }
+}

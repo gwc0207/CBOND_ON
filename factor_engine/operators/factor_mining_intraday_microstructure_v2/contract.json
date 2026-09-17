@@ -1,0 +1,40 @@
+{
+  "contract_hash": "96403534d38c849c3c8fb5d0b18d4aff549fa3e4af2c9648a8e75400b95f0cb2",
+  "definition": {
+    "kind": "runtime_operator_reference",
+    "path": "operators/factor_mining_intraday_microstructure_v2/definition.py",
+    "sha256": "9a262e2088fc4c6d67b70efaf5827f4f40ce96787d178e658335e9cd9c3461f1"
+  },
+  "factor_instances": [],
+  "identity": {
+    "operator_class": "FactorMiningIntradayMicrostructureV2",
+    "operator_id": "factor_mining_intraday_microstructure_v2",
+    "operator_version": "20260803_microstructure_v2"
+  },
+  "implementation": {
+    "language": "python_runtime_operator",
+    "module": "cbond_on.domain.factors.operators.research_factor_mining_intraday_microstructure_v2",
+    "path": "cbond_on/domain/factors/operators/research_factor_mining_intraday_microstructure_v2.py",
+    "sha256": "c00f75da43af637c0c3b9b733d0f2d96bed92cc60bb971e60e06b17e04e1f60e"
+  },
+  "lifecycle": {
+    "operator_catalog_status": "registered",
+    "runtime_source_status": "migrated_pending_cutover",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "migration": {
+    "behavior_parity_status": "pending_baseline_replay",
+    "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_intraday_microstructure_v2.py",
+    "legacy_sha256": "0aba5b0f4cfa793f1f2bb66fdd67480a3b18a580f096c430c9ad3f5d43bb8803",
+    "migration_kind": "namespace_relocation_without_formula_change"
+  },
+  "runtime_contract": {
+    "input_schema_status": "operator_declared_pending_field_audit",
+    "pit_validation_status": "operator_migration_pending_pit_audit",
+    "registration_key": "factor_mining_intraday_microstructure_v2",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "schema_version": "operator_contract/v1",
+  "test_reference": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+}

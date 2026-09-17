@@ -1,0 +1,40 @@
+{
+  "contract_hash": "c9118f5599dfeb69914c2b3cf49a1087d312cd139e62bcaf0e135d2626a40e38",
+  "definition": {
+    "kind": "runtime_operator_reference",
+    "path": "operators/tail_path_efficiency_5m_v1/definition.py",
+    "sha256": "12c3292d4cecb4d9851f6c11c71f1d72efe5505e499b81268d97706734303d85"
+  },
+  "factor_instances": [],
+  "identity": {
+    "operator_class": "TailPathEfficiency5mV1Factor",
+    "operator_id": "tail_path_efficiency_5m_v1",
+    "operator_version": "legacy-unversioned"
+  },
+  "implementation": {
+    "language": "python_runtime_operator",
+    "module": "cbond_on.domain.factors.operators.tail_path_efficiency_5m_v1",
+    "path": "cbond_on/domain/factors/operators/tail_path_efficiency_5m_v1.py",
+    "sha256": "149579354bd5359250ade5ecb303164c63a66ff4c23b85829c2f62b93de9e618"
+  },
+  "lifecycle": {
+    "operator_catalog_status": "registered",
+    "runtime_source_status": "migrated_pending_cutover",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "migration": {
+    "behavior_parity_status": "pending_baseline_replay",
+    "legacy_path": "cbond_on/domain/factors/defs/tail_path_efficiency_5m_v1.py",
+    "legacy_sha256": "01816d543228f2171cab1999ce933407b9b23eceb5eaaf426ed4e59cb568ee2b",
+    "migration_kind": "namespace_relocation_without_formula_change"
+  },
+  "runtime_contract": {
+    "input_schema_status": "operator_declared_pending_field_audit",
+    "pit_validation_status": "operator_migration_pending_pit_audit",
+    "registration_key": "tail_path_efficiency_5m_v1",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "schema_version": "operator_contract/v1",
+  "test_reference": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+}

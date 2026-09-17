@@ -1,0 +1,40 @@
+{
+  "contract_hash": "31c15a1e59ee505c3df6c7fa2a1a249ad5d65b623a1ad86ef3dc917f1461eeb8",
+  "definition": {
+    "kind": "runtime_operator_reference",
+    "path": "operators/vwap/definition.py",
+    "sha256": "c3e52a678db744ae3b10b51888b8c8e94a2c48358bcc79f4dfda178c2bbfccff"
+  },
+  "factor_instances": [],
+  "identity": {
+    "operator_class": "VwapFactor",
+    "operator_id": "vwap",
+    "operator_version": "legacy-unversioned"
+  },
+  "implementation": {
+    "language": "python_runtime_operator",
+    "module": "cbond_on.domain.factors.operators.vwap",
+    "path": "cbond_on/domain/factors/operators/vwap.py",
+    "sha256": "f7eff67110ac41434436b673c4f07361fcd9dbb92e176e7eea7c01b3c407df47"
+  },
+  "lifecycle": {
+    "operator_catalog_status": "registered",
+    "runtime_source_status": "migrated_pending_cutover",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "migration": {
+    "behavior_parity_status": "pending_baseline_replay",
+    "legacy_path": "cbond_on/domain/factors/defs/vwap.py",
+    "legacy_sha256": "136b3de2361d4a14294b55109a7f31abd2b88b5a2276c4c1a7ae332ef45ae45a",
+    "migration_kind": "namespace_relocation_without_formula_change"
+  },
+  "runtime_contract": {
+    "input_schema_status": "operator_declared_pending_field_audit",
+    "pit_validation_status": "operator_migration_pending_pit_audit",
+    "registration_key": "vwap",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "schema_version": "operator_contract/v1",
+  "test_reference": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+}

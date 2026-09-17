@@ -158,7 +158,19 @@ def resolve_compute_backend(cfg: dict[str, Any] | None = None) -> ComputeBackend
     )
 
 
-def resolve_factor_engine(cfg: dict[str, Any] | None = None) -> FactorEngineState:
+def resolve_factor_engine(
+    cfg: dict[str, Any] | None = None,
+    *,
+    allow_research_python: bool = False,
+) -> FactorEngineState:
+    """Resolve a factor engine without broadening the normal execution surface.
+
+    ``research_python`` is intentionally not a generic alternative to Rust.
+    Only the catalog-supplement pipeline passes ``allow_research_python=True``
+    after it has validated an opaque research permit.  Every ordinary caller
+    retains the existing Rust-only behavior.
+    """
+
     runtime = dict(cfg or {})
     requested = _parse_requested_engine(runtime)
     if requested == "rust":
@@ -166,6 +178,17 @@ def resolve_factor_engine(cfg: dict[str, Any] | None = None) -> FactorEngineStat
             requested=requested,
             active=requested,
             reason=f"forced_{requested}",
+        )
+    if requested == "research_python":
+        if not allow_research_python:
+            raise ValueError(
+                "research_python is reserved for a permit-bound research catalog supplement; "
+                "ordinary factor execution remains Rust-only"
+            )
+        return FactorEngineState(
+            requested=requested,
+            active=requested,
+            reason="permit_bound_research_catalog_python",
         )
     if requested in {"rust_shm_exp", "rust_python_hybrid", "python"}:
         raise ValueError(

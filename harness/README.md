@@ -10,11 +10,13 @@ live-chain changes, cleanup, and long-running work.
 Every non-trivial task must follow this sequence:
 
 ```text
+receive the execution request
+summarize the requested outcome, boundaries, workflow, artifacts, and validation
+wait for explicit owner confirmation
 classify task risk
 load current source of truth
 run matching preflight
-write the planned scope
-execute the smallest safe change
+execute the confirmed scope
 verify with evidence
 record the handoff state
 ```
@@ -23,6 +25,27 @@ The harness should make the agent behave like a disciplined project operator:
 it must know what it is allowed to touch, what needs confirmation, what evidence
 supports each conclusion, and how the next agent continues without relying on
 stale memory.
+
+## Owner Request Confirmation Gate
+
+For every execution request that may change code, configuration, data, files,
+processes, schedules, external state, or create a long-running task, the agent
+must first send a concise confirmation note and wait for an explicit owner
+confirmation before task-specific inspection or execution.
+
+The note must state:
+
+- the requested outcome and boundaries;
+- the intended workflow and existing services/data to be checked or reused;
+- expected commands, write targets, produced artifacts, and verification;
+- whether the action is read-only, research-only, no-DB, live-affecting, or
+  destructive.
+
+After confirmation, execute only the confirmed scope. If new authority, a new
+write target, a changed data contract, or a materially different workflow is
+needed, stop and issue a new confirmation note. Pure answers, explanations, and
+explicitly requested read-only status checks do not require this gate. The owner
+may explicitly waive the gate for a narrowly scoped immediate action.
 
 ## Priority Order
 
@@ -75,6 +98,10 @@ harness/
 - Do not write production DB from a harness task unless the owner confirms the
   exact final scope.
 - Do not delete model states or result roots before producing a cleanup plan.
+- Normal factor consumers must declare `factor_table` and read a manifest-bound
+  canonical table. Normal factor writers are limited to the admitted live
+  runtime, an explicit experiment publisher, and the 23:59 factor-library
+  supplement. Direct `FactorStore` use is migration/audit/no-DB staging only.
 - Do not compare experiments unless the window, baseline, warm start, label,
   neutralization, and universe are stated.
 - Do not rely on memory alone for drift-prone facts; read the current config or
@@ -86,9 +113,18 @@ Pick exactly one primary skill for the task:
 
 - live or scheduling: `harness/skills/cbond-live-safety-gate/SKILL.md`
 - research/backtest: `harness/skills/cbond-research-experiment/SKILL.md`
-- factor validation: `harness/skills/cbond-factor-backtest-protocol/SKILL.md`
+- factor lifecycle, registration, operator, screening, factor release, or
+  factor validation/backtest:
+  `harness/skills/cbond-factor-governance/SKILL.md`
+- factor validation details: `harness/skills/cbond-factor-backtest-protocol/SKILL.md`
 - incident response: `harness/skills/cbond-incident-response/SKILL.md`
 - cleanup: `harness/skills/cbond-result-hygiene/SKILL.md`
 - long task or handoff: `harness/skills/cbond-long-task-memory/SKILL.md`
 
 Then follow the linked workflow and fill the relevant template.
+
+After a factor-route change, run:
+
+```powershell
+py -3 -m cbond_on.common.factor_route_governance_guard
+```

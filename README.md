@@ -117,48 +117,27 @@ python cbond_on/run/build_labels.py
 - 成本源固定 `daily_twap`。
 - TWAP 列名可根据窗口自动解析（如 `twap_1442_1457`）。
 
-### 5.3 因子批处理（`run/factor_batch.py`）
+### 5.3 因子结果路由
 
-目标：
-- 批量计算因子。
-- 生成单因子回测结果。
-- 输出筛选与报告产物。
+正常因子结果不再由 `run/factor_batch.py` 或自由 parquet 路径写入。
+所有读写都遵循 [因子工程治理规则](docs/因子工程治理规则.md)：
 
-入口命令：
-
-```bash
-python cbond_on/run/factor_batch.py
+```text
+实盘所需要的因子 -> D:/cbond_on/factor_store/live
+实验用因子       -> D:/cbond_on/factor_store/experiment
+因子库内因子     -> D:/cbond_on/factor_store/factor_library/<family>
 ```
 
-主要配置：
-- `factor_config.json5`
-- `factor_files` 指向的因子清单
-
-输入：
-- panel 数据
-- label 数据
-- 因子定义与计算引擎
-
-输出：
-- 因子值：`factor_data_root/factors/{panel_name}/{YYYY-MM}/{YYYYMMDD}.parquet`
-- 报告目录：`results/{start}_{end}/Single_Factor/{timestamp}/`
-- 每因子报告：`.../{factor_name}/factor_report.png`
-- 聚合图目录：`.../plot/`
-- 筛选结果：
-  - `.../screened/factor_screening_all.csv`
-  - `.../screened/factor_shortlist.csv`
-
-关键行为：
-- 正常执行只支持 `compute.engine="rust"` 与
-  `compute.execution_policy="rust_first"`；Python 仅可用于隔离的 parity/reference。
-- 支持 `refresh/overwrite`。
-- 自动跳过黑名单因子（`factor_disabled_factors.json`）。
+- 正常消费者必须声明 `factor_table`，并验证 table manifest、日 manifest 与 `.done`。
+- 正常写者仅为 admitted live runtime、显式 experiment publisher、23:59 factor supplement。
+- 单因子报告、筛选与模型实验是三张表的只读消费者；其报告仍写入 `D:/cbond_on/research_scratch` 或既有结果合同。
+- 历史 `FactorStore` 与旧 `factor_data` 只可用于显式 migration/audit/no-DB staging。
 
 ### 5.4 因子质量守卫（`cbond_on.common.factor_quality_guard`）
 
 目标：
-- 识别废弃因子和坏因子。
-- 同步维护黑名单并清理因子库存。
+- 只读识别废弃因子和坏因子。
+- 为后续 profile/release/实验决策提供证据，不改写 canonical 表。
 
 入口命令：
 
@@ -166,23 +145,13 @@ python cbond_on/run/factor_batch.py
 python -m cbond_on.common.factor_quality_guard --config factor
 ```
 
-当前默认行为（已开启）：
-- 自动 `disable_bad`（坏因子入黑名单）
-- 自动 `remove_deprecated`（从因子库存中删除废弃/坏列）
-
-只读扫描模式：
+当前默认行为是只读扫描：
 
 ```bash
-python -m cbond_on.common.factor_quality_guard --config factor --no-apply-disable-bad --no-apply-remove-deprecated
+python -m cbond_on.common.factor_quality_guard --config factor
 ```
 
-输出与副作用：
-- 更新 `cbond_on/config/factor/guards/factor_disabled_factors.json`
-- 清理 `factor_data_root/factors/{panel}/...` 历史 parquet 列
-- 控制台打印：
-  - 新增黑名单因子
-  - 既有黑名单因子
-  - 各因子列清理命中次数
+canonical 表是不可变的；质量守卫拒绝删列、改表或修改实盘/实验 profile。
 
 ### 5.5 模型打分（`run/model_score.py`）
 
@@ -310,9 +279,9 @@ python cbond_on/run/live.py
 7. 调用策略（默认 `strategy01_topk_turnover`）输出 picks。
 8. 写入 `trade_list.csv`，可选写入数据库。
 
-当前实盘的 50 个因子在同一次 `compute_factor_frame` Rust 调用、同一
-FactorStore 和同一 model feature contract 中处理；不存在按历史来源拆分的
-计算、回退或输出路径。
+当前实盘的因子在同一次 Rust 调用、同一 manifest-bound canonical `live`
+表和同一 model feature contract 中处理；不存在按历史来源拆分的计算、回退
+或输出路径。
 
 输出：
 - `results/live/{YYYY-MM-DD}/trade_list.csv`
@@ -372,7 +341,6 @@ python cbond_on/run/pipeline_all.py
 
 ```powershell
 & C:\Users\BaiYang\AppData\Local\Programs\Python\Python311\python.exe cbond_on/run/build_panels.py
-& C:\Users\BaiYang\AppData\Local\Programs\Python\Python311\python.exe cbond_on/run/factor_batch.py
 & C:\Users\BaiYang\AppData\Local\Programs\Python\Python311\python.exe cbond_on/run/model_score.py
 & C:\Users\BaiYang\AppData\Local\Programs\Python\Python311\python.exe cbond_on/run/backtest.py
 & C:\Users\BaiYang\AppData\Local\Programs\Python\Python311\python.exe cbond_on/run/live.py
@@ -384,7 +352,6 @@ python cbond_on/run/pipeline_all.py
 source ~/venv/cbond/bin/activate
 cd ~/cbond_on
 python cbond_on/run/build_panels.py
-python cbond_on/run/factor_batch.py
 python cbond_on/run/model_score.py
 python cbond_on/run/backtest.py
 python cbond_on/run/live.py
@@ -409,23 +376,26 @@ python -m cbond_on.common.architecture_guard
 # 仓库卫生守卫
 python -m cbond_on.common.repo_hygiene_guard
 
-# 因子质量守卫（默认执行修复动作）
+# 因子质量守卫（只读）
 python -m cbond_on.common.factor_quality_guard --config factor
+
+# 因子结果路由静态治理守卫
+python -m cbond_on.common.factor_route_governance_guard
 ```
 
 ## 9. 产物目录总览（基于 paths_config）
 
 - `panel_data_root`：panel 日文件
 - `label_data_root`：label 日文件
-- `factor_data_root`：因子日文件
+- `factor_table`：唯一正常因子结果入口；解析为三张 canonical 表之一
 - `results_root/scores`：模型 score
 - `results_root/model_eval`：模型评估与调参产物
 - `results_root/backtest/{date_label}/{batch_id}`：策略回测结果
-- `results_root/{date_label}/Single_Factor`：因子批处理结果
+- `D:/cbond_on/research_scratch`：研究报告与临时 staging（非正式因子结果表）
 - `results_root/live/{day}`：实盘交易清单与日志
 
 ## 10. 相关文档
 
 - 架构边界：`docs/architecture_layers.md`
 - 服务器更新命令：`docs/server_update_commands.md`
-- 因子开发说明：`docs/factor_development.md`
+- 因子工程治理：`docs/因子工程治理规则.md`

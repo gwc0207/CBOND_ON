@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import Counter
 
-from cbond_on.domain.factors.defs import (
+from cbond_on.domain.factors.operators import (
     research_factor_mining_daily_orthogonal_batch_v2 as batch,
 )
 
@@ -25,7 +25,7 @@ def test_catalogue_preserves_v1_and_adds_one_unique_capacity_family() -> None:
 
 def test_catalogue_source_order_keeps_v1_prefix_immutable() -> None:
     assert batch.SOURCE_MODULE_NAMES[-1] == (
-        "cbond_on.domain.factors.defs."
+        "cbond_on.domain.factors.operators."
         "research_factor_mining_daily_capacity_rank_coupling_v1"
     )
     assert len(batch.SOURCE_MODULE_NAMES) == 6

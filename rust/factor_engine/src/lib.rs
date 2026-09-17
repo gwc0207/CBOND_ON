@@ -14,6 +14,12 @@ mod typed_factor_daily_rank_state;
 mod typed_factor_intraday;
 mod typed_factor_kernels;
 mod typed_factor_math;
+// Research-only R88 formula modules.  They remain internal to the single
+// public `compute_factor_frame` route; no profile or capability scope is
+// implied by naming them here.
+mod typed_factor_r88_daily;
+mod typed_factor_r88_intraday;
+mod typed_factor_r88_remaining;
 // Typed kernels are an internal implementation detail of the one public
 // factor dispatcher; callers do not select a separate route for them.
 use typed_factor_kernels as typed_kernels;
@@ -442,6 +448,236 @@ const RUST_FACTOR_CONTRACTS: &[RustFactorContract] = &[
         factor: "factor_mining_daily_asymmetric_state_transitions_v1",
         signal: Some("ydpt_yield_fall_return_beta60"),
     },
+    // R88 is a research-only exact-instance profile.  Its model admission
+    // remains controlled by the separately completed isolated backfill.
+    RustFactorContract {
+        id: "research_r88_20260825/base_duration_stockvol_interaction/v1",
+        output_col: "base_duration_stockvol_interaction",
+        factor: "factor_mining_daily_catalog_v1",
+        signal: Some("base_duration_stockvol_interaction"),
+    },
+    RustFactorContract {
+        id: "research_r88_20260825/base_stockvol_per_moneyness/v1",
+        output_col: "base_stockvol_per_moneyness",
+        factor: "factor_mining_daily_catalog_v1",
+        signal: Some("base_stockvol_per_moneyness"),
+    },
+    RustFactorContract {
+        id: "research_r88_20260825/rating_current_ordinal/v1",
+        output_col: "rating_current_ordinal",
+        factor: "factor_mining_daily_contract_stock_v1",
+        signal: Some("rating_current_ordinal"),
+    },
+    RustFactorContract {
+        id: "research_r88_20260825/lcc_size_frequency_coupling60/v1",
+        output_col: "lcc_size_frequency_coupling60",
+        factor: "factor_mining_daily_liquidity_channel_composition_v1",
+        signal: Some("lcc_size_frequency_coupling60"),
+    },
+    RustFactorContract {
+        id: "research_r88_20260825/bssrc_upper_rank_tail_alignment60/v1",
+        output_col: "bssrc_upper_rank_tail_alignment60",
+        factor: "factor_mining_daily_bond_stock_cross_sectional_rank_concordance_v1",
+        signal: Some("bssrc_upper_rank_tail_alignment60"),
+    },
+    RustFactorContract {
+        id: "research_r88_20260825/rlmi_return_trade_size_sign_mutual_information60/v1",
+        output_col: "rlmi_return_trade_size_sign_mutual_information60",
+        factor: "factor_mining_daily_return_liquidity_topology_v1",
+        signal: Some("rlmi_return_trade_size_sign_mutual_information60"),
+    },
+    RustFactorContract {
+        id: "research_r88_20260825/base_trigger_progress_ratio/v1",
+        output_col: "base_trigger_progress_ratio",
+        factor: "factor_mining_daily_catalog_v1",
+        signal: Some("base_trigger_progress_ratio"),
+    },
+    RustFactorContract {
+        id: "research_r88_20260825/base_trigger_revision_gap/v1",
+        output_col: "base_trigger_revision_gap",
+        factor: "factor_mining_daily_catalog_v1",
+        signal: Some("base_trigger_revision_gap"),
+    },
+    RustFactorContract {
+        id: "research_r88_20260825/bssrc_lower_rank_tail_alignment60/v1",
+        output_col: "bssrc_lower_rank_tail_alignment60",
+        factor: "factor_mining_daily_bond_stock_cross_sectional_rank_concordance_v1",
+        signal: Some("bssrc_lower_rank_tail_alignment60"),
+    },
+    RustFactorContract {
+        id: "research_r88_20260825/rdm_joint_reprice_depth_retention/v1",
+        output_col: "rdm_joint_reprice_depth_retention",
+        factor: "factor_mining_orderbook_repricing_v1",
+        signal: Some("rdm_joint_reprice_depth_retention"),
+    },
+    RustFactorContract {
+        id: "research_r88_20260825/dret_momentum_5/v1",
+        output_col: "dret_momentum_5",
+        factor: "factor_mining_daily_expansion_v1",
+        signal: Some("dret_momentum_5"),
+    },
+    RustFactorContract {
+        id: "research_r88_20260825/hybrid_current_range_vs_hist_twap_curve/v1",
+        output_col: "hybrid_current_range_vs_hist_twap_curve",
+        factor: "factor_mining_hybrid_catalog_v1",
+        signal: Some("hybrid_current_range_vs_hist_twap_curve"),
+    },
+    RustFactorContract {
+        id: "research_r88_20260825/exp_exec_amount_concentration_impact/v1",
+        output_col: "exp_exec_amount_concentration_impact",
+        factor: "factor_mining_intraday_expansion_v1",
+        signal: Some("exp_exec_amount_concentration_impact"),
+    },
+    RustFactorContract {
+        id: "research_r88_20260825/drrq_return_amount_opposite_tail_excess60/v1",
+        output_col: "drrq_return_amount_opposite_tail_excess60",
+        factor: "factor_mining_daily_relative_rank_tail_contradiction_v1",
+        signal: Some("drrq_return_amount_opposite_tail_excess60"),
+    },
+    RustFactorContract {
+        id: "research_r88_20260825/bsab_upside_beta60/v1",
+        output_col: "bsab_upside_beta60",
+        factor: "factor_mining_daily_asymmetric_equity_beta_v1",
+        signal: Some("bsab_upside_beta60"),
+    },
+    RustFactorContract {
+        id: "research_r88_20260825/joint_tail_range_coexpansion/v1",
+        output_col: "joint_tail_range_coexpansion",
+        factor: "factor_mining_intraday_joint_state_v1",
+        signal: Some("joint_tail_range_coexpansion"),
+    },
+    RustFactorContract {
+        id: "research_r88_20260825/itr_stock_shock_same_bin_directional_agreement/v1",
+        output_col: "itr_stock_shock_same_bin_directional_agreement",
+        factor: "factor_mining_intraday_transmission_response_v1",
+        signal: Some("itr_stock_shock_same_bin_directional_agreement"),
+    },
+    RustFactorContract {
+        id: "research_r88_20260825/osa_terminal_amount_streak60/v1",
+        output_col: "osa_terminal_amount_streak60",
+        factor: "factor_mining_daily_observable_seasoning_v1",
+        signal: Some("osa_terminal_amount_streak60"),
+    },
+    RustFactorContract {
+        id: "research_r88_20260825/exp_noise_variance_ratio_5/v1",
+        output_col: "exp_noise_variance_ratio_5",
+        factor: "factor_mining_intraday_expansion_v1",
+        signal: Some("exp_noise_variance_ratio_5"),
+    },
+    RustFactorContract {
+        id: "research_r88_20260825/joint_tail_signed_cojump/v1",
+        output_col: "joint_tail_signed_cojump",
+        factor: "factor_mining_intraday_joint_state_v1",
+        signal: Some("joint_tail_signed_cojump"),
+    },
+    RustFactorContract {
+        id: "research_r88_20260825/bsab_downside_beta60/v1",
+        output_col: "bsab_downside_beta60",
+        factor: "factor_mining_daily_asymmetric_equity_beta_v1",
+        signal: Some("bsab_downside_beta60"),
+    },
+    RustFactorContract {
+        id: "research_r88_20260825/hybrid_current_flow_vs_hist_overnight_response/v1",
+        output_col: "hybrid_current_flow_vs_hist_overnight_response",
+        factor: "factor_mining_hybrid_catalog_v1",
+        signal: Some("hybrid_current_flow_vs_hist_overnight_response"),
+    },
+    RustFactorContract {
+        id: "research_r88_20260825/ucd_peer_stock_return_dispersion1/v1",
+        output_col: "ucd_peer_stock_return_dispersion1",
+        factor: "factor_mining_underlying_cohort_distribution_v1",
+        signal: Some("ucd_peer_stock_return_dispersion1"),
+    },
+    RustFactorContract {
+        id: "research_r88_20260825/exp_stick_quote_update_rate/v1",
+        output_col: "exp_stick_quote_update_rate",
+        factor: "factor_mining_intraday_expansion_v1",
+        signal: Some("exp_stick_quote_update_rate"),
+    },
+    RustFactorContract {
+        id: "research_r88_20260825/isgm_stockvol_trade_quote_clock_center_gap/v1",
+        output_col: "isgm_stockvol_trade_quote_clock_center_gap",
+        factor: "factor_mining_intraday_state_gated_microstructure_v1",
+        signal: Some("isgm_stockvol_trade_quote_clock_center_gap"),
+    },
+    RustFactorContract {
+        id: "research_r88_20260825/book_quote_dislocation/v1",
+        output_col: "book_quote_dislocation",
+        factor: "factor_mining_intraday_catalog_v1",
+        signal: Some("book_quote_dislocation"),
+    },
+    RustFactorContract {
+        id: "research_r88_20260825/qgeo_micro_last_next_return_sign_alignment/v1",
+        output_col: "qgeo_micro_last_next_return_sign_alignment",
+        factor: "factor_mining_quote_geometry_microprice_v1",
+        signal: Some("qgeo_micro_last_next_return_sign_alignment"),
+    },
+    RustFactorContract {
+        id: "research_r88_20260825/drrc_return_trade_size_rank_spearman60/v1",
+        output_col: "drrc_return_trade_size_rank_spearman60",
+        factor: "factor_mining_daily_relative_rank_flow_coupling_v2",
+        signal: Some("drrc_return_trade_size_rank_spearman60"),
+    },
+    RustFactorContract {
+        id: "research_r88_20260825/execdisc_direction_reversal_rate/v1",
+        output_col: "execdisc_direction_reversal_rate",
+        factor: "factor_mining_intraday_execution_discreteness_v1",
+        signal: Some("execdisc_direction_reversal_rate"),
+    },
+    RustFactorContract {
+        id: "research_r88_20260825/bsct_upper_tail_dependence60/v1",
+        output_col: "bsct_upper_tail_dependence60",
+        factor: "factor_mining_daily_bond_stock_copula_tail_dependence_v1",
+        signal: Some("bsct_upper_tail_dependence60"),
+    },
+    RustFactorContract {
+        id: "research_r88_20260825/sng_peer_return_dispersion1/v1",
+        output_col: "sng_peer_return_dispersion1",
+        factor: "factor_mining_structural_neighborhood_v1",
+        signal: Some("sng_peer_return_dispersion1"),
+    },
+    RustFactorContract {
+        id: "research_r88_20260825/exp_noise_median_mean_abs_return_ratio/v1",
+        output_col: "exp_noise_median_mean_abs_return_ratio",
+        factor: "factor_mining_intraday_expansion_v1",
+        signal: Some("exp_noise_median_mean_abs_return_ratio"),
+    },
+    RustFactorContract {
+        id: "research_r88_20260825/joint_tail_terminal_location_coshock/v1",
+        output_col: "joint_tail_terminal_location_coshock",
+        factor: "factor_mining_intraday_joint_state_v1",
+        signal: Some("joint_tail_terminal_location_coshock"),
+    },
+    RustFactorContract {
+        id: "research_r88_20260825/exp_noise_variance_ratio_2/v1",
+        output_col: "exp_noise_variance_ratio_2",
+        factor: "factor_mining_intraday_expansion_v1",
+        signal: Some("exp_noise_variance_ratio_2"),
+    },
+    RustFactorContract {
+        id: "research_r88_20260825/csn_pql_churn_neighbor_gap/v1",
+        output_col: "csn_pql_churn_neighbor_gap",
+        factor: "factor_mining_cross_sectional_microstructure_neighborhood_v1",
+        signal: Some("csn_pql_churn_neighbor_gap"),
+    },
+    RustFactorContract {
+        id: "research_r88_20260825/dtwm_session_afternoon_late_log_slope/v1",
+        output_col: "dtwm_session_afternoon_late_log_slope",
+        factor: "factor_mining_daily_twap_microstructure_v1",
+        signal: Some("dtwm_session_afternoon_late_log_slope"),
+    },
+    RustFactorContract {
+        id: "research_r88_20260825/exp_rotation_segment_return_dispersion/v1",
+        output_col: "exp_rotation_segment_return_dispersion",
+        factor: "factor_mining_intraday_expansion_v1",
+        signal: Some("exp_rotation_segment_return_dispersion"),
+    },
+    RustFactorContract {
+        id: "research_r88_20260825/execdisc_step_multiplicity_entropy/v1",
+        output_col: "execdisc_step_multiplicity_entropy",
+        factor: "factor_mining_intraday_execution_discreteness_v1",
+        signal: Some("execdisc_step_multiplicity_entropy"),
+    },
 ];
 
 // SHA-256 of UTF-8 canonical JSON for the exact `params` mapping:
@@ -651,6 +887,158 @@ const RUST_FACTOR_PARAMS_SHA256: &[(&str, &str)] = &[
         "live50_r5/ydpt_yield_fall_return_beta60",
         "9ca5c129a50853d31180ea9a91584b5af739c1b063613804290fe64657d21ece",
     ),
+    (
+        "research_r88_20260825/base_duration_stockvol_interaction/v1",
+        "93d16fe371004673097aa3bef7424ec6bc5d40aab6dd2a763e7d5d331a79bb17",
+    ),
+    (
+        "research_r88_20260825/base_stockvol_per_moneyness/v1",
+        "79fd1b5c0979a443c317f7e7a0680e4ece6da916f8ee412620085aa3f8916201",
+    ),
+    (
+        "research_r88_20260825/rating_current_ordinal/v1",
+        "2e14844204496db43478efa9582f718590f67cd3a51f052121e2ed6facce89b8",
+    ),
+    (
+        "research_r88_20260825/lcc_size_frequency_coupling60/v1",
+        "3dfd2b592f748a24f83f52446f90f5743fed19c860ae7c9a1fb4754e0dc81ba7",
+    ),
+    (
+        "research_r88_20260825/bssrc_upper_rank_tail_alignment60/v1",
+        "f862213a186fb09187fdd8613ca98c54ebf63a60fa9d87e1e6007951f66ee8b5",
+    ),
+    (
+        "research_r88_20260825/rlmi_return_trade_size_sign_mutual_information60/v1",
+        "7c86232c8a83b7e748446b1b8907c7dfa0c70bd0f5f027c0532134f945bd3446",
+    ),
+    (
+        "research_r88_20260825/base_trigger_progress_ratio/v1",
+        "e544f8ed0466fed66febe3b5820bd2980360318eca56989478e9c69e0bb4c5e8",
+    ),
+    (
+        "research_r88_20260825/base_trigger_revision_gap/v1",
+        "b195a049d09bc6fb1446f6e51e462805f4c71dcd4767fc4da9586d442801bb4f",
+    ),
+    (
+        "research_r88_20260825/bssrc_lower_rank_tail_alignment60/v1",
+        "09a0c3d2b379af7279f5351cd5df61863820c0705a19476c8ce8f1346874d443",
+    ),
+    (
+        "research_r88_20260825/rdm_joint_reprice_depth_retention/v1",
+        "12e9264b4df90f21bd541b4313c58c63fc4bf9b8b4e1fbec77113e1cb44f132e",
+    ),
+    (
+        "research_r88_20260825/dret_momentum_5/v1",
+        "efc69db799df7cce05194c33efa7ea7930b749295c35956cf5b4c6efd3d62a71",
+    ),
+    (
+        "research_r88_20260825/hybrid_current_range_vs_hist_twap_curve/v1",
+        "bf774890577b429972931a75dae183c4142f609f041117c660697c2d7369427e",
+    ),
+    (
+        "research_r88_20260825/exp_exec_amount_concentration_impact/v1",
+        "746ba5dc7b89e1a98a6cb577e4cefcb80e4610c74fd7eba1d87a2ed7423a6176",
+    ),
+    (
+        "research_r88_20260825/drrq_return_amount_opposite_tail_excess60/v1",
+        "9da0359383c4842b71dc74ce65059ed4762d871ecc45905456c035351258bcd6",
+    ),
+    (
+        "research_r88_20260825/bsab_upside_beta60/v1",
+        "3749d00db08700860a0a7e892e7cfcf26beaf2ac7aae69d3d2a0e4e179b73d58",
+    ),
+    (
+        "research_r88_20260825/joint_tail_range_coexpansion/v1",
+        "469739ab2e2add83795ce79d0c5626c457cf334690813c2b773ac350e36c8841",
+    ),
+    (
+        "research_r88_20260825/itr_stock_shock_same_bin_directional_agreement/v1",
+        "756c31ed557c5f3ee6eff088ea52801dbdf8fbbdb526e0d5416b5b015459dac2",
+    ),
+    (
+        "research_r88_20260825/osa_terminal_amount_streak60/v1",
+        "4cc5301fe894ec2063e44682f984ad83991b2ba76e49ba5699e883057941818c",
+    ),
+    (
+        "research_r88_20260825/exp_noise_variance_ratio_5/v1",
+        "ab2667787bc81d082b45061d9cd9db45439ed39796d1fcc617568798a36940fc",
+    ),
+    (
+        "research_r88_20260825/joint_tail_signed_cojump/v1",
+        "9270050ce98ebf44d0ec232b578d89418898a517e9542eb32f897ad54e40071e",
+    ),
+    (
+        "research_r88_20260825/bsab_downside_beta60/v1",
+        "b802571c8774c26f4ca87df8e818d8930bb72235715ada1ad67dc4a669ca4527",
+    ),
+    (
+        "research_r88_20260825/hybrid_current_flow_vs_hist_overnight_response/v1",
+        "3029cda49562287d44853a465b41dfbfa786f18fa63c5b302cdb9f059938d2cc",
+    ),
+    (
+        "research_r88_20260825/ucd_peer_stock_return_dispersion1/v1",
+        "88770fcf5e3dcc849042e9722823112ee53f0ea763b169c1ac4801ec53a1262a",
+    ),
+    (
+        "research_r88_20260825/exp_stick_quote_update_rate/v1",
+        "1348604071b683ec53de64826dcb38b2cd87d0c8ea56d8770d7564354288b716",
+    ),
+    (
+        "research_r88_20260825/isgm_stockvol_trade_quote_clock_center_gap/v1",
+        "ae2474ce953180295d812b5414d6d38b20629f7330f69973f99aa01e21ea3f18",
+    ),
+    (
+        "research_r88_20260825/book_quote_dislocation/v1",
+        "6520e21e186f9a521ea3db5443df6074b8e56af057dc0346cad9a0feb1c5d440",
+    ),
+    (
+        "research_r88_20260825/qgeo_micro_last_next_return_sign_alignment/v1",
+        "90641348abb4c90a047da9f797aa184a72e862579001122e92503c3a3a5bf82a",
+    ),
+    (
+        "research_r88_20260825/drrc_return_trade_size_rank_spearman60/v1",
+        "185c4f0166f010d0ecbf9e3a89d597a05a4ba4d037c7ca63e443d78061fc7cf0",
+    ),
+    (
+        "research_r88_20260825/execdisc_direction_reversal_rate/v1",
+        "de0e802c8288cd66ff2e6bbb45e4699837de4f6cc25455ae06543f5cf2293232",
+    ),
+    (
+        "research_r88_20260825/bsct_upper_tail_dependence60/v1",
+        "b05c2cc33d14bde05536518a9ae149ec9a5e544fd9ac5fa9b92611e90a1af1f8",
+    ),
+    (
+        "research_r88_20260825/sng_peer_return_dispersion1/v1",
+        "679f75a006c5062693bf51acd3d739f5c2f6361448308e51c9c91075f35a91de",
+    ),
+    (
+        "research_r88_20260825/exp_noise_median_mean_abs_return_ratio/v1",
+        "00d155d3a4d692f6fb988f1953130bd1ad1fe2124886c7592a518273bf0906f9",
+    ),
+    (
+        "research_r88_20260825/joint_tail_terminal_location_coshock/v1",
+        "c60a16dc0e2efb3c9d6a069be215c3bccec691d3f9003297be12c481531f4274",
+    ),
+    (
+        "research_r88_20260825/exp_noise_variance_ratio_2/v1",
+        "8d96ba361eaf646791ddfa3b522e71cce4eb067e63a2e9aa95db6120a67a193e",
+    ),
+    (
+        "research_r88_20260825/csn_pql_churn_neighbor_gap/v1",
+        "bbd5a226e8866f6be6b74aeb3c88249f6e20f1aff2ae3f56c924e8ac6682b824",
+    ),
+    (
+        "research_r88_20260825/dtwm_session_afternoon_late_log_slope/v1",
+        "d7cdfb9d4421e4382115be44a23c546c517831f5d7ee3ffd4d15cd94940a05c2",
+    ),
+    (
+        "research_r88_20260825/exp_rotation_segment_return_dispersion/v1",
+        "05170cfa179110b0cf5a5ffe2d766b9fadc2163e131cb2969bbd21e9d89d3543",
+    ),
+    (
+        "research_r88_20260825/execdisc_step_multiplicity_entropy/v1",
+        "61b0a184a2b143828b83ffd34394b438412ac9cd5cfbe85de98cfd3e72966c1c",
+    ),
 ];
 
 fn rust_factor_params_sha256(contract_id: &str) -> Option<&'static str> {
@@ -678,6 +1066,20 @@ struct PanelData {
 }
 
 impl PanelData {
+    /// Construct the minimal base-panel representation needed to align a
+    /// fully typed result.  Group spans deliberately retain their original
+    /// row offsets even though typed-only dispatch does not consume values.
+    fn from_key_groups(groups: Vec<Group>) -> Self {
+        Self {
+            dt: Vec::new(),
+            code: Vec::new(),
+            seq: Vec::new(),
+            trade_time_ns: Vec::new(),
+            cols: HashMap::new(),
+            groups,
+        }
+    }
+
     fn len(&self) -> usize {
         self.dt.len()
     }
@@ -921,9 +1323,18 @@ fn compute_factor_frame(
     daily_data: Option<&Bound<'_, PyAny>>,
     _compute_params: Option<&Bound<'_, PyAny>>,
 ) -> PyResult<PyObject> {
-    let mut panel = parse_panel(py, panel_df)?;
     let specs = parse_specs(specs_payload)?;
     validate_unique_output_cols(&specs)?;
+    // Exact typed kernels parse the source fields they consume themselves.
+    // For an all-typed request, retain only the ordered `(dt, code)` base
+    // groups required to validate and realign their output; mixed and generic
+    // requests keep the historical complete generic panel parser.
+    let typed_only = all_specs_use_typed_precompute(&specs);
+    let mut panel = if typed_only {
+        parse_typed_panel_key_groups(py, panel_df)?
+    } else {
+        parse_panel(py, panel_df)?
+    };
     validate_unique_group_keys(&panel.groups)?;
     let raw_specs = specs_payload.downcast::<PyList>()?;
     if raw_specs.len() != specs.len() {
@@ -933,8 +1344,24 @@ fn compute_factor_frame(
     }
     let plan_limits = parse_plan_limits(_compute_params)?;
     let plan = extract_factor_plan(&specs, &plan_limits)?;
-    let window_cache = build_window_start_cache(&panel, &plan.windows);
-    let aux = parse_aux_data(py, stock_df, map_df, daily_data)?;
+    // No standard kernel can consume windows on an all-typed request.  Do not
+    // materialise generic trade-time data solely to populate this unused cache.
+    let window_cache = if typed_only {
+        WindowStartCache::default()
+    } else {
+        build_window_start_cache(&panel, &plan.windows)
+    };
+    // Exact typed specs consume their own checked source contexts inside the
+    // one typed precompute route.  The generic AuxData representation cannot
+    // be observed once every requested output is prepared there, so avoid
+    // materialising an additional copy of stock/map/daily inputs.  This gate
+    // is deliberately exact: mixed, generic, and unsupported typed-family
+    // specs retain the historical generic parsing and its error precedence.
+    let aux = if all_specs_use_typed_precompute(&specs) {
+        AuxData::default()
+    } else {
+        parse_aux_data(py, stock_df, map_df, daily_data)?
+    };
     if panel.groups.is_empty() {
         return empty_df(py);
     }
@@ -962,6 +1389,8 @@ fn compute_factor_frame(
         panel_df,
         raw_specs,
         &specs,
+        stock_df,
+        map_df,
         daily_data,
         _compute_params,
         &panel.groups,
@@ -1034,6 +1463,19 @@ fn validate_unique_output_cols(specs: &[FactorSpec]) -> PyResult<()> {
     Ok(())
 }
 
+/// True only when every requested exact factor/signal pair is guaranteed to
+/// enter the typed precompute route.  A factor-family match is insufficient:
+/// an unsupported signal must retain the normal failure path rather than
+/// silently gaining the fast path.
+fn all_specs_use_typed_precompute(specs: &[FactorSpec]) -> bool {
+    !specs.is_empty()
+        && specs.iter().all(|spec| {
+            let signal = spec.get_str("signal");
+            typed_kernels::is_typed_factor_family(&spec.factor)
+                && typed_kernels::is_supported_typed_spec(&spec.factor, signal.as_deref())
+        })
+}
+
 fn validate_unique_group_keys(groups: &[Group]) -> PyResult<()> {
     let mut seen = BTreeSet::<(String, String)>::new();
     for group in groups {
@@ -1064,6 +1506,8 @@ fn precompute_typed_factor_values(
     panel_df: &Bound<'_, PyAny>,
     raw_specs: &Bound<'_, PyList>,
     specs: &[FactorSpec],
+    stock_df: Option<&Bound<'_, PyAny>>,
+    map_df: Option<&Bound<'_, PyAny>>,
     daily_data: Option<&Bound<'_, PyAny>>,
     compute_params: Option<&Bound<'_, PyAny>>,
     groups: &[Group],
@@ -1085,13 +1529,36 @@ fn precompute_typed_factor_values(
         typed_payload.append(raw_specs.get_item(index)?)?;
         typed_specs.push(specs[index].clone());
     }
+    // Keep the existing typed families fully isolated from stock/map context.
+    // Only exact R88 remaining pairs opt into the already-public arguments;
+    // this does not create another public compute route.
+    let typed_stock_df = typed_specs
+        .iter()
+        .any(|spec| {
+            typed_kernels::r88_typed_spec_requires_stock_context(
+                &spec.factor,
+                spec.get_str("signal").as_deref(),
+            )
+        })
+        .then_some(stock_df)
+        .flatten();
+    let typed_map_df = typed_specs
+        .iter()
+        .any(|spec| {
+            typed_kernels::r88_typed_spec_requires_map_context(
+                &spec.factor,
+                spec.get_str("signal").as_deref(),
+            )
+        })
+        .then_some(map_df)
+        .flatten();
     let started = Instant::now();
     let typed_output = typed_kernels::compute_typed_factor_frame_impl(
         py,
         panel_df,
         &typed_payload,
-        None,
-        None,
+        typed_stock_df,
+        typed_map_df,
         daily_data,
         compute_params,
     )?;
@@ -1501,6 +1968,47 @@ fn parse_panel(py: Python<'_>, panel_df: &Bound<'_, PyAny>) -> PyResult<PanelDat
         cols: HashMap::new(),
         groups,
     })
+}
+
+/// Parse the exact base-key surface required by `collect_typed_output_values`
+/// without materialising generic numeric columns.  The contiguous grouping is
+/// intentionally byte-for-byte equivalent to `parse_panel`: no sorting,
+/// deduplication, normalisation, or reindexing happens here.  The common
+/// dispatcher subsequently applies its existing duplicate-key validation.
+fn parse_typed_panel_key_groups(
+    py: Python<'_>,
+    panel_df: &Bound<'_, PyAny>,
+) -> PyResult<PanelData> {
+    let dt = col_to_str_vec(py, panel_df, "dt")?;
+    let code = col_to_str_vec(py, panel_df, "code")?;
+    if code.len() != dt.len() {
+        return Err(PyErr::new::<PyValueError, _>(
+            "panel key columns length mismatch",
+        ));
+    }
+
+    let mut groups = Vec::new();
+    if !dt.is_empty() {
+        let mut start = 0usize;
+        for index in 1..dt.len() {
+            if dt[index] != dt[start] || code[index] != code[start] {
+                groups.push(Group {
+                    start,
+                    end: index,
+                    dt: dt[start].clone(),
+                    code: code[start].clone(),
+                });
+                start = index;
+            }
+        }
+        groups.push(Group {
+            start,
+            end: dt.len(),
+            dt: dt[start].clone(),
+            code: code[start].clone(),
+        });
+    }
+    Ok(PanelData::from_key_groups(groups))
 }
 
 fn parse_specs(specs_payload: &Bound<'_, PyAny>) -> PyResult<Vec<FactorSpec>> {
@@ -6344,4 +6852,265 @@ fn compute_standard_factor_values(
         }
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod capability_contract_tests {
+    use super::{rust_factor_params_sha256, RUST_FACTOR_CONTRACTS};
+    use std::collections::BTreeSet;
+
+    #[test]
+    fn r88_complete_contracts_are_unique_and_hash_bound() {
+        const PREFIX: &str = "research_r88_20260825/";
+        let contracts: Vec<_> = RUST_FACTOR_CONTRACTS
+            .iter()
+            .filter(|contract| contract.id.starts_with(PREFIX))
+            .collect();
+
+        assert_eq!(contracts.len(), 38);
+        let ids: BTreeSet<_> = contracts.iter().map(|contract| contract.id).collect();
+        assert_eq!(ids.len(), 38);
+        for contract in contracts {
+            assert!(contract.id.ends_with("/v1"));
+            assert!(!contract.output_col.is_empty());
+            assert!(!contract.factor.is_empty());
+            assert_eq!(contract.signal, Some(contract.output_col));
+            assert_eq!(
+                rust_factor_params_sha256(contract.id)
+                    .expect("missing R88 params SHA-256")
+                    .len(),
+                64
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+mod typed_precompute_fast_path_tests {
+    use super::{
+        all_specs_use_typed_precompute, col_to_f64_vec, col_to_str_vec, compute_factor_frame,
+        typed_kernels, FactorSpec, ParamValue,
+    };
+    use pyo3::prelude::*;
+    use pyo3::types::{PyDict, PyList};
+    use std::collections::{BTreeMap, HashMap};
+
+    fn spec(factor: &str, signal: Option<&str>) -> FactorSpec {
+        let mut params = HashMap::new();
+        if let Some(signal) = signal {
+            params.insert("signal".to_string(), ParamValue::Str(signal.to_string()));
+        }
+        FactorSpec {
+            name: signal.unwrap_or("generic").to_string(),
+            factor: factor.to_string(),
+            output_col: signal.unwrap_or("generic").to_string(),
+            params,
+        }
+    }
+
+    fn r88_payload(py: Python<'_>) -> PyResult<Bound<'_, PyList>> {
+        let params = PyDict::new_bound(py);
+        params.set_item("signal", "exp_rotation_segment_return_dispersion")?;
+        params.set_item("family", "clock_time_rotation")?;
+        let item = PyDict::new_bound(py);
+        item.set_item("name", "exp_rotation_segment_return_dispersion")?;
+        item.set_item("output_col", "exp_rotation_segment_return_dispersion")?;
+        item.set_item("factor", "factor_mining_intraday_expansion_v1")?;
+        item.set_item("params", params)?;
+        let payload = PyList::empty_bound(py);
+        payload.append(item)?;
+        Ok(payload)
+    }
+
+    fn r88_itr_payload(py: Python<'_>) -> PyResult<Bound<'_, PyList>> {
+        let params = PyDict::new_bound(py);
+        params.set_item("signal", "itr_stock_shock_same_bin_directional_agreement")?;
+        params.set_item("family", "intraday_stock_shock_directional_response")?;
+        let item = PyDict::new_bound(py);
+        item.set_item("name", "itr_stock_shock_same_bin_directional_agreement")?;
+        item.set_item(
+            "output_col",
+            "itr_stock_shock_same_bin_directional_agreement",
+        )?;
+        item.set_item("factor", "factor_mining_intraday_transmission_response_v1")?;
+        item.set_item("params", params)?;
+        let payload = PyList::empty_bound(py);
+        payload.append(item)?;
+        Ok(payload)
+    }
+
+    fn panel(py: Python<'_>) -> PyResult<Bound<'_, PyAny>> {
+        let data = PyDict::new_bound(py);
+        let clocks = vec![
+            34_200_000_000_000_i64,
+            37_800_000_000_000,
+            48_600_000_000_000,
+            50_400_000_000_000,
+        ];
+        data.set_item("dt", vec!["2026-08-06"; 8])?;
+        // Deliberately retain reverse code order.  The typed helper orders
+        // keys lexicographically, while the public dispatcher must realign
+        // values to this base-panel order.
+        data.set_item(
+            "code",
+            vec![
+                "110002.SH",
+                "110002.SH",
+                "110002.SH",
+                "110002.SH",
+                "110001.SH",
+                "110001.SH",
+                "110001.SH",
+                "110001.SH",
+            ],
+        )?;
+        data.set_item("seq", vec![0_i64, 1, 2, 3, 0, 1, 2, 3])?;
+        data.set_item("trade_time", [clocks.clone(), clocks.clone()].concat())?;
+        data.set_item(
+            "last",
+            vec![100.0_f64, 102.0, 105.0, 103.0, 200.0, 204.0, 210.0, 206.0],
+        )?;
+        data.set_item("amount", vec![1.0_f64; 8])?;
+        data.set_item("__trade_time_date__", vec!["2026-08-06"; 8])?;
+        data.set_item("__trade_time_clock_ns__", [clocks.clone(), clocks].concat())?;
+        data.set_item("__label_matches_score_day__", vec![1_i64; 8])?;
+        data.set_item("__trade_time_matches_score_day__", vec![1_i64; 8])?;
+        let pandas = py.import_bound("pandas")?;
+        let frame = pandas.call_method1("DataFrame", (data,))?;
+        frame
+            .getattr("attrs")?
+            .downcast::<PyDict>()?
+            .set_item("__build_day__", "2026-08-06")?;
+        Ok(frame)
+    }
+
+    #[test]
+    fn fast_path_is_limited_to_exact_typed_pairs() {
+        let r88 = spec(
+            "factor_mining_intraday_expansion_v1",
+            Some("exp_rotation_segment_return_dispersion"),
+        );
+        let generic = spec("amount_sum", None);
+        let unsupported_typed_family = spec(
+            "factor_mining_intraday_expansion_v1",
+            Some("not_an_advertised_typed_signal"),
+        );
+
+        assert!(all_specs_use_typed_precompute(&[r88.clone()]));
+        assert!(!all_specs_use_typed_precompute(&[]));
+        assert!(!all_specs_use_typed_precompute(&[generic]));
+        assert!(!all_specs_use_typed_precompute(&[
+            r88,
+            unsupported_typed_family
+        ]));
+    }
+
+    #[test]
+    fn r88_fast_path_matches_typed_output_and_skips_unused_generic_aux() {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
+            let panel = panel(py).expect("R88 test panel");
+            let specs = r88_payload(py).expect("R88 test spec");
+            // A typed direct intraday spec does not consume daily_data.  This
+            // deliberately invalid value would fail in parse_aux_data and
+            // proves the common dispatcher now avoids that unused materialization.
+            let malformed_daily: PyObject = "not a daily-data dictionary".into_py(py);
+            let common = compute_factor_frame(
+                py,
+                &panel,
+                &specs,
+                None,
+                None,
+                Some(malformed_daily.bind(py)),
+                None,
+            )
+            .expect("all-typed R88 request should not parse unused generic aux");
+            let typed = typed_kernels::compute_typed_factor_frame_impl(
+                py,
+                &panel,
+                &specs,
+                None,
+                None,
+                Some(malformed_daily.bind(py)),
+                None,
+            )
+            .expect("direct typed reference");
+            let common = common.bind(py);
+            let typed = typed.bind(py);
+            let common_dates = col_to_str_vec(py, common, "dt").expect("common dt");
+            let common_codes = col_to_str_vec(py, common, "code").expect("common code");
+            let typed_dates = col_to_str_vec(py, typed, "dt").expect("typed dt");
+            let typed_codes = col_to_str_vec(py, typed, "code").expect("typed code");
+            assert_eq!(
+                common_codes,
+                vec!["110002.SH".to_string(), "110001.SH".to_string()],
+                "public dispatcher preserves base-panel group order"
+            );
+            let common_values =
+                col_to_f64_vec(py, common, "exp_rotation_segment_return_dispersion")
+                    .expect("common values");
+            let typed_values = col_to_f64_vec(py, typed, "exp_rotation_segment_return_dispersion")
+                .expect("typed values");
+            let common_by_key: BTreeMap<_, _> = common_dates
+                .into_iter()
+                .zip(common_codes)
+                .zip(common_values)
+                .map(|((dt, code), value)| ((dt, code), value.to_bits()))
+                .collect();
+            let typed_by_key: BTreeMap<_, _> = typed_dates
+                .into_iter()
+                .zip(typed_codes)
+                .zip(typed_values)
+                .map(|((dt, code), value)| ((dt, code), value.to_bits()))
+                .collect();
+            assert_eq!(common_by_key, typed_by_key);
+        });
+    }
+
+    #[test]
+    fn non_typed_request_retains_generic_aux_parse_failure() {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
+            let panel = panel(py).expect("generic test panel");
+            let params = PyDict::new_bound(py);
+            params.set_item("window_minutes", 30_i64).unwrap();
+            let item = PyDict::new_bound(py);
+            item.set_item("name", "amount_30m").unwrap();
+            item.set_item("output_col", "amount_30m").unwrap();
+            item.set_item("factor", "amount_sum").unwrap();
+            item.set_item("params", params).unwrap();
+            let specs = PyList::empty_bound(py);
+            specs.append(item).unwrap();
+            let malformed_daily: PyObject = "not a daily-data dictionary".into_py(py);
+            let error = compute_factor_frame(
+                py,
+                &panel,
+                &specs,
+                None,
+                None,
+                Some(malformed_daily.bind(py)),
+                None,
+            )
+            .expect_err("generic factor must retain parse_aux_data validation");
+            assert!(
+                error.to_string().contains("PyDict"),
+                "expected generic daily-data downcast error, got: {error}"
+            );
+        });
+    }
+
+    #[test]
+    fn r88_fast_path_retains_required_context_failure() {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
+            let panel = panel(py).expect("R88 ITR test panel");
+            let specs = r88_itr_payload(py).expect("R88 ITR test spec");
+            let error = compute_factor_frame(py, &panel, &specs, None, None, None, None)
+                .expect_err("R88 ITR must fail closed without its stock context");
+            assert!(
+                error.to_string().contains("requires stock_df"),
+                "expected typed required-context failure, got: {error}"
+            );
+        });
+    }
 }

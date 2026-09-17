@@ -1,6 +1,6 @@
 """Explicit production admission for the frozen 2026-08-05 Rust-50 contract.
 
-Some factor metadata lives outside ``domain.factors.defs.__init__`` so normal
+Some factor metadata lives outside ``domain.factors.operators.__init__`` so normal
 research imports cannot expand the production surface accidentally.  This
 module imports that metadata only after a configuration opts into the one
 ordered Rust-50 profile.  It never creates a second computation route.
@@ -16,14 +16,22 @@ from pathlib import Path
 from typing import Any, Final, Sequence
 
 from cbond_on.common.config_utils import load_json_like, resolve_config_path
-from cbond_on.core.registry import FactorRegistry, RegistryError
+from cbond_on.core.registry import OperatorRegistry, RegistryError
+from cbond_on.domain.factor_catalog import (
+    FactorCatalogValidationError,
+    load_live_release,
+    resolve_factor_instance,
+    resolve_operator_modules,
+)
 from cbond_on.domain.factors.spec import FactorSpec, build_factor_col
 from cbond_on.infra.factors.quality import load_factor_specs_from_cfg
 
 
 LIVE50_RUST50_PROFILE: Final[str] = "live50_rust50_20260806"
 LIVE50_RUST_CONTRACT_PREFIX: Final[str] = "live50_r5/"
+LIVE50_RELEASE_ID: Final[str] = "live50_rust50_operator_source_20260826"
 _PACKAGE_ROOT: Final[Path] = Path(__file__).resolve().parents[2]
+_REPOSITORY_ROOT: Final[Path] = _PACKAGE_ROOT.parent
 _CONTRACT_REGISTRY_PATH: Final[Path] = _PACKAGE_ROOT / "factor_contracts" / "registry.json5"
 _CONTRACT_PROFILE_PATH: Final[Path] = (
     _PACKAGE_ROOT / "factor_contracts" / "profiles" / "live50_rust50_20260806.json5"
@@ -32,7 +40,7 @@ _CONTRACT_PROFILE_PATH: Final[Path] = (
 # This is one immutable ordered feature contract.  It is intentionally not
 # assembled from historical factor batches: the live runtime receives and
 # computes all fifty specs through the same Rust API.
-LIVE50_COLUMNS: Final[tuple[str, ...]] = (
+_LEGACY_LIVE50_COLUMNS: Final[tuple[str, ...]] = (
     "cb_overnight_return_mean_20d",
     "cb_overnight_return_mean_5d",
     "cb_overnight_return_mean_60d",
@@ -85,41 +93,41 @@ LIVE50_COLUMNS: Final[tuple[str, ...]] = (
     "ydpt_yield_fall_return_beta60",
 )
 
-_DEFAULT_FACTOR_METADATA_MODULE: Final[str] = "cbond_on.domain.factors.defs"
-_CATALOG_MODULE: Final[str] = "cbond_on.domain.factors.defs.research_factor_mining_catalog_v1"
+_LEGACY_DEFAULT_FACTOR_METADATA_MODULE: Final[str] = "cbond_on.domain.factors.operators"
+_CATALOG_MODULE: Final[str] = "cbond_on.domain.factors.operators.research_factor_mining_catalog_v1"
 _BOND_STOCK_RETURN_FLOW_MODULE: Final[str] = (
-    "cbond_on.domain.factors.defs.research_factor_mining_daily_bond_stock_return_flow_information_v1"
+    "cbond_on.domain.factors.operators.research_factor_mining_daily_bond_stock_return_flow_information_v1"
 )
 _BOND_STOCK_RANK_MODULE: Final[str] = (
-    "cbond_on.domain.factors.defs.research_factor_mining_daily_bond_stock_cross_sectional_rank_concordance_v1"
+    "cbond_on.domain.factors.operators.research_factor_mining_daily_bond_stock_cross_sectional_rank_concordance_v1"
 )
-_CONTRACT_STOCK_MODULE: Final[str] = "cbond_on.domain.factors.defs.research_factor_mining_daily_contract_stock_v1"
-_DAILY_EXPANSION_MODULE: Final[str] = "cbond_on.domain.factors.defs.research_factor_mining_daily_expansion_v1"
+_CONTRACT_STOCK_MODULE: Final[str] = "cbond_on.domain.factors.operators.research_factor_mining_daily_contract_stock_v1"
+_DAILY_EXPANSION_MODULE: Final[str] = "cbond_on.domain.factors.operators.research_factor_mining_daily_expansion_v1"
 _OHLC_WICK_MODULE: Final[str] = (
-    "cbond_on.domain.factors.defs.research_factor_mining_daily_ohlc_wick_path_asymmetry_v1"
+    "cbond_on.domain.factors.operators.research_factor_mining_daily_ohlc_wick_path_asymmetry_v1"
 )
-_DAILY_INCREMENTAL_MODULE: Final[str] = "cbond_on.domain.factors.defs.research_factor_mining_daily_incremental_v1"
+_DAILY_INCREMENTAL_MODULE: Final[str] = "cbond_on.domain.factors.operators.research_factor_mining_daily_incremental_v1"
 _LIQUIDITY_CHANNEL_MODULE: Final[str] = (
-    "cbond_on.domain.factors.defs.research_factor_mining_daily_liquidity_channel_composition_v1"
+    "cbond_on.domain.factors.operators.research_factor_mining_daily_liquidity_channel_composition_v1"
 )
-_ORDERBOOK_REPRICE_MODULE: Final[str] = "cbond_on.domain.factors.defs.research_factor_mining_orderbook_repricing_v1"
+_ORDERBOOK_REPRICE_MODULE: Final[str] = "cbond_on.domain.factors.operators.research_factor_mining_orderbook_repricing_v1"
 _CAPACITY_RANK_MODULE: Final[str] = (
-    "cbond_on.domain.factors.defs.research_factor_mining_daily_capacity_rank_coupling_v1"
+    "cbond_on.domain.factors.operators.research_factor_mining_daily_capacity_rank_coupling_v1"
 )
-_QUOTE_EXECUTION_MODULE: Final[str] = "cbond_on.domain.factors.defs.research_factor_mining_quote_execution_dynamics_v1"
+_QUOTE_EXECUTION_MODULE: Final[str] = "cbond_on.domain.factors.operators.research_factor_mining_quote_execution_dynamics_v1"
 _RETURN_LIQUIDITY_MODULE: Final[str] = (
-    "cbond_on.domain.factors.defs.research_factor_mining_daily_return_liquidity_topology_v1"
+    "cbond_on.domain.factors.operators.research_factor_mining_daily_return_liquidity_topology_v1"
 )
 _ASYMMETRIC_STATE_MODULE: Final[str] = (
-    "cbond_on.domain.factors.defs.research_factor_mining_daily_asymmetric_state_transitions_v1"
+    "cbond_on.domain.factors.operators.research_factor_mining_daily_asymmetric_state_transitions_v1"
 )
 
 # This is the complete explicitly declared metadata-registration surface for
-# the one ordered live-50 contract.  The standard ``defs`` package is loaded
+# the one ordered live-50 contract.  The standard operator package is loaded
 # internally for every admission, so it is intentionally not repeated in the
 # live config: that keeps already-running scheduler processes compatible while
 # still validating all fifty feature registrations through one Rust route.
-LIVE50_REGISTRATION_MODULES: Final[tuple[str, ...]] = (
+_LEGACY_LIVE50_REGISTRATION_MODULES: Final[tuple[str, ...]] = (
     _CATALOG_MODULE,
     _BOND_STOCK_RETURN_FLOW_MODULE,
     _BOND_STOCK_RANK_MODULE,
@@ -135,10 +143,57 @@ LIVE50_REGISTRATION_MODULES: Final[tuple[str, ...]] = (
     _ASYMMETRIC_STATE_MODULE,
 )
 
-LIVE50_RUNTIME_METADATA_MODULES: Final[tuple[str, ...]] = (
-    _DEFAULT_FACTOR_METADATA_MODULE,
-    *LIVE50_REGISTRATION_MODULES,
+_LEGACY_LIVE50_RUNTIME_METADATA_MODULES: Final[tuple[str, ...]] = (
+    _LEGACY_DEFAULT_FACTOR_METADATA_MODULE,
+    *_LEGACY_LIVE50_REGISTRATION_MODULES,
 )
+
+
+def _catalog_live50_release() -> dict[str, Any]:
+    """Read the one immutable live release without importing implementations."""
+
+    try:
+        release = dict(load_live_release(LIVE50_RELEASE_ID))
+    except FactorCatalogValidationError as exc:
+        raise RuntimeError(
+            "live50 factor catalog release cannot be resolved before admission"
+        ) from exc
+    instances = release.get("instances")
+    if not isinstance(instances, list) or len(instances) != 50:
+        raise RuntimeError("live50 factor catalog release must contain exactly 50 instances")
+    return release
+
+
+_LIVE50_CATALOG_RELEASE: Final[dict[str, Any]] = _catalog_live50_release()
+_LIVE50_CATALOG_INSTANCES: Final[tuple[dict[str, Any], ...]] = tuple(
+    dict(item) for item in _LIVE50_CATALOG_RELEASE["instances"]
+)
+LIVE50_COLUMNS: Final[tuple[str, ...]] = tuple(
+    str(item.get("output_col") or item.get("factor_id") or "").strip()
+    for item in _LIVE50_CATALOG_INSTANCES
+)
+if LIVE50_COLUMNS != _LEGACY_LIVE50_COLUMNS:
+    raise RuntimeError("live50 catalog release column order differs from frozen legacy contract")
+
+try:
+    _LIVE50_CATALOG_OPERATOR_METADATA: Final[tuple[dict[str, Any], ...]] = tuple(
+        dict(item)
+        for item in resolve_operator_modules(
+            (str(item.get("factor_id", "")).strip() for item in _LIVE50_CATALOG_INSTANCES)
+        )
+    )
+except FactorCatalogValidationError as exc:
+    raise RuntimeError("live50 catalog release references unresolved operator metadata") from exc
+
+LIVE50_REGISTRATION_MODULES: Final[tuple[str, ...]] = tuple(
+    str(item.get("implementation_module", "")).strip()
+    for item in _LIVE50_CATALOG_OPERATOR_METADATA
+)
+if len(LIVE50_REGISTRATION_MODULES) != len(set(LIVE50_REGISTRATION_MODULES)) or any(
+    not item for item in LIVE50_REGISTRATION_MODULES
+):
+    raise RuntimeError("live50 catalog release has invalid operator module metadata")
+LIVE50_RUNTIME_METADATA_MODULES: Final[tuple[str, ...]] = LIVE50_REGISTRATION_MODULES
 
 
 @dataclass(frozen=True)
@@ -146,6 +201,7 @@ class Live50FactorAdmission:
     """Evidence that the frozen unified live-50 factor contract was loaded."""
 
     profile: str
+    release_id: str
     modules: tuple[str, ...]
     factor_columns: tuple[str, ...]
     feature_contract: str
@@ -253,35 +309,105 @@ def _validate_unified_live50_specs(specs: Sequence[FactorSpec]) -> None:
         )
 
 
-def _validate_registered_factor_metadata(
-    modules: Sequence[str],
-    specs: Sequence[FactorSpec],
-) -> None:
-    """Load and validate metadata for every feature in the one live-50 pack.
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
 
-    Registry metadata is needed for factor-context planning, but it is never a
-    compute fallback.  Loading the complete fixed module list before checking
-    all fifty specs keeps registration symmetric with the one Rust execution
-    contract and prevents a feature from entering via an implicit import.
+
+def _validate_catalog_release_binding(specs: Sequence[FactorSpec]) -> None:
+    """Prove that the frozen live pack is exactly the Catalog live release.
+
+    The catalog is the identity source; the pre-existing pack/profile remain
+    independent execution gates.  Both must agree before implementation
+    modules are imported or any market data is read.
     """
 
-    runtime_modules = (_DEFAULT_FACTOR_METADATA_MODULE, *modules)
-    if runtime_modules != LIVE50_RUNTIME_METADATA_MODULES:
-        raise RuntimeError("live50 runtime metadata module contract drift")
-    for module_path in runtime_modules:
+    source_artifacts = _LIVE50_CATALOG_RELEASE.get("source_artifacts")
+    if not isinstance(source_artifacts, dict):
+        raise RuntimeError("live50 catalog release is missing source artifact evidence")
+    expected_sources = {
+        "live50_pack": _PACKAGE_ROOT / "config" / "factor" / "packs" / "live_screened_no_winsor_50_20260805.json5",
+        "live50_profile": _CONTRACT_PROFILE_PATH,
+    }
+    for key, path in expected_sources.items():
+        artifact = source_artifacts.get(key)
+        if not isinstance(artifact, dict):
+            raise RuntimeError(f"live50 catalog release is missing {key} evidence")
+        if str(artifact.get("path", "")).replace("\\", "/") != str(
+            path.relative_to(_REPOSITORY_ROOT).as_posix()
+        ):
+            raise RuntimeError(f"live50 catalog release {key} path drift")
+        expected_sha = str(artifact.get("sha256", "")).strip().lower()
+        if len(expected_sha) != 64 or _sha256_file(path) != expected_sha:
+            raise RuntimeError(f"live50 catalog release {key} hash drift")
+
+    if len(specs) != len(_LIVE50_CATALOG_INSTANCES):
+        raise RuntimeError("live50 catalog release/spec count mismatch")
+    for release_item, spec in zip(_LIVE50_CATALOG_INSTANCES, specs):
+        factor_id = str(release_item.get("factor_id", "")).strip()
+        column = build_factor_col(spec)
+        if factor_id != column:
+            raise RuntimeError(
+                f"live50 catalog release order mismatch: expected={factor_id}, actual={column}"
+            )
+        try:
+            identity = resolve_factor_instance(
+                factor_id,
+                factor_version=str(release_item.get("factor_version", "")),
+                contract_hash=str(release_item.get("contract_hash", "")),
+            )
+        except FactorCatalogValidationError as exc:
+            raise RuntimeError(f"live50 catalog identity mismatch for {factor_id}") from exc
+        if str(identity.get("operator_id", "")).strip() != str(spec.factor).strip():
+            raise RuntimeError(f"live50 catalog operator mismatch for {factor_id}")
+        if str(release_item.get("operator_id", "")).strip() != str(spec.factor).strip():
+            raise RuntimeError(f"live50 release operator mismatch for {factor_id}")
+        if dict(release_item.get("runtime_params") or {}) != dict(spec.params or {}):
+            raise RuntimeError(f"live50 release parameter mismatch for {factor_id}")
+        if str(release_item.get("rust_contract_id", "")).strip() != str(
+            spec.rust_contract_id or ""
+        ).strip():
+            raise RuntimeError(f"live50 release Rust contract mismatch for {factor_id}")
+
+
+def _validate_registered_operator_metadata(specs: Sequence[FactorSpec]) -> None:
+    """Load only modules bound by the admitted release and verify operators.
+
+    Importing the full operator package is deliberately absent here: the historical package
+    initializer registered 194 unrelated operators.  The Catalog release
+    supplies the exact 33 implementation modules needed by the 50 instances.
+    """
+
+    expected_module_by_operator = {
+        str(item.get("operator_id", "")).strip(): str(
+            item.get("implementation_module", "")
+        ).strip()
+        for item in _LIVE50_CATALOG_OPERATOR_METADATA
+    }
+    for module_path in LIVE50_REGISTRATION_MODULES:
+        if not module_path.startswith("cbond_on.domain.factors.operators."):
+            raise RuntimeError(f"unsafe live50 operator module: {module_path}")
         import_module(module_path)
     for spec in specs:
-        factor_key = str(spec.factor).strip()
+        operator_id = str(spec.factor).strip()
+        expected_module = expected_module_by_operator.get(operator_id)
+        if not expected_module:
+            raise RuntimeError(
+                f"live50 catalog has no admitted module for operator {operator_id}"
+            )
         try:
-            registered = FactorRegistry.get(factor_key)
+            registered = OperatorRegistry.get(operator_id)
         except RegistryError as exc:
             raise RuntimeError(
-                f"live50 registration did not register factor {factor_key} for {build_factor_col(spec)}"
+                f"live50 operator registration missing {operator_id} for {build_factor_col(spec)}"
             ) from exc
-        if not registered.__module__.startswith(f"{_DEFAULT_FACTOR_METADATA_MODULE}."):
+        if registered.__module__ != expected_module:
             raise RuntimeError(
-                f"live50 factor {factor_key} for {build_factor_col(spec)} registered from "
-                f"unexpected module {registered.__module__}"
+                f"live50 operator {operator_id} for {build_factor_col(spec)} registered from "
+                f"unexpected module {registered.__module__}, expected={expected_module}"
             )
 
 
@@ -436,27 +562,43 @@ def prepare_live50_factor_admission(
             "live_factor_admission.profile must be "
             f"{LIVE50_RUST50_PROFILE!r}"
         )
+    release_id = str(raw_admission.get("release_id", "")).strip()
+    if release_id != LIVE50_RELEASE_ID:
+        raise ValueError(
+            "live_factor_admission.release_id must be "
+            f"{LIVE50_RELEASE_ID!r}"
+        )
     declared_modules = _require_string_list(
         raw_admission.get("modules"), field="live_factor_admission.modules"
     )
-    if set(declared_modules) != set(LIVE50_REGISTRATION_MODULES) or len(declared_modules) != len(
-        LIVE50_REGISTRATION_MODULES
-    ):
-        unknown = sorted(set(declared_modules).difference(LIVE50_REGISTRATION_MODULES))
-        missing = sorted(set(LIVE50_REGISTRATION_MODULES).difference(declared_modules))
+    # The config retains its compact historical declaration of the 13 research
+    # modules.  The full 33-module runtime surface is resolved exclusively
+    # from the immutable Catalog release below.
+    if set(declared_modules) != set(_LEGACY_LIVE50_REGISTRATION_MODULES) or len(
+        declared_modules
+    ) != len(_LEGACY_LIVE50_REGISTRATION_MODULES):
+        unknown = sorted(
+            set(declared_modules).difference(_LEGACY_LIVE50_REGISTRATION_MODULES)
+        )
+        missing = sorted(
+            set(_LEGACY_LIVE50_REGISTRATION_MODULES).difference(declared_modules)
+        )
         raise ValueError(
             "live_factor_admission.modules must be exactly the static live50 registration "
+            "research-module allowlist: "
             f"allowlist: missing={missing}, unknown={unknown}"
         )
 
     _validate_unified_rust_config(factor_cfg, specs=spec_list)
     _validate_unified_live50_specs(spec_list)
+    _validate_catalog_release_binding(spec_list)
     validate_live50_factor_contract_admission(specs=spec_list)
     feature_contract = _validate_model_feature_contract(raw_admission)
-    _validate_registered_factor_metadata(declared_modules, spec_list)
+    _validate_registered_operator_metadata(spec_list)
 
     return Live50FactorAdmission(
         profile=profile,
+        release_id=release_id,
         modules=LIVE50_RUNTIME_METADATA_MODULES,
         factor_columns=LIVE50_COLUMNS,
         feature_contract=feature_contract,
@@ -465,6 +607,7 @@ def prepare_live50_factor_admission(
 
 __all__ = [
     "LIVE50_COLUMNS",
+    "LIVE50_RELEASE_ID",
     "LIVE50_REGISTRATION_MODULES",
     "LIVE50_RUNTIME_METADATA_MODULES",
     "LIVE50_RUST_CONTRACT_PREFIX",

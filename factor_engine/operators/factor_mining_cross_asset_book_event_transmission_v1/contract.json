@@ -1,0 +1,50 @@
+{
+  "contract_hash": "d377205b9104dc41b6044fe89dd552c9f59f2e908cbc2afc15c96235546ce6d5",
+  "definition": {
+    "kind": "runtime_operator_reference",
+    "path": "operators/factor_mining_cross_asset_book_event_transmission_v1/definition.py",
+    "sha256": "2e733aabc0e2436643e78a9b82c9804af69bae54fb16affb95e15b9b3f6b9656"
+  },
+  "factor_instances": [
+    "cabet_local_stress_imbalance_realignment_premium",
+    "cabet_local_stress_inner_depth_recovery_premium",
+    "cabet_local_stress_spread_recovery_premium",
+    "cabet_stock_reprice_bond_inner_depth_recovery",
+    "cabet_stock_reprice_bond_signed_imbalance_realignment",
+    "cabet_stock_reprice_bond_spread_recovery",
+    "cabet_stock_up_down_imbalance_realignment_asymmetry",
+    "cabet_stock_up_down_inner_depth_recovery_asymmetry",
+    "cabet_stock_up_down_spread_recovery_asymmetry"
+  ],
+  "identity": {
+    "operator_class": "FactorMiningCrossAssetBookEventTransmissionV1",
+    "operator_id": "factor_mining_cross_asset_book_event_transmission_v1",
+    "operator_version": "20260803_cross_asset_book_event_transmission_v1"
+  },
+  "implementation": {
+    "language": "python_runtime_operator",
+    "module": "cbond_on.domain.factors.operators.research_factor_mining_cross_asset_book_event_transmission_v1",
+    "path": "cbond_on/domain/factors/operators/research_factor_mining_cross_asset_book_event_transmission_v1.py",
+    "sha256": "715aad78c9f9fbb6d323f82f5245f5837c98240561f5546e690c1fbb880c8c15"
+  },
+  "lifecycle": {
+    "operator_catalog_status": "registered",
+    "runtime_source_status": "migrated_pending_cutover",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "migration": {
+    "behavior_parity_status": "pending_baseline_replay",
+    "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_cross_asset_book_event_transmission_v1.py",
+    "legacy_sha256": "715aad78c9f9fbb6d323f82f5245f5837c98240561f5546e690c1fbb880c8c15",
+    "migration_kind": "namespace_relocation_without_formula_change"
+  },
+  "runtime_contract": {
+    "input_schema_status": "operator_declared_pending_field_audit",
+    "pit_validation_status": "operator_migration_pending_pit_audit",
+    "registration_key": "factor_mining_cross_asset_book_event_transmission_v1",
+    "requires_bond_stock_map": true,
+    "requires_stock_panel": true
+  },
+  "schema_version": "operator_contract/v1",
+  "test_reference": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+}

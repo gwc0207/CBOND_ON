@@ -1,0 +1,87 @@
+{
+  "contract_hash": "e817b29374387fbe5ad76068458419c76bcb2a8eab7aa763552d83a6f91159f2",
+  "definition": {
+    "kind": "runtime_operator_reference",
+    "path": "operators/factor_mining_daily_contract_stock_v1/definition.py",
+    "sha256": "115e7f96f1fb7e5334a064ecfb6b35a508caca49feb956839429d586c87a3852"
+  },
+  "factor_instances": [
+    "barrier_center_position",
+    "barrier_nearest_edge_norm",
+    "barrier_revision_trigger_distance",
+    "barrier_revision_trigger_position",
+    "barrier_side_asymmetry",
+    "barrier_width_to_price",
+    "bstk_beta_shift10_40",
+    "bstk_residual_autocorr20",
+    "bstk_residual_last20",
+    "bstk_residual_vol20",
+    "bstk_tail_cocrash_residual20",
+    "bstk_tracking_drawdown20",
+    "ctr_call_term_change1",
+    "ctr_conv_term_change1",
+    "ctr_put_term_change1",
+    "ctr_term_corevision_rate20",
+    "ctr_term_directional_coherence1",
+    "ctr_term_event_count20",
+    "ctr_term_revision_recency60",
+    "lqr_amount_deal_divergence",
+    "lqr_amount_share_delta1",
+    "lqr_amount_share_persistence20",
+    "lqr_amount_share_z20",
+    "lqr_deal_share_delta1",
+    "lqr_deal_share_z20",
+    "lqr_flow_return_wedge",
+    "rating_change1",
+    "rating_current_ordinal",
+    "rating_downgrade_decay20",
+    "rating_event_recency60",
+    "rating_migration_ytm_wedge",
+    "rating_signed_decay20",
+    "rating_upgrade_decay20",
+    "svfe_abs_return_scale",
+    "svfe_error_autocorr20",
+    "svfe_error_z20",
+    "svfe_implied_change_minus_realized_change",
+    "svfe_level_ratio20",
+    "svfe_realized_short_long_gap",
+    "trw_mode_wedge",
+    "trw_post_revision_activation",
+    "trw_progress_velocity_wedge5",
+    "trw_progress_wedge",
+    "trw_required_days_wedge",
+    "trw_revision_event_rate20",
+    "trw_revision_recency60"
+  ],
+  "identity": {
+    "operator_class": "FactorMiningDailyContractStockV1",
+    "operator_id": "factor_mining_daily_contract_stock_v1",
+    "operator_version": "20260803_daily_contract_stock_v1"
+  },
+  "implementation": {
+    "language": "python_runtime_operator",
+    "module": "cbond_on.domain.factors.operators.research_factor_mining_daily_contract_stock_v1",
+    "path": "cbond_on/domain/factors/operators/research_factor_mining_daily_contract_stock_v1.py",
+    "sha256": "217d94708ac76ccbfb88f8b9725b1dcfbaf165039d42a9a1ccbc5cd53b75c015"
+  },
+  "lifecycle": {
+    "operator_catalog_status": "registered",
+    "runtime_source_status": "migrated_pending_cutover",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "migration": {
+    "behavior_parity_status": "pending_baseline_replay",
+    "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_daily_contract_stock_v1.py",
+    "legacy_sha256": "217d94708ac76ccbfb88f8b9725b1dcfbaf165039d42a9a1ccbc5cd53b75c015",
+    "migration_kind": "namespace_relocation_without_formula_change"
+  },
+  "runtime_contract": {
+    "input_schema_status": "operator_declared_pending_field_audit",
+    "pit_validation_status": "operator_migration_pending_pit_audit",
+    "registration_key": "factor_mining_daily_contract_stock_v1",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "schema_version": "operator_contract/v1",
+  "test_reference": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+}

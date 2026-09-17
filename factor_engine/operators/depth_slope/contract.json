@@ -1,0 +1,40 @@
+{
+  "contract_hash": "9db8cee490209dc0d242e765171f2a904b1351aeb5b33899a6f1a34f7d4dbc1d",
+  "definition": {
+    "kind": "runtime_operator_reference",
+    "path": "operators/depth_slope/definition.py",
+    "sha256": "a4f86c2a910a80b62fb4749390f021cacfe938dc121845617b692f44a2331317"
+  },
+  "factor_instances": [],
+  "identity": {
+    "operator_class": "DepthSlopeFactor",
+    "operator_id": "depth_slope",
+    "operator_version": "legacy-unversioned"
+  },
+  "implementation": {
+    "language": "python_runtime_operator",
+    "module": "cbond_on.domain.factors.operators.depth_slope",
+    "path": "cbond_on/domain/factors/operators/depth_slope.py",
+    "sha256": "42d3b7cdac9bb6e819e18e228fce178841130e7868225d43b197ff08d9c61126"
+  },
+  "lifecycle": {
+    "operator_catalog_status": "registered",
+    "runtime_source_status": "migrated_pending_cutover",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "migration": {
+    "behavior_parity_status": "pending_baseline_replay",
+    "legacy_path": "cbond_on/domain/factors/defs/depth_slope.py",
+    "legacy_sha256": "37e4e79a991e747ccc646766468a4c1a9b71289f6a395fc1c8c301dd11efd661",
+    "migration_kind": "namespace_relocation_without_formula_change"
+  },
+  "runtime_contract": {
+    "input_schema_status": "operator_declared_pending_field_audit",
+    "pit_validation_status": "operator_migration_pending_pit_audit",
+    "registration_key": "depth_slope",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "schema_version": "operator_contract/v1",
+  "test_reference": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+}

@@ -1,0 +1,86 @@
+{
+  "context_requirements": {
+    "daily": [
+      {
+        "columns": [
+          "exchange_code",
+          "close_price"
+        ],
+        "lookback_days": 66,
+        "source": "market_cbond.daily_price"
+      },
+      {
+        "columns": [
+          "exchange_code",
+          "twap_1430_1442",
+          "twap_1442_1457"
+        ],
+        "lookback_days": 66,
+        "source": "market_cbond.daily_twap"
+      }
+    ],
+    "panel_field_schema_status": "operator_declared_pending_factor_minimal_audit",
+    "panel_fields": [],
+    "panel_name": "T1430",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "contract_hash": "05ca77eb96e024b6fe565af2e86d8503bcef1bdd0212be87354bb5bcd2d6dd9e",
+  "definition": {
+    "kind": "parameterized_operator_definition",
+    "path": "factors/final_mark_execution_dislocation/fmed_mark_execution_log_basis/definition.py",
+    "sha256": "acda15242fed39483bc123ee07cdf4b8ae28bf0d7d7983c3c27e77de73c1b695"
+  },
+  "fixed_params": {
+    "family": "final_mark_execution_dislocation",
+    "signal": "fmed_mark_execution_log_basis"
+  },
+  "identity": {
+    "factor_id": "fmed_mark_execution_log_basis",
+    "factor_version": "catalog-20260826-a9c3ac5a8258-30689c9b08cc",
+    "primary_family": "final_mark_execution_dislocation",
+    "tags": []
+  },
+  "lifecycle": {
+    "catalog_status": "registered",
+    "live_admission_status": "not_evaluated_by_catalog_builder",
+    "research_status": "legacy_mapping_discovered",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "operator_bindings": [
+    {
+      "implementation_module": "cbond_on.domain.factors.operators.research_factor_mining_daily_mark_barrier_dynamics_v1",
+      "implementation_path": "cbond_on/domain/factors/operators/research_factor_mining_daily_mark_barrier_dynamics_v1.py",
+      "implementation_sha256": "a9c3ac5a82583aa6bb368a66dfc56d02e0de9b458695f40507677f1709d72123",
+      "language": "python_runtime_operator",
+      "legacy_implementation_path": "cbond_on/domain/factors/defs/research_factor_mining_daily_mark_barrier_dynamics_v1.py",
+      "legacy_implementation_sha256": "a9c3ac5a82583aa6bb368a66dfc56d02e0de9b458695f40507677f1709d72123",
+      "operator_contract_path": "operators/factor_mining_daily_mark_barrier_dynamics_v1/contract.json",
+      "operator_id": "factor_mining_daily_mark_barrier_dynamics_v1",
+      "operator_version": "20260803_daily_mark_barrier_dynamics_v1",
+      "rust_contract_id": null
+    }
+  ],
+  "output": {
+    "column": "fmed_mark_execution_log_basis",
+    "dtype": "float64"
+  },
+  "schema_version": "factor_contract/v2",
+  "source_lineage": {
+    "hypothesis": "The final official daily close can differ from the completed 14:42-14:57 execution TWAP, a state not represented by a TWAP-only curve.",
+    "snapshot_id": "canonical_factor_catalog_20260826_800",
+    "source_position": 2,
+    "source_root": "D:/cbond_on/research_scratch/factor_mining_20260803_aggregate_catalog_v5_full/factor_data",
+    "source_set": "research773"
+  },
+  "test_reference": {
+    "behavioral_parity_status": "pending_baseline_replay",
+    "contract_test": "tests/test_factor_engine_governance.py::test_all_factor_definitions_and_contracts",
+    "operator_test": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+  },
+  "time_contract": {
+    "factor_time": "14:30",
+    "pit_validation_status": "operator_migration_pending_factor_pit_audit",
+    "research_label_time_reference": "14:42"
+  }
+}

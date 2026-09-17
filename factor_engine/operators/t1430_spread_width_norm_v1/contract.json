@@ -1,0 +1,40 @@
+{
+  "contract_hash": "2b681cde6b08cc45b0ea7b3efb8e13426fbd99cd6e217bef44fd23224d9895e8",
+  "definition": {
+    "kind": "runtime_operator_reference",
+    "path": "operators/t1430_spread_width_norm_v1/definition.py",
+    "sha256": "ef5a7e900c462e1ebbeb4646cfece2e9a1b7380d50540468c3ed779021ea0a7b"
+  },
+  "factor_instances": [],
+  "identity": {
+    "operator_class": "T1430SpreadWidthNormV1",
+    "operator_id": "t1430_spread_width_norm_v1",
+    "operator_version": "legacy-unversioned"
+  },
+  "implementation": {
+    "language": "python_runtime_operator",
+    "module": "cbond_on.domain.factors.operators.t1430_spread_width_norm_v1",
+    "path": "cbond_on/domain/factors/operators/t1430_spread_width_norm_v1.py",
+    "sha256": "521bd0b8cc553d9132e2d9b185cdc7f9d4ae7418853d26aeae06ee294336b075"
+  },
+  "lifecycle": {
+    "operator_catalog_status": "registered",
+    "runtime_source_status": "migrated_pending_cutover",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "migration": {
+    "behavior_parity_status": "pending_baseline_replay",
+    "legacy_path": "cbond_on/domain/factors/defs/t1430_spread_width_norm_v1.py",
+    "legacy_sha256": "0b9b955817987151ad24a942db99240a07dbce00bee5386347cdda85346ce60a",
+    "migration_kind": "namespace_relocation_without_formula_change"
+  },
+  "runtime_contract": {
+    "input_schema_status": "operator_declared_pending_field_audit",
+    "pit_validation_status": "operator_migration_pending_pit_audit",
+    "registration_key": "t1430_spread_width_norm_v1",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "schema_version": "operator_contract/v1",
+  "test_reference": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+}

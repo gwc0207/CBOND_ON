@@ -1,0 +1,40 @@
+{
+  "contract_hash": "c1e77ae147f737c43f09585f646ab71741eef291dfbe717b90e62e9d4129ae49",
+  "definition": {
+    "kind": "runtime_operator_reference",
+    "path": "operators/ret_open_to_time/definition.py",
+    "sha256": "d34bbd22e5281f34d9d016ecc1c9c420dd4571173f6adeecdb60182c6b3cb5c1"
+  },
+  "factor_instances": [],
+  "identity": {
+    "operator_class": "ReturnOpenToTimeFactor",
+    "operator_id": "ret_open_to_time",
+    "operator_version": "legacy-unversioned"
+  },
+  "implementation": {
+    "language": "python_runtime_operator",
+    "module": "cbond_on.domain.factors.operators.ret_open_to_time",
+    "path": "cbond_on/domain/factors/operators/ret_open_to_time.py",
+    "sha256": "d86cadd0a0a9768245480381df5e7cd1ec4a6a106028ecfe1fce65184d380b88"
+  },
+  "lifecycle": {
+    "operator_catalog_status": "registered",
+    "runtime_source_status": "migrated_pending_cutover",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "migration": {
+    "behavior_parity_status": "pending_baseline_replay",
+    "legacy_path": "cbond_on/domain/factors/defs/ret_open_to_time.py",
+    "legacy_sha256": "b6a72c7b93a84367180fbc08ed02f86e68c96ff8114a09408b73f60d88d83774",
+    "migration_kind": "namespace_relocation_without_formula_change"
+  },
+  "runtime_contract": {
+    "input_schema_status": "operator_declared_pending_field_audit",
+    "pit_validation_status": "operator_migration_pending_pit_audit",
+    "registration_key": "ret_open_to_time",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "schema_version": "operator_contract/v1",
+  "test_reference": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+}

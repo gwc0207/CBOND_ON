@@ -1,0 +1,94 @@
+{
+  "context_requirements": {
+    "daily": [
+      {
+        "columns": [
+          "exchange_code",
+          "close_price",
+          "prev_close_price",
+          "high_price",
+          "low_price",
+          "amount",
+          "deal"
+        ],
+        "lookback_days": 5,
+        "source": "market_cbond.daily_price"
+      },
+      {
+        "columns": [
+          "exchange_code",
+          "bond_prem_ratio",
+          "duration",
+          "stock_volatility",
+          "turnover_rate",
+          "remain_size"
+        ],
+        "lookback_days": 5,
+        "source": "market_cbond.daily_base"
+      }
+    ],
+    "panel_field_schema_status": "operator_declared_pending_factor_minimal_audit",
+    "panel_fields": [],
+    "panel_name": "T1430",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "contract_hash": "2c1c96f3f83639b53702ed6bac779a3ea0240508fa318d5015a72ec2badbe429",
+  "definition": {
+    "kind": "parameterized_operator_definition",
+    "path": "factors/conditional_liquidity_response_residual/ccr_flow_acceleration_prior_liquidity_residual/definition.py",
+    "sha256": "98b2c1e86ca1a63a5d4bcc78795dfa7b15358ff8c643b4e1f222819f3491ec10"
+  },
+  "fixed_params": {
+    "family": "conditional_liquidity_response_residual",
+    "signal": "ccr_flow_acceleration_prior_liquidity_residual"
+  },
+  "identity": {
+    "factor_id": "ccr_flow_acceleration_prior_liquidity_residual",
+    "factor_version": "catalog-20260826-e34f22ad6e59-cfb69ec8ae1e",
+    "primary_family": "conditional_liquidity_response_residual",
+    "tags": []
+  },
+  "lifecycle": {
+    "catalog_status": "registered",
+    "live_admission_status": "not_evaluated_by_catalog_builder",
+    "research_status": "legacy_mapping_discovered",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "operator_bindings": [
+    {
+      "implementation_module": "cbond_on.domain.factors.operators.research_factor_mining_conditional_response_residual_v1",
+      "implementation_path": "cbond_on/domain/factors/operators/research_factor_mining_conditional_response_residual_v1.py",
+      "implementation_sha256": "e34f22ad6e59c94c78d152d6f9965f804e52dc6045fee1c85a587f8a5fc70a0a",
+      "language": "python_runtime_operator",
+      "legacy_implementation_path": "cbond_on/domain/factors/defs/research_factor_mining_conditional_response_residual_v1.py",
+      "legacy_implementation_sha256": "f5c1ae04c56e1bf408d6df0441f9f8cf1c539b8956c9e8e715489eae5f2bd70e",
+      "operator_contract_path": "operators/factor_mining_conditional_response_residual_v1/contract.json",
+      "operator_id": "factor_mining_conditional_response_residual_v1",
+      "operator_version": "20260803_conditional_response_residual_v1",
+      "rust_contract_id": null
+    }
+  ],
+  "output": {
+    "column": "ccr_flow_acceleration_prior_liquidity_residual",
+    "dtype": "float64"
+  },
+  "schema_version": "factor_contract/v2",
+  "source_lineage": {
+    "hypothesis": "T1430 flow acceleration and price impact after removing the completed T-1 liquidity and float state.",
+    "snapshot_id": "canonical_factor_catalog_20260826_800",
+    "source_position": 2,
+    "source_root": "D:/cbond_on/research_scratch/factor_mining_20260803_aggregate_catalog_v5_full/factor_data",
+    "source_set": "research773"
+  },
+  "test_reference": {
+    "behavioral_parity_status": "pending_baseline_replay",
+    "contract_test": "tests/test_factor_engine_governance.py::test_all_factor_definitions_and_contracts",
+    "operator_test": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+  },
+  "time_contract": {
+    "factor_time": "14:30",
+    "pit_validation_status": "operator_migration_pending_factor_pit_audit",
+    "research_label_time_reference": "14:42"
+  }
+}

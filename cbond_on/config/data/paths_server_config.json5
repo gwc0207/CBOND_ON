@@ -1,4 +1,12 @@
 {
+  // The remote legacy FactorStore has not been migrated or verified against
+  // the local canonical table contract. It is retained only as an explicit
+  // audit profile; normal consumers must use a manifest-bound factor_table.
+  lifecycle: {
+    status: "audit_only",
+    reason: "unmigrated_remote_legacy_factor_store",
+    normal_consumer: false,
+  },
   raw_data_root: "/mnt/cbond_data_hub_ro/raw_data",
   clean_data_root: "/mnt/cbond_data_hub_ro/clean_data",
   cleaned_data_root: "/mnt/cbond_data_hub_ro/clean_data",

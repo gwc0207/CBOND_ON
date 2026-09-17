@@ -1,0 +1,40 @@
+{
+  "contract_hash": "515cd25c7277eb94bc6a807596f1af942b94417861e1739cee4eb0d8b4ad1106",
+  "definition": {
+    "kind": "runtime_operator_reference",
+    "path": "operators/alpha049_close_delay_threshold_v1/definition.py",
+    "sha256": "85c044ce0d8d5020979848e9b7d550d80724887c47a5682f37b0515a33f84e5c"
+  },
+  "factor_instances": [],
+  "identity": {
+    "operator_class": "Alpha049CloseDelayThresholdV1Factor",
+    "operator_id": "alpha049_close_delay_threshold_v1",
+    "operator_version": "legacy-unversioned"
+  },
+  "implementation": {
+    "language": "python_runtime_operator",
+    "module": "cbond_on.domain.factors.operators.alpha049_close_delay_threshold_v1",
+    "path": "cbond_on/domain/factors/operators/alpha049_close_delay_threshold_v1.py",
+    "sha256": "c19348661ab88360cc1f1b80e0dd2e70e2bdf54aaeb6a2ca8ec25cc793fc57f7"
+  },
+  "lifecycle": {
+    "operator_catalog_status": "registered",
+    "runtime_source_status": "migrated_pending_cutover",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "migration": {
+    "behavior_parity_status": "pending_baseline_replay",
+    "legacy_path": "cbond_on/domain/factors/defs/alpha049_close_delay_threshold_v1.py",
+    "legacy_sha256": "50672da6dc2f9fd55d021efdb6ee51a4c08f47daa192641a0f5e3753498d46e4",
+    "migration_kind": "namespace_relocation_without_formula_change"
+  },
+  "runtime_contract": {
+    "input_schema_status": "operator_declared_pending_field_audit",
+    "pit_validation_status": "operator_migration_pending_pit_audit",
+    "registration_key": "alpha049_close_delay_threshold_v1",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "schema_version": "operator_contract/v1",
+  "test_reference": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+}

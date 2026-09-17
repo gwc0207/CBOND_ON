@@ -1,0 +1,50 @@
+{
+  "contract_hash": "a1bde125795ca2c299bea04b1fca7c0bcc41255bd7c53053f1e34f0437fe37ec",
+  "definition": {
+    "kind": "runtime_operator_reference",
+    "path": "operators/factor_mining_daily_interday_topology_v1/definition.py",
+    "sha256": "e4e81509bb3f24eacc0ea16d5a52dd51abee0d71666bc7e9007b65be478a6454"
+  },
+  "factor_instances": [
+    "cft_call_floor_oos_residual40",
+    "cft_put_floor_oos_residual40",
+    "cft_side_topology_residual_z20",
+    "ift_centered_basis_forecast40",
+    "ift_direction_hit_rate40",
+    "ift_transmission_beta40",
+    "scmr_mark_stock_oos_residual40",
+    "scmr_residual_z20",
+    "scmr_stock_beta_shift20_40"
+  ],
+  "identity": {
+    "operator_class": "FactorMiningDailyInterdayTopologyV1",
+    "operator_id": "factor_mining_daily_interday_topology_v1",
+    "operator_version": "20260803_daily_interday_topology_v1"
+  },
+  "implementation": {
+    "language": "python_runtime_operator",
+    "module": "cbond_on.domain.factors.operators.research_factor_mining_daily_interday_topology_v1",
+    "path": "cbond_on/domain/factors/operators/research_factor_mining_daily_interday_topology_v1.py",
+    "sha256": "cfbf2768f28bca7d71536d066ee8b3dc3ddb023e401bff7ccc06acf6f23726ae"
+  },
+  "lifecycle": {
+    "operator_catalog_status": "registered",
+    "runtime_source_status": "migrated_pending_cutover",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "migration": {
+    "behavior_parity_status": "pending_baseline_replay",
+    "legacy_path": "cbond_on/domain/factors/defs/research_factor_mining_daily_interday_topology_v1.py",
+    "legacy_sha256": "cfbf2768f28bca7d71536d066ee8b3dc3ddb023e401bff7ccc06acf6f23726ae",
+    "migration_kind": "namespace_relocation_without_formula_change"
+  },
+  "runtime_contract": {
+    "input_schema_status": "operator_declared_pending_field_audit",
+    "pit_validation_status": "operator_migration_pending_pit_audit",
+    "registration_key": "factor_mining_daily_interday_topology_v1",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "schema_version": "operator_contract/v1",
+  "test_reference": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+}

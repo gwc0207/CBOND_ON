@@ -1,0 +1,89 @@
+{
+  "context_requirements": {
+    "daily": [
+      {
+        "columns": [
+          "exchange_code",
+          "close_price"
+        ],
+        "lookback_days": 5,
+        "source": "market_cbond.daily_price"
+      },
+      {
+        "columns": [
+          "exchange_code",
+          "duration",
+          "rating",
+          "debt_puredebt_ratio",
+          "bond_prem_ratio",
+          "stock_volatility"
+        ],
+        "lookback_days": 5,
+        "source": "market_cbond.daily_base"
+      }
+    ],
+    "panel_field_schema_status": "operator_declared_pending_factor_minimal_audit",
+    "panel_fields": [],
+    "panel_name": "T1430",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "contract_hash": "7f7f78f5fb90ac7657a9ac6150a0553766aad1aaa57c00a76214b13d50df2b98",
+  "definition": {
+    "kind": "parameterized_operator_definition",
+    "path": "factors/duration_gated_quote_revision_calendar/isgm_duration_quote_revision_concentration/definition.py",
+    "sha256": "a7070e0f587a5b5f933c10ed272bc7ffdb6e2b0d7234d68060af52c98e135b5f"
+  },
+  "fixed_params": {
+    "family": "duration_gated_quote_revision_calendar",
+    "signal": "isgm_duration_quote_revision_concentration"
+  },
+  "identity": {
+    "factor_id": "isgm_duration_quote_revision_concentration",
+    "factor_version": "catalog-20260826-3bfbf18c9c0c-90078154fa34",
+    "primary_family": "duration_gated_quote_revision_calendar",
+    "tags": []
+  },
+  "lifecycle": {
+    "catalog_status": "registered",
+    "live_admission_status": "not_evaluated_by_catalog_builder",
+    "research_status": "legacy_mapping_discovered",
+    "rust_status": "not_evaluated_by_catalog_builder"
+  },
+  "operator_bindings": [
+    {
+      "implementation_module": "cbond_on.domain.factors.operators.research_factor_mining_intraday_state_gated_microstructure_v1",
+      "implementation_path": "cbond_on/domain/factors/operators/research_factor_mining_intraday_state_gated_microstructure_v1.py",
+      "implementation_sha256": "3bfbf18c9c0ca52e073259aac040fc2f51f3f903fc94adce3f4a26ef4d17d7b9",
+      "language": "python_runtime_operator",
+      "legacy_implementation_path": "cbond_on/domain/factors/defs/research_factor_mining_intraday_state_gated_microstructure_v1.py",
+      "legacy_implementation_sha256": "3bfbf18c9c0ca52e073259aac040fc2f51f3f903fc94adce3f4a26ef4d17d7b9",
+      "operator_contract_path": "operators/factor_mining_intraday_state_gated_microstructure_v1/contract.json",
+      "operator_id": "factor_mining_intraday_state_gated_microstructure_v1",
+      "operator_version": "20260803_intraday_state_gated_microstructure_v1",
+      "rust_contract_id": null
+    }
+  ],
+  "output": {
+    "column": "isgm_duration_quote_revision_concentration",
+    "dtype": "float64"
+  },
+  "schema_version": "factor_contract/v2",
+  "source_lineage": {
+    "hypothesis": "A smooth T-1 duration gate modulates quote-revision calendar shape, not a return, spread level, or raw flow-state interaction.",
+    "snapshot_id": "canonical_factor_catalog_20260826_800",
+    "source_position": 2,
+    "source_root": "D:/cbond_on/research_scratch/factor_mining_20260803_aggregate_catalog_v5_full/factor_data",
+    "source_set": "research773"
+  },
+  "test_reference": {
+    "behavioral_parity_status": "pending_baseline_replay",
+    "contract_test": "tests/test_factor_engine_governance.py::test_all_factor_definitions_and_contracts",
+    "operator_test": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+  },
+  "time_contract": {
+    "factor_time": "14:30",
+    "pit_validation_status": "operator_migration_pending_factor_pit_audit",
+    "research_label_time_reference": "14:42"
+  }
+}

@@ -30,6 +30,15 @@ from cbond_on.infra.factors.rust_backend import (
     build_factor_frame_rust,
     validate_rust_first_contracts,
 )
+from cbond_on.domain.factors.builder import build_factor_frame
+from cbond_on.infra.factors.research_catalog_permit import (
+    RESEARCH_CATALOG_PYTHON_ENGINE,
+    RESEARCH_CATALOG_PYTHON_POLICY,
+    RESEARCH_SCRATCH_PARENT,
+    ResearchCatalogExecutionPermit,
+    load_permitted_operator_modules,
+    validate_research_catalog_execution_permit,
+)
 from cbond_on.infra.live.factor_store_permit import (
     Live50FactorStoreWritePermit,
     validate_factor_store_write_permit,
@@ -49,6 +58,7 @@ from cbond_on.infra.factors.daily_context import (
     resolve_daily_source_specs,
 )
 from cbond_on.domain.factors.storage import FactorStore
+from cbond_on.infra.factors.canonical_writer import CanonicalFactorTableWriter
 
 _LOG_LOCK = threading.Lock()
 
@@ -59,6 +69,38 @@ _RETIRED_NONUNIFIED_COMPUTE_FIELDS = (
     "preserve_existing_rust_columns",
     "allow_python_engine",
 )
+
+
+def _resolved(path: str | Path) -> Path:
+    return Path(path).expanduser().resolve(strict=False)
+
+
+def _is_strict_child(path: Path, parent: Path) -> bool:
+    try:
+        path.relative_to(parent)
+    except ValueError:
+        return False
+    return path != parent
+
+
+def _validate_ephemeral_factor_store_root(factor_data_root: str | Path) -> Path:
+    """Allow direct parquet staging only inside a fresh research-scratch leaf.
+
+    This is deliberately not a normal factor-result route. It supports the
+    catalog supplement and the explicitly named no-DB verifiers while their
+    temporary frame is awaiting publication into a canonical table. A caller
+    must opt in at the API boundary and the root must end in ``factor_data``
+    strictly below the configured research scratch parent.
+    """
+
+    root = _resolved(factor_data_root)
+    scratch = _resolved(RESEARCH_SCRATCH_PARENT)
+    if not _is_strict_child(root, scratch) or root.name != "factor_data":
+        raise PermissionError(
+            "ephemeral FactorStore output must be a strict research_scratch child ending in 'factor_data': "
+            f"{root.as_posix()}"
+        )
+    return root
 
 
 @dataclass
@@ -110,6 +152,7 @@ def _validate_execution_policy(
     compute_cfg: dict | None,
     specs: Sequence[FactorSpec],
     factor_engine: str,
+    research_catalog_permit: ResearchCatalogExecutionPermit | None = None,
 ) -> str:
     """Resolve the normal factor-runtime policy before any market data is read.
 
@@ -121,6 +164,21 @@ def _validate_execution_policy(
     runtime = dict(compute_cfg or {})
     raw_policy = runtime.get("execution_policy")
     policy = str(raw_policy or "").strip().lower()
+    if factor_engine == RESEARCH_CATALOG_PYTHON_ENGINE:
+        if research_catalog_permit is None:
+            raise PermissionError(
+                "research_python factor execution requires a validated research catalog permit"
+            )
+        if policy != RESEARCH_CATALOG_PYTHON_POLICY:
+            raise ValueError(
+                "research_python factor execution requires "
+                f"compute.execution_policy={RESEARCH_CATALOG_PYTHON_POLICY!r}"
+            )
+        return RESEARCH_CATALOG_PYTHON_POLICY
+    if research_catalog_permit is not None:
+        raise PermissionError(
+            "a research catalog permit may only be used with engine='research_python'"
+        )
     if policy != _RUST_FIRST_POLICY:
         raise ValueError(
             "compute.execution_policy must be 'rust_first'; Python is permitted "
@@ -202,11 +260,14 @@ def _iter_existing_panel_days(
 
 
 def _normalize_panel_source_mode(raw: object) -> str:
-    text = str(raw or "cached_panel").strip().lower()
-    if text in {"", "cache", "cached", "panel", "panel_data", "cached_panel"}:
-        return "cached_panel"
-    if text in {"clean", "clean_data", "clean_direct", "on_demand", "on_demand_clean"}:
+    # Normal factor construction is DataHub-clean-direct by default.  A
+    # persistent PanelStore is an explicit, opt-in compatibility source only;
+    # an omitted setting must never silently make a normal job depend on it.
+    text = str(raw or "clean_direct").strip().lower()
+    if text in {"", "clean", "clean_data", "clean_direct", "on_demand", "on_demand_clean"}:
         return "clean_direct"
+    if text in {"cache", "cached", "panel", "panel_data", "cached_panel"}:
+        return "cached_panel"
     raise ValueError(f"unsupported factor panel_source.mode={raw!r}")
 
 
@@ -227,7 +288,7 @@ def _build_panel_source_runtime(
     cleaned_data_root: Path | None,
 ) -> _PanelSourceRuntime:
     source_cfg = _coerce_panel_source_cfg(panel_source_cfg)
-    mode = _normalize_panel_source_mode(source_cfg.get("mode", "cached_panel"))
+    mode = _normalize_panel_source_mode(source_cfg.get("mode", "clean_direct"))
     if mode == "cached_panel":
         return _PanelSourceRuntime(mode=mode)
 
@@ -535,7 +596,7 @@ def _build_factor_for_day(
     day: date,
     *,
     panel_data_root: Path,
-    store: FactorStore,
+    store: FactorStore | CanonicalFactorTableWriter,
     window_minutes: int,
     panel_name: str | None,
     refresh: bool,
@@ -680,16 +741,27 @@ def _build_factor_for_day(
         day,
         f"compute_start factors={len(to_compute)} factor_workers={factor_workers}",
     )
-    if factor_engine != "rust":  # pragma: no cover - resolver/policy guard this too.
+    if factor_engine == "rust":
+        new_frame = build_factor_frame_rust(
+            panel,
+            to_compute,
+            stock_panel=stock_panel,
+            bond_stock_map=bond_stock_map,
+            daily_data=daily_data,
+            compute_backend_params=compute_backend_params,
+        )
+    elif factor_engine == RESEARCH_CATALOG_PYTHON_ENGINE:
+        new_frame = build_factor_frame(
+            panel,
+            to_compute,
+            stock_panel=stock_panel,
+            bond_stock_map=bond_stock_map,
+            daily_data=daily_data,
+            workers=factor_workers,
+            compute_backend_params=compute_backend_params,
+        )
+    else:  # pragma: no cover - resolver/policy guard this before panel I/O.
         raise RuntimeError(f"unsupported validated factor engine: {factor_engine}")
-    new_frame = build_factor_frame_rust(
-        panel,
-        to_compute,
-        stock_panel=stock_panel,
-        bond_stock_map=bond_stock_map,
-        daily_data=daily_data,
-        compute_backend_params=compute_backend_params,
-    )
     t_compute = perf_counter() - t_compute
     if new_frame.empty:
         _log_day(
@@ -739,16 +811,48 @@ def run_factor_pipeline(
     panel_build_cfg: dict | None = None,
     tail_features_cfg: dict | None = None,
     live50_write_permit: Live50FactorStoreWritePermit | None = None,
+    live50_factor_store_root: str | Path | None = None,
+    research_catalog_execution_permit: ResearchCatalogExecutionPermit | None = None,
+    allow_ephemeral_factor_store: bool = False,
+    factor_store: FactorStore | CanonicalFactorTableWriter | None = None,
     specs: Sequence[FactorSpec],
 ) -> FactorPipelineResult:
     result = FactorPipelineResult()
     panel_data_root = Path(panel_data_root)
+    runtime_compute_cfg = dict(compute_cfg or {})
+    requested_engine = str(
+        runtime_compute_cfg.get("engine", runtime_compute_cfg.get("factor_engine", "rust"))
+    ).strip().lower()
+    research_permit: ResearchCatalogExecutionPermit | None = None
+    if requested_engine == RESEARCH_CATALOG_PYTHON_ENGINE:
+        # This is deliberately before panel/context/store I/O.  A config string
+        # can never unlock the Python path by itself.
+        research_permit = validate_research_catalog_execution_permit(
+            research_catalog_execution_permit,
+            factor_data_root=factor_data_root,
+            specs=specs,
+        )
+    elif research_catalog_execution_permit is not None:
+        raise PermissionError(
+            "research catalog permit supplied for non-research_python factor execution"
+        )
+    ephemeral_root: Path | None = None
+    if factor_store is None and research_permit is None:
+        if not allow_ephemeral_factor_store:
+            raise PermissionError(
+                "run_factor_pipeline requires a designated CanonicalFactorTableWriter; "
+                "direct FactorStore output is permitted only for explicit ephemeral research-scratch staging"
+            )
+        ephemeral_root = _validate_ephemeral_factor_store_root(factor_data_root)
+    if factor_store is not None and allow_ephemeral_factor_store:
+        raise PermissionError("canonical writer and ephemeral FactorStore mode are mutually exclusive")
     # Do this before loading a panel or opening the FactorStore.  The live50
     # root is not a generic experiment destination, even for a Rust-first
     # request: it must be reached through the exact live admission flow.
     validate_factor_store_write_permit(
         factor_data_root,
         permit=live50_write_permit,
+        expected_factor_store_root=live50_factor_store_root,
     )
     raw_data_root_path = Path(raw_data_root) if raw_data_root else None
     cleaned_data_root_path = Path(cleaned_data_root) if cleaned_data_root else None
@@ -762,14 +866,23 @@ def run_factor_pipeline(
         panel_build_cfg=panel_build_cfg,
         cleaned_data_root=cleaned_data_root_path,
     )
-    context = _build_context_config(context_cfg, specs=specs)
-    engine_state = resolve_factor_engine(compute_cfg)
-    runtime_compute_cfg = dict(compute_cfg or {})
+    engine_state = resolve_factor_engine(
+        compute_cfg,
+        allow_research_python=research_permit is not None,
+    )
     execution_policy = _validate_execution_policy(
         compute_cfg=runtime_compute_cfg,
         specs=specs,
         factor_engine=engine_state.active,
+        research_catalog_permit=research_permit,
     )
+    if research_permit is not None:
+        # Catalog resolution stayed metadata-only until this explicit point.
+        # Only permit-bound, provenance-checked legacy operator modules may be
+        # imported for the isolated research calculation.
+        loaded_modules = load_permitted_operator_modules(research_permit)
+        print("research catalog Python operator modules:", ",".join(loaded_modules))
+    context = _build_context_config(context_cfg, specs=specs)
     backend_state = resolve_compute_backend(compute_cfg)
     dataframe_state = resolve_dataframe_backend(compute_cfg)
     compute_backend_params = engine_state.to_params()
@@ -823,7 +936,25 @@ def run_factor_pipeline(
             source: index_daily_table(raw_data_root_path, source_spec.table)
             for source, source_spec in daily_source_specs.items()
         }
-    store = FactorStore(Path(factor_data_root), panel_name=panel_name, window_minutes=window_minutes)
+    if factor_store is None:
+        # Reaching this branch means either a catalog-issued research permit
+        # has bound the exact scratch output root or the caller opted into the
+        # narrow no-DB ephemeral staging capability checked above.
+        if research_permit is None and ephemeral_root is None:  # pragma: no cover - guarded above.
+            raise PermissionError("unapproved direct FactorStore writer")
+        store: FactorStore | CanonicalFactorTableWriter = FactorStore(
+            Path(factor_data_root), panel_name=panel_name, window_minutes=window_minutes
+        )
+    elif isinstance(factor_store, CanonicalFactorTableWriter):
+        # Canonical writers are the only non-legacy writer adapter admitted to
+        # the common pipeline.  Their table/contract validation happens on
+        # each day commit; factor_data_root remains the permit/audit identity.
+        store = factor_store
+    else:
+        raise TypeError(
+            "run_factor_pipeline factor_store injection must be a CanonicalFactorTableWriter; "
+            "research in-memory execution uses its dedicated workflow"
+        )
     panel_days = _iter_panel_days_for_source(
         panel_data_root,
         start,

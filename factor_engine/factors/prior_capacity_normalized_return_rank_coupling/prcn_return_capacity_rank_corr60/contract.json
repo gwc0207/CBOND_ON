@@ -1,0 +1,87 @@
+{
+  "context_requirements": {
+    "daily": [
+      {
+        "columns": [
+          "exchange_code",
+          "prev_close_price",
+          "close_price",
+          "amount"
+        ],
+        "lookback_days": 75,
+        "source": "market_cbond.daily_price"
+      },
+      {
+        "columns": [
+          "exchange_code",
+          "remain_size"
+        ],
+        "lookback_days": 75,
+        "source": "market_cbond.daily_base"
+      }
+    ],
+    "panel_field_schema_status": "operator_declared_pending_factor_minimal_audit",
+    "panel_fields": [],
+    "panel_name": "T1430",
+    "requires_bond_stock_map": false,
+    "requires_stock_panel": false
+  },
+  "contract_hash": "d3d06b8abc026cf6e1566b4e57f74817a58658b53381e2b6c8e0f2d3ec73bd1a",
+  "definition": {
+    "kind": "parameterized_operator_definition",
+    "path": "factors/prior_capacity_normalized_return_rank_coupling/prcn_return_capacity_rank_corr60/definition.py",
+    "sha256": "4afed5a0099f5d8675bf683b35093ae695894017dbcb2710de8a4d9a2d4e5da6"
+  },
+  "fixed_params": {
+    "family": "prior_capacity_normalized_return_rank_coupling",
+    "signal": "prcn_return_capacity_rank_corr60"
+  },
+  "identity": {
+    "factor_id": "prcn_return_capacity_rank_corr60",
+    "factor_version": "catalog-20260826-72b18f4b8c67-b18e4da56e80",
+    "primary_family": "prior_capacity_normalized_return_rank_coupling",
+    "tags": []
+  },
+  "lifecycle": {
+    "catalog_status": "registered",
+    "live_admission_status": "live_released",
+    "research_status": "legacy_mapping_discovered",
+    "rust_status": "live50_rust_capability_required"
+  },
+  "operator_bindings": [
+    {
+      "implementation_module": "cbond_on.domain.factors.operators.research_factor_mining_daily_capacity_rank_coupling_v1",
+      "implementation_path": "cbond_on/domain/factors/operators/research_factor_mining_daily_capacity_rank_coupling_v1.py",
+      "implementation_sha256": "72b18f4b8c677aefe526c248bc97e07ea75d7ba48f49a8ee711baf7eb4439d43",
+      "language": "python_runtime_operator",
+      "legacy_implementation_path": "cbond_on/domain/factors/defs/research_factor_mining_daily_capacity_rank_coupling_v1.py",
+      "legacy_implementation_sha256": "b295375ea1b9f6003f25341f7dda9f4829ccaedc0a9ca79acef78a769ed1d253",
+      "operator_contract_path": "operators/factor_mining_daily_capacity_rank_coupling_v1/contract.json",
+      "operator_id": "factor_mining_daily_capacity_rank_coupling_v1",
+      "operator_version": "20260803_daily_capacity_rank_coupling_v1",
+      "rust_contract_id": "live50_r5/prcn_return_capacity_rank_corr60"
+    }
+  ],
+  "output": {
+    "column": "prcn_return_capacity_rank_corr60",
+    "dtype": "float64"
+  },
+  "schema_version": "factor_contract/v2",
+  "source_lineage": {
+    "hypothesis": "Historical coupling of completed return standing and amount per remaining issue-size standing captures relative capital participation rather than raw amount, float, turnover, or an unnormalized return-flow relation.",
+    "snapshot_id": "canonical_factor_catalog_20260826_800",
+    "source_position": 3,
+    "source_root": "D:/cbond_on/research_scratch/factor_mining_20260804_daily_orthogonal_batch_v8_full_r2/factor_data",
+    "source_set": "research773"
+  },
+  "test_reference": {
+    "behavioral_parity_status": "pending_baseline_replay",
+    "contract_test": "tests/test_factor_engine_governance.py::test_all_factor_definitions_and_contracts",
+    "operator_test": "tests/test_factor_engine_governance.py::test_every_operator_contract_matches_runtime_source"
+  },
+  "time_contract": {
+    "factor_time": "14:30",
+    "pit_validation_status": "operator_migration_pending_factor_pit_audit",
+    "research_label_time_reference": "14:42"
+  }
+}

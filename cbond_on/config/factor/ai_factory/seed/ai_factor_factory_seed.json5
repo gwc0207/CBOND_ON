@@ -7,7 +7,7 @@
   // contract and compiled capability.
   compute: { engine: "rust", execution_policy: "rust_first", backend: "cpu", fallback_cpu: true },
   research_factor_modules: [
-    "cbond_on.domain.factors.defs.ai_factory_wave80_intraday_v1",
+    "cbond_on.domain.factors.operators.ai_factory_wave80_intraday_v1",
   ],
   factors: [
     {name: "t1430_w80_ret_depth_liq_10m_l1_v1", factor: "ai_factory_wave80_intraday_v1", params: {mode: "ret_depth_liq", window_minutes: 10, recent_minutes: 5, level: 1, power: 1.0, scale: 1.0, sign: 1}},
